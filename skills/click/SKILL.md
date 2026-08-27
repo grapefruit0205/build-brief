@@ -1,6 +1,6 @@
 ---
 name: click
-description: When explicitly invoked for software work, compile repository-aware intent into one approval-bound execution contract, explain it plainly, then implement it in one shot with a user-approved verification scale. Never invoke implicitly.
+description: When explicitly invoked for software work, compile repository-aware intent into one approval-bound execution contract, explain it plainly, then implement it in one shot with an automatically enforced verification budget. Never invoke implicitly.
 ---
 
 # Click
@@ -45,7 +45,9 @@ The contract is semantic rather than literal: it fixes the approved result, boun
 
 Choose `quick`, `focused`, or `full` from present risk and repository evidence. Contract approval also approves that scale; do not ask a second verification question.
 
-Run the listed `done_when` checks together once after implementation. Do not revalidate every contract item during implementation. Use `intermediate_gate` only when a later action depends on an irreversible migration, destructive operation, deployment, paid external call, or similarly unrecoverable boundary. Omit it for routine edits, builds, and reversible implementation choices.
+The Hook derives the executable ceiling automatically: `quick` has 1 unit, `focused` 4, and `full` 10. A simple targeted command costs 1 unit, a recognized broad suite costs 3, and a recognized security, coverage, end-to-end, audit, or benchmark command costs 5. These are ceilings, not targets. Select the smallest final batch that proves `done_when`.
+
+Run the listed `done_when` checks together once after implementation. Do not revalidate every contract item during implementation. Routine builds, app runs, and narrow feedback needed to implement may occur, but do not turn them into a shadow final suite. Run recognized broad checks only through the final budgeted batch. Use `intermediate_gate` only when a later action depends on an irreversible migration, destructive operation, deployment, paid external call, or similarly unrecoverable boundary. Omit it for routine edits, builds, and reversible implementation choices.
 
 ## Show both views and ask once
 
@@ -64,7 +66,10 @@ After explicit approval:
 1. Run `click-gate arm` in the approval turn.
 2. Run `click-gate pass '<Execution Contract JSON>'` with the exact staged JSON.
 3. Implement continuously inside the approved semantic boundary.
-4. Run the completion checks as one final batch and report results and material implementation choices.
+4. Submit the smallest sufficient final batch as `click-gate verify '{"commands":["<one shell command per entry>"]}'`. Do not chain checks inside one entry to hide their cost.
+5. Report results and material implementation choices.
+
+The Hook executes the accepted batch and records its real exit code. After success, do not run another verification batch unless a later in-scope mutation makes the result stale; then re-run the same batch. After failure, fix the in-scope cause and retry. One unchanged retry is available for a transient failure, after which a code mutation is required. Do not bypass the budget with a renamed wrapper or a direct broad-suite command.
 
 Do not create a replacement contract or request reapproval for an in-scope technical choice. MCP tools, external services, dependencies, graders, architecture tactics, files, and implementation order may change when necessary to deliver the approved result while preserving its boundary and must-hold conditions. The approved contract remains unchanged because it already grants that implementation freedom.
 

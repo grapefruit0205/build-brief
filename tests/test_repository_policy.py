@@ -19,7 +19,7 @@ class RepositoryPolicyTests(unittest.TestCase):
             (ROOT / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8")
         )
         self.assertEqual(manifest["name"], "click")
-        self.assertEqual(manifest["version"], "0.10.0")
+        self.assertEqual(manifest["version"], "0.11.0")
         self.assertEqual(manifest["license"], "MIT")
         self.assertIn("explicit", manifest["description"].lower())
         self.assertIn("plain-language", manifest["description"].lower())
@@ -27,6 +27,7 @@ class RepositoryPolicyTests(unittest.TestCase):
         self.assertIn("compact", manifest["description"].lower())
         self.assertIn("one shot", manifest["interface"]["longDescription"].lower())
         self.assertIn("verification", manifest["interface"]["longDescription"].lower())
+        self.assertIn("automatically", manifest["interface"]["longDescription"].lower())
         self.assertIn("@Click", manifest["description"])
 
     def test_readmes_use_plugin_mention_as_the_default_invocation(self) -> None:
@@ -36,6 +37,17 @@ class RepositoryPolicyTests(unittest.TestCase):
                 self.assertIn("@Click", readme)
                 self.assertNotRegex(readme, r"(?m)^\$click\s")
                 self.assertNotIn("<br/>$click", readme)
+
+    def test_readmes_document_automatic_budget_and_its_limit(self) -> None:
+        english = (ROOT / "README.md").read_text(encoding="utf-8")
+        korean = (ROOT / "README.ko.md").read_text(encoding="utf-8")
+        for readme in (english, korean):
+            self.assertIn("click-gate verify", readme)
+            self.assertIn("10", readme)
+        self.assertIn("Automatic ceiling", english)
+        self.assertIn("custom wrapper", english)
+        self.assertIn("자동 상한", korean)
+        self.assertIn("사용자 정의 래퍼", korean)
 
     def test_marketplace_exposes_click_from_the_click_catalog(self) -> None:
         marketplace = json.loads(
@@ -58,6 +70,7 @@ class RepositoryPolicyTests(unittest.TestCase):
                 self.assertIn(f"${skill_name}", metadata)
                 self.assertIn("allow_implicit_invocation: false", metadata)
                 self.assertNotIn("[TODO:", skill_text)
+                self.assertIn("click-gate verify", skill_text)
 
     def test_runtime_hook_has_no_external_python_dependency(self) -> None:
         source = (ROOT / "hooks" / "click_gate.py").read_text(encoding="utf-8")

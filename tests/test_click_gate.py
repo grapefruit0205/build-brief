@@ -29,10 +29,12 @@ class ClickGateTests(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
         self.plugin_data = Path(self.temporary.name) / "plugin-data"
+        self.workspace = Path(self.temporary.name) / "workspace"
+        self.workspace.mkdir()
         self.base_event = {
             "session_id": "session-1",
             "turn_id": "turn-1",
-            "cwd": "/workspace/project",
+            "cwd": str(self.workspace),
             "model": "test-model",
             "permission_mode": "default",
         }
@@ -138,6 +140,33 @@ class ClickGateTests(unittest.TestCase):
         )
         self.assertIsNotNone(payload)
         return payload
+
+    def verification_command(self, exit_code: int = 0) -> str:
+        arguments = [sys.executable, "-c", f"raise SystemExit({exit_code})"]
+        return subprocess.list2cmdline(arguments) if os.name == "nt" else shlex.join(arguments)
+
+    def verify_gate(
+        self, commands: list[str], turn_id: str = "turn-2"
+    ) -> dict:
+        batch = {"commands": commands}
+        command = f"click-gate verify {shlex.quote(json.dumps(batch))}"
+        payload = self.pre_tool("Bash", command, turn_id)
+        self.assertIsNotNone(payload)
+        return payload
+
+    def run_rewritten(self, payload: dict) -> subprocess.CompletedProcess[str]:
+        command = payload["hookSpecificOutput"]["updatedInput"]["command"]
+        environment = os.environ.copy()
+        environment["PLUGIN_DATA"] = str(self.plugin_data)
+        return subprocess.run(
+            command,
+            shell=True,
+            cwd=self.workspace,
+            env=environment,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
 
     def test_hook_config_has_no_session_or_prompt_context_injection(self) -> None:
         config = json.loads(HOOK_CONFIG.read_text(encoding="utf-8"))
@@ -347,6 +376,177 @@ class ClickGateTests(unittest.TestCase):
             payload["hookSpecificOutput"]["permissionDecisionReason"],
         )
 
+    def test_quick_budget_accepts_one_command_and_rejects_two(self) -> None:
+        contract = self.contract()
+        contract["verification"]["scale"] = "quick"
+        self.arm_gate("turn-1")
+        self.stage_gate(contract, "turn-1")
+        self.arm_gate("turn-2")
+        self.pass_gate(contract, "turn-2")
+
+        command = self.verification_command()
+        denied = self.verify_gate([command, command])
+        self.assertEqual(
+            denied["hookSpecificOutput"]["permissionDecision"], "deny"
+        )
+        self.assertIn(
+            "allows 1 unit",
+            denied["hookSpecificOutput"]["permissionDecisionReason"],
+        )
+        allowed = self.verify_gate([command])
+        self.assertEqual(
+            allowed["hookSpecificOutput"]["permissionDecision"], "allow"
+        )
+        self.assertIn(
+            "run-verification", allowed["hookSpecificOutput"]["updatedInput"]["command"]
+        )
+
+    def test_broad_and_expensive_checks_consume_more_budget(self) -> None:
+        quick = self.contract()
+        quick["verification"]["scale"] = "quick"
+        self.arm_gate("turn-1")
+        self.stage_gate(quick, "turn-1")
+        self.arm_gate("turn-2")
+        self.pass_gate(quick, "turn-2")
+        broad = self.verify_gate(["python3 -m unittest discover -s tests"])
+        self.assertEqual(
+            broad["hookSpecificOutput"]["permissionDecision"], "deny"
+        )
+        self.assertIn("costs 3", broad["hookSpecificOutput"]["permissionDecisionReason"])
+
+        full = self.contract()
+        full["verification"]["scale"] = "full"
+        self.bypass_gate("turn-2")
+        self.arm_gate("turn-3")
+        self.stage_gate(full, "turn-3")
+        self.arm_gate("turn-4")
+        self.pass_gate(full, "turn-4")
+        expensive = self.verify_gate(
+            ["npx playwright test", "python3 -m unittest discover -s tests"],
+            "turn-4",
+        )
+        self.assertEqual(
+            expensive["hookSpecificOutput"]["permissionDecision"], "allow"
+        )
+
+    def test_verification_batch_rejects_shell_chaining(self) -> None:
+        self.approve_contract()
+        payload = self.verify_gate(["pytest tests/unit && pytest tests/integration"])
+        self.assertEqual(payload["hookSpecificOutput"]["permissionDecision"], "deny")
+        self.assertIn(
+            "without chaining",
+            payload["hookSpecificOutput"]["permissionDecisionReason"],
+        )
+
+    def test_successful_final_batch_is_not_repeated_until_code_changes(self) -> None:
+        contract = self.contract()
+        contract["verification"]["scale"] = "quick"
+        self.arm_gate("turn-1")
+        self.stage_gate(contract, "turn-1")
+        self.arm_gate("turn-2")
+        self.pass_gate(contract, "turn-2")
+        command = self.verification_command()
+
+        first = self.verify_gate([command])
+        completed = self.run_rewritten(first)
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        state_text = "\n".join(
+            path.read_text()
+            for path in (self.plugin_data / "gate-state").glob("*.json")
+        )
+        self.assertNotIn("raise SystemExit", state_text)
+        repeated = self.verify_gate([command])
+        self.assertEqual(
+            repeated["hookSpecificOutput"]["permissionDecision"], "deny"
+        )
+        self.assertIn(
+            "already passed",
+            repeated["hookSpecificOutput"]["permissionDecisionReason"],
+        )
+
+        self.assertIsNone(
+            self.pre_tool("apply_patch", "*** Begin Patch\n*** End Patch", "turn-2")
+        )
+        stale_retry = self.verify_gate([command])
+        self.assertEqual(
+            stale_retry["hookSpecificOutput"]["permissionDecision"], "allow"
+        )
+
+    def test_running_batch_blocks_parallel_mutation_and_verification(self) -> None:
+        contract = self.contract()
+        contract["verification"]["scale"] = "quick"
+        self.arm_gate("turn-1")
+        self.stage_gate(contract, "turn-1")
+        self.arm_gate("turn-2")
+        self.pass_gate(contract, "turn-2")
+        self.verify_gate([self.verification_command()])
+
+        for tool_name, command in (
+            ("apply_patch", "*** Begin Patch\n*** End Patch"),
+            ("Bash", "pytest tests/test_inventory.py"),
+        ):
+            with self.subTest(tool_name=tool_name):
+                payload = self.pre_tool(tool_name, command, "turn-2")
+                self.assertEqual(
+                    payload["hookSpecificOutput"]["permissionDecision"], "deny"
+                )
+                self.assertIn(
+                    "verification batch is running",
+                    payload["hookSpecificOutput"]["permissionDecisionReason"],
+                )
+
+    def test_failed_batch_allows_one_unchanged_retry_then_requires_mutation(self) -> None:
+        contract = self.contract()
+        contract["verification"]["scale"] = "quick"
+        self.arm_gate("turn-1")
+        self.stage_gate(contract, "turn-1")
+        self.arm_gate("turn-2")
+        self.pass_gate(contract, "turn-2")
+        command = self.verification_command(exit_code=1)
+
+        first = self.verify_gate([command])
+        self.assertEqual(self.run_rewritten(first).returncode, 1)
+        transient_retry = self.verify_gate([command])
+        self.assertEqual(self.run_rewritten(transient_retry).returncode, 1)
+        blocked = self.verify_gate([command])
+        self.assertEqual(blocked["hookSpecificOutput"]["permissionDecision"], "deny")
+        self.assertIn(
+            "subsequent code mutation",
+            blocked["hookSpecificOutput"]["permissionDecisionReason"],
+        )
+
+        self.assertIsNone(
+            self.pre_tool("apply_patch", "*** Begin Patch\n*** End Patch", "turn-2")
+        )
+        after_fix = self.verify_gate([command])
+        self.assertEqual(after_fix["hookSpecificOutput"]["permissionDecision"], "allow")
+
+    def test_broad_checks_must_use_the_budgeted_runner_after_approval(self) -> None:
+        self.approve_contract()
+        for command in (
+            "python3 -m unittest discover -s tests",
+            "pytest tests/unit && pytest tests/integration",
+            "pytest tests/unit > verification.txt",
+            "npm test -- --runInBand",
+        ):
+            with self.subTest(command=command):
+                payload = self.pre_tool("Bash", command, "turn-2")
+                self.assertEqual(
+                    payload["hookSpecificOutput"]["permissionDecision"], "deny"
+                )
+                self.assertIn(
+                    "click-gate verify",
+                    payload["hookSpecificOutput"]["permissionDecisionReason"],
+                )
+        self.assertIsNone(
+            self.pre_tool("Bash", "pytest tests/test_inventory.py", "turn-2")
+        )
+
+    def test_uninvoked_verification_remains_fail_open(self) -> None:
+        self.assertIsNone(
+            self.pre_tool("Bash", "python3 -m unittest discover -s tests")
+        )
+
     def test_unknown_contract_field_is_rejected(self) -> None:
         contract = {**self.contract(), "surprise_scope": ["rewrite unrelated API"]}
         command = f"click-gate stage {shlex.quote(json.dumps(contract))}"
@@ -493,6 +693,8 @@ class ClickGateTests(unittest.TestCase):
             for path in (self.plugin_data / "gate-state").glob("*.json")
         )
         self.assertIn("contract_digest", state_text)
+        self.assertIn('"scale":"focused"', state_text)
+        self.assertIn('"unit_limit":4', state_text)
         self.assertNotIn("inventory write path", state_text)
         self.assertNotIn("threshold crossing", state_text)
         self.assertNotIn("existing notification mechanism", state_text)

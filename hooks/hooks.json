@@ -1,5 +1,5 @@
 {
-  "description": "Gate supported local mutations until an explicitly invoked Click execution contract has been staged, explained plainly, approved unchanged, and passed, with user opt-out and optional strict mode.",
+  "description": "Gate supported local mutations until an explicitly invoked Click execution contract has been staged, explained plainly, approved unchanged, and passed; then meter and execute one final verification batch within its automatic budget, with user opt-out and optional strict mode.",
   "hooks": {
     "PreToolUse": [
       {

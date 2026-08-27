@@ -33,7 +33,7 @@ Only when material, add `build.semantics` as a non-empty list for state, failure
 
 Show the authoritative fields top-down: outcome and boundary; must-hold conditions; the compact build approach and any material semantics or order; then verification.
 
-The contract fixes the result, boundary, must-hold conditions, material behavior, and verification commitment. It does not freeze every library, tool, file, or low-level tactic. Necessary in-scope dependencies, MCP tools, external services, graders, and implementation choices are authorized by approval unless the contract explicitly excludes them.
+The contract fixes the result, boundary, must-hold conditions, material behavior, and verification commitment. Its selected scale also activates the Hook's automatic final-batch ceiling; no extra budget field or second approval is added. It does not freeze every library, tool, file, or low-level tactic. Necessary in-scope dependencies, MCP tools, external services, graders, and implementation choices are authorized by approval unless the contract explicitly excludes them.
 
 Do not split the build approach into phases, steps, tasks, or another mirrored plan. The contract exists to approve the result and its boundary, not to make the user review several versions of the same implementation description.
 
