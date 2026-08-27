@@ -2,7 +2,8 @@
 """A small, local mutation-order guard for the Build Brief plugin.
 
 The hook does not judge architecture quality. It only requires a compact,
-structured Design Contract before supported local mutation tools run.
+structured, minimum-sufficient Design Contract before supported local
+mutation tools run.
 """
 
 from __future__ import annotations
@@ -20,7 +21,13 @@ from typing import Any
 
 
 CONTROL_COMMAND = "build-brief-gate"
-REQUIRED_FIELDS = ("boundary", "invariants", "implementation", "proof")
+REQUIRED_FIELDS = (
+    "boundary",
+    "invariants",
+    "implementation",
+    "minimality",
+    "proof",
+)
 MAX_CONTRACT_CHARS = 8_000
 STATE_TTL_SECONDS = 7 * 24 * 60 * 60
 
@@ -186,11 +193,12 @@ def _prune_state() -> None:
 
 def _session_context() -> str:
     return (
-        "Build Brief mutation policy: before the first supported local write in each turn, "
-        "infer a proportional Design Contract from the request and narrow repository evidence, "
-        "then run `build-brief-gate pass '<JSON>'` with non-empty `boundary`, `invariants[]`, "
-        "`implementation[]`, and `proof[]`. One concise item per field is enough for a trivial "
-        "edit. Read-only and non-mutating turns require no command."
+        "Before each turn's first supported local write, Build Brief requires the smallest Design "
+        "Contract that satisfies the request and repository evidence. Run `build-brief-gate pass "
+        "'<JSON>'` with non-empty `boundary`, `invariants[]`, `implementation[]`, `minimality[]`, "
+        "and `proof[]`. In `minimality[]`, name reused structure and justify any new boundary, "
+        "dependency, store, async path, or abstraction. One concise list item suffices for trivial "
+        "edits; read-only or non-mutating turns need no command."
     )
 
 
@@ -418,9 +426,11 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
         return
 
     _deny(
-        "Build Brief blocked this mutation because the proportional Design Contract has not "
+        "Build Brief blocked this mutation because the minimum-sufficient Design Contract has "
+        "not "
         "passed for the current turn. Inspect the relevant repository context, define boundary, "
-        "invariants, implementation slices, and proof, then run `build-brief-gate pass "
+        "invariants, smallest implementation slices, minimality justification, and proof, then "
+        "run `build-brief-gate pass "
         "'<Design Contract JSON>'` before retrying."
     )
 

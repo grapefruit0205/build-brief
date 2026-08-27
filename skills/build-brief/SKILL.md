@@ -1,6 +1,6 @@
 ---
 name: build-brief
-description: Compile non-trivial software build or change requests with consequential behavior left implicit into a proportional Design Contract before edits, then execute or hand off. Skip explanations and trivial fully specified edits.
+description: Compile non-trivial software build or change requests with consequential behavior left implicit into the smallest sufficient Design Contract before edits, then execute or hand off. Skip explanations and trivial fully specified edits.
 ---
 
 # Build Brief
@@ -13,7 +13,7 @@ Keep automatic discovery cheap and correct:
 
 - For an explanation or other request with no implementation, answer directly without manufacturing a directive.
 - For a trivial, fully specified edit, return control to the ordinary workflow. If Build Brief was explicitly invoked or the mutation hook requests a contract, use a compact contract with one concise item per field.
-- For consequential work, form a full but proportional contract. Read [references/translation-guide.md](references/translation-guide.md) only when the change is broad, crosses boundaries, or has non-obvious state, failure, compatibility, or handoff semantics.
+- For consequential work, form the smallest full contract that preserves every required invariant. Read [references/translation-guide.md](references/translation-guide.md) only when the change is broad, crosses boundaries, or has non-obvious state, failure, compatibility, or handoff semantics.
 
 These are context-depth choices, not architecture categories. Do not ask the user to select design vocabulary the request and repository can resolve.
 
@@ -24,6 +24,7 @@ These are context-depth choices, not architecture categories. Do not ask the use
 - Do not translate an existing project as though it were a blank system.
 - Do not turn translation into permission for a rewrite, migration, new service, or wider product.
 - Do not invent scale, latency, organization, deployment, compliance, or compatibility constraints.
+- Do not introduce reusable abstractions or infrastructure for hypothetical future requests.
 
 ## Inspect from a narrow evidence frontier
 
@@ -41,9 +42,24 @@ Complete the Design Contract top-down:
 2. **Invariants:** define the requested observable behavior and what must remain true.
 3. **System semantics:** resolve only the responsibilities, state, flow, timing, ordering, concurrency, consistency, failure, security, compatibility, migration, and operations that materially affect those invariants.
 4. **Implementation:** derive the smallest coherent implementation slices.
-5. **Proof:** define focused tests, checks, or operational evidence that prove the behavior.
+5. **Minimality:** state which existing boundaries and mechanisms are reused; justify every material new design element or state that none is introduced.
+6. **Proof:** define focused tests, checks, or operational evidence that prove the behavior.
 
-The gate passes only when consequential behavior no longer depends on an unstated guess and every design term changes an implementation action, invariant, or verification step. A local edit may need one sentence; a cross-boundary feature may need a fuller contract. Keep the contract internal unless the user requests review or a reusable directive.
+The gate passes only when consequential behavior no longer depends on an unstated guess, every design term changes an implementation action, invariant, or verification step, and no larger design is chosen when a smaller one satisfies the same invariants. A local edit may need one sentence; a cross-boundary feature may need a fuller contract. Keep the contract internal unless the user requests review or a reusable directive.
+
+## Enforce minimum-sufficient design
+
+Treat required behavior and invariants as a hard correctness gate. Among candidates that pass it, choose the one with the smallest justified design delta and the greatest reuse of the current system.
+
+Count a new deployable unit, data store, queue or asynchronous boundary, public contract, framework or dependency, abstraction layer, configuration surface, or operational component as a material design element. It is not automatically wrong, but it earns a place only when all of these are true:
+
+- a current requirement, repository fact, or material failure mode requires it;
+- the existing structure cannot preserve the invariant with a smaller change;
+- the failure it prevents and the proof that will verify it are concrete.
+
+Hypothetical scale, imagined reuse, possible future teams, fashionable patterns, and vocabulary alone are not evidence. Do not remove necessary concurrency, safety, compatibility, or failure handling merely to make the design look smaller.
+
+In `minimality`, name the current structure being reused and justify each material addition. If no material element is added, say so concisely. Reject a larger candidate whenever a smaller candidate passes the same correctness gate.
 
 ## Pass the mutation gate
 
@@ -54,6 +70,7 @@ When the installed plugin hook supplies a `build-brief-gate pass` command, run t
 - `boundary`: a non-empty string;
 - `invariants`: a non-empty list of observable requirements;
 - `implementation`: a non-empty list of coherent implementation slices;
+- `minimality`: a non-empty list naming reused structure and justifying each material new design element, or stating that none is introduced;
 - `proof`: a non-empty list of completion evidence.
 
 Keep the payload proportional and do not use the command as a substitute for design. The hook records only a digest in plugin data outside the repository. If the hook command is unavailable, follow the same instruction-level gate without inventing a command or repository marker.
@@ -67,7 +84,7 @@ Match the user's requested outcome:
 - **Build or change:** pass the Design Contract and mutation gates, implement, verify the invariants, and report the outcome. Do not stop after translation or require approval for reversible details resolved by repository evidence.
 - **Review first:** read [references/directive-format.md](references/directive-format.md), expose the contract in top-down order, and wait for approval before implementation.
 - **Plan, handoff, or directive only:** read [references/directive-format.md](references/directive-format.md), expose a concise reusable directive, and do not implement it.
-- **Compare implementations:** compile serious alternatives into concrete consequences and compare those consequences rather than their labels.
+- **Compare implementations:** discard candidates that miss required invariants, then prefer the smallest justified design delta among the candidates that pass. Compare concrete consequences rather than labels.
 
 Explicit `$build-brief` invocation always activates the skill and follows the requested mode. Without explicit invocation, allow discovery only for non-trivial software work whose consequential engineering behavior remains implicit.
 

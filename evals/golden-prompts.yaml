@@ -1,4 +1,4 @@
-version: 4
+version: 5
 skill: build-brief
 evaluation_conditions:
   - no-plugin
@@ -7,8 +7,11 @@ evaluation_conditions:
 evaluation_dimensions:
   - activation_correctness
   - mutation_before_gate
+  - requirement_correctness
   - missed_invariants
   - unnecessary_architecture
+  - unjustified_design_elements
+  - design_delta
   - clarification_turns
   - time_to_first_edit
   - token_usage
@@ -16,12 +19,39 @@ evaluation_dimensions:
   - gate_retry_count
   - hook_latency_per_tool_call
   - proof_of_completion
+grading_priority:
+  correctness_gate: "The result must satisfy the requested observable behavior and material invariants before minimality is scored"
+  optimization_target: "Among results that pass correctness, prefer the smallest justified design delta and greatest reuse of existing structure"
+  tie_breaker: "Prefer the result with fewer new operational responsibilities and easier focused proof"
+overdesign_rubric:
+  material_design_elements:
+    - deployable_unit
+    - data_store
+    - queue_or_async_boundary
+    - public_contract
+    - framework_or_dependency
+    - abstraction_layer
+    - configuration_surface
+    - operational_component
+  evidence_required_for_each_addition:
+    - current_requirement_or_repository_fact
+    - reason_existing_structure_is_insufficient
+    - material_failure_prevented
+    - focused_proof
+  violations:
+    - "Adds a material design element only for hypothetical scale, reuse, teams, or future features"
+    - "Duplicates an adequate existing mechanism"
+    - "Chooses a larger design when a smaller candidate preserves the same invariants"
+    - "Removes necessary safety or failure behavior to appear simpler"
 global_invariants:
   - "Compiles natural-language intent into an imperative engineering directive rather than selecting labels from a fixed catalog"
   - "Uses any software-design vocabulary the context requires and ties every term to a concrete implementation or verification consequence"
   - "Does not ask the user to provide technical terminology that can be inferred from the request and codebase"
   - "Completes an implementation-ready Design Contract before modifying code, tests, configuration, or schemas"
   - "Keeps the Design Contract proportional instead of freezing the architecture of the entire system"
+  - "Treats required behavior as a hard gate, then selects the smallest justified design delta among passing candidates"
+  - "Reuses existing boundaries and mechanisms unless current evidence proves they cannot preserve an invariant"
+  - "Justifies every material new design element with present need, insufficiency of existing structure, failure prevented, and focused proof"
   - "Executes the compiled directive when implementation was requested instead of stopping after translation"
   - "Starts from the narrowest relevant repository evidence and widens only for unresolved consequential behavior"
   - "Requires a compact or full Design Contract before supported local mutation tools run"
@@ -38,6 +68,11 @@ cases:
       - "Makes the concurrency conflict and state version explicit"
       - "Defines conflict detection, user-visible resolution behavior, and tests"
       - "Uses repository-compatible concurrency language rather than forcing a named architecture"
+    minimality_expectations:
+      reuse: "The existing settings write boundary and repository-supported version mechanism"
+      reject_without_evidence:
+        - "A new collaboration service"
+        - "A message broker or distributed lock service"
 
   - id: large-media-upload
     prompt: "Users upload large videos, but the page should not sit waiting while previews are generated."
@@ -48,6 +83,11 @@ cases:
       - "Separates upload acceptance from media processing"
       - "Expresses lifecycle, progress, retry, duplicate, failure, and completion semantics where relevant"
       - "Translates resource and latency implications into concrete boundaries without merely naming patterns"
+    minimality_expectations:
+      reuse: "The existing upload storage and background-job mechanism when they can satisfy the invariants"
+      reject_without_evidence:
+        - "A dedicated media microservice"
+        - "A new message broker when an adequate job mechanism already exists"
 
   - id: legacy-refund
     prompt: "Add partial refunds to this old checkout code without changing existing full refunds."
@@ -57,6 +97,12 @@ cases:
     directive_semantics:
       - "Reads the actual checkout flow and preserves its vocabulary"
       - "Translates compatibility risk into characterization tests, a safe seam, transactional invariants, and incremental change commands"
+    minimality_expectations:
+      reuse: "The existing checkout and refund boundary"
+      reject_without_evidence:
+        - "A checkout rewrite or service extraction"
+        - "A platform-wide payment abstraction"
+        - "A new event bus"
 
   - id: privacy-erasure
     prompt: "When a customer deletes their account, their personal data should disappear everywhere but finance must keep legally required invoice records. Give me the implementation command."
@@ -66,6 +112,11 @@ cases:
     directive_semantics:
       - "Distinguishes identity erasure from legally retained records"
       - "Expresses data lineage, retention, anonymization, audit, and verification consequences appropriate to the system"
+    minimality_expectations:
+      reuse: "Existing account-deletion and finance retention paths discovered in the system"
+      reject_without_evidence:
+        - "A new global data platform"
+        - "A generic workflow engine"
 
   - id: korean-inventory-alert
     prompt: "재고가 5개 아래로 내려가면 구매 담당자에게 한 번만 알려줘. 짧은 시간에 재고 변경이 여러 번 들어올 수도 있어."
@@ -76,6 +127,11 @@ cases:
       - "Responds in the user's language"
       - "Turns threshold crossing, concurrency, duplicate suppression, and notification failure into concrete commands"
       - "Does not return only terms such as event-driven or idempotent"
+    minimality_expectations:
+      reuse: "The existing inventory write and notification mechanisms"
+      reject_without_evidence:
+        - "A new notification microservice"
+        - "A new event broker when atomic state or an existing job path is sufficient"
 
   - id: cross-boundary-subscription-cancel
     prompt: "When a customer cancels, stop future billing immediately, keep access until the paid period ends, and notify our CRM. Build it."
@@ -86,6 +142,11 @@ cases:
       - "Locates billing, entitlement, and CRM integration boundaries before implementation"
       - "Defines cancellation state, access expiration, duplicate handling, external notification failure, and proof before code changes"
       - "Proceeds automatically after the design gate when repository evidence resolves reversible implementation details"
+    minimality_expectations:
+      reuse: "Existing billing, entitlement, and CRM integration contracts"
+      reject_without_evidence:
+        - "A new orchestration service"
+        - "A broad subscription-domain rewrite"
 
   - id: korean-review-first
     prompt: "회원 탈퇴 기능을 추가해줘. 코딩하기 전에 데이터 보존과 삭제 범위를 포함한 설계 계약을 먼저 보여주고 내 승인을 기다려."
@@ -96,6 +157,11 @@ cases:
       - "Responds in Korean and exposes the Design Contract in top-down order"
       - "Surfaces unresolved consequential retention decisions instead of guessing"
       - "Does not modify code, tests, configuration, or schemas before approval"
+    minimality_expectations:
+      reuse: "Existing identity and retention boundaries once repository evidence is available"
+      reject_without_evidence:
+        - "A new deletion platform"
+        - "Unrequested system-wide architecture changes"
 
   - id: explicit-directive-only
     prompt: "$build-brief 여러 판매 채널의 주문을 하나의 재고에 반영하는 구현 지시문만 작성해줘. 코딩은 하지 마."
@@ -106,21 +172,38 @@ cases:
       - "Honors explicit invocation and directive-only mode"
       - "Defines ownership, ordering, concurrency, duplicate, reconciliation, and verification semantics where material"
       - "Does not implement the directive"
+    minimality_expectations:
+      reuse: "Existing channel adapters and inventory owner when the system provides them"
+      reject_without_evidence:
+        - "A new integration platform"
+        - "A separate service per sales channel"
 
   - id: explicit-color-edit
     prompt: "Change the primary button from green to blue and leave everything else alone."
     expected_activation: false
     expected_mutation_gate: compact-before-mutation
     reason: "This is a trivial explicit edit whose engineering implications are already clear."
+    minimality_expectations:
+      reuse: "The existing button style or token"
+      reject_without_evidence:
+        - "A new component, theme system, dependency, or abstraction"
 
   - id: terminology-question
     prompt: "What is the difference between a monolith and microservices?"
     expected_activation: false
     expected_mutation_gate: none
     reason: "This is an explanation request, not a request to translate intent into an execution directive."
+    minimality_expectations:
+      reuse: "No implementation path because no change was requested"
+      reject_without_evidence:
+        - "Any implementation directive or architecture change"
 
   - id: isolated-typo
     prompt: "Fix the typo in the error message on line 42."
     expected_activation: false
     expected_mutation_gate: compact-before-mutation
     reason: "This is a trivial fully specified correction."
+    minimality_expectations:
+      reuse: "The existing error-message location"
+      reject_without_evidence:
+        - "Any new abstraction, dependency, or architectural boundary"

@@ -1,5 +1,5 @@
 {
-  "description": "Require a proportional Build Brief design contract before supported local mutation tools run.",
+  "description": "Require a minimum-sufficient Build Brief design contract before supported local mutation tools run.",
   "hooks": {
     "SessionStart": [
       {

@@ -1,7 +1,7 @@
 {
   "name": "build-brief",
-  "version": "0.4.2",
-  "description": "Compile plain-language software intent into a proportional design contract and gate supported local edits until it passes.",
+  "version": "0.5.0",
+  "description": "Compile plain-language software intent into the smallest sufficient design contract and gate supported local edits until it passes.",
   "author": {
     "name": "Junseok Pak",
     "url": "https://github.com/grapefruit0205"
@@ -20,8 +20,8 @@
   "skills": "./skills/",
   "interface": {
     "displayName": "Build Brief",
-    "shortDescription": "Translate intent and gate edits behind design.",
-    "longDescription": "Build Brief translates non-trivial software requests and repository context into a proportional Design Contract before implementation. A local mutation guard allows focused inspection first, then gates supported write tools until the contract is recorded. Users can build automatically, review the contract first, or request a handoff-ready directive without coding.",
+    "shortDescription": "Translate intent into minimum-sufficient design.",
+    "longDescription": "Build Brief translates non-trivial software requests and repository context into the smallest Design Contract that satisfies the required behavior. It reuses existing structure unless a present need justifies added complexity, then gates supported write tools until the contract is recorded. Users can build automatically, review the contract first, or request a handoff-ready directive without coding.",
     "developerName": "Junseok Pak",
     "category": "Productivity",
     "capabilities": [
@@ -29,7 +29,7 @@
     ],
     "websiteURL": "https://github.com/grapefruit0205/build-brief",
     "defaultPrompt": [
-      "Compile a proportional design contract, pass the mutation gate, then build this request.",
+      "Compile the smallest sufficient design contract, pass the mutation gate, then build this request.",
       "Show me the design contract first and wait for approval before coding.",
       "Turn this request into a handoff-ready engineering directive without coding."
     ]

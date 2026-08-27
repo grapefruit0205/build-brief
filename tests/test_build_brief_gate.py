@@ -75,6 +75,9 @@ class BuildBriefGateTests(unittest.TestCase):
             "boundary": "inventory write path",
             "invariants": ["one alert per threshold crossing"],
             "implementation": ["record a deduplicated notification intent"],
+            "minimality": [
+                "reuse the inventory write path and existing notification mechanism"
+            ],
             "proof": ["verify concurrent threshold updates notify once"],
         }
         command = f"build-brief-gate pass {shlex.quote(json.dumps(contract))}"
@@ -98,6 +101,8 @@ class BuildBriefGateTests(unittest.TestCase):
         output = payload["hookSpecificOutput"]
         self.assertEqual(output["hookEventName"], "SessionStart")
         self.assertIn("build-brief-gate pass", output["additionalContext"])
+        self.assertIn("`minimality[]`", output["additionalContext"])
+        self.assertIn("name reused structure", output["additionalContext"])
         self.assertLess(len(output["additionalContext"].split()), 80)
         self.assertFalse((self.plugin_data / "gate-state").exists())
 
@@ -132,6 +137,28 @@ class BuildBriefGateTests(unittest.TestCase):
         self.assertEqual(output["permissionDecision"], "deny")
         self.assertIn("invariants", output["permissionDecisionReason"])
 
+    def test_missing_or_empty_minimality_is_denied(self) -> None:
+        self.start_session()
+        base_contract = {
+            "boundary": "existing settings handler",
+            "invariants": ["preserve current save behavior"],
+            "implementation": ["change the existing validation branch"],
+            "proof": ["run the focused settings tests"],
+        }
+        for minimality in (None, [], [""]):
+            with self.subTest(minimality=minimality):
+                contract = dict(base_contract)
+                if minimality is not None:
+                    contract["minimality"] = minimality
+                command = (
+                    "build-brief-gate pass "
+                    f"{shlex.quote(json.dumps(contract))}"
+                )
+                payload = self.pre_tool("Bash", command)
+                output = payload["hookSpecificOutput"]
+                self.assertEqual(output["permissionDecision"], "deny")
+                self.assertIn("minimality", output["permissionDecisionReason"])
+
     def test_valid_contract_is_recorded_and_control_command_is_rewritten(self) -> None:
         self.start_session()
         payload = self.pass_gate()
@@ -150,6 +177,7 @@ class BuildBriefGateTests(unittest.TestCase):
         self.assertIn("contract_digest", state_text)
         self.assertNotIn("inventory write path", state_text)
         self.assertNotIn("threshold crossing", state_text)
+        self.assertNotIn("existing notification mechanism", state_text)
 
     def test_gate_pass_does_not_leak_into_a_new_turn(self) -> None:
         self.start_session()

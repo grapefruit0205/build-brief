@@ -20,6 +20,8 @@ This list is illustrative, not limiting. Start from the situation and derive the
 
 Every term must earn its place by implying at least one concrete action or invariant. If removing a term would not change the implementation or its verification, omit it.
 
+Correctness is the hard gate; minimality ranks only candidates that satisfy it. Reuse the current boundary, runtime, data ownership, dependencies, and operational path unless present evidence shows that doing so cannot preserve a required invariant. A new deployable unit, store, queue or asynchronous boundary, public contract, framework, abstraction, configuration surface, or operational component must identify the current need, why existing structure is insufficient, the failure prevented, and the proof. Hypothetical scale or reuse is not evidence.
+
 ### 4. Emit an imperative directive
 
 Turn the semantics into commands an implementation agent can follow:
@@ -33,7 +35,7 @@ Turn the semantics into commands an implementation agent can follow:
 
 The directive may be used internally for immediate execution or surfaced for a human or another agent.
 
-Before implementation writes begin, make sure these passes form an implementation-ready Design Contract: the owning boundary is known, observable behavior and invariants are explicit, consequential system semantics are resolved, and completion evidence is defined. This is the design gate. Keep it proportional to the change rather than attempting to finish the architecture of the entire system.
+Before implementation writes begin, make sure these passes form an implementation-ready Design Contract: the owning boundary is known, observable behavior and invariants are explicit, consequential system semantics are resolved, the smallest justified design delta is selected, and completion evidence is defined. This is the design gate. Keep it proportional to the change rather than attempting to finish the architecture of the entire system.
 
 ## Translate consequences, not labels
 
@@ -43,7 +45,7 @@ Weak translation:
 
 Strong translation:
 
-> When a post becomes published, persist a single notification intent alongside that state transition. Process it outside the request path, make delivery idempotent per follower and post, retry transient failures without duplicating notifications, and verify publication remains successful when delivery is delayed.
+> At the existing publication boundary, preserve the current write path and use the repository's notification mechanism. Make delivery idempotent per follower and post where duplicate delivery is a real risk, define how notification failure affects publication, and test that behavior. Add no new service or broker unless current reliability requirements and repository evidence show the existing path cannot preserve those invariants.
 
 The strong form may use established design terms when they compress meaning, but it also states what those terms require in this system.
 
@@ -53,6 +55,12 @@ The strong form may use established design terms when they compress meaning, but
 - For a cross-cutting feature, include the affected contracts, state transitions, failure semantics, rollout, and verification.
 - For legacy code, express safe-change commands such as tracing callers, characterizing current behavior, creating a seam, preserving compatibility, and changing incrementally.
 - For a new system, establish only the boundaries and operational qualities required now. Do not fabricate future scale or team structure.
+
+## Reject unjustified design delta
+
+For every candidate, account for material additions. Reject it when any addition lacks current evidence, exists only for possible future reuse or scale, duplicates an adequate existing mechanism, or has no concrete failure and proof attached. If two candidates satisfy the same invariants, prefer the one that adds fewer boundaries, dependencies, stores, contracts, abstractions, and operational responsibilities.
+
+Do not turn this into a raw component-count contest. A necessary transaction boundary, deduplication record, compatibility layer, or failure path remains required when the invariant demands it; omitting it is under-design, not simplicity.
 
 ## Avoid vocabulary theater
 
