@@ -5,3 +5,6 @@ CHECKPOINT.md
 HANDOFF.md
 **/ballast.rules.json
 
+# Local Python validation artifacts.
+__pycache__/
+*.py[cod]

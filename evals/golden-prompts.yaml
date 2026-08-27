@@ -1,5 +1,21 @@
-version: 3
+version: 4
 skill: build-brief
+evaluation_conditions:
+  - no-plugin
+  - skill-only
+  - skill-and-hook
+evaluation_dimensions:
+  - activation_correctness
+  - mutation_before_gate
+  - missed_invariants
+  - unnecessary_architecture
+  - clarification_turns
+  - time_to_first_edit
+  - token_usage
+  - repeated_policy_context
+  - gate_retry_count
+  - hook_latency_per_tool_call
+  - proof_of_completion
 global_invariants:
   - "Compiles natural-language intent into an imperative engineering directive rather than selecting labels from a fixed catalog"
   - "Uses any software-design vocabulary the context requires and ties every term to a concrete implementation or verification consequence"
@@ -7,11 +23,17 @@ global_invariants:
   - "Completes an implementation-ready Design Contract before modifying code, tests, configuration, or schemas"
   - "Keeps the Design Contract proportional instead of freezing the architecture of the entire system"
   - "Executes the compiled directive when implementation was requested instead of stopping after translation"
+  - "Starts from the narrowest relevant repository evidence and widens only for unresolved consequential behavior"
+  - "Requires a compact or full Design Contract before supported local mutation tools run"
+  - "Stores runtime gate state outside the target repository and records no Design Contract plaintext"
+  - "Adds one compact policy at the session lifecycle boundary instead of appending it on every user prompt"
+  - "Loads supporting references only when consequential unresolved behavior requires them"
 cases:
   - id: concurrent-editing
     prompt: "Two people can edit the same project settings at once. Don't let one person's save silently erase the other's changes. Build the fix."
     expected_activation: true
     expected_mode: build
+    expected_mutation_gate: full
     directive_semantics:
       - "Makes the concurrency conflict and state version explicit"
       - "Defines conflict detection, user-visible resolution behavior, and tests"
@@ -21,6 +43,7 @@ cases:
     prompt: "Users upload large videos, but the page should not sit waiting while previews are generated."
     expected_activation: true
     expected_mode: build
+    expected_mutation_gate: full
     directive_semantics:
       - "Separates upload acceptance from media processing"
       - "Expresses lifecycle, progress, retry, duplicate, failure, and completion semantics where relevant"
@@ -30,6 +53,7 @@ cases:
     prompt: "Add partial refunds to this old checkout code without changing existing full refunds."
     expected_activation: true
     expected_mode: build
+    expected_mutation_gate: full
     directive_semantics:
       - "Reads the actual checkout flow and preserves its vocabulary"
       - "Translates compatibility risk into characterization tests, a safe seam, transactional invariants, and incremental change commands"
@@ -38,6 +62,7 @@ cases:
     prompt: "When a customer deletes their account, their personal data should disappear everywhere but finance must keep legally required invoice records. Give me the implementation command."
     expected_activation: true
     expected_mode: command
+    expected_mutation_gate: none
     directive_semantics:
       - "Distinguishes identity erasure from legally retained records"
       - "Expresses data lineage, retention, anonymization, audit, and verification consequences appropriate to the system"
@@ -46,6 +71,7 @@ cases:
     prompt: "재고가 5개 아래로 내려가면 구매 담당자에게 한 번만 알려줘. 짧은 시간에 재고 변경이 여러 번 들어올 수도 있어."
     expected_activation: true
     expected_mode: build
+    expected_mutation_gate: full
     directive_semantics:
       - "Responds in the user's language"
       - "Turns threshold crossing, concurrency, duplicate suppression, and notification failure into concrete commands"
@@ -55,6 +81,7 @@ cases:
     prompt: "When a customer cancels, stop future billing immediately, keep access until the paid period ends, and notify our CRM. Build it."
     expected_activation: true
     expected_mode: build
+    expected_mutation_gate: full
     directive_semantics:
       - "Locates billing, entitlement, and CRM integration boundaries before implementation"
       - "Defines cancellation state, access expiration, duplicate handling, external notification failure, and proof before code changes"
@@ -64,6 +91,7 @@ cases:
     prompt: "회원 탈퇴 기능을 추가해줘. 코딩하기 전에 데이터 보존과 삭제 범위를 포함한 설계 계약을 먼저 보여주고 내 승인을 기다려."
     expected_activation: true
     expected_mode: review
+    expected_mutation_gate: none-before-approval
     directive_semantics:
       - "Responds in Korean and exposes the Design Contract in top-down order"
       - "Surfaces unresolved consequential retention decisions instead of guessing"
@@ -73,6 +101,7 @@ cases:
     prompt: "$build-brief 여러 판매 채널의 주문을 하나의 재고에 반영하는 구현 지시문만 작성해줘. 코딩은 하지 마."
     expected_activation: true
     expected_mode: command
+    expected_mutation_gate: none
     directive_semantics:
       - "Honors explicit invocation and directive-only mode"
       - "Defines ownership, ordering, concurrency, duplicate, reconciliation, and verification semantics where material"
@@ -81,14 +110,17 @@ cases:
   - id: explicit-color-edit
     prompt: "Change the primary button from green to blue and leave everything else alone."
     expected_activation: false
+    expected_mutation_gate: compact-before-mutation
     reason: "This is a trivial explicit edit whose engineering implications are already clear."
 
   - id: terminology-question
     prompt: "What is the difference between a monolith and microservices?"
     expected_activation: false
+    expected_mutation_gate: none
     reason: "This is an explanation request, not a request to translate intent into an execution directive."
 
   - id: isolated-typo
     prompt: "Fix the typo in the error message on line 42."
     expected_activation: false
+    expected_mutation_gate: compact-before-mutation
     reason: "This is a trivial fully specified correction."

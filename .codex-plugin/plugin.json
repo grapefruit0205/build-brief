@@ -1,7 +1,7 @@
 {
   "name": "build-brief",
-  "version": "0.3.0",
-  "description": "Compile plain-language software intent into an implementation-ready design contract before coding.",
+  "version": "0.4.0",
+  "description": "Compile plain-language software intent into a proportional design contract and gate supported local edits until it passes.",
   "author": {
     "name": "Junseok Pak",
     "url": "https://github.com/grapefruit0205"
@@ -19,14 +19,16 @@
   "skills": "./skills/",
   "interface": {
     "displayName": "Build Brief",
-    "shortDescription": "Translate software intent into precise build commands.",
-    "longDescription": "Build Brief automatically recognizes non-trivial software requests, reads the actual codebase, and completes a proportional design contract before implementation. Users can let it build automatically, review the contract first, or request a handoff-ready directive without coding.",
+    "shortDescription": "Translate intent and gate edits behind design.",
+    "longDescription": "Build Brief translates non-trivial software requests and repository context into a proportional Design Contract before implementation. A local mutation guard allows focused inspection first, then gates supported write tools until the contract is recorded. Users can build automatically, review the contract first, or request a handoff-ready directive without coding.",
     "developerName": "Junseok Pak",
     "category": "Productivity",
-    "capabilities": [],
+    "capabilities": [
+      "Lifecycle hooks"
+    ],
     "websiteURL": "https://github.com/grapefruit0205/build-brief",
     "defaultPrompt": [
-      "Compile an implementation-ready design contract for this request, then build it.",
+      "Compile a proportional design contract, pass the mutation gate, then build this request.",
       "Show me the design contract first and wait for approval before coding.",
       "Turn this request into a handoff-ready engineering directive without coding."
     ]

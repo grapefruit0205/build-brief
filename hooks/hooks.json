@@ -1,0 +1,31 @@
+{
+  "description": "Require a proportional Build Brief design contract before supported local mutation tools run.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${PLUGIN_ROOT}/hooks/build_brief_gate.py\" session",
+            "commandWindows": "py -3 \"%PLUGIN_ROOT%\\hooks\\build_brief_gate.py\" session",
+            "timeout": 2,
+            "additionalContextLimit": 200
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "^(Bash|apply_patch|Edit|Write)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${PLUGIN_ROOT}/hooks/build_brief_gate.py\" pre-tool",
+            "commandWindows": "py -3 \"%PLUGIN_ROOT%\\hooks\\build_brief_gate.py\" pre-tool",
+            "timeout": 2
+          }
+        ]
+      }
+    ]
+  }
+}

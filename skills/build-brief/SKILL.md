@@ -1,69 +1,86 @@
 ---
 name: build-brief
-description: Translate non-trivial product- or everyday-language requests to build, change, modernize, automate, or integrate software into context-aware design contracts and engineering directives, then plan or carry out the work. Use when desired behavior leaves consequential boundaries, state, contracts, timing, failure, compatibility, or verification implicit. Do not use automatically for terminology explanations or trivial, fully specified edits.
+description: Compile non-trivial software build or change requests with consequential behavior left implicit into a proportional Design Contract before edits, then execute or hand off. Skip explanations and trivial fully specified edits.
 ---
 
 # Build Brief
 
-Compile the user's natural-language intent into the software-design language this situation actually needs, then issue that translation as an actionable command to the execution phase. This is a semantic translation layer, not a chooser over a fixed catalog of architectures or programming styles.
+Compile the user's natural-language intent and actual repository context into the software-design language this situation needs, then issue it as an actionable implementation command. This is a semantic translation layer, not a chooser over a fixed catalog of architectures or programming styles.
 
-## Preserve meaning and context
+## Route depth before spending context
+
+Keep automatic discovery cheap and correct:
+
+- For an explanation or other request with no implementation, answer directly without manufacturing a directive.
+- For a trivial, fully specified edit, return control to the ordinary workflow. If Build Brief was explicitly invoked or the mutation hook requests a contract, use a compact contract with one concise item per field.
+- For consequential work, form a full but proportional contract. Read [references/translation-guide.md](references/translation-guide.md) only when the change is broad, crosses boundaries, or has non-obvious state, failure, compatibility, or handoff semantics.
+
+These are context-depth choices, not architecture categories. Do not ask the user to select design vocabulary the request and repository can resolve.
+
+## Preserve meaning and authorization
 
 - Treat the requested outcome, scope, product choices, and authorization as authoritative.
-- When a repository is available, inspect its instructions, code paths, boundaries, dependencies, runtime, data model, and tests before translating the request.
-- Incorporate the codebase's existing design language and operational reality. Do not translate an existing project as though it were a blank system.
-- Preserve product meaning while making implicit engineering consequences explicit.
+- Incorporate the codebase's existing boundaries, domain language, runtime, data model, dependencies, failure handling, and tests.
+- Do not translate an existing project as though it were a blank system.
 - Do not turn translation into permission for a rewrite, migration, new service, or wider product.
+- Do not invent scale, latency, organization, deployment, compliance, or compatibility constraints.
 
-If the request is only an explanation or a trivial explicit edit, handle it directly without manufacturing a design directive.
+## Inspect from a narrow evidence frontier
 
-## Compile the design directive
+Before designing an implementation, start at the behavior named by the request: find its owning entry point, immediate state owner, relevant contracts, and focused tests. Widen the search only while a consequential behavior remains unresolved. Do not scan the whole repository, create a complete architecture map, or load supporting references merely because the task is large.
 
-Infer the semantics that matter to the requested behavior. These may include domain concepts, invariants, state transitions, boundaries, contracts, control flow, concurrency, consistency, failure behavior, data lifecycle, security, performance, observability, deployment, migration, and verification—but this is not a closed vocabulary or a checklist to fill.
+Stop inspecting when the owning boundary, observable behavior, material system semantics, implementation slices, and completion evidence are known well enough to act without a consequential guess.
 
-For each inferred design term, translate it into an implementation consequence. A term belongs only if it changes code, configuration, data, operations, or verification. Do not produce labels such as “event-driven” or “functional” without the concrete command they imply here.
+## Compile a proportional Design Contract
 
-Read [references/translation-guide.md](references/translation-guide.md) when the request is broad, crosses system boundaries, has non-obvious failure or state semantics, or needs a handoff-quality directive. For straightforward work, translate directly from the repository and request without loading the guide.
+Make implicit engineering consequences explicit only when they change code, configuration, data, operations, or verification. Useful language may come from domain modeling, state transitions, contracts, concurrency, consistency, failure handling, data lifecycle, security, performance, observability, migration, or another relevant discipline; this vocabulary is open-ended.
 
-Write the internal directive as imperatives addressed to the implementation agent. It should identify where the behavior belongs, what contracts and invariants must hold, how important failures are handled, and what evidence proves completion. Do not ask the user to supply technical vocabulary the skill can infer from context.
+Complete the Design Contract top-down:
 
-## Pass the design gate before implementation
+1. **Boundary:** locate the current component, data owner, or external contract that owns the behavior.
+2. **Invariants:** define the requested observable behavior and what must remain true.
+3. **System semantics:** resolve only the responsibilities, state, flow, timing, ordering, concurrency, consistency, failure, security, compatibility, migration, and operations that materially affect those invariants.
+4. **Implementation:** derive the smallest coherent implementation slices.
+5. **Proof:** define focused tests, checks, or operational evidence that prove the behavior.
 
-For a build or change request, work top-down and complete an implementation-ready **Design Contract** before modifying code, tests, configuration, or schemas. Read-only repository inspection is part of forming the contract and may happen before the gate. Keep the contract internal unless the user requests review or a reusable directive.
+The gate passes only when consequential behavior no longer depends on an unstated guess and every design term changes an implementation action, invariant, or verification step. A local edit may need one sentence; a cross-boundary feature may need a fuller contract. Keep the contract internal unless the user requests review or a reusable directive.
 
-The Design Contract is proportional readiness, not an attempt to freeze the complete system architecture. Establish only what this change needs:
+## Pass the mutation gate
 
-1. Locate the current system boundary and behavior that own the change.
-2. Define the desired observable behavior and invariants.
-3. Resolve responsibilities, state ownership and transitions, contracts, and execution flow.
-4. Resolve material timing, ordering, concurrency, consistency, failure, security, compatibility, migration, and operational semantics.
-5. Derive implementation slices and the evidence that will prove the contract.
+Do not modify code, tests, configuration, schemas, or other local files before the Design Contract passes.
 
-The gate passes only when consequential behavior no longer depends on an unstated guess and every design term changes an implementation action, invariant, or verification step. Omit categories that do not affect the request. A small explicitly invoked task may need only a one-sentence contract.
+When the installed plugin hook supplies a `build-brief-gate pass` command, run that exact virtual command after completing the contract and before the first mutation. Supply a compact JSON object with:
+
+- `boundary`: a non-empty string;
+- `invariants`: a non-empty list of observable requirements;
+- `implementation`: a non-empty list of coherent implementation slices;
+- `proof`: a non-empty list of completion evidence.
+
+Keep the payload proportional and do not use the command as a substitute for design. The hook records only a digest in plugin data outside the repository. If the hook command is unavailable, follow the same instruction-level gate without inventing a command or repository marker.
+
+Read-only repository inspection may happen before the gate. A review-only, plan-only, or directive-only request makes no mutation and therefore does not need to pass the runtime mutation gate.
 
 ## Route the compiled command
 
 Match the user's requested outcome:
 
-- **Automatic build or change:** Pass the design gate internally, implement the contract, verify its invariants, and report the outcome. Do not stop after translation or require approval for reversible details the repository resolves.
-- **Review first:** When the user asks to see or approve the design before coding, read [references/directive-format.md](references/directive-format.md), expose the Design Contract, and wait for approval before implementation.
-- **Plan, hand off, or directive only:** Read [references/directive-format.md](references/directive-format.md) and expose a concise, reusable directive without implementing it.
-- **Compare implementations:** Compile each serious alternative into its concrete consequences and compare those consequences, not just their names.
+- **Build or change:** pass the Design Contract and mutation gates, implement, verify the invariants, and report the outcome. Do not stop after translation or require approval for reversible details resolved by repository evidence.
+- **Review first:** read [references/directive-format.md](references/directive-format.md), expose the contract in top-down order, and wait for approval before implementation.
+- **Plan, handoff, or directive only:** read [references/directive-format.md](references/directive-format.md), expose a concise reusable directive, and do not implement it.
+- **Compare implementations:** compile serious alternatives into concrete consequences and compare those consequences rather than their labels.
 
-Explicit `$build-brief` invocation always activates the skill and follows the requested mode. Without explicit invocation, allow automatic discovery only for non-trivial work with implicit engineering consequences.
+Explicit `$build-brief` invocation always activates the skill and follows the requested mode. Without explicit invocation, allow discovery only for non-trivial software work whose consequential engineering behavior remains implicit.
 
 ## Resolve ambiguity proportionally
 
-- Ask the smallest set of questions only when an answer would materially change cost, public behavior, data safety, security, or a difficult-to-reverse decision.
-- If such a decision remains unresolved, do not pass the design gate or begin implementation until the user decides it.
-- Otherwise encode a conservative, reversible assumption into the directive and disclose it only when consequential.
-- Do not invent scale, latency, organization, deployment, compliance, or compatibility constraints.
+- Ask the smallest question only when its answer materially changes public behavior, cost, data safety, security, or a difficult-to-reverse decision.
+- If such a decision remains unresolved, do not pass the gate or begin implementation.
+- Otherwise use a conservative, reversible assumption and disclose it only when consequential.
 - Do not present a vocabulary menu when a coherent directive can be inferred.
 
 ## Communicate plainly
 
 - Use the user's language and level of technical detail.
-- Keep the user's prompt natural; technical fluency is the translator's responsibility.
-- Lead with the outcome. Expose design terminology only when the user asks for the translation or when a term materially clarifies the result.
+- Lead with the outcome and expose design terminology only when requested or materially clarifying.
 - Prefer executable verbs and concrete invariants over architecture slogans.
-- Define completion through observable behavior and verification, not through the presence of sophisticated vocabulary.
+- Define completion through observable behavior and evidence, not sophisticated vocabulary.
