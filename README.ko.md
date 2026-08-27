@@ -48,18 +48,16 @@ v0.8.0에서 확인된 내용:
 
 ## 동작 방식
 
-```text
-자연어 요청
-  → Build Brief를 명시적으로 선택하거나 $build-brief 호출
-  → 선택한 작업만 arm하고 나머지 작업은 fail-open 유지
-  → 가장 좁은 관련 저장소 맥락 확인
-  → 완전한 개발자용 실행 계약 작성
-  → 같은 계약을 쉬운 자연어로 번역
-  → 저장소 밖에 정확한 계약 digest를 stage
-  → 파일을 수정하지 않고 두 표현을 보여준 뒤 승인 요청
-  → 승인 후 stage한 계약과 동일한 계약만 pass
-  → 승인된 계약만 구현하고 검증
-  → 중요한 변경은 수정 계약을 다시 승인받은 뒤 진행
+```mermaid
+flowchart TD
+    A["자연어 요청<br/>Build Brief를 명시 호출"] --> B["가장 좁은 관련 저장소<br/>맥락 확인"]
+    B --> C["개발자용 실행 계약<br/>범위 · 불변 조건 · 구현 · 검증"]
+    C --> D["의미가 같은 쉬운 설명"]
+    D --> E["계약 digest를 대상 저장소 밖에 stage"]
+    E --> F{"이 계약을 승인할까요?"}
+    F -->|승인| G["승인된 계약만<br/>구현하고 검증"]
+    F -->|수정| C
+    H["승인 전에는<br/>프로젝트 파일을 변경하지 않음"] -.-> F
 ```
 
 Build Brief를 명시적으로 선택한 뒤에는 표현이 달라도 같은 흐름을 사용합니다. `설계해줘`, `구현해줘`, `해줘`, “design it”, “build it”, “implement it”, “do it”과 다른 언어의 같은 의도는 모두 완전한 실행 계약을 만듭니다. Build Brief에 관한 질문은 실행 호출이 아니며, 작업이 크거나 아키텍처와 관련 있다는 이유만으로 자동 활성화하지 않습니다.
@@ -211,6 +209,8 @@ python3 -m unittest discover -s tests -v
 | [Spec-Driven Development Plugin](https://github.com/Habib0x0/spec-driven-plugin) | Claude Code와 Codex에 요구사항·설계·작업 흐름 제공 | 개발자 계약 하나와 의미가 같은 비개발자용 쉬운 설명을 하나의 승인 대상으로 묶음 |
 | [AI SDLC Skills](https://github.com/kevinlin/skills) | spec-driven 단계와 구현 전 사람의 승인 Gate 사용 | 단계마다 승인받는 대신 전체 실행 의미를 Top-down으로 한 번 승인 |
 | [Spec-Driven Planning](https://github.com/johnnykor82/spec-driven-planning) | 장시간 Codex 작업에 계획 Gate·범위 변경 절차·검증 추가 | 승인된 명세를 전제로 하지 않고 자연어와 저장소 맥락에서 승인 대상을 먼저 생성 |
+| [Agentic SDLC Codex Plugin](https://github.com/aantenore/agentic-sdlc-codex-plugin) | 해시로 묶인 제안서, 명시 승인, 감사 가능한 실행을 사용 | 맥락 승인과 제안 승인으로 나뉜 더 넓은 SDLC 거버넌스 흐름과 달리, 작고 명시적인 구현 전 계약 흐름에 집중 |
+| [Controlled Execution System](https://pypi.org/project/controlled-execution-system/) | 의도를 Codex·Claude Code용 범위 제한 manifest로 만들고 근거·검토·승인을 연결 | 자체 프로젝트 상태를 쓰는 로컬 거버넌스 래퍼와 달리, 설치 가능한 Codex 플러그인으로서 구현 전에 계약 승인을 요청 |
 
 이 표는 제한된 범위의 포지셔닝 비교이며 신규성에 대한 전수 조사가 아닙니다. Build Brief의 가설은 지속적인 명세 시스템보다 절차는 적지만 평범한 프롬프트보다 강한 승인 경계를 원하는 사용자가 있다는 것입니다. 개발자 언어를 먼저 만들고, 의미가 같은 쉬운 설명을 보여주고, 승인받은 범위만 실행합니다.
 

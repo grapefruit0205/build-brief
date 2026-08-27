@@ -48,18 +48,16 @@ The included golden cases and A/B harness are evaluation infrastructure, not pro
 
 ## How it works
 
-```text
-natural-language request
-  → explicitly select Build Brief or invoke $build-brief
-  → arm only this work; unselected work remains fail-open
-  → inspect the narrowest relevant repository context
-  → create the complete developer execution contract
-  → derive a faithful plain-language explanation
-  → stage the exact contract digest outside the repository
-  → show both views and ask for approval without editing
-  → after approval, pass only the identical staged contract
-  → implement and verify only the approved contract
-  → revise and reapprove before any material scope change
+```mermaid
+flowchart TD
+    A["Natural-language request<br/>Explicitly invoke Build Brief"] --> B["Inspect the narrowest relevant<br/>repository context"]
+    B --> C["Developer execution contract<br/>scope · invariants · implementation · proof"]
+    C --> D["Faithful plain-language explanation"]
+    D --> E["Stage the contract digest<br/>outside the target repository"]
+    E --> F{"Approve the contract?"}
+    F -->|Approve| G["Implement and verify<br/>only the approved contract"]
+    F -->|Revise| C
+    H["No project files change<br/>before approval"] -.-> F
 ```
 
 Once Build Brief is explicitly selected, wording does not change the workflow. “Design it,” “build it,” “implement it,” “do it,” `설계해줘`, `구현해줘`, and equivalent expressions in other languages all produce the same complete contract. A question about Build Brief is not an invocation, and Build Brief never activates merely because a task is large or architectural.
@@ -211,6 +209,8 @@ Yes, adjacent and overlapping tools already exist. Build Brief is not presented 
 | [Spec-Driven Development Plugin](https://github.com/Habib0x0/spec-driven-plugin) | Provides requirements, design, and task workflows for Claude Code and Codex | A single developer contract paired with a faithful non-technical explanation and one approval target |
 | [AI SDLC Skills](https://github.com/kevinlin/skills) | Uses spec-driven stages and human approval gates before implementation | One top-down approval of the complete execution meaning rather than an approval gate between every stage |
 | [Spec-Driven Planning](https://github.com/johnnykor82/spec-driven-planning) | Adds a planning gate, scope-change protocol, and verification for long-running Codex work | Creates the approval target from natural language and repository context; it does not assume an approved specification already exists |
+| [Agentic SDLC Codex Plugin](https://github.com/aantenore/agentic-sdlc-codex-plugin) | Uses hash-bound proposals, explicit approvals, and auditable execution | A broader SDLC governance workflow with separate context and proposal checkpoints; Build Brief stays a small, explicit pre-code contract flow |
+| [Controlled Execution System](https://pypi.org/project/controlled-execution-system/) | Turns intent into a bounded manifest for Codex or Claude Code, then collects evidence, review, and approval | A local governance wrapper with its own project state; Build Brief is an installable Codex plugin that asks for contract approval before implementation |
 
 This is a bounded positioning comparison, not an exhaustive novelty search. Build Brief's hypothesis is that some users want less ceremony than a persistent specification system but a stronger approval boundary than an ordinary prompt: developer language first, an equivalent easy explanation second, then approval and scope-locked execution.
 
