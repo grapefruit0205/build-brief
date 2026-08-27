@@ -1,6 +1,6 @@
 {
   "name": "build-brief",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Compile plain-language software intent into a proportional design contract and gate supported local edits until it passes.",
   "author": {
     "name": "Junseok Pak",

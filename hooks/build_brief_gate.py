@@ -11,6 +11,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import shlex
 import sys
 import tempfile
@@ -47,6 +48,7 @@ READ_ONLY_COMMANDS = {
     "resolve-path",
     "rg",
     "select-string",
+    "sed",
     "sort",
     "stat",
     "tail",
@@ -78,6 +80,9 @@ READ_ONLY_GIT_SUBCOMMANDS = {
 }
 
 SHELL_CONTROL_PUNCTUATION = set("();<>|&")
+SED_READ_SCRIPT = re.compile(
+    r"^\s*(?:\d+|\$)(?:\s*,\s*(?:\d+|\$))?\s*[pq]\s*$"
+)
 
 
 def _emit(payload: dict[str, Any]) -> None:
@@ -245,9 +250,9 @@ def _git_subcommand(tokens: list[str]) -> str:
     return ""
 
 
-def _has_shell_control(command: str) -> bool:
+def _shell_segments(command: str) -> list[list[str]] | None:
     if "\n" in command or "\r" in command or "`" in command:
-        return True
+        return None
     try:
         lexer = shlex.shlex(
             command,
@@ -258,18 +263,53 @@ def _has_shell_control(command: str) -> bool:
         lexer.commenters = ""
         tokens = list(lexer)
     except ValueError:
-        return True
-    return any(
-        token and set(token).issubset(SHELL_CONTROL_PUNCTUATION) for token in tokens
-    )
+        return None
+
+    segments: list[list[str]] = [[]]
+    for token in tokens:
+        if token == "&&":
+            if not segments[-1]:
+                return None
+            segments.append([])
+            continue
+        if token and set(token).issubset(SHELL_CONTROL_PUNCTUATION):
+            return None
+        segments[-1].append(token)
+    if not segments[-1]:
+        return None
+    return segments
 
 
-def _is_read_only_bash(command: str) -> bool:
-    if not command.strip() or _has_shell_control(command):
+def _is_read_only_sed(tokens: list[str]) -> bool:
+    index = 1
+    quiet = False
+    script = ""
+    while index < len(tokens) and not script:
+        token = tokens[index]
+        if token in {"-n", "--quiet", "--silent"}:
+            quiet = True
+        elif token in {"-e", "--expression"}:
+            index += 1
+            if index >= len(tokens):
+                return False
+            script = tokens[index]
+        elif token.startswith("-e") and len(token) > 2:
+            script = token[2:]
+        elif token.startswith("-"):
+            return False
+        else:
+            script = token
+        index += 1
+
+    if not quiet or not script or not SED_READ_SCRIPT.fullmatch(script):
         return False
-    try:
-        tokens = shlex.split(command, posix=True)
-    except ValueError:
+    if index < len(tokens) and tokens[index] == "--":
+        index += 1
+    return index < len(tokens) and all(not token.startswith("-") for token in tokens[index:])
+
+
+def _is_read_only_tokens(tokens: list[str]) -> bool:
+    if not tokens:
         return False
     while tokens and "=" in tokens[0] and not tokens[0].startswith(("=", "-")):
         name, _, _ = tokens[0].partition("=")
@@ -291,6 +331,8 @@ def _is_read_only_bash(command: str) -> bool:
         )
     if executable not in READ_ONLY_COMMANDS:
         return False
+    if executable == "sed":
+        return _is_read_only_sed(tokens)
     if executable == "file" and any(
         token in {"-C", "--compile"} for token in tokens[1:]
     ):
@@ -325,6 +367,13 @@ def _is_read_only_bash(command: str) -> bool:
     ):
         return False
     return True
+
+
+def _is_read_only_bash(command: str) -> bool:
+    if not command.strip():
+        return False
+    segments = _shell_segments(command)
+    return segments is not None and all(_is_read_only_tokens(segment) for segment in segments)
 
 
 def _handle_session() -> None:

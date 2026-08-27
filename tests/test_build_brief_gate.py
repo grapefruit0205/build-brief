@@ -107,6 +107,10 @@ class BuildBriefGateTests(unittest.TestCase):
         self.assertIsNone(self.pre_tool("Bash", "git status --short"))
         self.assertIsNone(self.pre_tool("Bash", "Get-ChildItem -Force"))
         self.assertIsNone(self.pre_tool("Bash", "Get-Content README.md"))
+        self.assertIsNone(self.pre_tool("Bash", "sed -n '1,240p' README.md"))
+        self.assertIsNone(
+            self.pre_tool("Bash", "sed -n '1,20p' README.md && git status --short")
+        )
 
     def test_apply_patch_is_denied_before_gate(self) -> None:
         self.start_session()
@@ -173,6 +177,8 @@ class BuildBriefGateTests(unittest.TestCase):
         self.start_session()
         for command in (
             "sed -i s/old/new/ src/app.py",
+            "sed -n '1,20w captured.txt' src/app.py",
+            "sed -n '1e touch captured.txt' src/app.py",
             "find . -fprint output.txt",
             "find . -fprint0 output.txt",
             "sort input.txt --output=result.txt",
