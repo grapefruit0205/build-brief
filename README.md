@@ -5,15 +5,15 @@ English | [한국어](README.ko.md)
 [![CI](https://github.com/grapefruit0205/click/actions/workflows/ci.yml/badge.svg)](https://github.com/grapefruit0205/click/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-**Say what you want. Review one contract. Approve once. Click implements inside it.**
+**Contract-first, build-fast. Approve the minimum sufficient contract once; Click implements inside it to a working result.**
 
-Click is an explicitly invoked Codex plugin. It reads a natural-language software request and the relevant repository, translates them into a complete developer execution contract, explains the same meaning plainly, recommends how much final verification is appropriate, and asks for one approval before coding.
+Click is an explicitly selected Codex plugin. Mention `@Click` with a natural-language software request. It reads the relevant repository, translates the request into a complete developer execution contract, explains the same meaning plainly, recommends how much final verification is appropriate, and asks for one approval before coding.
 
 It is not an architecture-pattern picker. You do not have to choose “modular monolith,” “microservices,” “event-driven,” “batch,” or “functional.” Click derives the engineering language the real behavior and codebase require.
 
 ## The short version
 
-1. Invoke `$click` and describe the result you want.
+1. Mention `@Click` and describe the result you want.
 2. Click inspects the smallest relevant part of the repository.
 3. It shows one developer contract, one easy explanation, and a recommended verification scale.
 4. You approve once.
@@ -21,7 +21,7 @@ It is not an architecture-pattern picker. You do not have to choose “modular m
 
 ```mermaid
 flowchart LR
-    A["Natural-language request<br/>$click"] --> B["Repository-aware<br/>execution contract"]
+    A["Natural-language request<br/>@Click"] --> B["Repository-aware<br/>execution contract"]
     B --> C["Easy explanation<br/>+ verification scale"]
     C --> D{"Approve once?"}
     D -->|Yes| E["One-shot implementation<br/>inside the contract"]
@@ -60,25 +60,23 @@ Contract fields such as `invariants`, `implementation`, `steps`, and `proof` are
 
 The selected checks run together once after implementation. An intermediate gate is reserved for an irreversible migration, deletion, deployment, paid API call, or similar point where continuing would make recovery materially harder.
 
-## Two explicit Skills
+## One user-facing invocation
 
-### `$click` — design and build
+Use `@Click` for design, implementation, and repair requests.
 
 ```text
-$click Add partial refunds to this legacy checkout without changing existing full refunds.
+@Click Add partial refunds to this legacy checkout without changing existing full refunds.
 ```
 
 Click produces the complete top-down contract, an easy explanation, and a verification recommendation, then waits for one approval.
 
-### `$fix` — translate and repair
-
 ```text
-$fix The payment button can send the same request twice. Preserve the existing payment API and fix it.
+@Click The payment button can send the same request twice. Preserve the existing payment API and fix it.
 ```
 
 Fix traces the narrow defect, separates evidence from a root-cause hypothesis, and creates a compact repair contract. After one approval, it repairs the issue and runs the selected final checks once.
 
-Codex Skills are explicitly invoked with `$fix`; this plugin does not claim to install a native `/fix` slash command. Both Skills have implicit invocation disabled, so ordinary requests remain ordinary Codex requests.
+Internally the plugin contains two explicit-only Skills: `$click` for design and implementation and `$fix` for compact repairs. Those direct Skill names remain available as a technical interface, but user-facing documentation and examples use the plugin mention `@Click`. The plugin does not install native slash commands. Both Skills have implicit invocation disabled, so ordinary requests remain ordinary Codex requests.
 
 ## Example: a YouTube auto-reply request
 
@@ -87,7 +85,7 @@ This is a **workflow example only**. The repository does not contain or deploy a
 Input:
 
 ```text
-$click Build a tool that automatically posts replies to comments on my YouTube channel.
+@Click Build a tool that automatically posts replies to comments on my YouTube channel.
 Use the Gemini API to write replies, but do not reply to abusive comments,
 personal information, or spam.
 ```

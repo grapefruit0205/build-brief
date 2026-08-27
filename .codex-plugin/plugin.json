@@ -1,7 +1,7 @@
 {
   "name": "click",
-  "version": "0.9.1",
-  "description": "On explicit invocation, compile software intent into one approval-bound execution contract, a faithful plain-language explanation, and a proportional final verification batch.",
+  "version": "0.9.2",
+  "description": "When explicitly selected as @Click, compile software intent into one approval-bound execution contract, a faithful plain-language explanation, and a proportional final verification batch.",
   "author": {
     "name": "Junseok Pak",
     "url": "https://github.com/grapefruit0205"
@@ -23,7 +23,7 @@
   "interface": {
     "displayName": "Click",
     "shortDescription": "Approve once, then implement the contract in one shot.",
-    "longDescription": "When explicitly invoked, Click translates a software request and repository context into one complete developer execution contract, explains the same meaning plainly, recommends a quick, focused, or full verification scale, and asks once for approval. After approval it implements in one shot: the semantic contract stays fixed while necessary in-scope implementation details remain flexible, then the selected final checks run once. The bundled Fix skill provides the same flow for natural-language bug reports. Without explicit invocation Click adds no session context and blocks nothing.",
+    "longDescription": "When explicitly selected as @Click, Click translates a software request and repository context into one complete developer execution contract, explains the same meaning plainly, recommends a quick, focused, or full verification scale, and asks once for approval. After approval it implements in one shot: the semantic contract stays fixed while necessary in-scope implementation details remain flexible, then the selected final checks run once. The bundled Fix skill provides the same flow for natural-language bug reports. Without explicit selection Click adds no session context and blocks nothing.",
     "developerName": "Junseok Pak",
     "category": "Productivity",
     "capabilities": [

@@ -19,13 +19,22 @@ class RepositoryPolicyTests(unittest.TestCase):
             (ROOT / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8")
         )
         self.assertEqual(manifest["name"], "click")
-        self.assertEqual(manifest["version"], "0.9.1")
+        self.assertEqual(manifest["version"], "0.9.2")
         self.assertEqual(manifest["license"], "MIT")
         self.assertIn("explicit", manifest["description"].lower())
         self.assertIn("plain-language", manifest["description"].lower())
         self.assertIn("execution contract", manifest["description"].lower())
         self.assertIn("one shot", manifest["interface"]["longDescription"].lower())
         self.assertIn("verification", manifest["interface"]["longDescription"].lower())
+        self.assertIn("@Click", manifest["description"])
+
+    def test_readmes_use_plugin_mention_as_the_default_invocation(self) -> None:
+        for readme_name in ("README.md", "README.ko.md"):
+            with self.subTest(readme=readme_name):
+                readme = (ROOT / readme_name).read_text(encoding="utf-8")
+                self.assertIn("@Click", readme)
+                self.assertNotRegex(readme, r"(?m)^\$click\s")
+                self.assertNotIn("<br/>$click", readme)
 
     def test_marketplace_exposes_click_from_the_click_catalog(self) -> None:
         marketplace = json.loads(

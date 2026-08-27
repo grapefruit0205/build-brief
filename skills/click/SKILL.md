@@ -9,7 +9,7 @@ Translate the user's natural-language intent and actual repository context into 
 
 ## Activate only when explicitly selected
 
-- Activate when the user selects Click or invokes `$click` for the current software work.
+- Activate when the user selects or mentions `@Click`, or directly invokes the underlying `$click` Skill, for the current software work.
 - Treat “설계해줘”, “구현해줘”, “해줘”, “design it”, “build it”, and equivalent wording in any language as the same complete-contract workflow after explicit selection.
 - A question about Click is not an invocation. Never activate merely because work is large, architectural, vague, or risky.
 - If the user opts out after activation, run `click-gate bypass` and return to the ordinary workflow.
