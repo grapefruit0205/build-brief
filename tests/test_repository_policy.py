@@ -19,10 +19,11 @@ class RepositoryPolicyTests(unittest.TestCase):
             (ROOT / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8")
         )
         self.assertEqual(manifest["name"], "build-brief")
-        self.assertEqual(manifest["version"], "0.7.0")
+        self.assertEqual(manifest["version"], "0.8.0")
         self.assertEqual(manifest["license"], "MIT")
         self.assertIn("explicit", manifest["description"].lower())
         self.assertIn("plain-language", manifest["description"].lower())
+        self.assertIn("execution contract", manifest["description"].lower())
 
     def test_runtime_hook_has_no_external_python_dependency(self) -> None:
         source = (ROOT / "hooks" / "build_brief_gate.py").read_text(encoding="utf-8")
@@ -53,7 +54,7 @@ class RepositoryPolicyTests(unittest.TestCase):
         suite = json.loads(
             (ROOT / "evals" / "ab-suite.json").read_text(encoding="utf-8")
         )
-        self.assertEqual(suite["schema_version"], 2)
+        self.assertEqual(suite["schema_version"], 3)
         self.assertEqual(
             suite["conditions"],
             ["no-plugin", "explicit-skill-only", "explicit-skill-and-hook"],

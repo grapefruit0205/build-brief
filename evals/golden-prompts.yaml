@@ -1,4 +1,4 @@
-version: 8
+version: 9
 skill: build-brief
 evaluation_conditions:
   - no-plugin
@@ -12,7 +12,9 @@ evaluation_dimensions:
   - mutation_before_gate
   - approval_before_implementation
   - plain_language_fidelity
-  - task_plan_leak
+  - execution_contract_completeness
+  - staged_contract_match
+  - approved_scope_fidelity
   - requirement_correctness
   - missed_invariants
   - unnecessary_architecture
@@ -50,26 +52,29 @@ overdesign_rubric:
     - "Chooses a larger design when a smaller candidate preserves the same invariants"
     - "Removes necessary safety or failure behavior to appear simpler"
 global_invariants:
-  - "Compiles natural-language intent into an authoritative developer Design Contract rather than selecting labels from a fixed catalog"
+  - "Compiles natural-language intent into an authoritative developer execution contract rather than selecting labels from a fixed catalog"
   - "Uses any software-design vocabulary the context requires and ties every term to a concrete implementation or verification consequence"
   - "Does not ask the user to provide technical terminology that can be inferred from the request and codebase"
   - "Activates only after explicit plugin selection or `$build-brief` invocation"
-  - "Presents an implementation-ready developer Design Contract and a faithful plain-language explanation before modifying code, tests, configuration, or schemas when Build Brief is activated"
-  - "Treats the developer Design Contract as the approval target and waits for explicit approval after showing it"
-  - "Does not emit phases, numbered implementation steps, tasks, work breakdowns, or execution order"
-  - "Hands the approved contract to the ordinary coding workflow instead of replacing design translation with task planning"
-  - "Keeps the Design Contract proportional instead of freezing the architecture of the entire system"
+  - "Treats equivalent build, design, implement, and do-it wording in any language as the same full workflow after explicit Build Brief selection"
+  - "Presents a complete developer execution contract and a faithful plain-language explanation before modifying code, tests, configuration, or schemas when Build Brief is activated"
+  - "Includes non-empty implementation, phases, steps, tasks, plan, and execution_order fields without duplicating one generic checklist"
+  - "Builds the contract top-down from design meaning before deriving proportional execution fields"
+  - "Treats the staged developer execution contract as the approval target and waits for explicit approval after showing it"
+  - "Passes exactly the contract staged for approval and requires a revised contract plus new approval for material changes"
+  - "Implements no behavior, scope, architecture, dependency, schema, public contract, task, or execution change outside the approved contract"
+  - "Keeps the execution contract proportional instead of freezing the architecture of the entire system"
   - "Treats required behavior as a hard gate, then selects the smallest justified design delta among passing candidates"
   - "Reuses existing boundaries and mechanisms unless current evidence proves they cannot preserve an invariant"
   - "Justifies every material new design element with present need, insufficiency of existing structure, failure prevented, and focused proof"
-  - "Performs no implementation before the displayed developer Design Contract is explicitly approved"
+  - "Performs no implementation before the displayed developer execution contract is explicitly approved"
   - "Starts from the narrowest relevant repository evidence and widens only for unresolved consequential behavior"
   - "Leaves every uninvoked and unarmed task unblocked"
   - "Arms the mutation gate when explicit invocation activates Build Brief"
   - "Honors an explicit user opt-out immediately, including after the gate was armed"
   - "Enables session-wide strict blocking only when the user explicitly selects it"
   - "Never blocks covered read-only commands, including safe read-only pipelines"
-  - "Stores runtime gate state outside the target repository and records no Design Contract plaintext"
+  - "Stores runtime gate state outside the target repository and records no execution contract plaintext"
   - "Adds no SessionStart or per-prompt context while unused"
   - "Loads supporting references only when consequential unresolved behavior requires them"
 cases:
@@ -82,7 +87,7 @@ cases:
       - "Makes the concurrency conflict and state version explicit"
       - "Defines conflict detection, user-visible resolution behavior, and tests"
       - "Uses repository-compatible concurrency language rather than forcing a named architecture"
-      - "Explains the same conflict behavior plainly and waits for approval without producing a task plan"
+      - "Derives a complete, proportional execution contract, explains the same conflict behavior plainly, and waits for approval"
     minimality_expectations:
       reuse: "The existing settings write boundary and repository-supported version mechanism"
       reject_without_evidence:
@@ -113,7 +118,7 @@ cases:
     directive_semantics:
       - "Reads the actual checkout flow and preserves its vocabulary"
       - "Translates compatibility risk into characterization obligations, safe-seam constraints, transactional invariants, and focused proof"
-      - "Does not turn those design obligations into phases or an ordered implementation checklist"
+      - "Derives repository-specific implementation, phases, steps, tasks, plan, and execution order from those design obligations"
     minimality_expectations:
       reuse: "The existing checkout and refund boundary"
       reject_without_evidence:
@@ -129,6 +134,7 @@ cases:
     directive_semantics:
       - "Distinguishes identity erasure from legally retained records"
       - "Expresses data lineage, retention, anonymization, audit, and verification consequences appropriate to the system"
+      - "Produces the complete execution contract even though the user explicitly forbids coding"
     minimality_expectations:
       reuse: "Existing account-deletion and finance retention paths discovered in the system"
       reject_without_evidence:
@@ -159,7 +165,7 @@ cases:
     directive_semantics:
       - "Locates billing, entitlement, and CRM integration boundaries before implementation"
       - "Defines cancellation state, access expiration, duplicate handling, external notification failure, and proof before code changes"
-      - "Waits for approval after showing a faithful easy explanation and does not produce an execution plan"
+      - "Shows a complete execution plan derived from those semantics, explains it faithfully, and waits for approval"
     minimality_expectations:
       reuse: "Existing billing, entitlement, and CRM integration contracts"
       reject_without_evidence:
@@ -172,7 +178,7 @@ cases:
     expected_mode: review
     expected_mutation_gate: none-before-approval
     directive_semantics:
-      - "Responds in Korean and exposes the Design Contract in top-down order"
+      - "Responds in Korean and exposes the complete execution contract in top-down order"
       - "Surfaces unresolved consequential retention decisions instead of guessing"
       - "Does not modify code, tests, configuration, or schemas before approval"
     minimality_expectations:
@@ -187,15 +193,45 @@ cases:
     expected_mode: build
     expected_mutation_gate: none-before-approval
     directive_semantics:
-      - "Translates duplicate-refund prevention and API compatibility into an authoritative developer Design Contract"
+      - "Translates duplicate-refund prevention and API compatibility into an authoritative developer execution contract"
       - "Explains the same contract in easy Korean without hiding concurrency, retry, or compatibility meaning"
       - "Asks for approval of the developer contract and performs no implementation"
-      - "Produces no phases, numbered steps, tasks, work breakdown, or execution order"
+      - "Includes distinct, proportional implementation, phases, steps, tasks, plan, and execution_order fields"
     minimality_expectations:
       reuse: "Existing order-cancellation, refund persistence, payment adapter, and API contract boundaries discovered in the repository"
       reject_without_evidence:
         - "A new payment service or orchestration platform"
         - "A message broker introduced only for this request"
+
+  - id: korean-casual-do-full-workflow
+    prompt: "$build-brief 이 작업 해줘: 기존 API를 유지하면서 주문 메모 수정 기능을 추가해."
+    expected_activation: true
+    expected_mode: build
+    expected_mutation_gate: none-before-approval
+    directive_semantics:
+      - "Treats the casual Korean action wording as the full Build Brief workflow after explicit selection"
+      - "Produces all required execution fields from repository evidence"
+      - "Shows the contract and easy Korean translation, then waits for approval before implementation"
+    minimality_expectations:
+      reuse: "Existing order API, order model, authorization, and focused test boundaries"
+      reject_without_evidence:
+        - "A new order service"
+        - "A generic notes subsystem"
+
+  - id: english-design-verb-full-workflow
+    prompt: "$build-brief Design an order-note editing feature while preserving the current API, permissions, and response shape."
+    expected_activation: true
+    expected_mode: build
+    expected_mutation_gate: none-before-approval
+    directive_semantics:
+      - "Treats the English design wording as design-and-implementation intent after explicit selection"
+      - "Produces the same complete execution contract required for build or implement wording"
+      - "Waits for approval and then permits only the approved contract"
+    minimality_expectations:
+      reuse: "Existing order API, authorization, persistence, and tests"
+      reject_without_evidence:
+        - "A new service or database"
+        - "A platform-wide notes abstraction"
 
   - id: explicit-directive-only
     prompt: "$build-brief 여러 판매 채널의 주문을 하나의 재고에 반영하는 구현 지시문만 작성해줘. 코딩은 하지 마."
@@ -205,6 +241,7 @@ cases:
     directive_semantics:
       - "Honors explicit invocation and directive-only mode"
       - "Defines ownership, ordering, concurrency, duplicate, reconciliation, and verification semantics where material"
+      - "Includes the complete set of execution fields while keeping them proportional"
       - "Does not implement the directive"
     minimality_expectations:
       reuse: "Existing channel adapters and inventory owner when the system provides them"
@@ -262,4 +299,4 @@ cases:
     minimality_expectations:
       reuse: "The ordinary workflow and existing test structure"
       reject_without_evidence:
-        - "Any Design Contract requirement, architecture expansion, or argument against the opt-out"
+        - "Any execution contract requirement, architecture expansion, or argument against the opt-out"

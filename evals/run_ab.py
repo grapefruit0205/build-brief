@@ -90,6 +90,7 @@ def _runtime_trace(text: str) -> dict[str, Any]:
     markers = {
         "gate_block_count": "blocked this mutation",
         "gate_arm_mentions": "build-brief-gate arm",
+        "gate_stage_mentions": "build-brief-gate stage",
         "gate_pass_mentions": "build-brief-gate pass",
         "gate_bypass_mentions": "build-brief-gate bypass",
     }
@@ -161,7 +162,7 @@ def _candidate_checks(case: dict[str, Any], candidate: Path) -> list[dict[str, A
         )
         checks.append(
             _check(
-                "v0.7.0 approval-first Hook contract",
+                "v0.8.0 approval-bound execution contract Hook",
                 _run(
                     [sys.executable, str(HOOK_TEST)],
                     cwd=ROOT,
@@ -422,7 +423,7 @@ def main() -> int:
             if needs_followup:
                 checks.append(
                     {
-                        "name": "repository unchanged before Design Contract approval",
+                        "name": "repository unchanged before execution contract approval",
                         "passed": not pre_approval_diff.strip(),
                         "required": True,
                         "evidence": pre_approval_diff[-4_000:]
@@ -486,7 +487,7 @@ def main() -> int:
             )
             judge_usage = _usage_from_jsonl(judge_result.stdout)
             assessment = {
-                "schema_version": 1,
+                "schema_version": 2,
                 "case_id": str(case["id"]),
                 "condition": condition,
                 "automated_checks": checks,
@@ -502,6 +503,7 @@ def main() -> int:
                     "judge_elapsed_seconds": round(judge_elapsed, 3),
                     "gate_block_count": runtime_trace["gate_block_count"],
                     "gate_arm_mentions": runtime_trace["gate_arm_mentions"],
+                    "gate_stage_mentions": runtime_trace["gate_stage_mentions"],
                     "gate_pass_mentions": runtime_trace["gate_pass_mentions"],
                     "gate_bypass_mentions": runtime_trace["gate_bypass_mentions"],
                 },

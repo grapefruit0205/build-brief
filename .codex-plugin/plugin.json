@@ -1,7 +1,7 @@
 {
   "name": "build-brief",
-  "version": "0.7.0",
-  "description": "On explicit invocation, translate software intent into an approval-ready developer design contract with a faithful plain-language explanation.",
+  "version": "0.8.0",
+  "description": "On explicit invocation, compile software intent into an approval-bound developer execution contract and faithful plain-language explanation.",
   "author": {
     "name": "Junseok Pak",
     "url": "https://github.com/grapefruit0205"
@@ -20,8 +20,8 @@
   "skills": "./skills/",
   "interface": {
     "displayName": "Build Brief",
-    "shortDescription": "Approve design meaning before implementation.",
-    "longDescription": "When explicitly invoked, Build Brief translates a software request and repository context into the smallest developer Design Contract that preserves the required behavior. It shows a faithful plain-language explanation, waits for explicit approval, and never replaces design translation with phases, steps, tasks, or execution order. After approval, the ordinary coding workflow plans and implements against the contract. Without invocation it adds no session context and blocks nothing.",
+    "shortDescription": "Approve the full execution contract before coding.",
+    "longDescription": "When explicitly invoked, Build Brief translates a software request and repository context into the smallest complete developer execution contract, including implementation, phases, steps, tasks, plan, and execution order. It then explains the same contract plainly and waits for explicit approval. After approval it implements only the staged contract; material changes require a revised contract and new approval. Without invocation it adds no session context and blocks nothing.",
     "developerName": "Junseok Pak",
     "category": "Productivity",
     "capabilities": [
@@ -29,9 +29,9 @@
     ],
     "websiteURL": "https://github.com/grapefruit0205/build-brief",
     "defaultPrompt": [
-      "Translate this request into the smallest sufficient developer design contract, explain the same contract plainly, and wait for approval before implementation.",
-      "Create an approval-ready design contract and plain-language explanation for this change without producing a task plan.",
-      "Turn this request into a design-only handoff with a faithful plain-language explanation and no implementation steps."
+      "Create a complete developer execution contract for this request, explain it plainly, and wait for approval before implementation.",
+      "Design and implement this change with Build Brief, but show the full execution contract and wait for approval before editing.",
+      "Create a handoff-ready execution contract and faithful plain-language explanation for this request without implementing it."
     ]
   }
 }

@@ -1,32 +1,61 @@
-# Design Contract Presentation
+# Execution Contract Presentation
 
-Use this format when showing an explicitly invoked Build Brief contract to a user or handing it to another person or agent. Keep both views proportional to the work.
+Use this format whenever an explicitly invoked Build Brief contract will be staged, shown, approved, implemented, or handed off. Keep every field proportional to the work.
 
-## Plain-language explanation
+## Canonical contract object
 
-Explain the contract in the user's language without requiring software-design vocabulary. State what the software will do, why the important safeguards matter, what remains unchanged, and any material failure behavior, tradeoff, or new system element being approved.
+Stage and later pass one JSON object with exactly these fields:
 
-This is a faithful view of the developer contract. It must not add a promise or decision absent from the contract, and it must not hide a material invariant, compatibility promise, failure behavior, assumption, or justified design addition. If the user asks for an easier explanation, simplify wording and add a concrete example without changing the contract.
+```json
+{
+  "boundary": "existing owner of the behavior",
+  "invariants": ["observable requirement that must remain true"],
+  "system_semantics": ["material state, contract, ordering, failure, or compatibility meaning"],
+  "plan": ["goal, scope, non-goal, and top-down approach"],
+  "implementation": ["concrete design mapped to current boundaries"],
+  "phases": ["proportional implementation checkpoint"],
+  "steps": ["ordered change within a phase"],
+  "tasks": ["concrete approved code, test, configuration, schema, or documentation unit"],
+  "execution_order": ["dependency or safe sequencing constraint"],
+  "minimality": ["existing structure reused and evidence for each material addition"],
+  "proof": ["acceptance criterion or focused verification"],
+  "plain_language": "Faithful easy explanation of the complete contract."
+}
+```
 
-## Developer Design Contract
+Every list must contain at least one non-empty string. Do not add unsupported top-level fields. Keep vocabulary open-ended inside the fields so the design language can fit the actual system.
 
-Present the authoritative design obligations without turning them into an execution plan:
+Do not duplicate one generic checklist across `plan`, `implementation`, `phases`, `steps`, `tasks`, and `execution_order`:
 
-- **Intent and boundary:** the requested outcome and the existing component, data owner, or external contract that owns it.
-- **Invariants:** the observable behavior and facts that must remain true.
-- **System semantics:** the relevant responsibilities, state, ownership, contracts, flow, timing, ordering, concurrency, consistency, failure, security, compatibility, migration, and operational meaning.
-- **Minimum sufficient design:** what existing structure is reused and why each material addition is necessary.
-- **Proof:** acceptance criteria and focused evidence that would show the invariants hold.
-- **Visible assumptions:** only consequential assumptions that the repository and request cannot settle.
+- `plan` fixes approved scope and top-down direction;
+- `implementation` maps design decisions onto the current system;
+- `phases` groups the work into meaningful checkpoints;
+- `steps` orders the changes inside those checkpoints;
+- `tasks` names concrete approved deliverables;
+- `execution_order` records dependency and safety constraints across the work.
 
-Do not output phases, numbered implementation steps, task lists, work breakdowns, or execution order. Those belong to the ordinary coding workflow after approval.
+## Developer execution contract
+
+Show the authoritative developer fields first, in top-down order:
+
+1. plan and boundary;
+2. invariants and system semantics;
+3. implementation;
+4. phases, steps, tasks, and execution order;
+5. minimality and proof.
+
+This contract is the approval target. It must be detailed enough to prevent material implementation guesses without expanding into unrelated architecture.
+
+## Easy-language translation
+
+After the developer contract, show `plain_language` in the user's language. Explain what will change, what will remain unchanged, why the important safeguards matter, how the work will proceed, and what proof will be run.
+
+The explanation is a faithful projection, not a second design. It must not add a promise or decision absent from the developer contract or hide an invariant, compatibility promise, failure behavior, implementation element, approved task, or execution constraint.
 
 ## Approval request
 
-For a build or change request, ask one compact question after both views:
+End with one compact question equivalent to:
 
-> Does this explanation match your intent, and do you approve the developer Design Contract for implementation? You can approve, request a design revision, ask for a simpler explanation, or cancel.
+> Do you approve this execution contract? If approved, I will implement only this contract. You can request a revision, ask for a simpler explanation, or cancel.
 
-Approval applies to the developer Design Contract. The plain-language explanation exists so the user can understand that same contract. A design revision requires regenerating both views; an explanation-only simplification keeps the developer contract unchanged. Either case returns to approval.
-
-After approval, hand the contract to the ordinary coding workflow. Do not append a Build Brief task plan.
+Approval covers the staged developer contract and its faithful explanation. The original build request is not approval. A material contract change requires staging the revision, showing both views again, and receiving new approval before more mutation.

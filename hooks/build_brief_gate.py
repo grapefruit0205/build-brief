@@ -21,24 +21,20 @@ from typing import Any
 
 
 CONTROL_COMMAND = "build-brief-gate"
-STRING_FIELDS = (
-    "plain_language",
-    "boundary",
-)
+STRING_FIELDS = ("plain_language", "boundary")
 LIST_FIELDS = (
     "invariants",
     "system_semantics",
-    "minimality",
-    "proof",
-)
-FORBIDDEN_TASK_PLAN_FIELDS = {
     "implementation",
-    "steps",
     "phases",
+    "steps",
     "tasks",
     "plan",
     "execution_order",
-}
+    "minimality",
+    "proof",
+)
+CONTRACT_FIELDS = set(STRING_FIELDS) | set(LIST_FIELDS)
 MAX_CONTRACT_CHARS = 8_000
 STATE_TTL_SECONDS = 7 * 24 * 60 * 60
 
@@ -168,6 +164,10 @@ def _mode_path(event: dict[str, Any]) -> Path:
     return _identity_path(event, "session")
 
 
+def _contract_path(event: dict[str, Any]) -> Path:
+    return _identity_path(event, "session-contract")
+
+
 def _write_json(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile(
@@ -218,6 +218,32 @@ def _read_mode(event: dict[str, Any]) -> str:
     return "adaptive"
 
 
+def _write_contract_state(event: dict[str, Any], status: str, digest: str) -> None:
+    _write_json(
+        _contract_path(event),
+        {
+            "status": status,
+            "contract_digest": digest,
+            "updated_at": int(time.time()),
+        },
+    )
+
+
+def _read_contract_state(event: dict[str, Any]) -> dict[str, Any]:
+    try:
+        value = json.loads(_contract_path(event).read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return {"status": "none", "contract_digest": ""}
+    return value if isinstance(value, dict) else {"status": "none", "contract_digest": ""}
+
+
+def _clear_contract_state(event: dict[str, Any]) -> None:
+    try:
+        _contract_path(event).unlink()
+    except OSError:
+        pass
+
+
 def _prune_state() -> None:
     root = _state_root()
     if not root.exists():
@@ -235,33 +261,32 @@ def _validate_contract(raw: str) -> tuple[dict[str, Any] | None, str]:
     if len(raw) > MAX_CONTRACT_CHARS:
         return (
             None,
-            "Design Contract is too large; keep it proportional and under 8,000 characters.",
+            "Execution Contract is too large; keep it proportional and under 8,000 characters.",
         )
     try:
         value = json.loads(raw)
     except json.JSONDecodeError:
-        return None, "Design Contract must be valid JSON."
+        return None, "Execution Contract must be valid JSON."
     if not isinstance(value, dict):
-        return None, "Design Contract must be a JSON object."
+        return None, "Execution Contract must be a JSON object."
 
-    task_plan_fields = sorted(FORBIDDEN_TASK_PLAN_FIELDS.intersection(value))
-    if task_plan_fields:
-        rendered = ", ".join(f"`{field}`" for field in task_plan_fields)
+    unknown_fields = sorted(set(value) - CONTRACT_FIELDS)
+    if unknown_fields:
+        rendered = ", ".join(f"`{field}`" for field in unknown_fields)
         return (
             None,
-            "Design Contract must describe approved system semantics rather than a task "
-            f"plan; remove top-level field(s): {rendered}.",
+            f"Execution Contract contains unsupported top-level field(s): {rendered}.",
         )
 
     for field in STRING_FIELDS:
         text = value.get(field)
         if not isinstance(text, str) or not text.strip():
-            return None, f"Design Contract field `{field}` must be a non-empty string."
+            return None, f"Execution Contract field `{field}` must be a non-empty string."
 
     for field in LIST_FIELDS:
         items = value.get(field)
         if not isinstance(items, list) or not items:
-            return None, f"Design Contract field `{field}` must be a non-empty list."
+            return None, f"Execution Contract field `{field}` must be a non-empty list."
         if any(not isinstance(item, str) or not item.strip() for item in items):
             return None, f"Every `{field}` item must be a non-empty string."
 
@@ -282,12 +307,13 @@ def _control_request(command: str) -> tuple[str | None, str, str]:
         "strict",
     }:
         return "mode", tokens[2], ""
-    if len(tokens) == 3 and tokens[1] == "pass":
-        return "pass", tokens[2], ""
+    if len(tokens) == 3 and tokens[1] in {"stage", "pass"}:
+        return tokens[1], tokens[2], ""
     return (
         "",
         "",
-        f"Use `{CONTROL_COMMAND} arm`, `{CONTROL_COMMAND} pass '<Design Contract JSON>'`, "
+        f"Use `{CONTROL_COMMAND} arm`, `{CONTROL_COMMAND} stage '<Execution Contract "
+        f"JSON>'`, `{CONTROL_COMMAND} pass '<Execution Contract JSON>'`, "
         f"`{CONTROL_COMMAND} bypass`, or `{CONTROL_COMMAND} mode adaptive|strict`.",
     )
 
@@ -454,6 +480,7 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
             if action == "bypass":
                 _prune_state()
                 _write_state(event, "bypassed")
+                _clear_contract_state(event)
                 _allow_rewritten("echo Build Brief bypassed for this turn")
                 return
             if action == "mode":
@@ -463,7 +490,7 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
                     _write_state(event, "idle")
                 _allow_rewritten(f"echo Build Brief mode set to {value}")
                 return
-            if action == "pass":
+            if action in {"stage", "pass"}:
                 contract, validation_error = _validate_contract(value)
                 if validation_error:
                     _deny(validation_error)
@@ -472,6 +499,40 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
                 canonical = json.dumps(contract, sort_keys=True, separators=(",", ":"))
                 digest = hashlib.sha256(canonical.encode()).hexdigest()
                 _prune_state()
+
+                current_status = _read_state(event).get("status")
+                strict = _read_mode(event) == "strict"
+                if action == "stage":
+                    if current_status not in {"armed", "staged", "passed"} and not strict:
+                        _deny(
+                            "Arm Build Brief before staging the execution contract for approval."
+                        )
+                        return
+                    _write_contract_state(event, "staged", digest)
+                    _write_state(event, "staged", digest)
+                    _allow_rewritten("echo Build Brief execution contract staged")
+                    return
+
+                if current_status != "armed" and not strict:
+                    _deny(
+                        "Arm Build Brief in the current turn before passing the approved "
+                        "execution contract."
+                    )
+                    return
+                staged = _read_contract_state(event)
+                if staged.get("status") not in {"staged", "approved"}:
+                    _deny(
+                        "No staged Build Brief execution contract is available for approval."
+                    )
+                    return
+                if staged.get("contract_digest") != digest:
+                    _deny(
+                        "The execution contract differs from the version staged for user "
+                        "approval. Stage the revision, show both views again, and obtain "
+                        "approval before implementation."
+                    )
+                    return
+                _write_contract_state(event, "approved", digest)
                 _write_state(event, "passed", digest)
                 _allow_rewritten("echo Build Brief mutation gate passed")
                 return
@@ -483,14 +544,14 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
     if status in {"passed", "bypassed"}:
         return
 
-    if status == "armed" or _read_mode(event) == "strict":
+    if status in {"armed", "staged"} or _read_mode(event) == "strict":
         _deny(
-            "Build Brief blocked this mutation because the activated minimum-sufficient Design "
-            "Contract has not been explained plainly, approved, and passed for the current "
-            "turn. Complete plain_language, boundary, invariants, system_semantics, minimality, "
-            "and proof without a task plan, obtain the user's approval, then run "
-            "`build-brief-gate pass "
-            "'<Design Contract JSON>'`. If the user does not want Build Brief for this turn, run "
+            "Build Brief blocked this mutation because the activated execution contract has "
+            "not been staged, explained plainly, explicitly approved, and matched for the "
+            "current turn. Complete plain_language, boundary, invariants, system_semantics, "
+            "implementation, phases, steps, tasks, plan, execution_order, minimality, and proof; "
+            "stage the exact JSON shown to the user, obtain approval, arm the approval turn, "
+            "then pass that same JSON. If the user does not want Build Brief for this turn, run "
             "`build-brief-gate bypass`."
         )
 

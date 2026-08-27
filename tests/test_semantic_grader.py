@@ -8,7 +8,7 @@ from evals.semantic_grader import AssessmentError, score_assessment
 
 def passing_assessment() -> dict:
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "case_id": "adaptive-gate",
         "condition": "masked-a",
         "automated_checks": [
@@ -27,7 +27,8 @@ def passing_assessment() -> dict:
             "opt_out_honored": "yes",
             "approval_behavior": "correct",
             "plain_language_fidelity": "faithful",
-            "task_planning": "avoided",
+            "execution_contract": "complete",
+            "approved_scope_fidelity": "faithful",
             "verification_defined": True,
             "unjustified_design_elements": [],
         },
@@ -79,13 +80,14 @@ class SemanticGraderTests(unittest.TestCase):
                 self.assertEqual(result["score"], 0)
                 self.assertEqual(result["status"], "fail")
 
-    def test_approval_explanation_and_no_task_plan_are_hard_gates(self) -> None:
+    def test_approval_explanation_contract_and_scope_are_hard_gates(self) -> None:
         failures = (
             ("approval_behavior", "missing"),
             ("approval_behavior", "premature-implementation"),
             ("plain_language_fidelity", "material-omission"),
             ("plain_language_fidelity", "contradiction"),
-            ("task_planning", "produced"),
+            ("execution_contract", "missing-required-fields"),
+            ("approved_scope_fidelity", "unapproved-change"),
         )
         for field, value in failures:
             with self.subTest(field=field, value=value):

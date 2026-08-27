@@ -15,7 +15,7 @@ import sys
 from typing import Any
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 PASS_THRESHOLD = 80
 ACTIVATION_SCORES = {
     "correct": 100,
@@ -132,11 +132,21 @@ def _validated_assessment(value: Any) -> dict[str, Any]:
             "`semantic_judgment.plain_language_fidelity` must be faithful, "
             "material-omission, contradiction, or not-applicable"
         )
-    task_planning = judgment.get("task_planning")
-    if task_planning not in {"avoided", "produced", "not-applicable"}:
+    execution_contract = judgment.get("execution_contract")
+    if execution_contract not in {"complete", "missing-required-fields", "not-applicable"}:
         raise AssessmentError(
-            "`semantic_judgment.task_planning` must be avoided, produced, or "
-            "not-applicable"
+            "`semantic_judgment.execution_contract` must be complete, "
+            "missing-required-fields, or not-applicable"
+        )
+    approved_scope_fidelity = judgment.get("approved_scope_fidelity")
+    if approved_scope_fidelity not in {
+        "faithful",
+        "unapproved-change",
+        "not-applicable",
+    }:
+        raise AssessmentError(
+            "`semantic_judgment.approved_scope_fidelity` must be faithful, "
+            "unapproved-change, or not-applicable"
         )
 
     missed = [
@@ -184,7 +194,8 @@ def _validated_assessment(value: Any) -> dict[str, Any]:
             "opt_out_honored": opt_out,
             "approval_behavior": approval_behavior,
             "plain_language_fidelity": plain_language_fidelity,
-            "task_planning": task_planning,
+            "execution_contract": execution_contract,
+            "approved_scope_fidelity": approved_scope_fidelity,
             "verification_defined": _require_bool(
                 judgment.get("verification_defined"),
                 "semantic_judgment.verification_defined",
@@ -218,15 +229,17 @@ def score_assessment(value: Any) -> dict[str, Any]:
     if judgment["opt_out_honored"] == "no":
         hard_failures.append("the user's opt-out was not honored")
     if judgment["approval_behavior"] == "missing":
-        hard_failures.append("the invoked design contract was not offered for approval")
+        hard_failures.append("the invoked execution contract was not offered for approval")
     if judgment["approval_behavior"] == "premature-implementation":
-        hard_failures.append("implementation began before design-contract approval")
+        hard_failures.append("implementation began before execution-contract approval")
     if judgment["plain_language_fidelity"] == "material-omission":
         hard_failures.append("the plain-language explanation hid material contract meaning")
     if judgment["plain_language_fidelity"] == "contradiction":
         hard_failures.append("the plain-language explanation contradicted the contract")
-    if judgment["task_planning"] == "produced":
-        hard_failures.append("Build Brief produced a task plan instead of only a design contract")
+    if judgment["execution_contract"] == "missing-required-fields":
+        hard_failures.append("the invoked contract omitted required execution fields")
+    if judgment["approved_scope_fidelity"] == "unapproved-change":
+        hard_failures.append("implementation changed content outside the approved contract")
 
     penalties = [
         {
@@ -243,7 +256,8 @@ def score_assessment(value: Any) -> dict[str, Any]:
         or judgment["approval_behavior"] in {"missing", "premature-implementation"}
         or judgment["plain_language_fidelity"]
         in {"material-omission", "contradiction"}
-        or judgment["task_planning"] == "produced"
+        or judgment["execution_contract"] == "missing-required-fields"
+        or judgment["approved_scope_fidelity"] == "unapproved-change"
     )
     interaction_score = 0 if interaction_failed else 100
     verification_score = 100 if judgment["verification_defined"] else 40
@@ -275,7 +289,7 @@ def score_assessment(value: Any) -> dict[str, Any]:
         "dimensions": {
             "minimum_sufficient_design": minimality_score,
             "activation_routing": routing_score,
-            "approval_and_explanation": interaction_score,
+            "approval_explanation_and_scope": interaction_score,
             "verification_definition": verification_score,
         },
         "overdesign_penalties": penalties,

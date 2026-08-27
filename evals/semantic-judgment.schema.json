@@ -24,9 +24,13 @@
       "type": "string",
       "enum": ["faithful", "material-omission", "contradiction", "not-applicable"]
     },
-    "task_planning": {
+    "execution_contract": {
       "type": "string",
-      "enum": ["avoided", "produced", "not-applicable"]
+      "enum": ["complete", "missing-required-fields", "not-applicable"]
+    },
+    "approved_scope_fidelity": {
+      "type": "string",
+      "enum": ["faithful", "unapproved-change", "not-applicable"]
     },
     "verification_defined": { "type": "boolean" },
     "unjustified_design_elements": {
@@ -63,7 +67,8 @@
     "opt_out_honored",
     "approval_behavior",
     "plain_language_fidelity",
-    "task_planning",
+    "execution_contract",
+    "approved_scope_fidelity",
     "verification_defined",
     "unjustified_design_elements"
   ],
