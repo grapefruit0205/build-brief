@@ -1,7 +1,7 @@
 {
   "name": "build-brief",
-  "version": "0.6.0",
-  "description": "On explicit invocation, compile software intent into the smallest sufficient design contract and gate its implementation.",
+  "version": "0.7.0",
+  "description": "On explicit invocation, translate software intent into an approval-ready developer design contract with a faithful plain-language explanation.",
   "author": {
     "name": "Junseok Pak",
     "url": "https://github.com/grapefruit0205"
@@ -20,8 +20,8 @@
   "skills": "./skills/",
   "interface": {
     "displayName": "Build Brief",
-    "shortDescription": "Translate intent into minimum-sufficient design.",
-    "longDescription": "When explicitly invoked, Build Brief translates a software request and repository context into the smallest Design Contract that satisfies the required behavior. It reuses existing structure unless present evidence justifies added complexity, then arms its Hook only for that work. Without invocation it adds no session context and blocks nothing. Users can build automatically after the contract, review it first, request a handoff-ready directive, or explicitly enable strict mode.",
+    "shortDescription": "Approve design meaning before implementation.",
+    "longDescription": "When explicitly invoked, Build Brief translates a software request and repository context into the smallest developer Design Contract that preserves the required behavior. It shows a faithful plain-language explanation, waits for explicit approval, and never replaces design translation with phases, steps, tasks, or execution order. After approval, the ordinary coding workflow plans and implements against the contract. Without invocation it adds no session context and blocks nothing.",
     "developerName": "Junseok Pak",
     "category": "Productivity",
     "capabilities": [
@@ -29,9 +29,9 @@
     ],
     "websiteURL": "https://github.com/grapefruit0205/build-brief",
     "defaultPrompt": [
-      "Compile the smallest sufficient design contract, pass the mutation gate, then build this request.",
-      "Show me the design contract first and wait for approval before coding.",
-      "Turn this request into a handoff-ready engineering directive without coding."
+      "Translate this request into the smallest sufficient developer design contract, explain the same contract plainly, and wait for approval before implementation.",
+      "Create an approval-ready design contract and plain-language explanation for this change without producing a task plan.",
+      "Turn this request into a design-only handoff with a faithful plain-language explanation and no implementation steps."
     ]
   }
 }

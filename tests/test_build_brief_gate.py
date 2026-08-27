@@ -68,9 +68,14 @@ class BuildBriefGateTests(unittest.TestCase):
 
     def pass_gate(self, turn_id: str = "turn-1") -> dict:
         contract = {
+            "plain_language": (
+                "재고가 임계값 아래로 내려갈 때 같은 상황에서는 알림을 한 번만 보냅니다."
+            ),
             "boundary": "inventory write path",
             "invariants": ["one alert per threshold crossing"],
-            "implementation": ["record a deduplicated notification intent"],
+            "system_semantics": [
+                "deduplicate notification intent at the existing inventory write boundary"
+            ],
             "minimality": [
                 "reuse the inventory write path and existing notification mechanism"
             ],
@@ -169,7 +174,10 @@ class BuildBriefGateTests(unittest.TestCase):
         )
 
     def test_invalid_contract_is_denied(self) -> None:
-        command = "build-brief-gate pass '{\"boundary\":\"api\"}'"
+        command = (
+            "build-brief-gate pass "
+            "'{\"plain_language\":\"기존 API 동작을 유지합니다.\",\"boundary\":\"api\"}'"
+        )
         payload = self.pre_tool("Bash", command)
         output = payload["hookSpecificOutput"]
         self.assertEqual(output["permissionDecision"], "deny")
@@ -177,9 +185,10 @@ class BuildBriefGateTests(unittest.TestCase):
 
     def test_missing_or_empty_minimality_is_denied(self) -> None:
         base_contract = {
+            "plain_language": "기존 저장 동작을 유지하면서 검증만 바로잡습니다.",
             "boundary": "existing settings handler",
             "invariants": ["preserve current save behavior"],
-            "implementation": ["change the existing validation branch"],
+            "system_semantics": ["preserve the existing validation boundary"],
             "proof": ["run the focused settings tests"],
         }
         for minimality in (None, [], [""]):
@@ -195,6 +204,46 @@ class BuildBriefGateTests(unittest.TestCase):
                 output = payload["hookSpecificOutput"]
                 self.assertEqual(output["permissionDecision"], "deny")
                 self.assertIn("minimality", output["permissionDecisionReason"])
+
+    def test_plain_language_explanation_is_required(self) -> None:
+        contract = {
+            "boundary": "existing settings handler",
+            "invariants": ["preserve current save behavior"],
+            "system_semantics": ["preserve the existing validation boundary"],
+            "minimality": ["reuse the current handler"],
+            "proof": ["run the focused settings tests"],
+        }
+        command = f"build-brief-gate pass {shlex.quote(json.dumps(contract))}"
+        payload = self.pre_tool("Bash", command)
+        output = payload["hookSpecificOutput"]
+        self.assertEqual(output["permissionDecision"], "deny")
+        self.assertIn("plain_language", output["permissionDecisionReason"])
+
+    def test_task_plan_fields_are_rejected(self) -> None:
+        base_contract = {
+            "plain_language": "기존 저장 동작을 유지하면서 검증만 바로잡습니다.",
+            "boundary": "existing settings handler",
+            "invariants": ["preserve current save behavior"],
+            "system_semantics": ["preserve the existing validation boundary"],
+            "minimality": ["reuse the current handler"],
+            "proof": ["focused settings tests cover the invariant"],
+        }
+        for field in (
+            "implementation",
+            "steps",
+            "phases",
+            "tasks",
+            "plan",
+            "execution_order",
+        ):
+            with self.subTest(field=field):
+                contract = {**base_contract, field: ["first edit, then run tests"]}
+                command = f"build-brief-gate pass {shlex.quote(json.dumps(contract))}"
+                payload = self.pre_tool("Bash", command)
+                output = payload["hookSpecificOutput"]
+                self.assertEqual(output["permissionDecision"], "deny")
+                self.assertIn("task plan", output["permissionDecisionReason"])
+                self.assertIn(field, output["permissionDecisionReason"])
 
     def test_valid_contract_is_recorded_and_control_command_is_rewritten(self) -> None:
         self.arm_gate()
@@ -217,6 +266,7 @@ class BuildBriefGateTests(unittest.TestCase):
         self.assertNotIn("inventory write path", state_text)
         self.assertNotIn("threshold crossing", state_text)
         self.assertNotIn("existing notification mechanism", state_text)
+        self.assertNotIn("재고가 임계값", state_text)
 
     def test_gate_pass_does_not_leak_into_a_new_turn(self) -> None:
         self.set_mode("strict")

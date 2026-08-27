@@ -81,6 +81,11 @@ def _usage_from_jsonl(text: str) -> dict[str, int]:
     return usage
 
 
+def _sum_usage(*items: dict[str, int]) -> dict[str, int]:
+    keys = {key for item in items for key in item}
+    return {key: sum(item.get(key, 0) for item in items) for key in keys}
+
+
 def _runtime_trace(text: str) -> dict[str, Any]:
     markers = {
         "gate_block_count": "blocked this mutation",
@@ -156,7 +161,7 @@ def _candidate_checks(case: dict[str, Any], candidate: Path) -> list[dict[str, A
         )
         checks.append(
             _check(
-                "v0.6.0 explicit-activation Hook contract",
+                "v0.7.0 approval-first Hook contract",
                 _run(
                     [sys.executable, str(HOOK_TEST)],
                     cwd=ROOT,
@@ -172,7 +177,11 @@ def _judge_prompt(
     *,
     masked_id: str,
     case: dict[str, Any],
+    expected_activation: bool,
+    approval_followup: str | None,
     diff: str,
+    pre_approval_diff: str,
+    preview_message: str,
     final_message: str,
     checks: list[dict[str, Any]],
     runtime_trace: dict[str, Any],
@@ -181,11 +190,14 @@ def _judge_prompt(
     evidence = {
         "masked_candidate": masked_id,
         "request": case["prompt"],
-        "expected_activation": case["expected_activation"],
+        "expected_activation": expected_activation,
         "opt_out_applicable": case["opt_out_applicable"],
         "required_invariants": case["required_invariants"],
+        "approval_followup": approval_followup,
         "automated_checks": checks,
         "runtime_trace": runtime_trace,
+        "pre_approval_diff": pre_approval_diff[-30_000:],
+        "candidate_design_preview": preview_message[-12_000:],
         "candidate_diff": diff[-60_000:],
         "candidate_final_message": final_message[-12_000:],
     }
@@ -310,11 +322,18 @@ def main() -> int:
                 shutil.rmtree(candidate)
             _clone_case(case, candidate)
 
-            final_path = run_dir / "final-message.md"
+            approval_followup = case.get("approval_followup")
+            needs_followup = bool(approval_followup) and condition != "no-plugin"
+            preview_path = run_dir / (
+                "preview-message.md" if needs_followup else "final-message.md"
+            )
             command = [
                 "codex",
                 "exec",
-                "--ephemeral",
+            ]
+            if not needs_followup:
+                command.append("--ephemeral")
+            command.extend([
                 "--ignore-rules",
                 "--sandbox",
                 "workspace-write",
@@ -325,19 +344,72 @@ def main() -> int:
                 "-c",
                 'approval_policy="never"',
                 "--output-last-message",
-                str(final_path),
+                str(preview_path),
                 "--json",
                 *CONDITION_ARGS[condition],
                 str(case["prompt"]),
-            ]
+            ])
             started = time.monotonic()
             candidate_result = _run(command, cwd=candidate, timeout=1_800)
-            candidate_elapsed = time.monotonic() - started
-            _write(run_dir / "events.jsonl", candidate_result.stdout)
-            _write(run_dir / "codex-stderr.txt", candidate_result.stderr)
-            final_message = (
-                final_path.read_text(encoding="utf-8") if final_path.exists() else ""
+            preview_elapsed = time.monotonic() - started
+            preview_message = (
+                preview_path.read_text(encoding="utf-8")
+                if preview_path.exists()
+                else ""
             )
+            pre_approval_diff_result = _run(
+                ["git", "diff", "--no-ext-diff", "--binary"],
+                cwd=candidate,
+                timeout=60,
+            )
+            pre_approval_diff = pre_approval_diff_result.stdout
+            _write(run_dir / "pre-approval.patch", pre_approval_diff)
+            _write(run_dir / "preview-events.jsonl", candidate_result.stdout)
+            _write(run_dir / "preview-stderr.txt", candidate_result.stderr)
+
+            approval_result: subprocess.CompletedProcess[str] | None = None
+            approval_elapsed = 0.0
+            final_message = preview_message
+            if needs_followup and candidate_result.returncode == 0:
+                final_path = run_dir / "final-message.md"
+                approval_command = [
+                    "codex",
+                    "exec",
+                    "resume",
+                    "--last",
+                    "--ignore-rules",
+                    "--model",
+                    str(suite["model"]),
+                    "-c",
+                    f'model_reasoning_effort="{suite["reasoning_effort"]}"',
+                    "-c",
+                    'approval_policy="never"',
+                    "--output-last-message",
+                    str(final_path),
+                    "--json",
+                    *CONDITION_ARGS[condition],
+                    str(approval_followup),
+                ]
+                approval_started = time.monotonic()
+                approval_result = _run(
+                    approval_command,
+                    cwd=candidate,
+                    timeout=1_800,
+                )
+                approval_elapsed = time.monotonic() - approval_started
+                _write(run_dir / "approval-events.jsonl", approval_result.stdout)
+                _write(run_dir / "approval-stderr.txt", approval_result.stderr)
+                if final_path.exists():
+                    final_message = final_path.read_text(encoding="utf-8")
+
+            candidate_elapsed = preview_elapsed + approval_elapsed
+            combined_events = candidate_result.stdout
+            combined_stderr = candidate_result.stderr
+            if approval_result is not None:
+                combined_events += "\n" + approval_result.stdout
+                combined_stderr += "\n" + approval_result.stderr
+            _write(run_dir / "events.jsonl", combined_events)
+            _write(run_dir / "codex-stderr.txt", combined_stderr)
 
             diff_result = _run(
                 ["git", "diff", "--no-ext-diff", "--binary"],
@@ -347,17 +419,37 @@ def main() -> int:
             diff = diff_result.stdout
             _write(run_dir / "candidate.patch", diff)
             checks = _candidate_checks(case, candidate)
-            runtime_trace = _runtime_trace(
-                candidate_result.stdout + "\n" + candidate_result.stderr
-            )
+            if needs_followup:
+                checks.append(
+                    {
+                        "name": "repository unchanged before Design Contract approval",
+                        "passed": not pre_approval_diff.strip(),
+                        "required": True,
+                        "evidence": pre_approval_diff[-4_000:]
+                        or "no pre-approval repository diff",
+                    }
+                )
+            runtime_trace = _runtime_trace(combined_events + "\n" + combined_stderr)
             if candidate_result.returncode != 0:
                 checks.append(
                     {
-                        "name": "Codex implementation run",
+                        "name": "Codex design-preview run",
                         "passed": False,
                         "required": True,
                         "evidence": (candidate_result.stderr or candidate_result.stdout)[-4_000:]
                         or f"exit code {candidate_result.returncode}",
+                    }
+                )
+            if approval_result is not None and approval_result.returncode != 0:
+                checks.append(
+                    {
+                        "name": "Codex approved implementation run",
+                        "passed": False,
+                        "required": True,
+                        "evidence": (
+                            approval_result.stderr or approval_result.stdout
+                        )[-4_000:]
+                        or f"exit code {approval_result.returncode}",
                     }
                 )
 
@@ -366,7 +458,16 @@ def main() -> int:
                 prompt=_judge_prompt(
                     masked_id=masked_id,
                     case=case,
+                    expected_activation=(
+                        bool(case["expected_activation"])
+                        and condition != "no-plugin"
+                    ),
+                    approval_followup=(
+                        str(approval_followup) if needs_followup else None
+                    ),
                     diff=diff,
+                    pre_approval_diff=pre_approval_diff,
+                    preview_message=preview_message,
                     final_message=final_message,
                     checks=checks,
                     runtime_trace=runtime_trace,
@@ -377,7 +478,12 @@ def main() -> int:
             _write(run_dir / "judge-events.jsonl", judge_result.stdout)
             _write(run_dir / "judge-stderr.txt", judge_result.stderr)
 
-            usage = _usage_from_jsonl(candidate_result.stdout)
+            usage = _sum_usage(
+                _usage_from_jsonl(candidate_result.stdout),
+                _usage_from_jsonl(approval_result.stdout)
+                if approval_result is not None
+                else {},
+            )
             judge_usage = _usage_from_jsonl(judge_result.stdout)
             assessment = {
                 "schema_version": 1,
@@ -388,6 +494,9 @@ def main() -> int:
                 "metrics": {
                     **usage,
                     "elapsed_seconds": round(candidate_elapsed, 3),
+                    "preview_elapsed_seconds": round(preview_elapsed, 3),
+                    "approval_elapsed_seconds": round(approval_elapsed, 3),
+                    "approval_turns": 1 if approval_result is not None else 0,
                     "judge_input_tokens": judge_usage.get("input_tokens", 0),
                     "judge_output_tokens": judge_usage.get("output_tokens", 0),
                     "judge_elapsed_seconds": round(judge_elapsed, 3),

@@ -1,121 +1,123 @@
 ---
 name: build-brief
-description: When explicitly invoked for a software build, change, design review, or handoff, compile the request into the smallest sufficient Design Contract before edits, then execute or hand off. Never invoke implicitly; ordinary requests remain on the normal workflow.
+description: When explicitly invoked for a software design or change, translate natural-language intent and repository context into the smallest sufficient developer Design Contract, explain the same contract plainly, and wait for approval before implementation. Never invoke implicitly and never turn the contract into a task plan, phases, or execution steps.
 ---
 
 # Build Brief
 
-Compile the user's natural-language intent and actual repository context into the software-design language this situation needs, then issue it as an actionable implementation command. This is a semantic translation layer, not a chooser over a fixed catalog of architectures or programming styles.
+Translate the user's natural-language intent and actual repository context into the software-design language this situation needs. Build Brief is a semantic compiler, not a chooser over fixed architecture labels and not a project-planning system.
 
-## Route depth after invocation
+## Keep the product boundary exact
 
-Keep explicitly invoked work proportional:
+Build Brief owns only:
 
-- For an explanation or other request with no implementation, answer directly without manufacturing a directive.
-- For a trivial, fully specified edit, return control to the ordinary workflow. If Build Brief was explicitly invoked or strict mutation mode requests a contract, use a compact contract with one concise item per field.
-- For consequential work, form the smallest full contract that preserves every required invariant. Read [references/translation-guide.md](references/translation-guide.md) only when the change is broad, crosses boundaries, or has non-obvious state, failure, compatibility, or handoff semantics.
+- recovering the requested behavior and consequential constraints;
+- discovering the narrow repository evidence needed to resolve them;
+- compiling an authoritative developer-facing Design Contract;
+- deriving a faithful plain-language explanation of that same contract;
+- asking the user to approve, revise, simplify, or cancel the contract.
 
-These are context-depth choices, not architecture categories. Do not ask the user to select design vocabulary the request and repository can resolve.
+Do not emit implementation phases, numbered steps, task lists, work breakdowns, or execution order. After approval, the ordinary coding workflow decides how to plan and perform the work while treating the approved Design Contract as binding.
 
-## Activate only at the user's boundary
+## Activate only when explicitly selected
 
-Build Brief is opt-in:
-
-- Activate when the user selects the Build Brief plugin or explicitly invokes `$build-brief` for the current work.
-- Do not infer activation merely because a request is large, architectural, vague, or consequential. Ordinary requests remain on the model's normal software-design workflow.
+- Activate when the user selects Build Brief or explicitly invokes `$build-brief` for the current work.
+- Do not infer activation because a request is large, architectural, vague, risky, or consequential.
 - A question about Build Brief is not an invocation to apply it.
-- Do not activate when the user says to proceed without Build Brief.
-- If the user opts out after the current turn was armed, release it with `build-brief-gate bypass` and continue the requested work. Do not debate the opt-out or ask the user to know the control command.
+- Do not activate when the user asks to proceed without Build Brief.
+- If the user opts out after the current turn was armed, run `build-brief-gate bypass` when needed and immediately return to the ordinary workflow.
 
-Users do not need to choose architecture vocabulary after invoking the plugin. Infer the dynamic design language from their requirement and repository. Users who explicitly prefer enforcement for every write may enable strict mode for the session with `build-brief-gate mode strict`; never enable it on their behalf. When they ask to leave strict mode, run `build-brief-gate mode adaptive`.
+Users do not need to choose architecture vocabulary. Infer the relevant design language from the requirement and repository. Enable session-wide strict mode only when the user explicitly asks, with `build-brief-gate mode strict`; leave it with `build-brief-gate mode adaptive`.
 
 ## Preserve meaning and authorization
 
-- Treat the requested outcome, scope, product choices, and authorization as authoritative.
-- Incorporate the codebase's existing boundaries, domain language, runtime, data model, dependencies, failure handling, and tests.
-- Do not translate an existing project as though it were a blank system.
-- Do not turn translation into permission for a rewrite, migration, new service, or wider product.
-- Do not invent scale, latency, organization, deployment, compliance, or compatibility constraints.
-- Do not introduce reusable abstractions or infrastructure for hypothetical future requests.
+- Treat the requested outcome, scope, product decisions, and authorization as authoritative.
+- Use the codebase's boundaries, domain language, runtime, data model, dependencies, failure handling, and tests.
+- Do not treat an existing project as a blank system.
+- Do not translate a request into permission for a rewrite, migration, new service, or wider product.
+- Do not invent scale, latency, organization, deployment, compliance, or compatibility requirements.
+- Do not add abstractions or infrastructure for hypothetical future use.
 
-## Inspect from a narrow evidence frontier
+## Inspect from the narrowest evidence frontier
 
-Before designing an implementation, start at the behavior named by the request: find its owning entry point, immediate state owner, relevant contracts, and focused tests. Widen the search only while a consequential behavior remains unresolved. Do not scan the whole repository, create a complete architecture map, or load supporting references merely because the task is large.
+Start at the behavior named by the request. Locate its owning entry point, state or data owner, external contracts, and focused tests. Widen inspection only while a consequential behavior remains unresolved. Do not scan the whole repository or create a complete architecture map by default.
 
-Stop inspecting when the owning boundary, observable behavior, material system semantics, implementation slices, and completion evidence are known well enough to act without a consequential guess.
+Stop when the owning boundary, observable behavior, material system semantics, minimum justified design delta, and completion evidence are known well enough to form the contract without a consequential guess.
 
-## Compile a proportional Design Contract
+For broad or cross-boundary work with non-obvious state, failure, compatibility, or handoff semantics, read [references/translation-guide.md](references/translation-guide.md).
 
-Make implicit engineering consequences explicit only when they change code, configuration, data, operations, or verification. Useful language may come from domain modeling, state transitions, contracts, concurrency, consistency, failure handling, data lifecycle, security, performance, observability, migration, or another relevant discipline; this vocabulary is open-ended.
+## Compile the authoritative Design Contract
 
-Complete the Design Contract top-down:
+Use whatever software-engineering language makes the request precise. Relevant language may come from domain modeling, state transitions, contracts, concurrency, consistency, failure handling, data lifecycle, security, performance, observability, migration, or another discipline. This vocabulary is open-ended.
 
-1. **Boundary:** locate the current component, data owner, or external contract that owns the behavior.
-2. **Invariants:** define the requested observable behavior and what must remain true.
-3. **System semantics:** resolve only the responsibilities, state, flow, timing, ordering, concurrency, consistency, failure, security, compatibility, migration, and operations that materially affect those invariants.
-4. **Implementation:** derive the smallest coherent implementation slices.
-5. **Minimality:** state which existing boundaries and mechanisms are reused; justify every material new design element or state that none is introduced.
-6. **Proof:** define focused tests, checks, or operational evidence that prove the behavior.
+The developer-facing contract must contain:
 
-The gate passes only when consequential behavior no longer depends on an unstated guess, every design term changes an implementation action, invariant, or verification step, and no larger design is chosen when a smaller one satisfies the same invariants. A local edit may need one sentence; a cross-boundary feature may need a fuller contract. Keep the contract internal unless the user requests review or a reusable directive.
+- **Boundary:** the current component, data owner, or external contract that owns the behavior.
+- **Invariants:** observable requirements and facts that must remain true.
+- **System semantics:** only the responsibilities, state, data ownership, flow, timing, ordering, concurrency, consistency, failure, security, compatibility, migration, and operational meaning that materially preserve the invariants.
+- **Minimality:** existing boundaries and mechanisms to reuse, plus present evidence for every material new design element.
+- **Proof:** observable acceptance criteria and focused evidence that would demonstrate the behavior.
+
+These are design obligations, not an ordered implementation sequence. Do not add an `implementation`, `steps`, `phases`, `tasks`, `plan`, or `execution_order` section.
+
+The contract is ready only when consequential behavior no longer depends on an unstated guess, each design term changes an invariant or implementation constraint, and no larger design is chosen when a smaller one preserves the same invariants.
+
+## Explain the same contract plainly
+
+Read [references/directive-format.md](references/directive-format.md) whenever a contract will be shown to the user.
+
+Place a short plain-language explanation before the developer contract. Explain what the resulting software will do, why the important safeguards exist, what remains unchanged, and any material failure or tradeoff the user is approving.
+
+The explanation is a human-readable projection of the contract, not a second design:
+
+- introduce no decision, guarantee, assumption, or scope absent from the developer contract;
+- omit no material invariant, compatibility promise, failure behavior, or justified new design element;
+- translate necessary technical terms in context rather than removing their consequences;
+- regenerate the explanation whenever the developer contract changes.
+
+If the two views disagree, neither is ready for approval. The developer-facing contract is authoritative, while the plain explanation lets the user understand what that contract means.
+
+## Require approval before implementation
+
+For an explicitly invoked build or change request:
+
+- run `build-brief-gate arm` before any mutation; read-only inspection remains available;
+- show the plain-language explanation and the developer-facing Design Contract;
+- ask whether the user approves, wants a revision, wants a simpler explanation, or wants to cancel;
+- stop without passing the gate or modifying code, tests, configuration, schemas, or other local files.
+
+Do not treat the original request, a request to "build it," or approval given before the contract was shown as approval of the compiled contract.
+
+After the user explicitly approves the displayed contract, arm the new turn and run `build-brief-gate pass '<JSON>'` with the exact approved meaning before the first mutation. Then hand control to the ordinary coding workflow. If the user requests a design revision, update the developer contract, regenerate its plain explanation, and request approval again. If the user asks only for an easier explanation, keep the developer contract unchanged, rewrite its plain-language view faithfully, and request approval again. If the user cancels, do not implement.
+
+Use a compact JSON object with:
+
+- `plain_language`: the faithful, non-empty plain-language explanation;
+- `boundary`: a non-empty string;
+- `invariants`: a non-empty list of observable requirements;
+- `system_semantics`: a non-empty list of developer-facing design obligations;
+- `minimality`: a non-empty list naming reused structure and justifying each material addition, or stating that none is introduced;
+- `proof`: a non-empty list of acceptance criteria or focused completion evidence.
+
+The Hook records only a digest outside the repository. It validates contract shape and mutation ordering, not the truth of the design or the authenticity of human approval; the Skill must preserve that interaction boundary. If the Hook is disabled or untrusted, follow the same ordering at instruction level and disclose that runtime enforcement was inactive.
+
+A design-only, review-only, or handoff-only request makes no mutation. Show the paired explanation and contract, honor the requested deliverable, and do not manufacture an implementation plan.
 
 ## Enforce minimum-sufficient design
 
-Treat required behavior and invariants as a hard correctness gate. Among candidates that pass it, choose the one with the smallest justified design delta and the greatest reuse of the current system.
+Required behavior and invariants are the correctness gate. Among candidates that satisfy them, choose the smallest justified design delta and maximize reuse of the current system.
 
-Count a new deployable unit, data store, queue or asynchronous boundary, public contract, framework or dependency, abstraction layer, configuration surface, or operational component as a material design element. It is not automatically wrong, but it earns a place only when all of these are true:
+A new deployable unit, store, queue or asynchronous boundary, public contract, framework or dependency, abstraction layer, configuration surface, or operational component belongs only when a current requirement or repository fact requires it, the existing structure cannot preserve an invariant with a smaller change, the prevented failure is concrete, and focused proof is available.
 
-- a current requirement, repository fact, or material failure mode requires it;
-- the existing structure cannot preserve the invariant with a smaller change;
-- the failure it prevents and the proof that will verify it are concrete.
-
-Hypothetical scale, imagined reuse, possible future teams, fashionable patterns, and vocabulary alone are not evidence. Do not remove necessary concurrency, safety, compatibility, or failure handling merely to make the design look smaller.
-
-In `minimality`, name the current structure being reused and justify each material addition. If no material element is added, say so concisely. Reject a larger candidate whenever a smaller candidate passes the same correctness gate.
-
-## Arm and pass the mutation gate when activated
-
-When explicitly invoked Build Brief activates, do not modify code, tests, configuration, schemas, or other local files before the Design Contract passes. Work that did not invoke Build Brief remains on the ordinary workflow and is not blocked.
-
-When the installed plugin hook supplies control commands:
-
-1. Run `build-brief-gate arm` after routing the request to Build Brief and before any mutation. Read-only inspection remains available.
-2. Complete the proportional Design Contract.
-3. Run `build-brief-gate pass '<JSON>'` after completing the contract and before the first mutation.
-
-Supply a compact JSON object with:
-
-- `boundary`: a non-empty string;
-- `invariants`: a non-empty list of observable requirements;
-- `implementation`: a non-empty list of coherent implementation slices;
-- `minimality`: a non-empty list naming reused structure and justifying each material new design element, or stating that none is introduced;
-- `proof`: a non-empty list of completion evidence.
-
-Keep the payload proportional and do not use the command as a substitute for design. The hook records only a digest in plugin data outside the repository. If a control command is not intercepted because the Hook is disabled or untrusted, do not retry it or install a replacement executable. Follow the same instruction-level ordering, keep the repository clean, and mention that runtime enforcement was inactive in the completion evidence.
-
-Read-only repository inspection may happen before the gate and remains allowed after arming. A review-only, plan-only, or directive-only request makes no mutation and therefore does not need to pass the runtime mutation gate. If the user explicitly opts out, run `build-brief-gate bypass` only when needed to release an already armed or strict gate, then use the ordinary workflow.
-
-## Route the compiled command
-
-Match the user's requested outcome:
-
-- **Build or change:** pass the Design Contract and mutation gates, implement, verify the invariants, and report the outcome. Do not stop after translation or require approval for reversible details resolved by repository evidence.
-- **Review first:** read [references/directive-format.md](references/directive-format.md), expose the contract in top-down order, and wait for approval before implementation.
-- **Plan, handoff, or directive only:** read [references/directive-format.md](references/directive-format.md), expose a concise reusable directive, and do not implement it.
-- **Compare implementations:** discard candidates that miss required invariants, then prefer the smallest justified design delta among the candidates that pass. Compare concrete consequences rather than labels.
-
-Explicit `$build-brief` invocation always activates the skill and follows the requested mode. Without explicit invocation, do not apply this Skill or arm its mutation gate.
+Hypothetical scale, future reuse, imagined teams, and fashionable vocabulary are not evidence. Do not remove necessary concurrency, safety, compatibility, or failure behavior merely to make the design look smaller.
 
 ## Resolve ambiguity proportionally
 
-- Ask the smallest question only when its answer materially changes public behavior, cost, data safety, security, or a difficult-to-reverse decision.
-- If such a decision remains unresolved, do not pass the gate or begin implementation.
-- Otherwise use a conservative, reversible assumption and disclose it only when consequential.
-- Do not present a vocabulary menu when a coherent directive can be inferred.
+Ask the smallest question only when the answer changes public behavior, cost, data safety, security, or a difficult-to-reverse decision. Otherwise use a conservative, reversible assumption and expose it when consequential. Never ask the user to choose technical vocabulary that repository evidence can resolve.
 
 ## Communicate plainly
 
 - Use the user's language and level of technical detail.
-- Lead with the outcome and expose design terminology only when requested or materially clarifying.
-- Prefer executable verbs and concrete invariants over architecture slogans.
-- Define completion through observable behavior and evidence, not sophisticated vocabulary.
+- Lead with the easy explanation, followed by the authoritative developer contract.
+- Prefer concrete invariants and consequences over architecture slogans.
+- When asked to explain more simply, simplify the explanation without weakening or changing the contract.

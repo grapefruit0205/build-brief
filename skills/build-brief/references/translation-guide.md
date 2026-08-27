@@ -1,75 +1,59 @@
 # Translation Guide
 
-Use this guide to convert product intent into a handoff-quality software-design directive. The vocabulary is open-ended and must emerge from the request, codebase, and operating context. Never treat the examples below as a taxonomy from which one label must be selected.
+Use this guide to turn product intent into an approval-ready software Design Contract. The vocabulary is open-ended and must emerge from the request, codebase, and operating context. Never treat the examples below as a taxonomy from which one label must be selected.
 
-## Translate in four passes
-
-### 1. Recover the intended reality
+## Recover the intended reality
 
 Identify the actors, desired outcome, observable behavior, existing constraints, and what the user considers done. Distinguish product facts from implementation guesses.
 
-### 2. Read the actual system
+## Read the actual system
 
-When code exists, trace the relevant behavior and learn the system's own language: modules, domain objects, state stores, interfaces, asynchronous paths, deployment boundaries, failure handling, and tests. Reuse established concepts when they still fit.
+When code exists, trace the relevant behavior and learn the system's language: modules, domain objects, state stores, interfaces, asynchronous paths, deployment boundaries, failure handling, and tests. Reuse established concepts when they still fit.
 
-### 3. Generate the necessary design semantics
+## Generate only necessary design semantics
 
-Mobilize any software-engineering concept that makes an implicit requirement precise. Depending on the situation, useful language may come from domain modeling, state machines, contracts, transaction boundaries, concurrency control, consistency models, data lifecycle, ports and adapters, queues, scheduling, caching, resilience, security, observability, migrations, testing, or another relevant discipline.
+Use any software-engineering concept that makes an implicit requirement precise. Depending on the situation, useful language may come from domain modeling, state machines, contracts, transaction boundaries, concurrency control, consistency models, data lifecycle, ports and adapters, queues, scheduling, caching, resilience, security, observability, migrations, testing, or another relevant discipline.
 
-This list is illustrative, not limiting. Start from the situation and derive the language; never start from the list and force the situation into it.
+The list is illustrative, not limiting. Start from the situation and derive the language; never start from the list and force the situation into it. Every term must earn its place by changing an invariant, implementation constraint, or proof condition.
 
-Every term must earn its place by implying at least one concrete action or invariant. If removing a term would not change the implementation or its verification, omit it.
+Correctness is the hard gate. Minimality ranks only candidates that satisfy it. Reuse the current boundary, runtime, data ownership, dependencies, and operational path unless present evidence shows they cannot preserve a required invariant.
 
-Correctness is the hard gate; minimality ranks only candidates that satisfy it. Reuse the current boundary, runtime, data ownership, dependencies, and operational path unless present evidence shows that doing so cannot preserve a required invariant. A new deployable unit, store, queue or asynchronous boundary, public contract, framework, abstraction, configuration surface, or operational component must identify the current need, why existing structure is insufficient, the failure prevented, and the proof. Hypothetical scale or reuse is not evidence.
+A new deployable unit, store, queue or asynchronous boundary, public contract, framework, abstraction, configuration surface, or operational component must identify the current need, why existing structure is insufficient, the failure prevented, and focused proof. Hypothetical scale or reuse is not evidence.
 
-### 4. Emit an imperative directive
+## Express a contract, not a task plan
 
-Turn the semantics into commands an implementation agent can follow:
+State the owning boundary, observable invariants, relevant system semantics, minimum justified design delta, and proof. These are constraints the implementation must satisfy, not directions about which file to edit first or how to divide the work.
 
-- locate the behavior in the correct boundary;
-- model the relevant state and invariants;
-- define inputs, outputs, and compatibility contracts;
-- specify ordering, concurrency, consistency, and failure semantics where material;
-- constrain data, security, performance, or operations where material;
-- require observable proof of the user-visible outcome.
+Do not emit phases, numbered steps, tasks, a work breakdown, or execution order. Preserve the implementation agent's freedom over low-level sequencing and reversible details that do not affect the approved meaning.
 
-The directive may be used internally for immediate execution or surfaced for a human or another agent.
+## Mirror the contract in plain language
 
-Before implementation writes begin, make sure these passes form an implementation-ready Design Contract: the owning boundary is known, observable behavior and invariants are explicit, consequential system semantics are resolved, the smallest justified design delta is selected, and completion evidence is defined. This is the design gate. Keep it proportional to the change rather than attempting to finish the architecture of the entire system.
-
-## Translate consequences, not labels
+Create a short explanation from the completed developer contract. Explain the user-visible result, important safeguards, unchanged behavior, and material failure or tradeoff in familiar language. Do not introduce new design decisions or omit material consequences.
 
 Weak translation:
 
 > Use an event-driven, functional, modular architecture.
 
-Strong translation:
+Strong developer contract:
 
-> At the existing publication boundary, preserve the current write path and use the repository's notification mechanism. Make delivery idempotent per follower and post where duplicate delivery is a real risk, define how notification failure affects publication, and test that behavior. Add no new service or broker unless current reliability requirements and repository evidence show the existing path cannot preserve those invariants.
+> At the existing publication boundary, preserve the current write path and notification mechanism. Make delivery idempotent per follower and post where duplicate delivery is a real risk, define how notification failure affects publication, and require proof for that behavior. Add no service or broker unless current reliability requirements and repository evidence show the existing path cannot preserve those invariants.
 
-The strong form may use established design terms when they compress meaning, but it also states what those terms require in this system.
+Faithful plain-language explanation:
 
-## Adapt depth to the task
+> Publishing continues through the current system. A follower should receive each notification once even if the same work is retried, and a notification failure must not silently change whether the post was published. No new service or message broker is added unless the existing notification path is proven unable to provide those safeguards.
 
-- For a small change, the compiled directive may be one sentence naming the boundary, invariant, and check.
-- For a cross-cutting feature, include the affected contracts, state transitions, failure semantics, rollout, and verification.
-- For legacy code, express safe-change commands such as tracing callers, characterizing current behavior, creating a seam, preserving compatibility, and changing incrementally.
-- For a new system, establish only the boundaries and operational qualities required now. Do not fabricate future scale or team structure.
+## Adapt depth without changing the output kind
+
+A small change may need one sentence per contract concern. Cross-boundary work may need affected contracts, state transitions, failure semantics, rollout constraints, and verification. Legacy work may require compatibility and characterization obligations. A new system should establish only the boundaries and operational qualities required now.
+
+Depth may change; the output remains a Design Contract plus its plain-language explanation, never a task plan.
 
 ## Reject unjustified design delta
 
-For every candidate, account for material additions. Reject it when any addition lacks current evidence, exists only for possible future reuse or scale, duplicates an adequate existing mechanism, or has no concrete failure and proof attached. If two candidates satisfy the same invariants, prefer the one that adds fewer boundaries, dependencies, stores, contracts, abstractions, and operational responsibilities.
+Reject any material addition that lacks current evidence, exists only for possible future reuse or scale, duplicates an adequate mechanism, or has no concrete failure and proof attached. If two candidates preserve the same invariants, prefer the one adding fewer boundaries, dependencies, stores, contracts, abstractions, and operational responsibilities.
 
-Do not turn this into a raw component-count contest. A necessary transaction boundary, deduplication record, compatibility layer, or failure path remains required when the invariant demands it; omitting it is under-design, not simplicity.
-
-## Avoid vocabulary theater
-
-- Do not expose a glossary unless the user asks for teaching.
-- Do not ask the user to pick among design labels the translator can resolve.
-- Do not decorate an ordinary function or edit with architecture language.
-- Do not equate a named pattern with a finished command.
-- Do not silently replace the user's product intent with a technically interesting adjacent problem.
+Do not turn this into raw component counting. A necessary transaction boundary, deduplication record, compatibility layer, or failure path remains required when the invariant demands it; omitting it is under-design, not simplicity.
 
 ## Completion test
 
-The design gate is ready when an implementation agent can act without guessing about consequential behavior, while retaining freedom over low-level details that do not affect the user's outcome. Implementation must not begin before this condition is met.
+The contract is ready when an implementation agent can preserve every consequential behavior without guessing, while remaining free to choose low-level work sequencing. The plain-language explanation is ready when a non-specialist can understand the same approved meaning without a material omission or contradiction.

@@ -2,7 +2,7 @@
 
 English | [한국어](README.ko.md)
 
-Build Brief is a small, explicitly invoked Codex plugin that compiles a software request into the smallest sufficient context-aware engineering directive. It arms its Hook only for selected work; without invocation it adds no session context and blocks nothing.
+Build Brief is a small, explicitly invoked Codex plugin that translates a software request into the smallest sufficient context-aware developer Design Contract. It explains the same contract in plain language and waits for approval before implementation. It arms its Hook only for selected work; without invocation it adds no session context and blocks nothing.
 
 It is **not** an architecture-pattern picker. It does not ask users to choose between a modular monolith, microservices, event-driven design, batch processing, functional programming, or other labels. It reads the request and the actual codebase, generates only the design semantics that matter in that situation, and translates each one into a concrete implementation or verification consequence.
 
@@ -10,7 +10,7 @@ It is **not** an architecture-pattern picker. It does not ask users to choose be
 
 A capable coding model can already infer architecture from natural language. Build Brief does not add new intelligence. It makes that inference more repeatable, explicit, and suitable for handoff—especially when requirements are vague, several agents or developers are involved, or important invariants are easy to miss.
 
-Use ordinary natural language as the default. Use Build Brief when you want a visible engineering directive, more consistent treatment of implicit constraints, or a reusable implementation handoff.
+Use ordinary natural language as the default. Use Build Brief when you want to inspect and approve the meaning that developers or coding agents must preserve before they plan or implement the work.
 
 ## What it does
 
@@ -19,24 +19,30 @@ plain-language intent
   → explicitly select Build Brief for this work
   → inspect the narrowest relevant repository context
   → arm the gate for this invoked turn
-  → complete the smallest sufficient Design Contract
-  → record the mutation gate outside the repository
-  → implement, review, compare, or hand off as requested
+  → compile the smallest sufficient developer Design Contract
+  → explain that same contract in plain language
+  → wait for approval without modifying the repository
+  → hand the approved contract to the ordinary coding workflow
 ```
 
 Examples of semantics it may derive include state transitions, domain invariants, contracts, concurrency, consistency, failure behavior, data lifecycle, compatibility, security, observability, rollout, and proof of completion. This is an open vocabulary, not a checklist.
 
-## Explicit invocation, architecture-first execution
+## Explicit invocation, approval-ready design
 
 Build Brief uses an opt-in invocation model:
 
-- **Explicit invocation:** Select the plugin or use `$build-brief` when you want a reviewable Design Contract before implementation.
+- **Explicit invocation:** Select the plugin or use `$build-brief` when you want to review and approve a developer Design Contract before implementation.
 - **No implicit activation:** Large, vague, or architectural requests alone do not activate the Skill. Ordinary natural-language work stays on the model's normal workflow.
-- **Invocation-scoped mutation guard:** After explicit activation, the Skill arms the current turn. The Hook then requires a contract containing the owning boundary, invariants, implementation slice, minimality justification, and proof.
+- **Paired contract views:** Build Brief shows the authoritative developer contract and a faithful plain-language explanation of the same meaning.
+- **Approval before implementation:** The original build request is not approval of the compiled contract. Build Brief waits after presenting both views and does not modify code until the user approves.
+- **No task planning:** Build Brief does not produce phases, numbered steps, tasks, work breakdowns, or execution order. The ordinary coding workflow owns planning after approval.
+- **Invocation-scoped mutation guard:** After explicit activation, the Skill arms the current turn. The Hook then requires a contract containing a plain-language explanation, owning boundary, invariants, system semantics, minimality justification, and proof.
 - **Immediate opt-out:** If the user changes their mind after activation, Build Brief releases the current turn and continues normally.
 - **Optional strict mode:** Users who want a contract before every supported write can enable strict mode for the session. Build Brief never enables it on their behalf.
 
-For invoked work, Build Brief completes an implementation-ready Design Contract before modifying code, tests, configuration, or schemas. The contract proceeds top-down from the current system boundary and observable behavior to invariants, ownership, state, contracts, execution flow, material failure semantics, implementation slices, minimality accounting, and proof. A lightweight lifecycle Hook enforces the same ordering only after the Skill arms the turn.
+For invoked work, Build Brief completes an implementation-ready Design Contract before modifying code, tests, configuration, or schemas. The contract fixes the current system boundary, observable invariants, consequential system semantics, minimum justified design delta, and proof conditions. It intentionally does not prescribe how the coding agent divides or orders the work. A lightweight lifecycle Hook enforces the mutation boundary only after the Skill arms the turn.
+
+The plain-language view explains what the resulting software will do, why important safeguards exist, what stays unchanged, and which material failure or tradeoff is being approved. It may simplify terminology but cannot add a decision or omit a material consequence from the developer contract. Approval applies to the developer contract; the explanation makes that same contract understandable.
 
 This gate is proportional. It fixes the consequential design for the requested change; it does not attempt to freeze the architecture of the whole system. Read-only inspection stays available before the gate, and the Skill starts from the behavior's entry point instead of scanning the whole repository.
 
@@ -56,7 +62,9 @@ Input:
 
 > When inventory drops below five, notify the buyer once. Several inventory updates may arrive close together.
 
-The plugin should translate this into consequences such as detecting a threshold crossing instead of every low-stock write, making duplicate suppression safe under concurrent updates, defining notification failure behavior, and testing the boundary and race cases. It should reuse the existing inventory and notification paths, adding no broker or service unless current evidence shows those paths cannot preserve the invariants. It should not merely answer “use event-driven architecture and idempotency.”
+The plugin should translate this into design obligations such as detecting a threshold crossing instead of every low-stock write, making duplicate suppression safe under concurrent updates, defining notification failure behavior, and requiring evidence for the boundary and race cases. It should reuse the existing inventory and notification paths, adding no broker or service unless current evidence shows those paths cannot preserve the invariants. It should not merely answer “use event-driven architecture and idempotency,” and it should not turn the design into an implementation checklist.
+
+A faithful plain-language view might say: “Notify the buyer when inventory first crosses below five, not on every later low-stock update. Concurrent updates must still produce one notification, and the current inventory and notification systems stay in place unless they are proven unable to provide that guarantee.” Build Brief then shows the corresponding developer contract and asks for approval.
 
 ## Install from GitHub
 
@@ -71,7 +79,7 @@ Restart the ChatGPT desktop app after installing, review and trust the bundled B
 
 ## Use
 
-Use natural language for normal work. Select Build Brief or invoke `$build-brief` only when you want its Design Contract and implementation gate.
+Use natural language for normal work. Select Build Brief or invoke `$build-brief` only when you want to inspect and approve its Design Contract before implementation.
 
 You do not need to choose architecture terminology. Decide only whether this work benefits from a reviewable, reusable design contract. Typical uses include consequential behavior with implicit failure semantics, legacy changes that must preserve compatibility, cross-boundary work, or a handoff to another person or agent.
 
@@ -83,22 +91,22 @@ Proceed with the ordinary workflow without Build Brief for this task.
 
 To require the gate for every supported write in the current session, explicitly invoke Build Brief and ask it to enable strict mode.
 
-Automatic build after the internal design gate:
+Build or change request:
 
 ```text
 $build-brief Add partial refunds to this legacy checkout flow without changing existing full refunds.
 ```
 
-Review before coding:
+Build Brief will inspect the relevant code, show the plain-language explanation and developer contract, then wait. Continue only after reviewing them:
 
 ```text
-$build-brief Show me the design contract first and wait for approval before coding.
+I approve this Design Contract. Continue with implementation.
 ```
 
 Directive only:
 
 ```text
-$build-brief Create a handoff-ready engineering directive. Do not implement it.
+$build-brief Create a handoff-ready developer Design Contract with a plain-language explanation. Do not implement it or create a task plan.
 ```
 
 ## Design principles
@@ -107,12 +115,15 @@ $build-brief Create a handoff-ready engineering directive. Do not implement it.
 - Inspect an existing repository before translating it.
 - Generate design language from the situation instead of selecting from a fixed catalog.
 - Attach every design term to a concrete implementation or verification consequence.
+- Present one authoritative developer contract and one faithful plain-language view of the same meaning.
+- Treat approval as approval of the developer contract, not merely the easy explanation.
+- Never substitute phases, steps, tasks, or execution order for the Design Contract.
 - Treat correctness as a hard gate, then choose the smallest justified design delta among passing candidates.
 - Reuse existing structure and require present evidence for every material new design element.
 - When Build Brief is explicitly invoked, do not modify implementation files until the proportional Design Contract passes its armed gate.
 - Honor explicit opt-out immediately and never enable strict mode without the user choosing it.
 - Start from the narrowest relevant evidence and widen only for unresolved consequential behavior.
-- Execute the directive when implementation was requested; do not stop at a design document.
+- Wait for approval after presenting the contract, then hand it to the ordinary coding workflow for planning and implementation.
 - Keep small changes small and avoid vocabulary theater.
 
 ## Repository layout
@@ -148,15 +159,15 @@ python3 -m unittest discover -s tests -v
 python3 evals/semantic_grader.py /path/to/assessment.json
 ```
 
-For behavioral evaluation, compare the same representative prompts with no plugin, with explicitly invoked Skill only, and with explicitly invoked Skill plus Hook. A blinded model or human judge emits structured findings with evidence; the deterministic grader treats task correctness and unwanted blocking as hard gates, then weights minimum-sufficient design most heavily. Also measure activation, opt-out behavior, mutation ordering, clarification turns, time, tokens, Hook costs, and proof of completion.
+For behavioral evaluation, compare the same representative prompts with no plugin, with explicitly invoked Skill only, and with explicitly invoked Skill plus Hook. Approval-first cases run a design-preview turn, verify that the repository stayed unchanged, then resume the same session with explicit approval for implementation. A blinded model or human judge emits structured findings with evidence; the deterministic grader treats correctness, unwanted blocking, premature implementation, explanation mismatch, and task-plan leakage as hard gates, then weights minimum-sufficient design most heavily. Also measure activation, opt-out behavior, time, tokens, and Hook costs.
 
 The first measured pilot exposed the v0.5.0 defect that motivated v0.6.0. On one pinned real-repository opt-out task, no-plugin and Skill-only conditions scored 100, while Skill+Hook scored 0 after blocking once and requiring a Design Contract. See [`evals/results/v0.5.0-opt-out-pilot.json`](evals/results/v0.5.0-opt-out-pilot.json). This is one run per condition, not a general benchmark.
 
 ## Current scope
 
-Build Brief deliberately does not decide which ordinary tasks need architecture-first treatment. Strong coding models still perform their normal implicit design without it. Explicit selection trades some extra time and tokens for a visible, reusable Design Contract and an enforceable ordering gate; optional strict mode provides session-wide enforcement when a user deliberately wants it.
+Build Brief deliberately does not decide which ordinary tasks need architecture-first treatment. Strong coding models still perform their normal implicit design without it. Explicit selection trades some extra time and tokens for a visible, understandable, approval-ready Design Contract and an enforceable mutation boundary; optional strict mode provides session-wide enforcement when a user deliberately wants it.
 
-Once armed—or whenever user-selected strict mode is active—the Gate blocks supported mutation paths such as `apply_patch` and guarded Bash commands until a structurally valid contract is recorded. Covered read-only commands and safe read-only pipelines remain available. This is an ordering guardrail, not a complete security boundary: users must trust and enable the Hook, and specialized tool paths may not pass through Codex lifecycle hooks. The Hook requires a `minimality` field but validates only its shape; whether the proposed design is truly minimum-sufficient still belongs to the Skill, repository evidence, and behavioral evaluation. It also launches a small standard-library Python process for each covered local tool call, so command-heavy work retains a modest per-tool latency cost even though repeated prompt context is avoided.
+Once armed—or whenever user-selected strict mode is active—the Gate blocks supported mutation paths such as `apply_patch` and guarded Bash commands until a structurally valid contract is recorded. Covered read-only commands and safe read-only pipelines remain available. The contract must contain `plain_language`, `boundary`, `invariants`, `system_semantics`, `minimality`, and `proof`; top-level task-plan fields such as `implementation`, `steps`, `phases`, and `tasks` are rejected. This is an ordering guardrail, not a complete security boundary: the Hook validates shape, not semantic truth or authentic human approval, and specialized tool paths may not pass through Codex lifecycle hooks. Those guarantees remain the responsibility of the Skill, repository evidence, user interaction, and behavioral evaluation. The Hook also launches a small standard-library Python process for each covered local tool call, so command-heavy work retains a modest per-tool latency cost.
 
 ## License
 

@@ -1,4 +1,4 @@
-version: 7
+version: 8
 skill: build-brief
 evaluation_conditions:
   - no-plugin
@@ -10,6 +10,9 @@ evaluation_dimensions:
   - opt_out_honored
   - read_only_false_positive
   - mutation_before_gate
+  - approval_before_implementation
+  - plain_language_fidelity
+  - task_plan_leak
   - requirement_correctness
   - missed_invariants
   - unnecessary_architecture
@@ -21,7 +24,7 @@ evaluation_dimensions:
   - repeated_policy_context
   - gate_retry_count
   - hook_latency_per_tool_call
-  - proof_of_completion
+  - verification_definition
 grading_priority:
   correctness_gate: "The result must satisfy the requested observable behavior and material invariants before minimality is scored"
   optimization_target: "Among results that pass correctness, prefer the smallest justified design delta and greatest reuse of existing structure"
@@ -47,16 +50,19 @@ overdesign_rubric:
     - "Chooses a larger design when a smaller candidate preserves the same invariants"
     - "Removes necessary safety or failure behavior to appear simpler"
 global_invariants:
-  - "Compiles natural-language intent into an imperative engineering directive rather than selecting labels from a fixed catalog"
+  - "Compiles natural-language intent into an authoritative developer Design Contract rather than selecting labels from a fixed catalog"
   - "Uses any software-design vocabulary the context requires and ties every term to a concrete implementation or verification consequence"
   - "Does not ask the user to provide technical terminology that can be inferred from the request and codebase"
   - "Activates only after explicit plugin selection or `$build-brief` invocation"
-  - "Completes an implementation-ready Design Contract before modifying code, tests, configuration, or schemas when Build Brief is activated"
+  - "Presents an implementation-ready developer Design Contract and a faithful plain-language explanation before modifying code, tests, configuration, or schemas when Build Brief is activated"
+  - "Treats the developer Design Contract as the approval target and waits for explicit approval after showing it"
+  - "Does not emit phases, numbered implementation steps, tasks, work breakdowns, or execution order"
+  - "Hands the approved contract to the ordinary coding workflow instead of replacing design translation with task planning"
   - "Keeps the Design Contract proportional instead of freezing the architecture of the entire system"
   - "Treats required behavior as a hard gate, then selects the smallest justified design delta among passing candidates"
   - "Reuses existing boundaries and mechanisms unless current evidence proves they cannot preserve an invariant"
   - "Justifies every material new design element with present need, insufficiency of existing structure, failure prevented, and focused proof"
-  - "Executes the compiled directive when implementation was requested instead of stopping after translation"
+  - "Performs no implementation before the displayed developer Design Contract is explicitly approved"
   - "Starts from the narrowest relevant repository evidence and widens only for unresolved consequential behavior"
   - "Leaves every uninvoked and unarmed task unblocked"
   - "Arms the mutation gate when explicit invocation activates Build Brief"
@@ -71,11 +77,12 @@ cases:
     prompt: "$build-brief Two people can edit the same project settings at once. Don't let one person's save silently erase the other's changes. Build the fix."
     expected_activation: true
     expected_mode: build
-    expected_mutation_gate: explicitly-armed-full
+    expected_mutation_gate: none-before-approval
     directive_semantics:
       - "Makes the concurrency conflict and state version explicit"
       - "Defines conflict detection, user-visible resolution behavior, and tests"
       - "Uses repository-compatible concurrency language rather than forcing a named architecture"
+      - "Explains the same conflict behavior plainly and waits for approval without producing a task plan"
     minimality_expectations:
       reuse: "The existing settings write boundary and repository-supported version mechanism"
       reject_without_evidence:
@@ -86,11 +93,12 @@ cases:
     prompt: "$build-brief Users upload large videos, but the page should not sit waiting while previews are generated."
     expected_activation: true
     expected_mode: build
-    expected_mutation_gate: explicitly-armed-full
+    expected_mutation_gate: none-before-approval
     directive_semantics:
       - "Separates upload acceptance from media processing"
       - "Expresses lifecycle, progress, retry, duplicate, failure, and completion semantics where relevant"
       - "Translates resource and latency implications into concrete boundaries without merely naming patterns"
+      - "Presents a faithful plain-language explanation and waits for approval before implementation"
     minimality_expectations:
       reuse: "The existing upload storage and background-job mechanism when they can satisfy the invariants"
       reject_without_evidence:
@@ -101,10 +109,11 @@ cases:
     prompt: "$build-brief Add partial refunds to this old checkout code without changing existing full refunds."
     expected_activation: true
     expected_mode: build
-    expected_mutation_gate: explicitly-armed-full
+    expected_mutation_gate: none-before-approval
     directive_semantics:
       - "Reads the actual checkout flow and preserves its vocabulary"
-      - "Translates compatibility risk into characterization tests, a safe seam, transactional invariants, and incremental change commands"
+      - "Translates compatibility risk into characterization obligations, safe-seam constraints, transactional invariants, and focused proof"
+      - "Does not turn those design obligations into phases or an ordered implementation checklist"
     minimality_expectations:
       reuse: "The existing checkout and refund boundary"
       reject_without_evidence:
@@ -130,11 +139,12 @@ cases:
     prompt: "$build-brief 재고가 5개 아래로 내려가면 구매 담당자에게 한 번만 알려줘. 짧은 시간에 재고 변경이 여러 번 들어올 수도 있어."
     expected_activation: true
     expected_mode: build
-    expected_mutation_gate: explicitly-armed-full
+    expected_mutation_gate: none-before-approval
     directive_semantics:
       - "Responds in the user's language"
-      - "Turns threshold crossing, concurrency, duplicate suppression, and notification failure into concrete commands"
+      - "Turns threshold crossing, concurrency, duplicate suppression, and notification failure into concrete design obligations"
       - "Does not return only terms such as event-driven or idempotent"
+      - "Explains the same meaning in easy Korean and waits for approval"
     minimality_expectations:
       reuse: "The existing inventory write and notification mechanisms"
       reject_without_evidence:
@@ -145,11 +155,11 @@ cases:
     prompt: "$build-brief When a customer cancels, stop future billing immediately, keep access until the paid period ends, and notify our CRM. Build it."
     expected_activation: true
     expected_mode: build
-    expected_mutation_gate: explicitly-armed-full
+    expected_mutation_gate: none-before-approval
     directive_semantics:
       - "Locates billing, entitlement, and CRM integration boundaries before implementation"
       - "Defines cancellation state, access expiration, duplicate handling, external notification failure, and proof before code changes"
-      - "Proceeds automatically after the design gate when repository evidence resolves reversible implementation details"
+      - "Waits for approval after showing a faithful easy explanation and does not produce an execution plan"
     minimality_expectations:
       reuse: "Existing billing, entitlement, and CRM integration contracts"
       reject_without_evidence:
@@ -170,6 +180,22 @@ cases:
       reject_without_evidence:
         - "A new deletion platform"
         - "Unrequested system-wide architecture changes"
+
+  - id: korean-refund-approval
+    prompt: "$build-brief 주문 취소 기능을 설계부터 구현해줘. 중복 환불을 방지하고 기존 API 호환성을 유지해야 해."
+    expected_activation: true
+    expected_mode: build
+    expected_mutation_gate: none-before-approval
+    directive_semantics:
+      - "Translates duplicate-refund prevention and API compatibility into an authoritative developer Design Contract"
+      - "Explains the same contract in easy Korean without hiding concurrency, retry, or compatibility meaning"
+      - "Asks for approval of the developer contract and performs no implementation"
+      - "Produces no phases, numbered steps, tasks, work breakdown, or execution order"
+    minimality_expectations:
+      reuse: "Existing order-cancellation, refund persistence, payment adapter, and API contract boundaries discovered in the repository"
+      reject_without_evidence:
+        - "A new payment service or orchestration platform"
+        - "A message broker introduced only for this request"
 
   - id: explicit-directive-only
     prompt: "$build-brief 여러 판매 채널의 주문을 하나의 재고에 반영하는 구현 지시문만 작성해줘. 코딩은 하지 마."

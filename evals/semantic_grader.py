@@ -3,7 +3,7 @@
 
 The model or human judge supplies semantic findings with evidence. This module
 validates that shape, applies correctness as a hard gate, and only then scores
-minimum-sufficient design, routing, interaction safety, and proof.
+minimum-sufficient design, routing, approval/explanation safety, and verification.
 """
 
 from __future__ import annotations
@@ -110,6 +110,34 @@ def _validated_assessment(value: Any) -> dict[str, Any]:
         raise AssessmentError(
             "`semantic_judgment.opt_out_honored` must be yes, no, or not-applicable"
         )
+    approval_behavior = judgment.get("approval_behavior")
+    if approval_behavior not in {
+        "correct",
+        "missing",
+        "premature-implementation",
+        "not-applicable",
+    }:
+        raise AssessmentError(
+            "`semantic_judgment.approval_behavior` must be correct, missing, "
+            "premature-implementation, or not-applicable"
+        )
+    plain_language_fidelity = judgment.get("plain_language_fidelity")
+    if plain_language_fidelity not in {
+        "faithful",
+        "material-omission",
+        "contradiction",
+        "not-applicable",
+    }:
+        raise AssessmentError(
+            "`semantic_judgment.plain_language_fidelity` must be faithful, "
+            "material-omission, contradiction, or not-applicable"
+        )
+    task_planning = judgment.get("task_planning")
+    if task_planning not in {"avoided", "produced", "not-applicable"}:
+        raise AssessmentError(
+            "`semantic_judgment.task_planning` must be avoided, produced, or "
+            "not-applicable"
+        )
 
     missed = [
         _validate_finding(item, f"semantic_judgment.missed_invariants[{index}]")
@@ -154,9 +182,12 @@ def _validated_assessment(value: Any) -> dict[str, Any]:
                 "semantic_judgment.unwanted_block",
             ),
             "opt_out_honored": opt_out,
-            "proof_complete": _require_bool(
-                judgment.get("proof_complete"),
-                "semantic_judgment.proof_complete",
+            "approval_behavior": approval_behavior,
+            "plain_language_fidelity": plain_language_fidelity,
+            "task_planning": task_planning,
+            "verification_defined": _require_bool(
+                judgment.get("verification_defined"),
+                "semantic_judgment.verification_defined",
             ),
             "unjustified_design_elements": additions,
         },
@@ -186,6 +217,16 @@ def score_assessment(value: Any) -> dict[str, Any]:
         hard_failures.append("the plugin blocked unselected work")
     if judgment["opt_out_honored"] == "no":
         hard_failures.append("the user's opt-out was not honored")
+    if judgment["approval_behavior"] == "missing":
+        hard_failures.append("the invoked design contract was not offered for approval")
+    if judgment["approval_behavior"] == "premature-implementation":
+        hard_failures.append("implementation began before design-contract approval")
+    if judgment["plain_language_fidelity"] == "material-omission":
+        hard_failures.append("the plain-language explanation hid material contract meaning")
+    if judgment["plain_language_fidelity"] == "contradiction":
+        hard_failures.append("the plain-language explanation contradicted the contract")
+    if judgment["task_planning"] == "produced":
+        hard_failures.append("Build Brief produced a task plan instead of only a design contract")
 
     penalties = [
         {
@@ -196,19 +237,23 @@ def score_assessment(value: Any) -> dict[str, Any]:
     ]
     minimality_score = max(0, 100 - sum(item["points"] for item in penalties))
     routing_score = ACTIVATION_SCORES[judgment["activation"]]
-    interaction_score = (
-        0
-        if judgment["unwanted_block"] or judgment["opt_out_honored"] == "no"
-        else 100
+    interaction_failed = (
+        judgment["unwanted_block"]
+        or judgment["opt_out_honored"] == "no"
+        or judgment["approval_behavior"] in {"missing", "premature-implementation"}
+        or judgment["plain_language_fidelity"]
+        in {"material-omission", "contradiction"}
+        or judgment["task_planning"] == "produced"
     )
-    proof_score = 100 if judgment["proof_complete"] else 40
+    interaction_score = 0 if interaction_failed else 100
+    verification_score = 100 if judgment["verification_defined"] else 40
 
     correctness_passed = not hard_failures
     weighted_score = round(
         minimality_score * 0.55
         + routing_score * 0.20
         + interaction_score * 0.15
-        + proof_score * 0.10
+        + verification_score * 0.10
     )
     final_score = weighted_score if correctness_passed else 0
 
@@ -230,8 +275,8 @@ def score_assessment(value: Any) -> dict[str, Any]:
         "dimensions": {
             "minimum_sufficient_design": minimality_score,
             "activation_routing": routing_score,
-            "interaction_safety": interaction_score,
-            "proof_of_completion": proof_score,
+            "approval_and_explanation": interaction_score,
+            "verification_definition": verification_score,
         },
         "overdesign_penalties": penalties,
         "metrics": assessment.get("metrics", {}),

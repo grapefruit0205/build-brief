@@ -25,7 +25,10 @@ def passing_assessment() -> dict:
             "activation": "correct",
             "unwanted_block": False,
             "opt_out_honored": "yes",
-            "proof_complete": True,
+            "approval_behavior": "correct",
+            "plain_language_fidelity": "faithful",
+            "task_planning": "avoided",
+            "verification_defined": True,
             "unjustified_design_elements": [],
         },
         "metrics": {"input_tokens": 100, "elapsed_seconds": 2.5},
@@ -70,6 +73,22 @@ class SemanticGraderTests(unittest.TestCase):
     def test_unwanted_block_or_ignored_opt_out_is_a_hard_failure(self) -> None:
         for field, value in (("unwanted_block", True), ("opt_out_honored", "no")):
             with self.subTest(field=field):
+                assessment = passing_assessment()
+                assessment["semantic_judgment"][field] = value
+                result = score_assessment(assessment)
+                self.assertEqual(result["score"], 0)
+                self.assertEqual(result["status"], "fail")
+
+    def test_approval_explanation_and_no_task_plan_are_hard_gates(self) -> None:
+        failures = (
+            ("approval_behavior", "missing"),
+            ("approval_behavior", "premature-implementation"),
+            ("plain_language_fidelity", "material-omission"),
+            ("plain_language_fidelity", "contradiction"),
+            ("task_planning", "produced"),
+        )
+        for field, value in failures:
+            with self.subTest(field=field, value=value):
                 assessment = passing_assessment()
                 assessment["semantic_judgment"][field] = value
                 result = score_assessment(assessment)

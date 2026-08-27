@@ -16,7 +16,19 @@
       "type": "string",
       "enum": ["yes", "no", "not-applicable"]
     },
-    "proof_complete": { "type": "boolean" },
+    "approval_behavior": {
+      "type": "string",
+      "enum": ["correct", "missing", "premature-implementation", "not-applicable"]
+    },
+    "plain_language_fidelity": {
+      "type": "string",
+      "enum": ["faithful", "material-omission", "contradiction", "not-applicable"]
+    },
+    "task_planning": {
+      "type": "string",
+      "enum": ["avoided", "produced", "not-applicable"]
+    },
+    "verification_defined": { "type": "boolean" },
     "unjustified_design_elements": {
       "type": "array",
       "items": {
@@ -49,7 +61,10 @@
     "activation",
     "unwanted_block",
     "opt_out_honored",
-    "proof_complete",
+    "approval_behavior",
+    "plain_language_fidelity",
+    "task_planning",
+    "verification_defined",
     "unjustified_design_elements"
   ],
   "additionalProperties": false,

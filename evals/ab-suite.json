@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "model": "gpt-5.6-luna",
   "reasoning_effort": "low",
   "judge_model": "gpt-5.6-sol",
@@ -13,15 +13,19 @@
     {
       "id": "adaptive-gate-regression",
       "repository": "https://github.com/grapefruit0205/build-brief.git",
-      "commit": "43127e3ed96cf998debb685c07b4b4505218567c",
+      "commit": "df5f4f673c5440108b508a5ac70750f0978f0587",
       "expected_activation": true,
       "opt_out_applicable": false,
       "external_hook_contract": true,
-      "prompt": "$build-brief Implement this change in the repository and run focused tests. Build Brief must activate only when explicitly selected or invoked, add no session-start or per-prompt context when unused, and never block uninvoked work. After explicit invocation, arm the current turn and require a valid Design Contract before mutation; honor a later user opt-out, provide optional user-selected session-wide strict mode, and always allow safe read-only commands including read-only pipelines. Keep the plugin local and standard-library-only, preserve contract validation and digest-only state outside the target repository, update English and Korean documentation, and do not add a service, MCP server, dependency, or repository state file. Do not commit or push.",
+      "prompt": "$build-brief Update Build Brief so an explicitly invoked build or change first shows an authoritative developer Design Contract and a faithful plain-language explanation, then waits for approval without modifying the repository. Approval applies to the developer contract. Build Brief must not emit phases, numbered implementation steps, tasks, work breakdowns, or execution order; after approval the ordinary coding workflow owns planning and implementation. Keep explicit-only activation, uninvoked fail-open behavior, opt-out, optional user-selected strict mode, safe read-only commands, standard-library-only runtime, digest-only state outside the repository, minimum-sufficient design, bilingual documentation, and no new service, MCP, dependency, or repository state file. Update the Skill, Hook contract schema, tests, and evaluation guidance. Do not commit or push.",
+      "approval_followup": "I approve the developer Design Contract you just showed. Implement that approved meaning now, run focused tests, and do not create an additional Build Brief task plan. Do not commit or push.",
       "required_invariants": [
         "Implicit Skill invocation is disabled and no session or prompt context is injected while unused",
         "Unarmed mutations proceed instead of blocking an uninvoked task",
-        "An activated or strict turn blocks mutations until a valid Design Contract passes",
+        "An explicitly invoked change shows a developer Design Contract and faithful plain-language explanation before any repository mutation",
+        "The initial build request is not treated as approval; implementation waits for explicit approval after the contract is displayed",
+        "Build Brief emits no phases, numbered implementation steps, tasks, work breakdowns, or execution order",
+        "The Hook contract uses plain_language and system_semantics and rejects top-level task-plan fields",
         "Explicit opt-out releases an already armed turn",
         "Strict mode is session-wide only when the user selects it",
         "Safe read-only pipelines remain allowed while armed",
@@ -31,7 +35,7 @@
     {
       "id": "explicit-opt-out-trivial-edit",
       "repository": "https://github.com/grapefruit0205/build-brief.git",
-      "commit": "43127e3ed96cf998debb685c07b4b4505218567c",
+      "commit": "df5f4f673c5440108b508a5ac70750f0978f0587",
       "expected_activation": false,
       "opt_out_applicable": true,
       "external_hook_contract": false,

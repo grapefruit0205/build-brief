@@ -1,6 +1,6 @@
 interface:
   display_name: "Build Brief"
-  short_description: "Explicitly gate implementation behind sufficient design"
-  default_prompt: "Use $build-brief to form the smallest sufficient Design Contract, arm and pass its mutation gate, and execute this software request."
+  short_description: "Translate and explain design before approval"
+  default_prompt: "Use $build-brief to translate this software request into a minimum-sufficient developer Design Contract, explain the same contract plainly, and wait for approval without creating a task plan."
 policy:
   allow_implicit_invocation: false

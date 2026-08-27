@@ -1,35 +1,32 @@
-# Software Design Directive Format
+# Design Contract Presentation
 
-Use this format only when the user asks to see, reuse, review, or hand off the translated command. Keep it proportional to the work.
+Use this format when showing an explicitly invoked Build Brief contract to a user or handing it to another person or agent. Keep both views proportional to the work.
 
-## Intent
+## Plain-language explanation
 
-Restate the desired software behavior in one or two sentences without replacing the user's product meaning.
+Explain the contract in the user's language without requiring software-design vocabulary. State what the software will do, why the important safeguards matter, what remains unchanged, and any material failure behavior, tradeoff, or new system element being approved.
 
-## System boundary
+This is a faithful view of the developer contract. It must not add a promise or decision absent from the contract, and it must not hide a material invariant, compatibility promise, failure behavior, assumption, or justified design addition. If the user asks for an easier explanation, simplify wording and add a concrete example without changing the contract.
 
-Identify the existing component, domain boundary, data owner, or external contract that owns the change. For a new system, define only the boundary needed for the requested outcome.
+## Developer Design Contract
 
-## Design contract
+Present the authoritative design obligations without turning them into an execution plan:
 
-State the observable behavior and invariants first, then the responsibilities, state and data ownership, contracts, and execution flow that preserve them. Include timing, concurrency, consistency, failure, security, compatibility, migration, and operations only where they materially affect the request.
+- **Intent and boundary:** the requested outcome and the existing component, data owner, or external contract that owns it.
+- **Invariants:** the observable behavior and facts that must remain true.
+- **System semantics:** the relevant responsibilities, state, ownership, contracts, flow, timing, ordering, concurrency, consistency, failure, security, compatibility, migration, and operational meaning.
+- **Minimum sufficient design:** what existing structure is reused and why each material addition is necessary.
+- **Proof:** acceptance criteria and focused evidence that would show the invariants hold.
+- **Visible assumptions:** only consequential assumptions that the repository and request cannot settle.
 
-## Minimum sufficient design
+Do not output phases, numbered implementation steps, task lists, work breakdowns, or execution order. Those belong to the ordinary coding workflow after approval.
 
-Treat the required behavior as a hard gate, then minimize the design delta. Name the existing boundaries and mechanisms that will be reused. For each material new service, store, asynchronous boundary, public contract, dependency, abstraction, configuration surface, or operational component, state the current evidence that requires it, why a smaller change is insufficient, the failure it prevents, and how that claim will be tested. Omit speculative future-proofing and reject a larger candidate when a smaller one preserves the same invariants.
+## Approval request
 
-## Engineering directive
+For a build or change request, ask one compact question after both views:
 
-Derive imperative implementation steps from the Design Contract. Name the relevant code or system boundaries, domain and state semantics, contracts, failure behavior, operational constraints, and rollout concerns only where they affect this request.
+> Does this explanation match your intent, and do you approve the developer Design Contract for implementation? You can approve, request a design revision, ask for a simpler explanation, or cancel.
 
-Each design term must be attached to a concrete action or invariant. Do not output a bag of labels.
+Approval applies to the developer Design Contract. The plain-language explanation exists so the user can understand that same contract. A design revision requires regenerating both views; an explanation-only simplification keeps the developer contract unchanged. Either case returns to approval.
 
-## Proof of completion
-
-Specify observable user behavior and the focused tests, checks, or operational evidence that demonstrate completion.
-
-## Assumptions requiring visibility
-
-Include only consequential inferred assumptions. If a missing decision truly blocks safe work, state the question instead of inventing an answer.
-
-Collapse sections when the task is small, but preserve the top-down order from boundary and behavior through minimality to implementation and proof.
+After approval, hand the contract to the ordinary coding workflow. Do not append a Build Brief task plan.

@@ -19,9 +19,10 @@ class RepositoryPolicyTests(unittest.TestCase):
             (ROOT / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8")
         )
         self.assertEqual(manifest["name"], "build-brief")
-        self.assertEqual(manifest["version"], "0.6.0")
+        self.assertEqual(manifest["version"], "0.7.0")
         self.assertEqual(manifest["license"], "MIT")
         self.assertIn("explicit", manifest["description"].lower())
+        self.assertIn("plain-language", manifest["description"].lower())
 
     def test_runtime_hook_has_no_external_python_dependency(self) -> None:
         source = (ROOT / "hooks" / "build_brief_gate.py").read_text(encoding="utf-8")
@@ -52,6 +53,7 @@ class RepositoryPolicyTests(unittest.TestCase):
         suite = json.loads(
             (ROOT / "evals" / "ab-suite.json").read_text(encoding="utf-8")
         )
+        self.assertEqual(suite["schema_version"], 2)
         self.assertEqual(
             suite["conditions"],
             ["no-plugin", "explicit-skill-only", "explicit-skill-and-hook"],
@@ -61,6 +63,10 @@ class RepositoryPolicyTests(unittest.TestCase):
             with self.subTest(case=case["id"]):
                 self.assertRegex(case["commit"], r"^[0-9a-f]{40}$")
                 self.assertTrue(case["required_invariants"])
+        approval_case = next(
+            case for case in suite["cases"] if case["expected_activation"]
+        )
+        self.assertTrue(approval_case["approval_followup"])
 
 
 if __name__ == "__main__":

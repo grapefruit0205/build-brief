@@ -1,5 +1,5 @@
 {
-  "description": "Gate supported local mutations only after explicit Build Brief activation, with user opt-out and optional strict mode.",
+  "description": "Gate supported local mutations until an explicitly invoked Build Brief contract has been explained plainly and approved, with user opt-out and optional strict mode.",
   "hooks": {
     "PreToolUse": [
       {

@@ -21,13 +21,24 @@ from typing import Any
 
 
 CONTROL_COMMAND = "build-brief-gate"
-REQUIRED_FIELDS = (
+STRING_FIELDS = (
+    "plain_language",
     "boundary",
+)
+LIST_FIELDS = (
     "invariants",
-    "implementation",
+    "system_semantics",
     "minimality",
     "proof",
 )
+FORBIDDEN_TASK_PLAN_FIELDS = {
+    "implementation",
+    "steps",
+    "phases",
+    "tasks",
+    "plan",
+    "execution_order",
+}
 MAX_CONTRACT_CHARS = 8_000
 STATE_TTL_SECONDS = 7 * 24 * 60 * 60
 
@@ -233,11 +244,21 @@ def _validate_contract(raw: str) -> tuple[dict[str, Any] | None, str]:
     if not isinstance(value, dict):
         return None, "Design Contract must be a JSON object."
 
-    boundary = value.get("boundary")
-    if not isinstance(boundary, str) or not boundary.strip():
-        return None, "Design Contract field `boundary` must be a non-empty string."
+    task_plan_fields = sorted(FORBIDDEN_TASK_PLAN_FIELDS.intersection(value))
+    if task_plan_fields:
+        rendered = ", ".join(f"`{field}`" for field in task_plan_fields)
+        return (
+            None,
+            "Design Contract must describe approved system semantics rather than a task "
+            f"plan; remove top-level field(s): {rendered}.",
+        )
 
-    for field in REQUIRED_FIELDS[1:]:
+    for field in STRING_FIELDS:
+        text = value.get(field)
+        if not isinstance(text, str) or not text.strip():
+            return None, f"Design Contract field `{field}` must be a non-empty string."
+
+    for field in LIST_FIELDS:
         items = value.get(field)
         if not isinstance(items, list) or not items:
             return None, f"Design Contract field `{field}` must be a non-empty list."
@@ -465,8 +486,10 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
     if status == "armed" or _read_mode(event) == "strict":
         _deny(
             "Build Brief blocked this mutation because the activated minimum-sufficient Design "
-            "Contract has not passed for the current turn. Complete boundary, invariants, "
-            "implementation, minimality, and proof, then run `build-brief-gate pass "
+            "Contract has not been explained plainly, approved, and passed for the current "
+            "turn. Complete plain_language, boundary, invariants, system_semantics, minimality, "
+            "and proof without a task plan, obtain the user's approval, then run "
+            "`build-brief-gate pass "
             "'<Design Contract JSON>'`. If the user does not want Build Brief for this turn, run "
             "`build-brief-gate bypass`."
         )
