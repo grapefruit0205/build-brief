@@ -1,21 +1,33 @@
 ---
 name: build-brief
-description: Compile non-trivial software build or change requests with consequential behavior left implicit into the smallest sufficient Design Contract before edits, then execute or hand off. Skip explanations and trivial fully specified edits.
+description: When explicitly invoked for a software build, change, design review, or handoff, compile the request into the smallest sufficient Design Contract before edits, then execute or hand off. Never invoke implicitly; ordinary requests remain on the normal workflow.
 ---
 
 # Build Brief
 
 Compile the user's natural-language intent and actual repository context into the software-design language this situation needs, then issue it as an actionable implementation command. This is a semantic translation layer, not a chooser over a fixed catalog of architectures or programming styles.
 
-## Route depth before spending context
+## Route depth after invocation
 
-Keep automatic discovery cheap and correct:
+Keep explicitly invoked work proportional:
 
 - For an explanation or other request with no implementation, answer directly without manufacturing a directive.
-- For a trivial, fully specified edit, return control to the ordinary workflow. If Build Brief was explicitly invoked or the mutation hook requests a contract, use a compact contract with one concise item per field.
+- For a trivial, fully specified edit, return control to the ordinary workflow. If Build Brief was explicitly invoked or strict mutation mode requests a contract, use a compact contract with one concise item per field.
 - For consequential work, form the smallest full contract that preserves every required invariant. Read [references/translation-guide.md](references/translation-guide.md) only when the change is broad, crosses boundaries, or has non-obvious state, failure, compatibility, or handoff semantics.
 
 These are context-depth choices, not architecture categories. Do not ask the user to select design vocabulary the request and repository can resolve.
+
+## Activate only at the user's boundary
+
+Build Brief is opt-in:
+
+- Activate when the user selects the Build Brief plugin or explicitly invokes `$build-brief` for the current work.
+- Do not infer activation merely because a request is large, architectural, vague, or consequential. Ordinary requests remain on the model's normal software-design workflow.
+- A question about Build Brief is not an invocation to apply it.
+- Do not activate when the user says to proceed without Build Brief.
+- If the user opts out after the current turn was armed, release it with `build-brief-gate bypass` and continue the requested work. Do not debate the opt-out or ask the user to know the control command.
+
+Users do not need to choose architecture vocabulary after invoking the plugin. Infer the dynamic design language from their requirement and repository. Users who explicitly prefer enforcement for every write may enable strict mode for the session with `build-brief-gate mode strict`; never enable it on their behalf. When they ask to leave strict mode, run `build-brief-gate mode adaptive`.
 
 ## Preserve meaning and authorization
 
@@ -61,11 +73,17 @@ Hypothetical scale, imagined reuse, possible future teams, fashionable patterns,
 
 In `minimality`, name the current structure being reused and justify each material addition. If no material element is added, say so concisely. Reject a larger candidate whenever a smaller candidate passes the same correctness gate.
 
-## Pass the mutation gate
+## Arm and pass the mutation gate when activated
 
-Do not modify code, tests, configuration, schemas, or other local files before the Design Contract passes.
+When explicitly invoked Build Brief activates, do not modify code, tests, configuration, schemas, or other local files before the Design Contract passes. Work that did not invoke Build Brief remains on the ordinary workflow and is not blocked.
 
-When the installed plugin hook supplies a `build-brief-gate pass` command, run that exact virtual command after completing the contract and before the first mutation. Supply a compact JSON object with:
+When the installed plugin hook supplies control commands:
+
+1. Run `build-brief-gate arm` after routing the request to Build Brief and before any mutation. Read-only inspection remains available.
+2. Complete the proportional Design Contract.
+3. Run `build-brief-gate pass '<JSON>'` after completing the contract and before the first mutation.
+
+Supply a compact JSON object with:
 
 - `boundary`: a non-empty string;
 - `invariants`: a non-empty list of observable requirements;
@@ -73,9 +91,9 @@ When the installed plugin hook supplies a `build-brief-gate pass` command, run t
 - `minimality`: a non-empty list naming reused structure and justifying each material new design element, or stating that none is introduced;
 - `proof`: a non-empty list of completion evidence.
 
-Keep the payload proportional and do not use the command as a substitute for design. The hook records only a digest in plugin data outside the repository. If the hook command is unavailable, follow the same instruction-level gate without inventing a command or repository marker.
+Keep the payload proportional and do not use the command as a substitute for design. The hook records only a digest in plugin data outside the repository. If a control command is not intercepted because the Hook is disabled or untrusted, do not retry it or install a replacement executable. Follow the same instruction-level ordering, keep the repository clean, and mention that runtime enforcement was inactive in the completion evidence.
 
-Read-only repository inspection may happen before the gate. A review-only, plan-only, or directive-only request makes no mutation and therefore does not need to pass the runtime mutation gate.
+Read-only repository inspection may happen before the gate and remains allowed after arming. A review-only, plan-only, or directive-only request makes no mutation and therefore does not need to pass the runtime mutation gate. If the user explicitly opts out, run `build-brief-gate bypass` only when needed to release an already armed or strict gate, then use the ordinary workflow.
 
 ## Route the compiled command
 
@@ -86,7 +104,7 @@ Match the user's requested outcome:
 - **Plan, handoff, or directive only:** read [references/directive-format.md](references/directive-format.md), expose a concise reusable directive, and do not implement it.
 - **Compare implementations:** discard candidates that miss required invariants, then prefer the smallest justified design delta among the candidates that pass. Compare concrete consequences rather than labels.
 
-Explicit `$build-brief` invocation always activates the skill and follows the requested mode. Without explicit invocation, allow discovery only for non-trivial software work whose consequential engineering behavior remains implicit.
+Explicit `$build-brief` invocation always activates the skill and follows the requested mode. Without explicit invocation, do not apply this Skill or arm its mutation gate.
 
 ## Resolve ambiguity proportionally
 

@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """A small, local mutation-order guard for the Build Brief plugin.
 
-The hook does not judge architecture quality. It only requires a compact,
-structured, minimum-sufficient Design Contract before supported local
-mutation tools run.
+The hook does not judge architecture quality or decide when the Skill should
+activate. It is fail-open until an explicitly invoked Build Brief Skill arms
+the current turn, or until the user explicitly enables strict mode.
 """
 
 from __future__ import annotations
@@ -137,25 +137,28 @@ def _state_root() -> Path:
     return Path(tempfile.gettempdir()) / "build-brief-plugin-data" / "gate-state"
 
 
-def _state_path(event: dict[str, Any]) -> Path:
+def _identity_path(event: dict[str, Any], scope: str) -> Path:
     identity = {
         "session_id": str(event.get("session_id", "")),
-        "turn_id": str(event.get("turn_id", "")),
         "cwd": str(event.get("cwd", "")),
     }
+    if scope == "turn":
+        identity["turn_id"] = str(event.get("turn_id", ""))
     encoded = json.dumps(identity, sort_keys=True, separators=(",", ":")).encode()
-    name = hashlib.sha256(encoded).hexdigest() + ".json"
+    name = f"{scope}-{hashlib.sha256(encoded).hexdigest()}.json"
     return _state_root() / name
 
 
-def _write_state(event: dict[str, Any], status: str, contract_digest: str = "") -> None:
-    path = _state_path(event)
+def _state_path(event: dict[str, Any]) -> Path:
+    return _identity_path(event, "turn")
+
+
+def _mode_path(event: dict[str, Any]) -> Path:
+    return _identity_path(event, "session")
+
+
+def _write_json(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-    payload = {
-        "status": status,
-        "contract_digest": contract_digest,
-        "updated_at": int(time.time()),
-    }
     with tempfile.NamedTemporaryFile(
         mode="w",
         encoding="utf-8",
@@ -169,13 +172,39 @@ def _write_state(event: dict[str, Any], status: str, contract_digest: str = "") 
     os.replace(temporary, path)
 
 
+def _write_state(event: dict[str, Any], status: str, contract_digest: str = "") -> None:
+    payload = {
+        "status": status,
+        "contract_digest": contract_digest,
+        "updated_at": int(time.time()),
+    }
+    _write_json(_state_path(event), payload)
+
+
 def _read_state(event: dict[str, Any]) -> dict[str, Any]:
     path = _state_path(event)
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
     except (FileNotFoundError, json.JSONDecodeError, OSError):
-        return {"status": "pending"}
-    return value if isinstance(value, dict) else {"status": "pending"}
+        return {"status": "idle"}
+    return value if isinstance(value, dict) else {"status": "idle"}
+
+
+def _write_mode(event: dict[str, Any], mode: str) -> None:
+    _write_json(
+        _mode_path(event),
+        {"mode": mode, "updated_at": int(time.time())},
+    )
+
+
+def _read_mode(event: dict[str, Any]) -> str:
+    try:
+        value = json.loads(_mode_path(event).read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return "adaptive"
+    if isinstance(value, dict) and value.get("mode") in {"adaptive", "strict"}:
+        return str(value["mode"])
+    return "adaptive"
 
 
 def _prune_state() -> None:
@@ -189,17 +218,6 @@ def _prune_state() -> None:
                 candidate.unlink()
         except OSError:
             continue
-
-
-def _session_context() -> str:
-    return (
-        "Before each turn's first supported local write, Build Brief requires the smallest Design "
-        "Contract that satisfies the request and repository evidence. Run `build-brief-gate pass "
-        "'<JSON>'` with non-empty `boundary`, `invariants[]`, `implementation[]`, `minimality[]`, "
-        "and `proof[]`. In `minimality[]`, name reused structure and justify any new boundary, "
-        "dependency, store, async path, or abstraction. One concise list item suffices for trivial "
-        "edits; read-only or non-mutating turns need no command."
-    )
 
 
 def _validate_contract(raw: str) -> tuple[dict[str, Any] | None, str]:
@@ -229,16 +247,28 @@ def _validate_contract(raw: str) -> tuple[dict[str, Any] | None, str]:
     return value, ""
 
 
-def _control_payload(command: str) -> tuple[str | None, str]:
+def _control_request(command: str) -> tuple[str | None, str, str]:
     try:
         tokens = shlex.split(command, posix=True)
     except ValueError as exc:
-        return None, f"Malformed {CONTROL_COMMAND} command: {exc}."
+        return None, "", f"Malformed {CONTROL_COMMAND} command: {exc}."
     if not tokens or tokens[0] != CONTROL_COMMAND:
-        return None, ""
-    if len(tokens) != 3 or tokens[1] != "pass":
-        return "", f"Use `{CONTROL_COMMAND} pass '<Design Contract JSON>'`."
-    return tokens[2], ""
+        return None, "", ""
+    if len(tokens) == 2 and tokens[1] in {"arm", "bypass"}:
+        return tokens[1], "", ""
+    if len(tokens) == 3 and tokens[1] == "mode" and tokens[2] in {
+        "adaptive",
+        "strict",
+    }:
+        return "mode", tokens[2], ""
+    if len(tokens) == 3 and tokens[1] == "pass":
+        return "pass", tokens[2], ""
+    return (
+        "",
+        "",
+        f"Use `{CONTROL_COMMAND} arm`, `{CONTROL_COMMAND} pass '<Design Contract JSON>'`, "
+        f"`{CONTROL_COMMAND} bypass`, or `{CONTROL_COMMAND} mode adaptive|strict`.",
+    )
 
 
 def _git_subcommand(tokens: list[str]) -> str:
@@ -275,7 +305,7 @@ def _shell_segments(command: str) -> list[list[str]] | None:
 
     segments: list[list[str]] = [[]]
     for token in tokens:
-        if token == "&&":
+        if token in {"&&", "|"}:
             if not segments[-1]:
                 return None
             segments.append([])
@@ -384,67 +414,71 @@ def _is_read_only_bash(command: str) -> bool:
     return segments is not None and all(_is_read_only_tokens(segment) for segment in segments)
 
 
-def _handle_session() -> None:
-    _prune_state()
-    _emit(
-        {
-            "hookSpecificOutput": {
-                "hookEventName": "SessionStart",
-                "additionalContext": _session_context(),
-            }
-        }
-    )
-
-
 def _handle_pre_tool(event: dict[str, Any]) -> None:
     tool_name = str(event.get("tool_name", ""))
     tool_input = event.get("tool_input")
     command = tool_input.get("command", "") if isinstance(tool_input, dict) else ""
 
     if tool_name == "Bash":
-        control, control_error = _control_payload(str(command))
-        if control is not None:
+        action, value, control_error = _control_request(str(command))
+        if action is not None:
             if control_error:
                 _deny(control_error)
                 return
-            contract, validation_error = _validate_contract(control)
-            if validation_error:
-                _deny(validation_error)
+            if action == "arm":
+                _prune_state()
+                _write_state(event, "armed")
+                _allow_rewritten("echo Build Brief mutation gate armed")
                 return
-            assert contract is not None
-            canonical = json.dumps(contract, sort_keys=True, separators=(",", ":"))
-            digest = hashlib.sha256(canonical.encode()).hexdigest()
-            _prune_state()
-            _write_state(event, "passed", digest)
-            _allow_rewritten("echo Build Brief mutation gate passed")
-            return
-
-    if _read_state(event).get("status") == "passed":
-        return
+            if action == "bypass":
+                _prune_state()
+                _write_state(event, "bypassed")
+                _allow_rewritten("echo Build Brief bypassed for this turn")
+                return
+            if action == "mode":
+                _prune_state()
+                _write_mode(event, value)
+                if value == "adaptive":
+                    _write_state(event, "idle")
+                _allow_rewritten(f"echo Build Brief mode set to {value}")
+                return
+            if action == "pass":
+                contract, validation_error = _validate_contract(value)
+                if validation_error:
+                    _deny(validation_error)
+                    return
+                assert contract is not None
+                canonical = json.dumps(contract, sort_keys=True, separators=(",", ":"))
+                digest = hashlib.sha256(canonical.encode()).hexdigest()
+                _prune_state()
+                _write_state(event, "passed", digest)
+                _allow_rewritten("echo Build Brief mutation gate passed")
+                return
 
     if tool_name == "Bash" and _is_read_only_bash(str(command)):
         return
 
-    _deny(
-        "Build Brief blocked this mutation because the minimum-sufficient Design Contract has "
-        "not "
-        "passed for the current turn. Inspect the relevant repository context, define boundary, "
-        "invariants, smallest implementation slices, minimality justification, and proof, then "
-        "run `build-brief-gate pass "
-        "'<Design Contract JSON>'` before retrying."
-    )
+    status = _read_state(event).get("status")
+    if status in {"passed", "bypassed"}:
+        return
+
+    if status == "armed" or _read_mode(event) == "strict":
+        _deny(
+            "Build Brief blocked this mutation because the activated minimum-sufficient Design "
+            "Contract has not passed for the current turn. Complete boundary, invariants, "
+            "implementation, minimality, and proof, then run `build-brief-gate pass "
+            "'<Design Contract JSON>'`. If the user does not want Build Brief for this turn, run "
+            "`build-brief-gate bypass`."
+        )
 
 
 def main() -> int:
-    if len(sys.argv) != 2 or sys.argv[1] not in {"session", "pre-tool"}:
-        sys.stderr.write("usage: build_brief_gate.py {session|pre-tool}\n")
+    if len(sys.argv) != 2 or sys.argv[1] != "pre-tool":
+        sys.stderr.write("usage: build_brief_gate.py pre-tool\n")
         return 1
     try:
         event = _read_event()
-        if sys.argv[1] == "session":
-            _handle_session()
-        else:
-            _handle_pre_tool(event)
+        _handle_pre_tool(event)
     except (OSError, ValueError) as exc:
         sys.stderr.write(f"build-brief hook error: {exc}\n")
         return 1

@@ -10,8 +10,18 @@ import tempfile
 import unittest
 
 
-SCRIPT = Path(__file__).parents[1] / "hooks" / "build_brief_gate.py"
-HOOK_CONFIG = Path(__file__).parents[1] / "hooks" / "hooks.json"
+SCRIPT = Path(
+    os.environ.get(
+        "BUILD_BRIEF_GATE_UNDER_TEST",
+        Path(__file__).parents[1] / "hooks" / "build_brief_gate.py",
+    )
+)
+HOOK_CONFIG = Path(
+    os.environ.get(
+        "BUILD_BRIEF_HOOK_CONFIG_UNDER_TEST",
+        Path(__file__).parents[1] / "hooks" / "hooks.json",
+    )
+)
 
 
 class BuildBriefGateTests(unittest.TestCase):
@@ -43,20 +53,6 @@ class BuildBriefGateTests(unittest.TestCase):
         payload = json.loads(result.stdout) if result.stdout else None
         return result, payload
 
-    def start_session(self) -> dict:
-        event = {
-            "session_id": self.base_event["session_id"],
-            "cwd": self.base_event["cwd"],
-            "model": self.base_event["model"],
-            "permission_mode": self.base_event["permission_mode"],
-            "hook_event_name": "SessionStart",
-            "source": "startup",
-        }
-        result, payload = self.run_hook("session", event)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIsNotNone(payload)
-        return payload
-
     def pre_tool(self, tool_name: str, command: str, turn_id: str = "turn-1") -> dict | None:
         event = {
             **self.base_event,
@@ -85,29 +81,36 @@ class BuildBriefGateTests(unittest.TestCase):
         self.assertIsNotNone(payload)
         return payload
 
-    def test_hook_config_avoids_per_prompt_context_accumulation(self) -> None:
+    def arm_gate(self, turn_id: str = "turn-1") -> dict:
+        payload = self.pre_tool("Bash", "build-brief-gate arm", turn_id)
+        self.assertIsNotNone(payload)
+        return payload
+
+    def bypass_gate(self, turn_id: str = "turn-1") -> dict:
+        payload = self.pre_tool("Bash", "build-brief-gate bypass", turn_id)
+        self.assertIsNotNone(payload)
+        return payload
+
+    def set_mode(self, mode: str, turn_id: str = "turn-1") -> dict:
+        payload = self.pre_tool(
+            "Bash", f"build-brief-gate mode {mode}", turn_id
+        )
+        self.assertIsNotNone(payload)
+        return payload
+
+    def test_hook_config_has_no_session_or_prompt_context_injection(self) -> None:
         config = json.loads(HOOK_CONFIG.read_text(encoding="utf-8"))
         hooks = config["hooks"]
-        self.assertIn("SessionStart", hooks)
+        self.assertNotIn("SessionStart", hooks)
         self.assertNotIn("UserPromptSubmit", hooks)
         self.assertEqual(hooks["PreToolUse"][0]["matcher"], "^(Bash|apply_patch|Edit|Write)$")
-        session_handler = hooks["SessionStart"][0]["hooks"][0]
         pre_tool_handler = hooks["PreToolUse"][0]["hooks"][0]
-        self.assertTrue(session_handler["command"].endswith('build_brief_gate.py\" session'))
         self.assertTrue(pre_tool_handler["command"].endswith('build_brief_gate.py\" pre-tool'))
 
-    def test_session_adds_compact_context_without_per_turn_state(self) -> None:
-        payload = self.start_session()
-        output = payload["hookSpecificOutput"]
-        self.assertEqual(output["hookEventName"], "SessionStart")
-        self.assertIn("build-brief-gate pass", output["additionalContext"])
-        self.assertIn("`minimality[]`", output["additionalContext"])
-        self.assertIn("name reused structure", output["additionalContext"])
-        self.assertLess(len(output["additionalContext"].split()), 80)
+    def test_uninvoked_hook_starts_without_state(self) -> None:
         self.assertFalse((self.plugin_data / "gate-state").exists())
 
     def test_read_only_bash_is_allowed_before_gate(self) -> None:
-        self.start_session()
         self.assertIsNone(self.pre_tool("Bash", "rg --files"))
         self.assertIsNone(self.pre_tool("Bash", "git status --short"))
         self.assertIsNone(self.pre_tool("Bash", "Get-ChildItem -Force"))
@@ -116,21 +119,56 @@ class BuildBriefGateTests(unittest.TestCase):
         self.assertIsNone(
             self.pre_tool("Bash", "sed -n '1,20p' README.md && git status --short")
         )
+        self.assertIsNone(self.pre_tool("Bash", "rg --files | sort"))
+        self.arm_gate()
+        self.assertIsNone(
+            self.pre_tool("Bash", "git status --short | head -20")
+        )
 
-    def test_apply_patch_is_denied_before_gate(self) -> None:
-        self.start_session()
+    def test_uninvoked_hook_allows_unarmed_mutations(self) -> None:
+        self.assertIsNone(
+            self.pre_tool("apply_patch", "*** Begin Patch\n*** End Patch")
+        )
+        self.assertIsNone(self.pre_tool("Bash", "python3 update_schema.py"))
+
+    def test_armed_gate_denies_apply_patch_before_contract(self) -> None:
+        self.arm_gate()
         payload = self.pre_tool("apply_patch", "*** Begin Patch\n*** End Patch")
         output = payload["hookSpecificOutput"]
         self.assertEqual(output["permissionDecision"], "deny")
         self.assertIn("Design Contract", output["permissionDecisionReason"])
+        self.assertIn("bypass", output["permissionDecisionReason"])
 
-    def test_mutating_bash_is_denied_before_gate(self) -> None:
-        self.start_session()
+    def test_armed_gate_denies_mutating_bash_before_contract(self) -> None:
+        self.arm_gate()
         payload = self.pre_tool("Bash", "python3 update_schema.py")
         self.assertEqual(payload["hookSpecificOutput"]["permissionDecision"], "deny")
 
+    def test_bypass_honors_user_opt_out_after_arm(self) -> None:
+        self.arm_gate()
+        payload = self.bypass_gate()
+        self.assertEqual(
+            payload["hookSpecificOutput"]["updatedInput"]["command"],
+            "echo Build Brief bypassed for this turn",
+        )
+        self.assertIsNone(
+            self.pre_tool("apply_patch", "*** Begin Patch\n*** End Patch")
+        )
+
+    def test_strict_mode_is_session_wide_and_can_return_to_adaptive(self) -> None:
+        self.set_mode("strict")
+        payload = self.pre_tool(
+            "apply_patch", "*** Begin Patch\n*** End Patch", turn_id="turn-2"
+        )
+        self.assertEqual(payload["hookSpecificOutput"]["permissionDecision"], "deny")
+        self.set_mode("adaptive", turn_id="turn-2")
+        self.assertIsNone(
+            self.pre_tool(
+                "apply_patch", "*** Begin Patch\n*** End Patch", turn_id="turn-2"
+            )
+        )
+
     def test_invalid_contract_is_denied(self) -> None:
-        self.start_session()
         command = "build-brief-gate pass '{\"boundary\":\"api\"}'"
         payload = self.pre_tool("Bash", command)
         output = payload["hookSpecificOutput"]
@@ -138,7 +176,6 @@ class BuildBriefGateTests(unittest.TestCase):
         self.assertIn("invariants", output["permissionDecisionReason"])
 
     def test_missing_or_empty_minimality_is_denied(self) -> None:
-        self.start_session()
         base_contract = {
             "boundary": "existing settings handler",
             "invariants": ["preserve current save behavior"],
@@ -160,7 +197,7 @@ class BuildBriefGateTests(unittest.TestCase):
                 self.assertIn("minimality", output["permissionDecisionReason"])
 
     def test_valid_contract_is_recorded_and_control_command_is_rewritten(self) -> None:
-        self.start_session()
+        self.arm_gate()
         payload = self.pass_gate()
         output = payload["hookSpecificOutput"]
         self.assertEqual(output["permissionDecision"], "allow")
@@ -171,16 +208,18 @@ class BuildBriefGateTests(unittest.TestCase):
         self.assertIsNone(self.pre_tool("Bash", "python3 update_schema.py"))
 
     def test_state_records_a_digest_not_contract_plaintext(self) -> None:
-        self.start_session()
+        self.arm_gate()
         self.pass_gate()
-        state_text = next((self.plugin_data / "gate-state").glob("*.json")).read_text()
+        state_text = next(
+            (self.plugin_data / "gate-state").glob("turn-*.json")
+        ).read_text()
         self.assertIn("contract_digest", state_text)
         self.assertNotIn("inventory write path", state_text)
         self.assertNotIn("threshold crossing", state_text)
         self.assertNotIn("existing notification mechanism", state_text)
 
     def test_gate_pass_does_not_leak_into_a_new_turn(self) -> None:
-        self.start_session()
+        self.set_mode("strict")
         self.pass_gate()
         payload = self.pre_tool(
             "apply_patch",
@@ -190,7 +229,7 @@ class BuildBriefGateTests(unittest.TestCase):
         self.assertEqual(payload["hookSpecificOutput"]["permissionDecision"], "deny")
 
     def test_shell_chaining_is_not_treated_as_read_only(self) -> None:
-        self.start_session()
+        self.arm_gate()
         for command in (
             "rg --files && python3 update_schema.py",
             "rg --files | tee captured.txt",
@@ -202,7 +241,7 @@ class BuildBriefGateTests(unittest.TestCase):
                 self.assertEqual(payload["hookSpecificOutput"]["permissionDecision"], "deny")
 
     def test_write_capable_options_are_not_treated_as_read_only(self) -> None:
-        self.start_session()
+        self.arm_gate()
         for command in (
             "sed -i s/old/new/ src/app.py",
             "sed -n '1,20w captured.txt' src/app.py",

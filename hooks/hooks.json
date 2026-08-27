@@ -1,19 +1,6 @@
 {
-  "description": "Require a minimum-sufficient Build Brief design contract before supported local mutation tools run.",
+  "description": "Gate supported local mutations only after explicit Build Brief activation, with user opt-out and optional strict mode.",
   "hooks": {
-    "SessionStart": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 \"${PLUGIN_ROOT}/hooks/build_brief_gate.py\" session",
-            "commandWindows": "py -3 \"%PLUGIN_ROOT%\\hooks\\build_brief_gate.py\" session",
-            "timeout": 2,
-            "additionalContextLimit": 200
-          }
-        ]
-      }
-    ],
     "PreToolUse": [
       {
         "matcher": "^(Bash|apply_patch|Edit|Write)$",

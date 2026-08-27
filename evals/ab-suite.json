@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "model": "gpt-5.6-luna",
+  "reasoning_effort": "low",
+  "judge_model": "gpt-5.6-sol",
+  "judge_reasoning_effort": "medium",
+  "conditions": [
+    "no-plugin",
+    "explicit-skill-only",
+    "explicit-skill-and-hook"
+  ],
+  "cases": [
+    {
+      "id": "adaptive-gate-regression",
+      "repository": "https://github.com/grapefruit0205/build-brief.git",
+      "commit": "43127e3ed96cf998debb685c07b4b4505218567c",
+      "expected_activation": true,
+      "opt_out_applicable": false,
+      "external_hook_contract": true,
+      "prompt": "$build-brief Implement this change in the repository and run focused tests. Build Brief must activate only when explicitly selected or invoked, add no session-start or per-prompt context when unused, and never block uninvoked work. After explicit invocation, arm the current turn and require a valid Design Contract before mutation; honor a later user opt-out, provide optional user-selected session-wide strict mode, and always allow safe read-only commands including read-only pipelines. Keep the plugin local and standard-library-only, preserve contract validation and digest-only state outside the target repository, update English and Korean documentation, and do not add a service, MCP server, dependency, or repository state file. Do not commit or push.",
+      "required_invariants": [
+        "Implicit Skill invocation is disabled and no session or prompt context is injected while unused",
+        "Unarmed mutations proceed instead of blocking an uninvoked task",
+        "An activated or strict turn blocks mutations until a valid Design Contract passes",
+        "Explicit opt-out releases an already armed turn",
+        "Strict mode is session-wide only when the user selects it",
+        "Safe read-only pipelines remain allowed while armed",
+        "No external runtime dependency, service, MCP, or repository gate-state file is added"
+      ]
+    },
+    {
+      "id": "explicit-opt-out-trivial-edit",
+      "repository": "https://github.com/grapefruit0205/build-brief.git",
+      "commit": "43127e3ed96cf998debb685c07b4b4505218567c",
+      "expected_activation": false,
+      "opt_out_applicable": true,
+      "external_hook_contract": false,
+      "prompt": "Build Brief 없이 바로 진행해줘. In tests/test_build_brief_gate.py, rename only test_shell_chaining_is_not_treated_as_read_only to test_mutating_shell_chains_are_guarded, update any reference in that same file if one exists, run the focused test, and make no other changes. Do not commit or push.",
+      "required_invariants": [
+        "The explicit Build Brief opt-out is honored without argument or a Design Contract",
+        "Only the requested test name changes",
+        "The focused tests pass",
+        "No architecture, abstraction, dependency, or unrelated file is added"
+      ]
+    }
+  ]
+}

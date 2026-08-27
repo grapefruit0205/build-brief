@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "requirements_preserved": { "type": "boolean" },
+    "missed_invariants": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/finding" }
+    },
+    "activation": {
+      "type": "string",
+      "enum": ["correct", "over-activated", "missed", "not-applicable"]
+    },
+    "unwanted_block": { "type": "boolean" },
+    "opt_out_honored": {
+      "type": "string",
+      "enum": ["yes", "no", "not-applicable"]
+    },
+    "proof_complete": { "type": "boolean" },
+    "unjustified_design_elements": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "deployable_unit",
+              "data_store",
+              "queue_or_async_boundary",
+              "public_contract",
+              "framework_or_dependency",
+              "abstraction_layer",
+              "configuration_surface",
+              "operational_component"
+            ]
+          },
+          "description": { "type": "string", "minLength": 1 },
+          "evidence": { "type": "string", "minLength": 1 }
+        },
+        "required": ["type", "description", "evidence"],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "requirements_preserved",
+    "missed_invariants",
+    "activation",
+    "unwanted_block",
+    "opt_out_honored",
+    "proof_complete",
+    "unjustified_design_elements"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "finding": {
+      "type": "object",
+      "properties": {
+        "description": { "type": "string", "minLength": 1 },
+        "evidence": { "type": "string", "minLength": 1 }
+      },
+      "required": ["description", "evidence"],
+      "additionalProperties": false
+    }
+  }
+}

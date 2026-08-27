@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "release_under_test": "0.5.0",
+  "repository_commit": "43127e3ed96cf998debb685c07b4b4505218567c",
+  "evaluated_at": "2026-08-27",
+  "case_id": "explicit-opt-out-trivial-edit",
+  "runs_per_condition": 1,
+  "candidate_model": "gpt-5.6-luna",
+  "candidate_reasoning_effort": "low",
+  "judge_model": "gpt-5.6-sol",
+  "judge_reasoning_effort": "medium",
+  "conditions": [
+    {
+      "condition": "no-plugin",
+      "score": 100,
+      "status": "pass",
+      "elapsed_seconds": 31.81,
+      "input_tokens": 80396,
+      "output_tokens": 944,
+      "gate_block_count": 0
+    },
+    {
+      "condition": "skill-only",
+      "score": 100,
+      "status": "pass",
+      "elapsed_seconds": 28.358,
+      "input_tokens": 67805,
+      "output_tokens": 665,
+      "gate_block_count": 0
+    },
+    {
+      "condition": "skill-and-hook",
+      "score": 0,
+      "status": "fail",
+      "elapsed_seconds": 53.549,
+      "input_tokens": 167554,
+      "output_tokens": 1875,
+      "gate_block_count": 1,
+      "hard_failures": [
+        "The Hook blocked work that explicitly opted out of Build Brief",
+        "The candidate had to pass a Design Contract despite the opt-out"
+      ]
+    }
+  ],
+  "interpretation": "The implementation diff and tests were correct in all conditions, but the v0.5.0 Hook violated user authorization and therefore failed the correctness gate. Do not treat v0.5.0 as trusted for default use.",
+  "limitations": [
+    "This is one run per condition on one pinned real-repository task, not a general benchmark",
+    "Token counts include the surrounding Codex execution context",
+    "The model judge was constrained by a JSON schema and evidence rubric but remains fallible"
+  ]
+}

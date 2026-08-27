@@ -1,7 +1,7 @@
 {
   "name": "build-brief",
-  "version": "0.5.0",
-  "description": "Compile plain-language software intent into the smallest sufficient design contract and gate supported local edits until it passes.",
+  "version": "0.6.0",
+  "description": "On explicit invocation, compile software intent into the smallest sufficient design contract and gate its implementation.",
   "author": {
     "name": "Junseok Pak",
     "url": "https://github.com/grapefruit0205"
@@ -21,7 +21,7 @@
   "interface": {
     "displayName": "Build Brief",
     "shortDescription": "Translate intent into minimum-sufficient design.",
-    "longDescription": "Build Brief translates non-trivial software requests and repository context into the smallest Design Contract that satisfies the required behavior. It reuses existing structure unless a present need justifies added complexity, then gates supported write tools until the contract is recorded. Users can build automatically, review the contract first, or request a handoff-ready directive without coding.",
+    "longDescription": "When explicitly invoked, Build Brief translates a software request and repository context into the smallest Design Contract that satisfies the required behavior. It reuses existing structure unless present evidence justifies added complexity, then arms its Hook only for that work. Without invocation it adds no session context and blocks nothing. Users can build automatically after the contract, review it first, request a handoff-ready directive, or explicitly enable strict mode.",
     "developerName": "Junseok Pak",
     "category": "Productivity",
     "capabilities": [
