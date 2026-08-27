@@ -19,7 +19,7 @@ class RepositoryPolicyTests(unittest.TestCase):
             (ROOT / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8")
         )
         self.assertEqual(manifest["name"], "click")
-        self.assertEqual(manifest["version"], "0.9.0")
+        self.assertEqual(manifest["version"], "0.9.1")
         self.assertEqual(manifest["license"], "MIT")
         self.assertIn("explicit", manifest["description"].lower())
         self.assertIn("plain-language", manifest["description"].lower())
@@ -27,13 +27,13 @@ class RepositoryPolicyTests(unittest.TestCase):
         self.assertIn("one shot", manifest["interface"]["longDescription"].lower())
         self.assertIn("verification", manifest["interface"]["longDescription"].lower())
 
-    def test_marketplace_exposes_click_from_the_existing_catalog(self) -> None:
+    def test_marketplace_exposes_click_from_the_click_catalog(self) -> None:
         marketplace = json.loads(
             (ROOT / ".agents" / "plugins" / "marketplace.json").read_text(
                 encoding="utf-8"
             )
         )
-        self.assertEqual(marketplace["name"], "build-brief")
+        self.assertEqual(marketplace["name"], "click")
         self.assertEqual(marketplace["plugins"][0]["name"], "click")
 
     def test_click_and_fix_are_explicit_only_skills(self) -> None:

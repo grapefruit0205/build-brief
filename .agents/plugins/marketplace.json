@@ -1,14 +1,14 @@
 {
-  "name": "build-brief",
+  "name": "click",
   "interface": {
-    "displayName": "Build Brief"
+    "displayName": "Click"
   },
   "plugins": [
     {
       "name": "click",
       "source": {
         "source": "url",
-        "url": "https://github.com/grapefruit0205/build-brief.git",
+        "url": "https://github.com/grapefruit0205/click.git",
         "ref": "main"
       },
       "policy": {

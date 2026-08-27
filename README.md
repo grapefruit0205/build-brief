@@ -2,7 +2,7 @@
 
 English | [한국어](README.ko.md)
 
-[![CI](https://github.com/grapefruit0205/build-brief/actions/workflows/ci.yml/badge.svg)](https://github.com/grapefruit0205/build-brief/actions/workflows/ci.yml)
+[![CI](https://github.com/grapefruit0205/click/actions/workflows/ci.yml/badge.svg)](https://github.com/grapefruit0205/click/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 **Say what you want. Review one contract. Approve once. Click implements inside it.**
@@ -133,19 +133,23 @@ A small repair may use one concise item per execution field. Field presence is n
 
 ## Installation from GitHub
 
-The GitHub repository keeps its existing `build-brief` URL, while the plugin and Skill are named Click.
+The repository, marketplace, plugin, and Skill are all named Click.
 
 ```bash
-codex plugin marketplace add grapefruit0205/build-brief
-codex plugin add click@build-brief
+codex plugin marketplace add grapefruit0205/click
+codex plugin add click@click
 ```
 
-If Build Brief 0.8 was installed previously:
+If `click@build-brief` 0.9.0 is installed, migrate it with:
 
 ```bash
-codex plugin remove build-brief@build-brief
-codex plugin add click@build-brief
+codex plugin remove click@build-brief
+codex plugin marketplace remove build-brief
+codex plugin marketplace add grapefruit0205/click
+codex plugin add click@click
 ```
+
+For the older Build Brief 0.8 installation, replace the first command with `codex plugin remove build-brief@build-brief`.
 
 Restart the ChatGPT desktop app, review and trust the included Click Hook, and start a new task so Codex loads the current Skills and Hook.
 

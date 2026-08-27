@@ -12,7 +12,7 @@
   "cases": [
     {
       "id": "approval-bound-execution-contract",
-      "repository": "https://github.com/grapefruit0205/build-brief.git",
+      "repository": "https://github.com/grapefruit0205/click.git",
       "commit": "84e336201eb09d8e9d17245bebeeda21c716e8f4",
       "expected_activation": true,
       "opt_out_applicable": false,
@@ -38,7 +38,7 @@
     },
     {
       "id": "explicit-opt-out-trivial-edit",
-      "repository": "https://github.com/grapefruit0205/build-brief.git",
+      "repository": "https://github.com/grapefruit0205/click.git",
       "commit": "84e336201eb09d8e9d17245bebeeda21c716e8f4",
       "expected_activation": false,
       "opt_out_applicable": true,

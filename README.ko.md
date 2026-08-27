@@ -2,7 +2,7 @@
 
 [English](README.md) | 한국어
 
-[![CI](https://github.com/grapefruit0205/build-brief/actions/workflows/ci.yml/badge.svg)](https://github.com/grapefruit0205/build-brief/actions/workflows/ci.yml)
+[![CI](https://github.com/grapefruit0205/click/actions/workflows/ci.yml/badge.svg)](https://github.com/grapefruit0205/click/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 **원하는 것을 말하고, 계약 하나를 확인하고, 한 번 승인하면 Click이 그 안에서 끝까지 구현합니다.**
@@ -132,19 +132,23 @@ Gemini API로 답글을 만들되 욕설·개인정보·광고성 댓글에는 �
 
 ## GitHub에서 설치
 
-GitHub 저장소 URL은 기존 `build-brief`를 유지하지만 플러그인과 Skill 이름은 Click입니다.
+저장소·마켓플레이스·플러그인·Skill 이름을 모두 Click으로 통일했습니다.
 
 ```bash
-codex plugin marketplace add grapefruit0205/build-brief
-codex plugin add click@build-brief
+codex plugin marketplace add grapefruit0205/click
+codex plugin add click@click
 ```
 
-이전에 Build Brief 0.8을 설치했다면:
+`click@build-brief` 0.9.0이 설치되어 있다면 다음처럼 이전합니다.
 
 ```bash
-codex plugin remove build-brief@build-brief
-codex plugin add click@build-brief
+codex plugin remove click@build-brief
+codex plugin marketplace remove build-brief
+codex plugin marketplace add grapefruit0205/click
+codex plugin add click@click
 ```
+
+더 오래된 Build Brief 0.8 설치라면 첫 번째 명령만 `codex plugin remove build-brief@build-brief`로 바꾸면 됩니다.
 
 ChatGPT 데스크톱 앱을 다시 시작하고 포함된 Click Hook을 검토해 신뢰한 뒤, 새 작업을 시작해야 최신 Skill과 Hook이 로드됩니다.
 

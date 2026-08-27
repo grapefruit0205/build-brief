@@ -1,13 +1,13 @@
 {
   "name": "click",
-  "version": "0.9.0",
+  "version": "0.9.1",
   "description": "On explicit invocation, compile software intent into one approval-bound execution contract, a faithful plain-language explanation, and a proportional final verification batch.",
   "author": {
     "name": "Junseok Pak",
     "url": "https://github.com/grapefruit0205"
   },
-  "homepage": "https://github.com/grapefruit0205/build-brief",
-  "repository": "https://github.com/grapefruit0205/build-brief",
+  "homepage": "https://github.com/grapefruit0205/click",
+  "repository": "https://github.com/grapefruit0205/click",
   "license": "MIT",
   "keywords": [
     "natural-language",
@@ -29,7 +29,7 @@
     "capabilities": [
       "Lifecycle hooks"
     ],
-    "websiteURL": "https://github.com/grapefruit0205/build-brief",
+    "websiteURL": "https://github.com/grapefruit0205/click",
     "defaultPrompt": [
       "Use Click to create one complete developer execution contract, recommend a verification scale, explain both plainly, and ask once before implementation.",
       "Use Click to design and implement this change in one approved shot, with one final verification batch.",
