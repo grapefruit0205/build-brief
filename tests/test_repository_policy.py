@@ -49,7 +49,9 @@ class RepositoryPolicyTests(unittest.TestCase):
                 self.assertTrue(lowered.isdisjoint(forbidden_parts))
 
     def test_ab_suite_is_bounded_and_reproducible(self) -> None:
-        suite = json.loads((ROOT / "evals" / "ab-suite.json").read_text())
+        suite = json.loads(
+            (ROOT / "evals" / "ab-suite.json").read_text(encoding="utf-8")
+        )
         self.assertEqual(
             suite["conditions"],
             ["no-plugin", "explicit-skill-only", "explicit-skill-and-hook"],
