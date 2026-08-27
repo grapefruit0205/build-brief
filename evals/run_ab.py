@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run a bounded Build Brief A/B pilot on pinned disposable repositories."""
+"""Run a bounded Click A/B pilot on pinned disposable repositories."""
 
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ ROOT = Path(__file__).parents[1]
 DEFAULT_SUITE = Path(__file__).with_name("ab-suite.json")
 JUDGE_SCHEMA = Path(__file__).with_name("semantic-judgment.schema.json")
 JUDGE_GUIDE = Path(__file__).with_name("SEMANTIC_GRADER.md")
-HOOK_TEST = ROOT / "tests" / "test_build_brief_gate.py"
+HOOK_TEST = ROOT / "tests" / "test_click_gate.py"
 CONDITION_ARGS = {
     "no-plugin": ["--disable", "plugins", "--disable", "hooks"],
     "explicit-skill-only": [
@@ -89,16 +89,16 @@ def _sum_usage(*items: dict[str, int]) -> dict[str, int]:
 def _runtime_trace(text: str) -> dict[str, Any]:
     markers = {
         "gate_block_count": "blocked this mutation",
-        "gate_arm_mentions": "build-brief-gate arm",
-        "gate_stage_mentions": "build-brief-gate stage",
-        "gate_pass_mentions": "build-brief-gate pass",
-        "gate_bypass_mentions": "build-brief-gate bypass",
+        "gate_arm_mentions": "click-gate arm",
+        "gate_stage_mentions": "click-gate stage",
+        "gate_pass_mentions": "click-gate pass",
+        "gate_bypass_mentions": "click-gate bypass",
     }
     lowered = text.lower()
     excerpts = [
         line[-2_000:]
         for line in text.splitlines()
-        if "build brief" in line.lower() or "build-brief-gate" in line.lower()
+        if "click execution contract" in line.lower() or "click-gate" in line.lower()
     ]
     return {
         **{name: lowered.count(marker) for name, marker in markers.items()},
@@ -154,15 +154,15 @@ def _candidate_checks(case: dict[str, Any], candidate: Path) -> list[dict[str, A
     ]
     if case.get("external_hook_contract"):
         environment = os.environ.copy()
-        environment["BUILD_BRIEF_GATE_UNDER_TEST"] = str(
-            candidate / "hooks" / "build_brief_gate.py"
+        environment["CLICK_GATE_UNDER_TEST"] = str(
+            candidate / "hooks" / "click_gate.py"
         )
-        environment["BUILD_BRIEF_HOOK_CONFIG_UNDER_TEST"] = str(
+        environment["CLICK_HOOK_CONFIG_UNDER_TEST"] = str(
             candidate / "hooks" / "hooks.json"
         )
         checks.append(
             _check(
-                "v0.8.0 approval-bound execution contract Hook",
+                "v0.9.0 one-shot execution contract Hook",
                 _run(
                     [sys.executable, str(HOOK_TEST)],
                     cwd=ROOT,
@@ -281,7 +281,7 @@ def _aggregate(scores: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Run a bounded Build Brief A/B pilot")
+    parser = argparse.ArgumentParser(description="Run a bounded Click A/B pilot")
     parser.add_argument("--suite", type=Path, default=DEFAULT_SUITE)
     parser.add_argument("--results", type=Path, required=True)
     parser.add_argument("--case", action="append", dest="case_ids")

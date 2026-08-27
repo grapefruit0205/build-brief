@@ -14,19 +14,43 @@ class RepositoryPolicyTests(unittest.TestCase):
             with self.subTest(path=path.relative_to(ROOT)):
                 json.loads(path.read_text(encoding="utf-8"))
 
-    def test_manifest_declares_explicit_activation_release(self) -> None:
+    def test_manifest_declares_click_one_shot_release(self) -> None:
         manifest = json.loads(
             (ROOT / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8")
         )
-        self.assertEqual(manifest["name"], "build-brief")
-        self.assertEqual(manifest["version"], "0.8.0")
+        self.assertEqual(manifest["name"], "click")
+        self.assertEqual(manifest["version"], "0.9.0")
         self.assertEqual(manifest["license"], "MIT")
         self.assertIn("explicit", manifest["description"].lower())
         self.assertIn("plain-language", manifest["description"].lower())
         self.assertIn("execution contract", manifest["description"].lower())
+        self.assertIn("one shot", manifest["interface"]["longDescription"].lower())
+        self.assertIn("verification", manifest["interface"]["longDescription"].lower())
+
+    def test_marketplace_exposes_click_from_the_existing_catalog(self) -> None:
+        marketplace = json.loads(
+            (ROOT / ".agents" / "plugins" / "marketplace.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        self.assertEqual(marketplace["name"], "build-brief")
+        self.assertEqual(marketplace["plugins"][0]["name"], "click")
+
+    def test_click_and_fix_are_explicit_only_skills(self) -> None:
+        for skill_name in ("click", "fix"):
+            with self.subTest(skill=skill_name):
+                skill_root = ROOT / "skills" / skill_name
+                skill_text = (skill_root / "SKILL.md").read_text(encoding="utf-8")
+                metadata = (skill_root / "agents" / "openai.yaml").read_text(
+                    encoding="utf-8"
+                )
+                self.assertIn(f"name: {skill_name}", skill_text)
+                self.assertIn(f"${skill_name}", metadata)
+                self.assertIn("allow_implicit_invocation: false", metadata)
+                self.assertNotIn("[TODO:", skill_text)
 
     def test_runtime_hook_has_no_external_python_dependency(self) -> None:
-        source = (ROOT / "hooks" / "build_brief_gate.py").read_text(encoding="utf-8")
+        source = (ROOT / "hooks" / "click_gate.py").read_text(encoding="utf-8")
         for forbidden in ("requests", "yaml", "pydantic", "openai"):
             with self.subTest(forbidden=forbidden):
                 self.assertNotIn(f"import {forbidden}", source)

@@ -1,6 +1,0 @@
-interface:
-  display_name: "Build Brief"
-  short_description: "Approve a complete design-and-execution contract"
-  default_prompt: "Use $build-brief to create a complete developer execution contract for this software request, explain it plainly, and wait for my approval before implementing it."
-policy:
-  allow_implicit_invocation: false

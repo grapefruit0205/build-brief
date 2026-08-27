@@ -5,7 +5,7 @@
   },
   "plugins": [
     {
-      "name": "build-brief",
+      "name": "click",
       "source": {
         "source": "url",
         "url": "https://github.com/grapefruit0205/build-brief.git",

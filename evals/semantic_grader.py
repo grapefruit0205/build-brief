@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Deterministically score a structured Build Brief semantic assessment.
+"""Deterministically score a structured Click semantic assessment.
 
 The model or human judge supplies semantic findings with evidence. This module
 validates that shape, applies correctness as a hard gate, and only then scores
@@ -299,7 +299,7 @@ def score_assessment(value: Any) -> dict[str, Any]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Score a structured Build Brief semantic assessment"
+        description="Score a structured Click semantic assessment"
     )
     parser.add_argument("assessment", type=Path)
     parser.add_argument("--output", type=Path)

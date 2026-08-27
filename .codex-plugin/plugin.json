@@ -1,7 +1,7 @@
 {
-  "name": "build-brief",
-  "version": "0.8.0",
-  "description": "On explicit invocation, compile software intent into an approval-bound developer execution contract and faithful plain-language explanation.",
+  "name": "click",
+  "version": "0.9.0",
+  "description": "On explicit invocation, compile software intent into one approval-bound execution contract, a faithful plain-language explanation, and a proportional final verification batch.",
   "author": {
     "name": "Junseok Pak",
     "url": "https://github.com/grapefruit0205"
@@ -15,13 +15,15 @@
     "design-language",
     "software-design",
     "engineering-directives",
+    "one-shot",
+    "verification",
     "vibe-coding"
   ],
   "skills": "./skills/",
   "interface": {
-    "displayName": "Build Brief",
-    "shortDescription": "Approve the full execution contract before coding.",
-    "longDescription": "When explicitly invoked, Build Brief translates a software request and repository context into the smallest complete developer execution contract, including implementation, phases, steps, tasks, plan, and execution order. It then explains the same contract plainly and waits for explicit approval. After approval it implements only the staged contract; material changes require a revised contract and new approval. Without invocation it adds no session context and blocks nothing.",
+    "displayName": "Click",
+    "shortDescription": "Approve once, then implement the contract in one shot.",
+    "longDescription": "When explicitly invoked, Click translates a software request and repository context into one complete developer execution contract, explains the same meaning plainly, recommends a quick, focused, or full verification scale, and asks once for approval. After approval it implements in one shot: the semantic contract stays fixed while necessary in-scope implementation details remain flexible, then the selected final checks run once. The bundled Fix skill provides the same flow for natural-language bug reports. Without explicit invocation Click adds no session context and blocks nothing.",
     "developerName": "Junseok Pak",
     "category": "Productivity",
     "capabilities": [
@@ -29,9 +31,9 @@
     ],
     "websiteURL": "https://github.com/grapefruit0205/build-brief",
     "defaultPrompt": [
-      "Create a complete developer execution contract for this request, explain it plainly, and wait for approval before implementation.",
-      "Design and implement this change with Build Brief, but show the full execution contract and wait for approval before editing.",
-      "Create a handoff-ready execution contract and faithful plain-language explanation for this request without implementing it."
+      "Use Click to create one complete developer execution contract, recommend a verification scale, explain both plainly, and ask once before implementation.",
+      "Use Click to design and implement this change in one approved shot, with one final verification batch.",
+      "Use Fix to translate this bug report into a compact repair contract and ask once before repairing it."
     ]
   }
 }

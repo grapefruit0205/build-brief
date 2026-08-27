@@ -1,0 +1,6 @@
+interface:
+  display_name: "Click"
+  short_description: "Approve once, then implement the contract in one shot"
+  default_prompt: "Use $click to compile this software request into one complete contract with a recommended verification scale, explain it plainly, and ask once before implementing it in one shot."
+policy:
+  allow_implicit_invocation: false

@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""A small, local mutation-order guard for the Build Brief plugin.
+"""A small, local one-shot contract and mutation-order guard for Click.
 
-The hook does not judge architecture quality or decide when the Skill should
-activate. It is fail-open until an explicitly invoked Build Brief Skill arms
-the current turn, or until the user explicitly enables strict mode.
+The hook does not judge architecture quality, implementation choices, or Skill
+activation. It is fail-open until an explicitly invoked Click Skill arms the
+current turn, or until the user explicitly enables strict mode.
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ import time
 from typing import Any
 
 
-CONTROL_COMMAND = "build-brief-gate"
+CONTROL_COMMAND = "click-gate"
 STRING_FIELDS = ("plain_language", "boundary")
 LIST_FIELDS = (
     "invariants",
@@ -34,7 +34,16 @@ LIST_FIELDS = (
     "minimality",
     "proof",
 )
-CONTRACT_FIELDS = set(STRING_FIELDS) | set(LIST_FIELDS)
+OBJECT_FIELDS = ("verification",)
+CONTRACT_FIELDS = set(STRING_FIELDS) | set(LIST_FIELDS) | set(OBJECT_FIELDS)
+VERIFICATION_FIELDS = {
+    "recommended",
+    "selected",
+    "rationale",
+    "final_checks",
+    "intermediate_gate",
+}
+VERIFICATION_SCALES = ("quick", "focused", "full")
 MAX_CONTRACT_CHARS = 8_000
 STATE_TTL_SECONDS = 7 * 24 * 60 * 60
 
@@ -141,7 +150,7 @@ def _state_root() -> Path:
     configured = os.environ.get("PLUGIN_DATA")
     if configured:
         return Path(configured) / "gate-state"
-    return Path(tempfile.gettempdir()) / "build-brief-plugin-data" / "gate-state"
+    return Path(tempfile.gettempdir()) / "click-plugin-data" / "gate-state"
 
 
 def _identity_path(event: dict[str, Any], scope: str) -> Path:
@@ -289,6 +298,33 @@ def _validate_contract(raw: str) -> tuple[dict[str, Any] | None, str]:
             return None, f"Execution Contract field `{field}` must be a non-empty list."
         if any(not isinstance(item, str) or not item.strip() for item in items):
             return None, f"Every `{field}` item must be a non-empty string."
+
+    verification = value.get("verification")
+    if not isinstance(verification, dict):
+        return None, "Execution Contract field `verification` must be an object."
+    unknown_verification_fields = sorted(set(verification) - VERIFICATION_FIELDS)
+    if unknown_verification_fields:
+        rendered = ", ".join(
+            f"`{field}`" for field in unknown_verification_fields
+        )
+        return (
+            None,
+            f"Execution Contract verification contains unsupported field(s): {rendered}.",
+        )
+    for field in ("recommended", "selected"):
+        scale = verification.get(field)
+        if scale not in VERIFICATION_SCALES:
+            allowed = ", ".join(VERIFICATION_SCALES)
+            return None, f"Verification `{field}` must be one of: {allowed}."
+    for field in ("rationale", "intermediate_gate"):
+        text = verification.get(field)
+        if not isinstance(text, str) or not text.strip():
+            return None, f"Verification `{field}` must be a non-empty string."
+    final_checks = verification.get("final_checks")
+    if not isinstance(final_checks, list) or not final_checks:
+        return None, "Verification `final_checks` must be a non-empty list."
+    if any(not isinstance(item, str) or not item.strip() for item in final_checks):
+        return None, "Every verification `final_checks` item must be a non-empty string."
 
     return value, ""
 
@@ -475,20 +511,20 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
             if action == "arm":
                 _prune_state()
                 _write_state(event, "armed")
-                _allow_rewritten("echo Build Brief mutation gate armed")
+                _allow_rewritten("echo Click mutation gate armed")
                 return
             if action == "bypass":
                 _prune_state()
                 _write_state(event, "bypassed")
                 _clear_contract_state(event)
-                _allow_rewritten("echo Build Brief bypassed for this turn")
+                _allow_rewritten("echo Click bypassed for this turn")
                 return
             if action == "mode":
                 _prune_state()
                 _write_mode(event, value)
                 if value == "adaptive":
                     _write_state(event, "idle")
-                _allow_rewritten(f"echo Build Brief mode set to {value}")
+                _allow_rewritten(f"echo Click mode set to {value}")
                 return
             if action in {"stage", "pass"}:
                 contract, validation_error = _validate_contract(value)
@@ -505,36 +541,48 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
                 if action == "stage":
                     if current_status not in {"armed", "staged", "passed"} and not strict:
                         _deny(
-                            "Arm Build Brief before staging the execution contract for approval."
+                            "Arm Click before staging the execution contract for approval."
+                        )
+                        return
+                    existing_contract = _read_contract_state(event)
+                    if (
+                        existing_contract.get("status") == "approved"
+                        and existing_contract.get("contract_digest") != digest
+                    ):
+                        _deny(
+                            "Click is already executing one approved contract. Keep working "
+                            "inside that contract instead of replacing it mid-run. If the "
+                            "approved outcome or authority is no longer sufficient, stop and "
+                            "report the blocker."
                         )
                         return
                     _write_contract_state(event, "staged", digest)
                     _write_state(event, "staged", digest)
-                    _allow_rewritten("echo Build Brief execution contract staged")
+                    _allow_rewritten("echo Click execution contract staged")
                     return
 
                 if current_status != "armed" and not strict:
                     _deny(
-                        "Arm Build Brief in the current turn before passing the approved "
+                        "Arm Click in the current turn before passing the approved "
                         "execution contract."
                     )
                     return
                 staged = _read_contract_state(event)
                 if staged.get("status") not in {"staged", "approved"}:
                     _deny(
-                        "No staged Build Brief execution contract is available for approval."
+                        "No staged Click execution contract is available for approval."
                     )
                     return
                 if staged.get("contract_digest") != digest:
                     _deny(
                         "The execution contract differs from the version staged for user "
-                        "approval. Stage the revision, show both views again, and obtain "
-                        "approval before implementation."
+                        "approval. Pass the exact staged contract, or replace it before "
+                        "approval and show the complete contract again."
                     )
                     return
                 _write_contract_state(event, "approved", digest)
                 _write_state(event, "passed", digest)
-                _allow_rewritten("echo Build Brief mutation gate passed")
+                _allow_rewritten("echo Click mutation gate passed")
                 return
 
     if tool_name == "Bash" and _is_read_only_bash(str(command)):
@@ -546,25 +594,26 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
 
     if status in {"armed", "staged"} or _read_mode(event) == "strict":
         _deny(
-            "Build Brief blocked this mutation because the activated execution contract has "
+            "Click blocked this mutation because the activated execution contract has "
             "not been staged, explained plainly, explicitly approved, and matched for the "
             "current turn. Complete plain_language, boundary, invariants, system_semantics, "
             "implementation, phases, steps, tasks, plan, execution_order, minimality, and proof; "
+            "include the recommended and selected verification scale with one final check batch; "
             "stage the exact JSON shown to the user, obtain approval, arm the approval turn, "
-            "then pass that same JSON. If the user does not want Build Brief for this turn, run "
-            "`build-brief-gate bypass`."
+            "then pass that same JSON. If the user does not want Click for this turn, run "
+            "`click-gate bypass`."
         )
 
 
 def main() -> int:
     if len(sys.argv) != 2 or sys.argv[1] != "pre-tool":
-        sys.stderr.write("usage: build_brief_gate.py pre-tool\n")
+        sys.stderr.write("usage: click_gate.py pre-tool\n")
         return 1
     try:
         event = _read_event()
         _handle_pre_tool(event)
     except (OSError, ValueError) as exc:
-        sys.stderr.write(f"build-brief hook error: {exc}\n")
+        sys.stderr.write(f"click hook error: {exc}\n")
         return 1
     return 0
 

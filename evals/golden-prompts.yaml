@@ -1,5 +1,5 @@
-version: 9
-skill: build-brief
+version: 10
+skill: click
 evaluation_conditions:
   - no-plugin
   - explicit-skill-only
@@ -27,6 +27,9 @@ evaluation_dimensions:
   - gate_retry_count
   - hook_latency_per_tool_call
   - verification_definition
+  - verification_scale
+  - final_verification_batch
+  - one_shot_execution
 grading_priority:
   correctness_gate: "The result must satisfy the requested observable behavior and material invariants before minimality is scored"
   optimization_target: "Among results that pass correctness, prefer the smallest justified design delta and greatest reuse of existing structure"
@@ -41,7 +44,7 @@ overdesign_rubric:
     - abstraction_layer
     - configuration_surface
     - operational_component
-  evidence_required_for_each_addition:
+  evidence_signals_for_material_additions:
     - current_requirement_or_repository_fact
     - reason_existing_structure_is_insufficient
     - material_failure_prevented
@@ -55,31 +58,36 @@ global_invariants:
   - "Compiles natural-language intent into an authoritative developer execution contract rather than selecting labels from a fixed catalog"
   - "Uses any software-design vocabulary the context requires and ties every term to a concrete implementation or verification consequence"
   - "Does not ask the user to provide technical terminology that can be inferred from the request and codebase"
-  - "Activates only after explicit plugin selection or `$build-brief` invocation"
-  - "Treats equivalent build, design, implement, and do-it wording in any language as the same full workflow after explicit Build Brief selection"
-  - "Presents a complete developer execution contract and a faithful plain-language explanation before modifying code, tests, configuration, or schemas when Build Brief is activated"
+  - "Activates only after explicit plugin selection or `$click` invocation"
+  - "Treats equivalent build, design, implement, and do-it wording in any language as the same full workflow after explicit Click selection"
+  - "Presents a complete developer execution contract and a faithful plain-language explanation before modifying code, tests, configuration, or schemas when Click is activated"
   - "Includes non-empty implementation, phases, steps, tasks, plan, and execution_order fields without duplicating one generic checklist"
   - "Builds the contract top-down from design meaning before deriving proportional execution fields"
   - "Treats the staged developer execution contract as the approval target and waits for explicit approval after showing it"
-  - "Passes exactly the contract staged for approval and requires a revised contract plus new approval for material changes"
-  - "Implements no behavior, scope, architecture, dependency, schema, public contract, task, or execution change outside the approved contract"
+  - "Passes exactly the contract staged for approval and keeps that semantic contract fixed during one-shot implementation"
+  - "Allows necessary in-scope dependencies, MCP tools, external services, graders, files, and low-level tactics without a replacement contract"
+  - "Does not change the approved outcome, user-visible behavior, semantic boundary, invariants, or verification commitment"
   - "Keeps the execution contract proportional instead of freezing the architecture of the entire system"
   - "Treats required behavior as a hard gate, then selects the smallest justified design delta among passing candidates"
   - "Reuses existing boundaries and mechanisms unless current evidence proves they cannot preserve an invariant"
-  - "Justifies every material new design element with present need, insufficiency of existing structure, failure prevented, and focused proof"
+  - "Rejects material additions only when they are out of scope, speculative, or disproportionate; it does not ban a technology category"
+  - "Includes verification with a quick, focused, or full recommendation and selection, rationale, one final check batch, and an exceptional intermediate gate"
+  - "Does not run a separate verification ceremony after every field, phase, step, or task"
+  - "Avoids serial technical preference questions by exposing consequential assumptions in the single contract review"
   - "Performs no implementation before the displayed developer execution contract is explicitly approved"
   - "Starts from the narrowest relevant repository evidence and widens only for unresolved consequential behavior"
   - "Leaves every uninvoked and unarmed task unblocked"
-  - "Arms the mutation gate when explicit invocation activates Build Brief"
+  - "Arms the mutation gate when explicit invocation activates Click"
   - "Honors an explicit user opt-out immediately, including after the gate was armed"
   - "Enables session-wide strict blocking only when the user explicitly selects it"
   - "Never blocks covered read-only commands, including safe read-only pipelines"
   - "Stores runtime gate state outside the target repository and records no execution contract plaintext"
   - "Adds no SessionStart or per-prompt context while unused"
   - "Loads supporting references only when consequential unresolved behavior requires them"
+  - "Supports explicit `$fix` invocation as a compact repair-contract workflow without auto-activating on ordinary bug reports"
 cases:
   - id: concurrent-editing
-    prompt: "$build-brief Two people can edit the same project settings at once. Don't let one person's save silently erase the other's changes. Build the fix."
+    prompt: "$click Two people can edit the same project settings at once. Don't let one person's save silently erase the other's changes. Build the fix."
     expected_activation: true
     expected_mode: build
     expected_mutation_gate: none-before-approval
@@ -95,7 +103,7 @@ cases:
         - "A message broker or distributed lock service"
 
   - id: large-media-upload
-    prompt: "$build-brief Users upload large videos, but the page should not sit waiting while previews are generated."
+    prompt: "$click Users upload large videos, but the page should not sit waiting while previews are generated."
     expected_activation: true
     expected_mode: build
     expected_mutation_gate: none-before-approval
@@ -111,7 +119,7 @@ cases:
         - "A new message broker when an adequate job mechanism already exists"
 
   - id: legacy-refund
-    prompt: "$build-brief Add partial refunds to this old checkout code without changing existing full refunds."
+    prompt: "$click Add partial refunds to this old checkout code without changing existing full refunds."
     expected_activation: true
     expected_mode: build
     expected_mutation_gate: none-before-approval
@@ -127,7 +135,7 @@ cases:
         - "A new event bus"
 
   - id: privacy-erasure
-    prompt: "$build-brief When a customer deletes their account, their personal data should disappear everywhere but finance must keep legally required invoice records. Give me the implementation command."
+    prompt: "$click When a customer deletes their account, their personal data should disappear everywhere but finance must keep legally required invoice records. Give me the implementation command."
     expected_activation: true
     expected_mode: command
     expected_mutation_gate: none
@@ -142,7 +150,7 @@ cases:
         - "A generic workflow engine"
 
   - id: korean-inventory-alert
-    prompt: "$build-brief 재고가 5개 아래로 내려가면 구매 담당자에게 한 번만 알려줘. 짧은 시간에 재고 변경이 여러 번 들어올 수도 있어."
+    prompt: "$click 재고가 5개 아래로 내려가면 구매 담당자에게 한 번만 알려줘. 짧은 시간에 재고 변경이 여러 번 들어올 수도 있어."
     expected_activation: true
     expected_mode: build
     expected_mutation_gate: none-before-approval
@@ -158,7 +166,7 @@ cases:
         - "A new event broker when atomic state or an existing job path is sufficient"
 
   - id: cross-boundary-subscription-cancel
-    prompt: "$build-brief When a customer cancels, stop future billing immediately, keep access until the paid period ends, and notify our CRM. Build it."
+    prompt: "$click When a customer cancels, stop future billing immediately, keep access until the paid period ends, and notify our CRM. Build it."
     expected_activation: true
     expected_mode: build
     expected_mutation_gate: none-before-approval
@@ -173,7 +181,7 @@ cases:
         - "A broad subscription-domain rewrite"
 
   - id: korean-review-first
-    prompt: "$build-brief 회원 탈퇴 기능을 추가해줘. 코딩하기 전에 데이터 보존과 삭제 범위를 포함한 설계 계약을 먼저 보여주고 내 승인을 기다려."
+    prompt: "$click 회원 탈퇴 기능을 추가해줘. 코딩하기 전에 데이터 보존과 삭제 범위를 포함한 설계 계약을 먼저 보여주고 내 승인을 기다려."
     expected_activation: true
     expected_mode: review
     expected_mutation_gate: none-before-approval
@@ -188,7 +196,7 @@ cases:
         - "Unrequested system-wide architecture changes"
 
   - id: korean-refund-approval
-    prompt: "$build-brief 주문 취소 기능을 설계부터 구현해줘. 중복 환불을 방지하고 기존 API 호환성을 유지해야 해."
+    prompt: "$click 주문 취소 기능을 설계부터 구현해줘. 중복 환불을 방지하고 기존 API 호환성을 유지해야 해."
     expected_activation: true
     expected_mode: build
     expected_mutation_gate: none-before-approval
@@ -204,12 +212,12 @@ cases:
         - "A message broker introduced only for this request"
 
   - id: korean-casual-do-full-workflow
-    prompt: "$build-brief 이 작업 해줘: 기존 API를 유지하면서 주문 메모 수정 기능을 추가해."
+    prompt: "$click 이 작업 해줘: 기존 API를 유지하면서 주문 메모 수정 기능을 추가해."
     expected_activation: true
     expected_mode: build
     expected_mutation_gate: none-before-approval
     directive_semantics:
-      - "Treats the casual Korean action wording as the full Build Brief workflow after explicit selection"
+      - "Treats the casual Korean action wording as the full Click workflow after explicit selection"
       - "Produces all required execution fields from repository evidence"
       - "Shows the contract and easy Korean translation, then waits for approval before implementation"
     minimality_expectations:
@@ -219,7 +227,7 @@ cases:
         - "A generic notes subsystem"
 
   - id: english-design-verb-full-workflow
-    prompt: "$build-brief Design an order-note editing feature while preserving the current API, permissions, and response shape."
+    prompt: "$click Design an order-note editing feature while preserving the current API, permissions, and response shape."
     expected_activation: true
     expected_mode: build
     expected_mutation_gate: none-before-approval
@@ -234,7 +242,7 @@ cases:
         - "A platform-wide notes abstraction"
 
   - id: explicit-directive-only
-    prompt: "$build-brief 여러 판매 채널의 주문을 하나의 재고에 반영하는 구현 지시문만 작성해줘. 코딩은 하지 마."
+    prompt: "$click 여러 판매 채널의 주문을 하나의 재고에 반영하는 구현 지시문만 작성해줘. 코딩은 하지 마."
     expected_activation: true
     expected_mode: command
     expected_mutation_gate: none
@@ -248,6 +256,38 @@ cases:
       reject_without_evidence:
         - "A new integration platform"
         - "A separate service per sales channel"
+
+  - id: korean-youtube-one-shot-contract
+    prompt: "$click YouTube 채널 댓글에 자동 답글을 게시하는 도구를 만들어줘. Gemini API로 답글을 만들되 욕설·개인정보·광고성 댓글에는 답글을 달지 마."
+    expected_activation: true
+    expected_mode: build
+    expected_mutation_gate: none-before-approval
+    directive_semantics:
+      - "Does not ask separate platform, generation-mode, storage, or scheduling preference questions before producing the contract"
+      - "Makes YouTube authorization, Gemini generation, filtering, duplicate-reply prevention, rate limiting, failure handling, and a stop control explicit"
+      - "Includes a proportional verification recommendation and one final check batch"
+      - "Explains the same result in easy Korean and asks once for approval"
+    minimality_expectations:
+      reuse: "Repository-supported runtime, scheduler, storage, and configuration when present"
+      reject_without_evidence:
+        - "A multi-service platform when one deployable worker satisfies the contract"
+        - "Unrelated moderation or analytics features"
+
+  - id: explicit-fix-one-shot
+    prompt: "$fix 결제 버튼을 두 번 누르면 요청이 중복돼. 기존 결제 API 동작은 유지하면서 고쳐줘."
+    expected_activation: true
+    expected_mode: build
+    expected_mutation_gate: none-before-approval
+    directive_semantics:
+      - "Uses the compact repair workflow rather than activating Click from the word fix alone"
+      - "Separates confirmed repository evidence from a root-cause hypothesis"
+      - "Produces the complete proportional contract, recommends verification, and asks once"
+      - "After approval, permits necessary in-scope repair tactics without a replacement contract"
+    minimality_expectations:
+      reuse: "Existing payment request boundary, idempotency mechanism, and focused tests"
+      reject_without_evidence:
+        - "A payment-platform rewrite"
+        - "Unrelated checkout cleanup"
 
   - id: explicit-color-edit
     prompt: "Change the primary button from green to blue and leave everything else alone."
@@ -264,11 +304,11 @@ cases:
     expected_activation: false
     expected_mode: build
     expected_mutation_gate: none-uninvoked
-    reason: "The request is consequential but did not explicitly select Build Brief; normal model design and implementation should proceed without this Skill or Gate."
+    reason: "The request is consequential but did not explicitly select Click; normal model design and implementation should proceed without this Skill or Gate."
     minimality_expectations:
       reuse: "The ordinary model workflow and existing settings write boundary"
       reject_without_evidence:
-        - "Any Build Brief control command or plugin-specific blocking"
+        - "Any Click control command or plugin-specific blocking"
 
   - id: terminology-question
     prompt: "What is the difference between a monolith and microservices?"
@@ -291,7 +331,7 @@ cases:
         - "Any new abstraction, dependency, or architectural boundary"
 
   - id: explicit-opt-out
-    prompt: "Build Brief 없이 이 기존 테스트의 이름만 더 명확하게 바꾸고 바로 진행해줘."
+    prompt: "Click 없이 이 기존 테스트의 이름만 더 명확하게 바꾸고 바로 진행해줘."
     expected_activation: false
     expected_mode: build
     expected_mutation_gate: bypass-if-already-armed

@@ -12,19 +12,19 @@ import unittest
 
 SCRIPT = Path(
     os.environ.get(
-        "BUILD_BRIEF_GATE_UNDER_TEST",
-        Path(__file__).parents[1] / "hooks" / "build_brief_gate.py",
+        "CLICK_GATE_UNDER_TEST",
+        Path(__file__).parents[1] / "hooks" / "click_gate.py",
     )
 )
 HOOK_CONFIG = Path(
     os.environ.get(
-        "BUILD_BRIEF_HOOK_CONFIG_UNDER_TEST",
+        "CLICK_HOOK_CONFIG_UNDER_TEST",
         Path(__file__).parents[1] / "hooks" / "hooks.json",
     )
 )
 
 
-class BuildBriefGateTests(unittest.TestCase):
+class ClickGateTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
@@ -89,13 +89,22 @@ class BuildBriefGateTests(unittest.TestCase):
                 "reuse the inventory write path and existing notification mechanism"
             ],
             "proof": ["verify concurrent threshold updates notify once"],
+            "verification": {
+                "recommended": "focused",
+                "selected": "focused",
+                "rationale": "the change affects concurrent notification behavior",
+                "final_checks": [
+                    "run the focused threshold concurrency tests once after implementation"
+                ],
+                "intermediate_gate": "none; the change is local and reversible",
+            },
         }
 
     def stage_gate(
         self, contract: dict | None = None, turn_id: str = "turn-1"
     ) -> dict:
         value = contract or self.contract()
-        command = f"build-brief-gate stage {shlex.quote(json.dumps(value))}"
+        command = f"click-gate stage {shlex.quote(json.dumps(value))}"
         payload = self.pre_tool("Bash", command, turn_id)
         self.assertIsNotNone(payload)
         return payload
@@ -104,7 +113,7 @@ class BuildBriefGateTests(unittest.TestCase):
         self, contract: dict | None = None, turn_id: str = "turn-2"
     ) -> dict:
         value = contract or self.contract()
-        command = f"build-brief-gate pass {shlex.quote(json.dumps(value))}"
+        command = f"click-gate pass {shlex.quote(json.dumps(value))}"
         payload = self.pre_tool("Bash", command, turn_id)
         self.assertIsNotNone(payload)
         return payload
@@ -116,18 +125,18 @@ class BuildBriefGateTests(unittest.TestCase):
         self.pass_gate(turn_id="turn-2")
 
     def arm_gate(self, turn_id: str = "turn-1") -> dict:
-        payload = self.pre_tool("Bash", "build-brief-gate arm", turn_id)
+        payload = self.pre_tool("Bash", "click-gate arm", turn_id)
         self.assertIsNotNone(payload)
         return payload
 
     def bypass_gate(self, turn_id: str = "turn-1") -> dict:
-        payload = self.pre_tool("Bash", "build-brief-gate bypass", turn_id)
+        payload = self.pre_tool("Bash", "click-gate bypass", turn_id)
         self.assertIsNotNone(payload)
         return payload
 
     def set_mode(self, mode: str, turn_id: str = "turn-1") -> dict:
         payload = self.pre_tool(
-            "Bash", f"build-brief-gate mode {mode}", turn_id
+            "Bash", f"click-gate mode {mode}", turn_id
         )
         self.assertIsNotNone(payload)
         return payload
@@ -139,7 +148,7 @@ class BuildBriefGateTests(unittest.TestCase):
         self.assertNotIn("UserPromptSubmit", hooks)
         self.assertEqual(hooks["PreToolUse"][0]["matcher"], "^(Bash|apply_patch|Edit|Write)$")
         pre_tool_handler = hooks["PreToolUse"][0]["hooks"][0]
-        self.assertTrue(pre_tool_handler["command"].endswith('build_brief_gate.py\" pre-tool'))
+        self.assertTrue(pre_tool_handler["command"].endswith('click_gate.py\" pre-tool'))
 
     def test_uninvoked_hook_starts_without_state(self) -> None:
         self.assertFalse((self.plugin_data / "gate-state").exists())
@@ -183,7 +192,7 @@ class BuildBriefGateTests(unittest.TestCase):
         payload = self.bypass_gate()
         self.assertEqual(
             payload["hookSpecificOutput"]["updatedInput"]["command"],
-            "echo Build Brief bypassed for this turn",
+            "echo Click bypassed for this turn",
         )
         self.assertIsNone(
             self.pre_tool("apply_patch", "*** Begin Patch\n*** End Patch")
@@ -204,7 +213,7 @@ class BuildBriefGateTests(unittest.TestCase):
 
     def test_invalid_contract_is_denied(self) -> None:
         command = (
-            "build-brief-gate pass "
+            "click-gate pass "
             "'{\"plain_language\":\"기존 API 동작을 유지합니다.\",\"boundary\":\"api\"}'"
         )
         payload = self.pre_tool("Bash", command)
@@ -225,6 +234,13 @@ class BuildBriefGateTests(unittest.TestCase):
             "plan": ["keep the save path and narrow the validation correction"],
             "execution_order": ["handler change before focused verification"],
             "proof": ["run the focused settings tests"],
+            "verification": {
+                "recommended": "quick",
+                "selected": "quick",
+                "rationale": "the validation branch is local and reversible",
+                "final_checks": ["run the focused settings tests once"],
+                "intermediate_gate": "none",
+            },
         }
         for minimality in (None, [], [""]):
             with self.subTest(minimality=minimality):
@@ -232,7 +248,7 @@ class BuildBriefGateTests(unittest.TestCase):
                 if minimality is not None:
                     contract["minimality"] = minimality
                 command = (
-                    "build-brief-gate pass "
+                    "click-gate pass "
                     f"{shlex.quote(json.dumps(contract))}"
                 )
                 payload = self.pre_tool("Bash", command)
@@ -248,7 +264,7 @@ class BuildBriefGateTests(unittest.TestCase):
             "minimality": ["reuse the current handler"],
             "proof": ["run the focused settings tests"],
         }
-        command = f"build-brief-gate pass {shlex.quote(json.dumps(contract))}"
+        command = f"click-gate pass {shlex.quote(json.dumps(contract))}"
         payload = self.pre_tool("Bash", command)
         output = payload["hookSpecificOutput"]
         self.assertEqual(output["permissionDecision"], "deny")
@@ -267,15 +283,49 @@ class BuildBriefGateTests(unittest.TestCase):
             with self.subTest(field=field):
                 contract = dict(base_contract)
                 del contract[field]
-                command = f"build-brief-gate pass {shlex.quote(json.dumps(contract))}"
+                command = f"click-gate pass {shlex.quote(json.dumps(contract))}"
                 payload = self.pre_tool("Bash", command)
                 output = payload["hookSpecificOutput"]
                 self.assertEqual(output["permissionDecision"], "deny")
                 self.assertIn(field, output["permissionDecisionReason"])
 
+    def test_verification_is_required_and_bounded(self) -> None:
+        missing = self.contract()
+        del missing["verification"]
+        payload = self.pre_tool(
+            "Bash", f"click-gate stage {shlex.quote(json.dumps(missing))}"
+        )
+        self.assertIn(
+            "verification", payload["hookSpecificOutput"]["permissionDecisionReason"]
+        )
+
+        for scale in ("quick", "focused", "full"):
+            with self.subTest(scale=scale):
+                contract = self.contract()
+                contract["verification"]["recommended"] = scale
+                contract["verification"]["selected"] = scale
+                self.arm_gate()
+                payload = self.stage_gate(contract)
+                self.assertEqual(
+                    payload["hookSpecificOutput"]["permissionDecision"], "allow"
+                )
+
+        invalid = self.contract()
+        invalid["verification"]["selected"] = "every-step"
+        payload = self.pre_tool(
+            "Bash", f"click-gate stage {shlex.quote(json.dumps(invalid))}"
+        )
+        self.assertEqual(
+            payload["hookSpecificOutput"]["permissionDecision"], "deny"
+        )
+        self.assertIn(
+            "quick, focused, full",
+            payload["hookSpecificOutput"]["permissionDecisionReason"],
+        )
+
     def test_unknown_contract_field_is_rejected(self) -> None:
         contract = {**self.contract(), "surprise_scope": ["rewrite unrelated API"]}
-        command = f"build-brief-gate stage {shlex.quote(json.dumps(contract))}"
+        command = f"click-gate stage {shlex.quote(json.dumps(contract))}"
         payload = self.pre_tool("Bash", command)
         output = payload["hookSpecificOutput"]
         self.assertEqual(output["permissionDecision"], "deny")
@@ -292,9 +342,9 @@ class BuildBriefGateTests(unittest.TestCase):
         payload = self.stage_gate(turn_id="turn-1")
         output = payload["hookSpecificOutput"]
         self.assertEqual(output["permissionDecision"], "deny")
-        self.assertIn("Arm Build Brief", output["permissionDecisionReason"])
+        self.assertIn("Arm Click", output["permissionDecisionReason"])
 
-    def test_changed_contract_requires_restaging_and_reapproval(self) -> None:
+    def test_pass_rejects_a_contract_different_from_the_staged_contract(self) -> None:
         self.arm_gate("turn-1")
         self.stage_gate(turn_id="turn-1")
         revised = self.contract()
@@ -305,29 +355,44 @@ class BuildBriefGateTests(unittest.TestCase):
         self.assertEqual(output["permissionDecision"], "deny")
         self.assertIn("differs", output["permissionDecisionReason"])
 
-    def test_revised_contract_can_pass_after_restaging_and_reapproval(self) -> None:
+    def test_contract_can_be_replaced_before_approval(self) -> None:
+        original = self.contract()
+        self.arm_gate("turn-1")
+        self.stage_gate(original, "turn-1")
+        revised = self.contract()
+        revised["tasks"] = [*revised["tasks"], "update approved API documentation"]
+        self.stage_gate(revised, "turn-1")
+        self.arm_gate("turn-2")
+        payload = self.pass_gate(revised, "turn-2")
+        self.assertEqual(
+            payload["hookSpecificOutput"]["updatedInput"]["command"],
+            "echo Click mutation gate passed",
+        )
+
+    def test_approved_contract_cannot_be_replaced_mid_run(self) -> None:
         original = self.contract()
         self.arm_gate("turn-1")
         self.stage_gate(original, "turn-1")
         self.arm_gate("turn-2")
         self.pass_gate(original, "turn-2")
 
-        revised = self.contract()
-        revised["tasks"] = [*revised["tasks"], "update approved API documentation"]
-        self.stage_gate(revised, "turn-2")
-        blocked = self.pre_tool(
-            "apply_patch", "*** Begin Patch\n*** End Patch", "turn-2"
-        )
-        self.assertEqual(
-            blocked["hookSpecificOutput"]["permissionDecision"], "deny"
-        )
+        replacement = self.contract()
+        replacement["tasks"] = [*replacement["tasks"], "rewrite unrelated API"]
+        payload = self.stage_gate(replacement, "turn-2")
+        output = payload["hookSpecificOutput"]
+        self.assertEqual(output["permissionDecision"], "deny")
+        self.assertIn("one approved contract", output["permissionDecisionReason"])
 
-        self.arm_gate("turn-3")
-        payload = self.pass_gate(revised, "turn-3")
-        self.assertEqual(
-            payload["hookSpecificOutput"]["updatedInput"]["command"],
-            "echo Build Brief mutation gate passed",
-        )
+    def test_verification_change_requires_the_exact_staged_contract(self) -> None:
+        self.arm_gate("turn-1")
+        self.stage_gate(turn_id="turn-1")
+        changed = self.contract()
+        changed["verification"]["selected"] = "full"
+        self.arm_gate("turn-2")
+        payload = self.pass_gate(changed, "turn-2")
+        output = payload["hookSpecificOutput"]
+        self.assertEqual(output["permissionDecision"], "deny")
+        self.assertIn("differs", output["permissionDecisionReason"])
 
     def test_bypass_discards_the_staged_contract(self) -> None:
         self.arm_gate("turn-1")
@@ -344,14 +409,14 @@ class BuildBriefGateTests(unittest.TestCase):
         staged = self.stage_gate(turn_id="turn-1")
         self.assertEqual(
             staged["hookSpecificOutput"]["updatedInput"]["command"],
-            "echo Build Brief execution contract staged",
+            "echo Click execution contract staged",
         )
         self.arm_gate("turn-2")
         payload = self.pass_gate(turn_id="turn-2")
         output = payload["hookSpecificOutput"]
         self.assertEqual(output["permissionDecision"], "allow")
         self.assertEqual(
-            output["updatedInput"]["command"], "echo Build Brief mutation gate passed"
+            output["updatedInput"]["command"], "echo Click mutation gate passed"
         )
         self.assertIsNone(
             self.pre_tool("apply_patch", "*** Begin Patch\n*** End Patch", "turn-2")

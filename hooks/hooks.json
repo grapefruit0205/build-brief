@@ -1,5 +1,5 @@
 {
-  "description": "Gate supported local mutations until an explicitly invoked Build Brief execution contract has been staged, explained plainly, approved unchanged, and passed, with user opt-out and optional strict mode.",
+  "description": "Gate supported local mutations until an explicitly invoked Click execution contract has been staged, explained plainly, approved unchanged, and passed, with user opt-out and optional strict mode.",
   "hooks": {
     "PreToolUse": [
       {
@@ -7,8 +7,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${PLUGIN_ROOT}/hooks/build_brief_gate.py\" pre-tool",
-            "commandWindows": "py -3 \"%PLUGIN_ROOT%\\hooks\\build_brief_gate.py\" pre-tool",
+            "command": "python3 \"${PLUGIN_ROOT}/hooks/click_gate.py\" pre-tool",
+            "commandWindows": "py -3 \"%PLUGIN_ROOT%\\hooks\\click_gate.py\" pre-tool",
             "timeout": 2
           }
         ]
