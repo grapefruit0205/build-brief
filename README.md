@@ -124,6 +124,22 @@ The old `plan`, `implementation`, `phases`, `steps`, `tasks`, `execution_order`,
 
 The Hook caps the serialized contract at 4,000 characters. This is a ceiling, not a target; ordinary contracts should be much shorter.
 
+## What minimum design does not remove
+
+**A small design is not an incomplete design.** Click reduces contract fields, repeated plans, and approval rounds. Safety semantics that materially affect the requested result or current system are not targets for removal; they belong in the contract.
+
+| Area | Meaning preserved by the compact contract |
+| --- | --- |
+| Concurrency | Results that must survive races, duplicate execution, or idempotent retries |
+| State | Valid state transitions, persistence points, and data ownership that must not drift |
+| Failure | Behavior that must survive partial failure, retries, recovery, or an external-system error |
+| Security | Authentication, authorization, secret, and privacy boundaries that must not be crossed |
+| Compatibility | Existing API, data, status, and user-visible behavior that must remain stable |
+
+These conditions are first fixed in `must_hold`. Add `build.semantics` only when concrete state, failure, security, concurrency, or compatibility meaning constrains implementation, and add `build.order` only when sequence affects safety. Put observable checks in `verification.done_when`. **Conditional fields do not make necessary safeguards optional; they prevent irrelevant filler from expanding the contract.**
+
+The Hook does not prove that these meanings were correctly implemented in code. It protects contract shape, approval order, and equality, while the semantic grader is designed to flag material omissions. Confidence in the result still comes from the approved `done_when` checks and code review.
+
 ## Installation from GitHub
 
 The repository, marketplace, plugin, and Skill are all named Click.
