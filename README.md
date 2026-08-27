@@ -97,6 +97,7 @@ $build-brief Create a handoff-ready engineering directive. Do not implement it.
 ```text
 .codex-plugin/plugin.json             Plugin manifest
 .agents/plugins/marketplace.json      GitHub marketplace entry
+LICENSE                               MIT license
 skills/build-brief/SKILL.md           Skill entry point
 skills/build-brief/references/        Conditional translation guidance
 hooks/hooks.json                      Codex lifecycle hook configuration
@@ -126,3 +127,7 @@ For behavioral evaluation, compare the same representative prompts with no plugi
 Automatic Skill discovery remains model-mediated, so it can still over-activate or fail to activate. The deterministic Mutation Gate catches a missed activation at the first covered write attempt, but it does not make Skill selection deterministic.
 
 The Gate blocks supported local tool paths such as `apply_patch` and guarded Bash commands until a structurally valid contract is recorded. It is an ordering guardrail, not a complete security boundary: users must trust and enable the Hook, and specialized tool paths may not pass through Codex lifecycle hooks. The Hook validates contract shape; semantic completeness still belongs to the Skill, repository evidence, and behavioral evaluation. It also launches a small standard-library Python process for each covered local tool call, so command-heavy work retains a modest per-tool latency cost even though repeated prompt context is avoided.
+
+## License
+
+Build Brief is released under the [MIT License](LICENSE).

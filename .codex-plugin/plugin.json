@@ -1,6 +1,6 @@
 {
   "name": "build-brief",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "Compile plain-language software intent into a proportional design contract and gate supported local edits until it passes.",
   "author": {
     "name": "Junseok Pak",
@@ -8,6 +8,7 @@
   },
   "homepage": "https://github.com/grapefruit0205/build-brief",
   "repository": "https://github.com/grapefruit0205/build-brief",
+  "license": "MIT",
   "keywords": [
     "natural-language",
     "intent-compiler",

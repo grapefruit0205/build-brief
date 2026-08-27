@@ -97,6 +97,7 @@ $build-brief 다른 개발자에게 넘길 구현 지시문만 작성하고 코�
 ```text
 .codex-plugin/plugin.json             플러그인 매니페스트
 .agents/plugins/marketplace.json      GitHub 마켓플레이스 항목
+LICENSE                               MIT 라이선스
 skills/build-brief/SKILL.md           Skill 진입점
 skills/build-brief/references/        조건부 번역 가이드
 hooks/hooks.json                      Codex 라이프사이클 Hook 설정
@@ -126,3 +127,7 @@ python3 -m unittest discover -s tests -v
 자동 Skill 발견은 여전히 모델의 판단을 거치므로 과잉 활성화되거나 누락될 수 있습니다. 결정적인 Mutation Gate가 첫 번째 지원 대상 쓰기 시점에서 누락을 잡아내지만 Skill 선택 자체를 결정적으로 만들지는 않습니다.
 
 Mutation Gate는 구조적으로 유효한 계약이 기록될 때까지 `apply_patch`와 보호 대상 Bash 명령 같은 지원되는 로컬 도구 경로를 차단합니다. 다만 완전한 보안 경계는 아닙니다. 사용자가 Hook을 신뢰하고 활성화해야 하며 일부 특수 도구 경로는 Codex 라이프사이클 Hook을 통과하지 않을 수 있습니다. Hook은 계약의 구조만 확인하고, 의미적 완성도는 Skill·저장소 증거·행동 평가가 담당합니다. 반복되는 프롬프트 컨텍스트는 피하지만 지원 대상 로컬 도구를 호출할 때마다 표준 라이브러리만 사용하는 작은 Python 프로세스를 시작하므로, 명령 호출이 아주 많은 작업에는 도구별 지연이 조금 남습니다.
+
+## 라이선스
+
+Build Brief는 [MIT 라이선스](LICENSE)로 배포됩니다.
