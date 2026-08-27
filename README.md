@@ -7,7 +7,7 @@ English | [한국어](README.ko.md)
 
 **Contract-first, build-fast. Approve the minimum sufficient contract once; Click implements inside it to a working result.**
 
-Click is an explicitly selected Codex plugin. Mention `@Click` with a natural-language software request. It reads the relevant repository, translates the request into a complete developer execution contract, explains the same meaning plainly, recommends how much final verification is appropriate, and asks for one approval before coding.
+Click is an explicitly selected Codex plugin. Mention `@Click` with a natural-language software request. It reads the relevant repository, translates the request into a compact developer execution contract, explains the same meaning plainly, chooses how much final verification is appropriate, and asks for one approval before coding.
 
 It is not an architecture-pattern picker. You do not have to choose “modular monolith,” “microservices,” “event-driven,” “batch,” or “functional.” Click derives the engineering language the real behavior and codebase require.
 
@@ -15,9 +15,9 @@ It is not an architecture-pattern picker. You do not have to choose “modular m
 
 1. Mention `@Click` and describe the result you want.
 2. Click inspects the smallest relevant part of the repository.
-3. It shows one developer contract, one easy explanation, and a recommended verification scale.
+3. It shows one compact developer contract, one easy explanation, and one verification scale.
 4. You approve once.
-5. Click implements in one shot and runs the selected final checks once.
+5. Click implements in one shot and runs the completion checks once.
 
 ```mermaid
 flowchart LR
@@ -38,9 +38,9 @@ The Hook stores a digest of the shown contract outside the target repository. Th
 The lock applies to the **meaning of the work**:
 
 - the outcome and user-visible behavior;
-- the owning boundary and invariants;
+- the boundary and must-hold conditions;
 - material system and failure behavior;
-- explicit constraints and the selected verification commitment.
+- explicit constraints and the verification commitment.
 
 It does not freeze every implementation tool. Inside that approved envelope, Click may choose necessary libraries, dependencies, MCP tools, external services, graders, files, and low-level tactics without asking for another contract. This is what makes the workflow one-shot rather than a series of implementation approvals.
 
@@ -50,7 +50,7 @@ The Hook enforces contract shape, ordering, and staged-versus-passed equality. I
 
 ## Verification without ceremony
 
-Contract fields such as `invariants`, `implementation`, `steps`, and `proof` are not separate test checkpoints. Click recommends one scale and includes it in the contract approval.
+The contract contains one verification scale and one `done_when` list. It does not create separate test checkpoints for plans, phases, steps, or tasks.
 
 | Scale | Recommended for | Final batch |
 | --- | --- | --- |
@@ -58,7 +58,7 @@ Contract fields such as `invariants`, `implementation`, `steps`, and `proof` are
 | `focused` | Ordinary features and repairs | Direct behavior tests, closest regression checks, and final diff/status review |
 | `full` | Payments, auth, deletion, migrations, public contracts, or high-impact concurrency | Available full suite plus relevant integration, migration, security, or end-to-end checks |
 
-The selected checks run together once after implementation. An intermediate gate is reserved for an irreversible migration, deletion, deployment, paid API call, or similar point where continuing would make recovery materially harder.
+The completion checks run together once after implementation. An intermediate gate is reserved for an irreversible migration, deletion, deployment, paid API call, or similar point where continuing would make recovery materially harder.
 
 ## One user-facing invocation
 
@@ -68,13 +68,13 @@ Use `@Click` for design, implementation, and repair requests.
 @Click Add partial refunds to this legacy checkout without changing existing full refunds.
 ```
 
-Click produces the complete top-down contract, an easy explanation, and a verification recommendation, then waits for one approval.
+Click produces the compact top-down contract, an easy explanation, and a verification scale, then waits for one approval.
 
 ```text
 @Click The payment button can send the same request twice. Preserve the existing payment API and fix it.
 ```
 
-Fix traces the narrow defect, separates evidence from a root-cause hypothesis, and creates a compact repair contract. After one approval, it repairs the issue and runs the selected final checks once.
+Fix traces the narrow defect, separates evidence from a root-cause hypothesis, and creates a compact repair contract. After one approval, it repairs the issue and runs the completion checks once.
 
 Internally the plugin contains two explicit-only Skills: `$click` for design and implementation and `$fix` for compact repairs. Those direct Skill names remain available as a technical interface, but user-facing documentation and examples use the plugin mention `@Click`. The plugin does not install native slash commands. Both Skills have implicit invocation disabled, so ordinary requests remain ordinary Codex requests.
 
@@ -113,21 +113,16 @@ If the first request were only “make an automatic comment tool,” Click could
 
 | Field | Meaning |
 | --- | --- |
-| `boundary` | Owner and semantic limit of the approved outcome |
-| `invariants` | Observable requirements that must remain true |
-| `system_semantics` | Required state, flow, ordering, failure, security, compatibility, and operational meaning |
-| `plan` | Goal, scope, non-goals, and top-down direction |
-| `implementation` | Design mapped onto the current system |
-| `phases` | Proportional implementation groupings, not approval gates |
-| `steps` | Ordered changes, not mandatory test points |
-| `tasks` | Concrete deliverables inside the boundary |
-| `execution_order` | Only sequencing that materially constrains safe completion |
-| `minimality` | Existing structure to reuse or reason for a material addition |
-| `proof` | Observable acceptance criteria |
-| `verification` | Recommended and selected scale, rationale, final checks, and any exceptional intermediate gate |
+| `outcome` | Concrete result and user-visible behavior |
+| `boundary` | Required `in_scope` work and explicit `out_of_scope` limits |
+| `must_hold` | Observable behavior, compatibility, and safety conditions that cannot change |
+| `build` | Smallest repository-aware approach; optional `semantics` and `order` only when material |
+| `verification` | One `quick`, `focused`, or `full` scale and observable `done_when` checks |
 | `plain_language` | Faithful easy explanation of the same contract |
 
-A small repair may use one concise item per execution field. Field presence is not permission to inflate a one-file edit into a project.
+The old `plan`, `implementation`, `phases`, `steps`, `tasks`, `execution_order`, `minimality`, and `proof` fields are intentionally not separate contract sections. Their useful meaning is folded into `outcome`, `boundary`, `must_hold`, `build`, and `verification` so a one-file edit does not become a miniature project plan.
+
+The Hook caps the serialized contract at 4,000 characters. This is a ceiling, not a target; ordinary contracts should be much shorter.
 
 ## Installation from GitHub
 
@@ -159,7 +154,7 @@ Use ordinary natural-language coding when the change is tiny, obvious, reversibl
 
 ## Evidence and limits
 
-The repository deterministically tests explicit-only activation, uninvoked fail-open behavior, opt-out, safe read-only commands, contract completeness, verification profiles, staged-versus-passed digest equality, one-shot contract locking, digest-only state, and repository policy. Public CI runs on Linux, macOS, and Windows.
+The repository deterministically tests explicit-only activation, uninvoked fail-open behavior, opt-out, safe read-only commands, compact-contract completeness, conditional build constraints, verification profiles, staged-versus-passed digest equality, one-shot contract locking, digest-only state, and repository policy. Public CI runs on Linux, macOS, and Windows.
 
 The included golden cases, semantic grader, and A/B runner are evaluation infrastructure. Post-v0.9 behavioral A/B evidence has not yet established that Click improves implementation success, reduces missed invariants, or saves time and tokens across real projects.
 

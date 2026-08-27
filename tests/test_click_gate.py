@@ -68,36 +68,34 @@ class ClickGateTests(unittest.TestCase):
 
     def contract(self) -> dict:
         return {
+            "outcome": "send one alert when inventory crosses below its threshold",
+            "boundary": {
+                "in_scope": ["inventory threshold transition and notification path"],
+                "out_of_scope": ["unrelated inventory and purchasing behavior"],
+            },
+            "must_hold": [
+                "send at most one alert per threshold crossing",
+                "preserve the existing inventory write behavior",
+            ],
+            "build": {
+                "approach": [
+                    "extend the existing threshold transition and notification path"
+                ],
+                "semantics": [
+                    "deduplicate notification intent at the inventory write boundary"
+                ],
+                "order": ["record the inventory transition before dispatching the alert"],
+            },
+            "verification": {
+                "scale": "focused",
+                "done_when": [
+                    "focused concurrent threshold tests send one alert per crossing"
+                ],
+            },
             "plain_language": (
                 "재고가 임계값 아래로 내려갈 때 같은 상황에서는 알림을 한 번만 보내고, "
                 "승인된 순서대로 현재 알림 경로를 수정하고 검증합니다."
             ),
-            "boundary": "inventory write path",
-            "invariants": ["one alert per threshold crossing"],
-            "system_semantics": [
-                "deduplicate notification intent at the existing inventory write boundary"
-            ],
-            "implementation": [
-                "extend the existing threshold transition and notification path"
-            ],
-            "phases": ["change the write path", "verify concurrent behavior"],
-            "steps": ["record the threshold transition atomically", "dispatch once"],
-            "tasks": ["update inventory logic", "add focused concurrency coverage"],
-            "plan": ["preserve the current boundary and change only alert deduplication"],
-            "execution_order": ["inventory state change before notification dispatch"],
-            "minimality": [
-                "reuse the inventory write path and existing notification mechanism"
-            ],
-            "proof": ["verify concurrent threshold updates notify once"],
-            "verification": {
-                "recommended": "focused",
-                "selected": "focused",
-                "rationale": "the change affects concurrent notification behavior",
-                "final_checks": [
-                    "run the focused threshold concurrency tests once after implementation"
-                ],
-                "intermediate_gate": "none; the change is local and reversible",
-            },
         }
 
     def stage_gate(
@@ -214,71 +212,56 @@ class ClickGateTests(unittest.TestCase):
     def test_invalid_contract_is_denied(self) -> None:
         command = (
             "click-gate pass "
-            "'{\"plain_language\":\"기존 API 동작을 유지합니다.\",\"boundary\":\"api\"}'"
+            "'{\"outcome\":\"API 동작을 수정합니다.\","
+            "\"plain_language\":\"기존 API 동작을 유지합니다.\","
+            "\"boundary\":{\"in_scope\":[\"api\"],\"out_of_scope\":[]}}'"
         )
         payload = self.pre_tool("Bash", command)
         output = payload["hookSpecificOutput"]
         self.assertEqual(output["permissionDecision"], "deny")
-        self.assertIn("invariants", output["permissionDecisionReason"])
+        self.assertIn("must_hold", output["permissionDecisionReason"])
 
-    def test_missing_or_empty_minimality_is_denied(self) -> None:
-        base_contract = {
-            "plain_language": "기존 저장 동작을 유지하면서 검증만 바로잡습니다.",
-            "boundary": "existing settings handler",
-            "invariants": ["preserve current save behavior"],
-            "system_semantics": ["preserve the existing validation boundary"],
-            "implementation": ["update the existing validation branch"],
-            "phases": ["change", "verify"],
-            "steps": ["adjust the validation", "run focused tests"],
-            "tasks": ["update handler", "update test"],
-            "plan": ["keep the save path and narrow the validation correction"],
-            "execution_order": ["handler change before focused verification"],
-            "proof": ["run the focused settings tests"],
-            "verification": {
-                "recommended": "quick",
-                "selected": "quick",
-                "rationale": "the validation branch is local and reversible",
-                "final_checks": ["run the focused settings tests once"],
-                "intermediate_gate": "none",
-            },
-        }
-        for minimality in (None, [], [""]):
-            with self.subTest(minimality=minimality):
-                contract = dict(base_contract)
-                if minimality is not None:
-                    contract["minimality"] = minimality
-                command = (
-                    "click-gate pass "
-                    f"{shlex.quote(json.dumps(contract))}"
+    def test_optional_build_constraints_are_omitted_or_non_empty(self) -> None:
+        compact = self.contract()
+        compact["build"] = {"approach": compact["build"]["approach"]}
+        self.arm_gate()
+        payload = self.stage_gate(compact)
+        self.assertEqual(payload["hookSpecificOutput"]["permissionDecision"], "allow")
+
+        for field in ("semantics", "order"):
+            with self.subTest(field=field):
+                invalid = self.contract()
+                invalid["build"] = {**invalid["build"], field: []}
+                payload = self.pre_tool(
+                    "Bash",
+                    f"click-gate stage {shlex.quote(json.dumps(invalid))}",
                 )
-                payload = self.pre_tool("Bash", command)
-                output = payload["hookSpecificOutput"]
-                self.assertEqual(output["permissionDecision"], "deny")
-                self.assertIn("minimality", output["permissionDecisionReason"])
+                self.assertEqual(
+                    payload["hookSpecificOutput"]["permissionDecision"], "deny"
+                )
+                self.assertIn(
+                    field,
+                    payload["hookSpecificOutput"]["permissionDecisionReason"],
+                )
 
     def test_plain_language_explanation_is_required(self) -> None:
-        contract = {
-            "boundary": "existing settings handler",
-            "invariants": ["preserve current save behavior"],
-            "system_semantics": ["preserve the existing validation boundary"],
-            "minimality": ["reuse the current handler"],
-            "proof": ["run the focused settings tests"],
-        }
+        contract = self.contract()
+        del contract["plain_language"]
         command = f"click-gate pass {shlex.quote(json.dumps(contract))}"
         payload = self.pre_tool("Bash", command)
         output = payload["hookSpecificOutput"]
         self.assertEqual(output["permissionDecision"], "deny")
         self.assertIn("plain_language", output["permissionDecisionReason"])
 
-    def test_all_execution_contract_fields_are_required(self) -> None:
+    def test_all_compact_contract_areas_are_required(self) -> None:
         base_contract = self.contract()
         for field in (
-            "implementation",
-            "steps",
-            "phases",
-            "tasks",
-            "plan",
-            "execution_order",
+            "outcome",
+            "boundary",
+            "must_hold",
+            "build",
+            "verification",
+            "plain_language",
         ):
             with self.subTest(field=field):
                 contract = dict(base_contract)
@@ -288,6 +271,29 @@ class ClickGateTests(unittest.TestCase):
                 output = payload["hookSpecificOutput"]
                 self.assertEqual(output["permissionDecision"], "deny")
                 self.assertIn(field, output["permissionDecisionReason"])
+
+    def test_boundary_requires_scope_but_allows_no_explicit_exclusion(self) -> None:
+        compact = self.contract()
+        compact["boundary"]["out_of_scope"] = []
+        self.arm_gate()
+        payload = self.stage_gate(compact)
+        self.assertEqual(payload["hookSpecificOutput"]["permissionDecision"], "allow")
+
+        for field in ("in_scope", "out_of_scope"):
+            with self.subTest(field=field):
+                invalid = self.contract()
+                del invalid["boundary"][field]
+                payload = self.pre_tool(
+                    "Bash",
+                    f"click-gate stage {shlex.quote(json.dumps(invalid))}",
+                )
+                self.assertEqual(
+                    payload["hookSpecificOutput"]["permissionDecision"], "deny"
+                )
+                self.assertIn(
+                    field,
+                    payload["hookSpecificOutput"]["permissionDecisionReason"],
+                )
 
     def test_verification_is_required_and_bounded(self) -> None:
         missing = self.contract()
@@ -302,8 +308,7 @@ class ClickGateTests(unittest.TestCase):
         for scale in ("quick", "focused", "full"):
             with self.subTest(scale=scale):
                 contract = self.contract()
-                contract["verification"]["recommended"] = scale
-                contract["verification"]["selected"] = scale
+                contract["verification"]["scale"] = scale
                 self.arm_gate()
                 payload = self.stage_gate(contract)
                 self.assertEqual(
@@ -311,7 +316,7 @@ class ClickGateTests(unittest.TestCase):
                 )
 
         invalid = self.contract()
-        invalid["verification"]["selected"] = "every-step"
+        invalid["verification"]["scale"] = "every-step"
         payload = self.pre_tool(
             "Bash", f"click-gate stage {shlex.quote(json.dumps(invalid))}"
         )
@@ -323,6 +328,25 @@ class ClickGateTests(unittest.TestCase):
             payload["hookSpecificOutput"]["permissionDecisionReason"],
         )
 
+        gated = self.contract()
+        gated["verification"]["intermediate_gate"] = (
+            "confirm immediately before applying the irreversible migration"
+        )
+        self.arm_gate()
+        payload = self.stage_gate(gated)
+        self.assertEqual(payload["hookSpecificOutput"]["permissionDecision"], "allow")
+
+        invalid_gate = self.contract()
+        invalid_gate["verification"]["intermediate_gate"] = ""
+        payload = self.pre_tool(
+            "Bash", f"click-gate stage {shlex.quote(json.dumps(invalid_gate))}"
+        )
+        self.assertEqual(payload["hookSpecificOutput"]["permissionDecision"], "deny")
+        self.assertIn(
+            "intermediate_gate",
+            payload["hookSpecificOutput"]["permissionDecisionReason"],
+        )
+
     def test_unknown_contract_field_is_rejected(self) -> None:
         contract = {**self.contract(), "surprise_scope": ["rewrite unrelated API"]}
         command = f"click-gate stage {shlex.quote(json.dumps(contract))}"
@@ -330,6 +354,36 @@ class ClickGateTests(unittest.TestCase):
         output = payload["hookSpecificOutput"]
         self.assertEqual(output["permissionDecision"], "deny")
         self.assertIn("surprise_scope", output["permissionDecisionReason"])
+
+    def test_contract_size_is_capped_to_prevent_planning_bloat(self) -> None:
+        contract = self.contract()
+        contract["outcome"] = "x" * 4_000
+        command = f"click-gate stage {shlex.quote(json.dumps(contract))}"
+        payload = self.pre_tool("Bash", command)
+        output = payload["hookSpecificOutput"]
+        self.assertEqual(output["permissionDecision"], "deny")
+        self.assertIn("4,000", output["permissionDecisionReason"])
+
+    def test_legacy_verbose_contract_fields_are_rejected(self) -> None:
+        for field in (
+            "invariants",
+            "system_semantics",
+            "implementation",
+            "phases",
+            "steps",
+            "tasks",
+            "plan",
+            "execution_order",
+            "minimality",
+            "proof",
+        ):
+            with self.subTest(field=field):
+                contract = {**self.contract(), field: ["legacy duplicate"]}
+                command = f"click-gate stage {shlex.quote(json.dumps(contract))}"
+                payload = self.pre_tool("Bash", command)
+                output = payload["hookSpecificOutput"]
+                self.assertEqual(output["permissionDecision"], "deny")
+                self.assertIn(field, output["permissionDecisionReason"])
 
     def test_pass_requires_a_staged_contract(self) -> None:
         self.arm_gate("turn-2")
@@ -348,7 +402,10 @@ class ClickGateTests(unittest.TestCase):
         self.arm_gate("turn-1")
         self.stage_gate(turn_id="turn-1")
         revised = self.contract()
-        revised["tasks"] = [*revised["tasks"], "rewrite unrelated API"]
+        revised["build"]["approach"] = [
+            *revised["build"]["approach"],
+            "rewrite unrelated API",
+        ]
         self.arm_gate("turn-2")
         payload = self.pass_gate(revised, "turn-2")
         output = payload["hookSpecificOutput"]
@@ -360,7 +417,10 @@ class ClickGateTests(unittest.TestCase):
         self.arm_gate("turn-1")
         self.stage_gate(original, "turn-1")
         revised = self.contract()
-        revised["tasks"] = [*revised["tasks"], "update approved API documentation"]
+        revised["build"]["approach"] = [
+            *revised["build"]["approach"],
+            "update approved API documentation",
+        ]
         self.stage_gate(revised, "turn-1")
         self.arm_gate("turn-2")
         payload = self.pass_gate(revised, "turn-2")
@@ -377,7 +437,10 @@ class ClickGateTests(unittest.TestCase):
         self.pass_gate(original, "turn-2")
 
         replacement = self.contract()
-        replacement["tasks"] = [*replacement["tasks"], "rewrite unrelated API"]
+        replacement["build"]["approach"] = [
+            *replacement["build"]["approach"],
+            "rewrite unrelated API",
+        ]
         payload = self.stage_gate(replacement, "turn-2")
         output = payload["hookSpecificOutput"]
         self.assertEqual(output["permissionDecision"], "deny")
@@ -387,7 +450,7 @@ class ClickGateTests(unittest.TestCase):
         self.arm_gate("turn-1")
         self.stage_gate(turn_id="turn-1")
         changed = self.contract()
-        changed["verification"]["selected"] = "full"
+        changed["verification"]["scale"] = "full"
         self.arm_gate("turn-2")
         payload = self.pass_gate(changed, "turn-2")
         output = payload["hookSpecificOutput"]

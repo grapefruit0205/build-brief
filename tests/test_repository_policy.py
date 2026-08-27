@@ -19,11 +19,12 @@ class RepositoryPolicyTests(unittest.TestCase):
             (ROOT / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8")
         )
         self.assertEqual(manifest["name"], "click")
-        self.assertEqual(manifest["version"], "0.9.2")
+        self.assertEqual(manifest["version"], "0.10.0")
         self.assertEqual(manifest["license"], "MIT")
         self.assertIn("explicit", manifest["description"].lower())
         self.assertIn("plain-language", manifest["description"].lower())
         self.assertIn("execution contract", manifest["description"].lower())
+        self.assertIn("compact", manifest["description"].lower())
         self.assertIn("one shot", manifest["interface"]["longDescription"].lower())
         self.assertIn("verification", manifest["interface"]["longDescription"].lower())
         self.assertIn("@Click", manifest["description"])
@@ -64,6 +65,37 @@ class RepositoryPolicyTests(unittest.TestCase):
             with self.subTest(forbidden=forbidden):
                 self.assertNotIn(f"import {forbidden}", source)
                 self.assertNotIn(f"from {forbidden}", source)
+
+    def test_compact_contract_replaces_the_verbose_execution_fields(self) -> None:
+        hook = (ROOT / "hooks" / "click_gate.py").read_text(encoding="utf-8")
+        directive = (
+            ROOT / "skills" / "click" / "references" / "directive-format.md"
+        ).read_text(encoding="utf-8")
+        for required in (
+            "outcome",
+            "boundary",
+            "must_hold",
+            "build",
+            "verification",
+            "plain_language",
+        ):
+            with self.subTest(required=required):
+                self.assertIn(required, hook)
+                self.assertIn(required, directive)
+        for removed in (
+            '"invariants"',
+            '"system_semantics"',
+            '"implementation"',
+            '"phases"',
+            '"steps"',
+            '"tasks"',
+            '"plan"',
+            '"execution_order"',
+            '"minimality"',
+            '"proof"',
+        ):
+            with self.subTest(removed=removed):
+                self.assertNotIn(removed, hook)
 
     def test_public_tree_contains_no_ballast_state(self) -> None:
         forbidden_parts = {

@@ -1,6 +1,6 @@
 # Verification Profiles
 
-Recommend one scale and place it in the contract. Approval of the contract approves the selected scale.
+Choose one scale and place it in the contract. Approval of the contract approves that scale.
 
 | Scale | Use when | Final batch |
 | --- | --- | --- |
@@ -10,4 +10,4 @@ Recommend one scale and place it in the contract. Approval of the contract appro
 
 Use present evidence, not task size alone. `focused` is the normal recommendation. Do not inflate `quick` work into broad testing, and do not reduce high-impact work to `quick` merely to save time.
 
-Run `final_checks` together after implementation. `intermediate_gate` should normally be `none`. Name a gate only when continuing past a point would make recovery materially harder—for example applying an irreversible migration, deleting data, deploying, or spending money through an external API. A gate is a safety boundary, not a checkpoint after every phase or field.
+Run `done_when` checks together after implementation. Omit `intermediate_gate` normally. Name it only when continuing past a point would make recovery materially harder—for example applying an irreversible migration, deleting data, deploying, or spending money through an external API. A gate is a safety boundary, not a routine checkpoint.

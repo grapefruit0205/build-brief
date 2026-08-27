@@ -16,29 +16,28 @@ Trace the named behavior from its narrowest entry point. Learn the owning module
 
 Use any engineering concept that makes the requirement precise: domain models, state machines, contracts, transactions, concurrency, consistency, queues, scheduling, caching, resilience, security, observability, migrations, testing, or another discipline. This list is illustrative, not limiting.
 
-Every term must change an invariant, material implementation constraint, execution dependency, or proof condition. Choose the smallest design that satisfies the invariants, but do not ban a component by category. A service, dependency, MCP, grader, queue, or store is valid when it is a proportionate in-scope means of delivering the approved result.
+Every term must change a must-hold condition, material build constraint, real execution dependency, or completion check. Choose the smallest design that satisfies `must_hold`, but do not ban a component by category. A service, dependency, MCP, grader, queue, or store is valid when it is a proportionate in-scope means of delivering the approved result.
 
 ## Translate design into executable work
 
 Build top-down:
 
-1. Fix the outcome, semantic boundary, non-goals, owner, invariants, and material system meaning.
-2. Map those obligations onto a concrete design that fits the current system.
-3. Derive proportional phases and steps from real dependencies.
-4. Name concrete deliverables without turning them into separate approval gates.
-5. Record ordering only where sequence affects safe completion.
-6. Define observable proof, recommend a verification scale, and group checks into one final batch.
+1. Fix the outcome, in-scope and out-of-scope boundary, and must-hold behavior.
+2. Map those obligations onto the smallest concrete approach that fits the current system.
+3. Add `build.semantics` only for material state, failure, security, compatibility, concurrency, migration, or operational meaning.
+4. Add `build.order` only where sequence affects safe completion.
+5. Choose a verification scale and place observable completion checks in one final batch.
 
-An implementation agent may change low-level tactics, dependencies, tools, files, or internal sequencing without reapproval when the result remains inside the contract's outcome, boundary, invariants, material semantics, constraints, and verification commitment.
+An implementation agent may change low-level tactics, dependencies, tools, files, or internal sequencing without reapproval when the result remains inside the contract's outcome, boundary, must-hold behavior, material semantics, and verification commitment.
 
 ## Mirror the complete contract plainly
 
-Create the easy explanation after the developer contract. Explain what the user gets, what remains unchanged, the important safeguards, the broad route, and the selected verification cost. It is a faithful projection, not a second design.
+Create the easy explanation after the developer contract. Explain what the user gets, what remains unchanged, the important safeguards, the broad route, and the verification cost. It is a faithful projection, not a second design.
 
 ## Execute one shot
 
 After approval, keep the staged contract unchanged and finish within its semantic envelope. Do not create a replacement contract for an in-scope implementation discovery. Report material technical choices in the final result.
 
-Stop only for new authority, an uncovered irreversible or paid external action, or a necessary change to the approved outcome, user-visible behavior, boundary, invariant, or verification commitment. A blocker is not permission to widen the contract silently.
+Stop only for new authority, an uncovered irreversible or paid external action, or a necessary change to the approved outcome, user-visible behavior, boundary, must-hold condition, or verification commitment. A blocker is not permission to widen the contract silently.
 
-Implementation is complete when the selected final verification batch passes, or failures are reported without claiming success.
+Implementation is complete when the final completion checks pass, or failures are reported without claiming success.

@@ -21,30 +21,14 @@ from typing import Any
 
 
 CONTROL_COMMAND = "click-gate"
-STRING_FIELDS = ("plain_language", "boundary")
-LIST_FIELDS = (
-    "invariants",
-    "system_semantics",
-    "implementation",
-    "phases",
-    "steps",
-    "tasks",
-    "plan",
-    "execution_order",
-    "minimality",
-    "proof",
-)
-OBJECT_FIELDS = ("verification",)
-CONTRACT_FIELDS = set(STRING_FIELDS) | set(LIST_FIELDS) | set(OBJECT_FIELDS)
-VERIFICATION_FIELDS = {
-    "recommended",
-    "selected",
-    "rationale",
-    "final_checks",
-    "intermediate_gate",
-}
+STRING_FIELDS = ("outcome", "plain_language")
+OBJECT_FIELDS = ("boundary", "build", "verification")
+CONTRACT_FIELDS = set(STRING_FIELDS) | set(OBJECT_FIELDS) | {"must_hold"}
+BOUNDARY_FIELDS = {"in_scope", "out_of_scope"}
+BUILD_FIELDS = {"approach", "semantics", "order"}
+VERIFICATION_FIELDS = {"scale", "done_when", "intermediate_gate"}
 VERIFICATION_SCALES = ("quick", "focused", "full")
-MAX_CONTRACT_CHARS = 8_000
+MAX_CONTRACT_CHARS = 4_000
 STATE_TTL_SECONDS = 7 * 24 * 60 * 60
 
 READ_ONLY_COMMANDS = {
@@ -270,7 +254,7 @@ def _validate_contract(raw: str) -> tuple[dict[str, Any] | None, str]:
     if len(raw) > MAX_CONTRACT_CHARS:
         return (
             None,
-            "Execution Contract is too large; keep it proportional and under 8,000 characters.",
+            "Execution Contract is too large; keep it compact and under 4,000 characters.",
         )
     try:
         value = json.loads(raw)
@@ -292,12 +276,50 @@ def _validate_contract(raw: str) -> tuple[dict[str, Any] | None, str]:
         if not isinstance(text, str) or not text.strip():
             return None, f"Execution Contract field `{field}` must be a non-empty string."
 
-    for field in LIST_FIELDS:
-        items = value.get(field)
+    must_hold = value.get("must_hold")
+    if not isinstance(must_hold, list) or not must_hold:
+        return None, "Execution Contract field `must_hold` must be a non-empty list."
+    if any(not isinstance(item, str) or not item.strip() for item in must_hold):
+        return None, "Every `must_hold` item must be a non-empty string."
+
+    boundary = value.get("boundary")
+    if not isinstance(boundary, dict):
+        return None, "Execution Contract field `boundary` must be an object."
+    unknown_boundary_fields = sorted(set(boundary) - BOUNDARY_FIELDS)
+    if unknown_boundary_fields:
+        rendered = ", ".join(f"`{field}`" for field in unknown_boundary_fields)
+        return None, f"Execution Contract boundary contains unsupported field(s): {rendered}."
+    in_scope = boundary.get("in_scope")
+    if not isinstance(in_scope, list) or not in_scope:
+        return None, "Boundary `in_scope` must be a non-empty list."
+    if any(not isinstance(item, str) or not item.strip() for item in in_scope):
+        return None, "Every boundary `in_scope` item must be a non-empty string."
+    out_of_scope = boundary.get("out_of_scope")
+    if not isinstance(out_of_scope, list):
+        return None, "Boundary `out_of_scope` must be a list."
+    if any(not isinstance(item, str) or not item.strip() for item in out_of_scope):
+        return None, "Every boundary `out_of_scope` item must be a non-empty string."
+
+    build = value.get("build")
+    if not isinstance(build, dict):
+        return None, "Execution Contract field `build` must be an object."
+    unknown_build_fields = sorted(set(build) - BUILD_FIELDS)
+    if unknown_build_fields:
+        rendered = ", ".join(f"`{field}`" for field in unknown_build_fields)
+        return None, f"Execution Contract build contains unsupported field(s): {rendered}."
+    approach = build.get("approach")
+    if not isinstance(approach, list) or not approach:
+        return None, "Build `approach` must be a non-empty list."
+    if any(not isinstance(item, str) or not item.strip() for item in approach):
+        return None, "Every build `approach` item must be a non-empty string."
+    for field in ("semantics", "order"):
+        if field not in build:
+            continue
+        items = build[field]
         if not isinstance(items, list) or not items:
-            return None, f"Execution Contract field `{field}` must be a non-empty list."
+            return None, f"Optional build `{field}` must be omitted or a non-empty list."
         if any(not isinstance(item, str) or not item.strip() for item in items):
-            return None, f"Every `{field}` item must be a non-empty string."
+            return None, f"Every build `{field}` item must be a non-empty string."
 
     verification = value.get("verification")
     if not isinstance(verification, dict):
@@ -311,20 +333,19 @@ def _validate_contract(raw: str) -> tuple[dict[str, Any] | None, str]:
             None,
             f"Execution Contract verification contains unsupported field(s): {rendered}.",
         )
-    for field in ("recommended", "selected"):
-        scale = verification.get(field)
-        if scale not in VERIFICATION_SCALES:
-            allowed = ", ".join(VERIFICATION_SCALES)
-            return None, f"Verification `{field}` must be one of: {allowed}."
-    for field in ("rationale", "intermediate_gate"):
-        text = verification.get(field)
-        if not isinstance(text, str) or not text.strip():
-            return None, f"Verification `{field}` must be a non-empty string."
-    final_checks = verification.get("final_checks")
-    if not isinstance(final_checks, list) or not final_checks:
-        return None, "Verification `final_checks` must be a non-empty list."
-    if any(not isinstance(item, str) or not item.strip() for item in final_checks):
-        return None, "Every verification `final_checks` item must be a non-empty string."
+    scale = verification.get("scale")
+    if scale not in VERIFICATION_SCALES:
+        allowed = ", ".join(VERIFICATION_SCALES)
+        return None, f"Verification `scale` must be one of: {allowed}."
+    done_when = verification.get("done_when")
+    if not isinstance(done_when, list) or not done_when:
+        return None, "Verification `done_when` must be a non-empty list."
+    if any(not isinstance(item, str) or not item.strip() for item in done_when):
+        return None, "Every verification `done_when` item must be a non-empty string."
+    if "intermediate_gate" in verification:
+        intermediate_gate = verification["intermediate_gate"]
+        if not isinstance(intermediate_gate, str) or not intermediate_gate.strip():
+            return None, "Optional verification `intermediate_gate` must be omitted or non-empty."
 
     return value, ""
 
@@ -596,9 +617,10 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
         _deny(
             "Click blocked this mutation because the activated execution contract has "
             "not been staged, explained plainly, explicitly approved, and matched for the "
-            "current turn. Complete plain_language, boundary, invariants, system_semantics, "
-            "implementation, phases, steps, tasks, plan, execution_order, minimality, and proof; "
-            "include the recommended and selected verification scale with one final check batch; "
+            "current turn. Complete outcome, boundary.in_scope, boundary.out_of_scope, "
+            "must_hold, build.approach, verification.scale, verification.done_when, and "
+            "plain_language; add build.semantics, build.order, or an intermediate gate only "
+            "when the work materially requires them; "
             "stage the exact JSON shown to the user, obtain approval, arm the approval turn, "
             "then pass that same JSON. If the user does not want Click for this turn, run "
             "`click-gate bypass`."

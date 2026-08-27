@@ -26,39 +26,32 @@ Do not treat an existing system as blank or infer permission for unrelated clean
 
 For broad cross-boundary work, read [references/translation-guide.md](references/translation-guide.md). Whenever a contract will be shown or staged, read [references/directive-format.md](references/directive-format.md) and [references/verification-profiles.md](references/verification-profiles.md).
 
-## Compile one authoritative contract
+## Compile one compact contract
 
-Generate one compact developer execution contract with all non-empty fields below:
+Generate one developer execution contract with six top-level areas:
 
-- `boundary`: the owner of the behavior and the limit of the approved outcome;
-- `invariants`: observable requirements that must remain true;
-- `system_semantics`: only the state, ownership, flow, timing, ordering, concurrency, consistency, failure, security, compatibility, migration, and operational meaning needed by those invariants;
-- `plan`: goal, scope, non-goals, and top-down approach;
-- `implementation`: concrete design mapped onto the current system;
-- `phases`: proportional implementation groupings, not approval gates;
-- `steps`: ordered changes, not mandatory verification points;
-- `tasks`: concrete code, test, configuration, schema, or documentation units inside the approved boundary;
-- `execution_order`: only dependencies or sequencing that materially constrain execution;
-- `minimality`: current structure to reuse and the reason for material additions, without banning any technology class;
-- `proof`: observable acceptance criteria;
-- `verification`: recommended and selected verification scale, rationale, one final check batch, and any exceptional intermediate gate;
-- `plain_language`: a faithful easy explanation of the complete contract.
+- `outcome`: the concrete result and user-visible behavior;
+- `boundary`: `in_scope` work and explicit `out_of_scope` limits;
+- `must_hold`: observable behavior, compatibility, safety, and other conditions that cannot change;
+- `build`: a repository-aware `approach`, plus `semantics` or `order` only when they materially constrain the result;
+- `verification`: one `quick`, `focused`, or `full` scale and observable `done_when` checks, plus `intermediate_gate` only for a real irreversible boundary;
+- `plain_language`: a faithful easy explanation of the same contract.
 
-Keep execution fields distinct and proportional. Small work can use one concise item per field. These fields describe one implementation, not separate review or test ceremonies.
+Do not recreate `plan`, `implementation`, `phases`, `steps`, `tasks`, `execution_order`, `minimality`, or `proof` as separate fields or prose sections. Put the smallest sufficient implementation route in `build.approach`, material state or failure meaning in optional `build.semantics`, real sequencing constraints in optional `build.order`, and acceptance evidence in `verification.done_when`.
 
-The contract is semantic rather than literal: it fixes the approved result, boundary, invariants, material system behavior, constraints, and verification commitment. It deliberately grants freedom to choose necessary in-scope libraries, dependencies, MCP tools, external services, graders, file edits, and low-level tactics during implementation.
+The contract is semantic rather than literal: it fixes the approved result, boundary, must-hold conditions, material system behavior, and verification commitment. It deliberately grants freedom to choose necessary in-scope libraries, dependencies, MCP tools, external services, graders, file edits, and low-level tactics during implementation.
 
 ## Recommend verification once
 
-Recommend `quick`, `focused`, or `full` from present risk and repository evidence. Set `selected` to the recommendation unless the user requests another scale. Contract approval also approves that selected scale; do not ask a second verification question.
+Choose `quick`, `focused`, or `full` from present risk and repository evidence. Contract approval also approves that scale; do not ask a second verification question.
 
-Run the listed `final_checks` together once after implementation. Do not revalidate every contract field after every phase, step, or task. Use `intermediate_gate` only when a later action depends on an irreversible migration, destructive operation, deployment, paid external call, or similarly unrecoverable boundary. Routine edits, builds, and reversible implementation choices are not intermediate gates.
+Run the listed `done_when` checks together once after implementation. Do not revalidate every contract item during implementation. Use `intermediate_gate` only when a later action depends on an irreversible migration, destructive operation, deployment, paid external call, or similarly unrecoverable boundary. Omit it for routine edits, builds, and reversible implementation choices.
 
 ## Show both views and ask once
 
 1. Stage the exact JSON with `click-gate stage '<Execution Contract JSON>'`.
-2. Show the complete developer contract.
-3. Show its faithful plain-language explanation in the user's language, including the selected verification scale.
+2. Show the compact developer contract.
+3. Show its faithful plain-language explanation in the user's language, including the verification scale.
 4. Ask one compact question: approve, change the proposed contract, simplify the explanation, or cancel.
 5. Stop without mutating project files.
 
@@ -71,11 +64,11 @@ After explicit approval:
 1. Run `click-gate arm` in the approval turn.
 2. Run `click-gate pass '<Execution Contract JSON>'` with the exact staged JSON.
 3. Implement continuously inside the approved semantic boundary.
-4. Run the selected final verification batch once and report results and material implementation choices.
+4. Run the completion checks as one final batch and report results and material implementation choices.
 
-Do not create a replacement contract or request reapproval for an in-scope technical choice. MCP tools, external services, dependencies, graders, architecture tactics, files, and implementation order may change when necessary to deliver the approved result while preserving its boundary and invariants. The approved contract remains unchanged because it already grants that implementation freedom.
+Do not create a replacement contract or request reapproval for an in-scope technical choice. MCP tools, external services, dependencies, graders, architecture tactics, files, and implementation order may change when necessary to deliver the approved result while preserving its boundary and must-hold conditions. The approved contract remains unchanged because it already grants that implementation freedom.
 
-Stop only when completion needs authority the user has not granted, an irreversible or paid external action not covered by approval, or a change to the approved outcome, user-visible behavior, boundary, invariant, or verification commitment. Report the blocker; do not silently widen the work or substitute a new mid-run contract.
+Stop only when completion needs authority the user has not granted, an irreversible or paid external action not covered by approval, or a change to the approved outcome, user-visible behavior, boundary, must-hold condition, or verification commitment. Report the blocker; do not silently widen the work or substitute a new mid-run contract.
 
 ## Prevent overdesign by evidence, not bans
 
@@ -85,4 +78,4 @@ The Hook validates contract shape, mutation ordering, and exact staged-versus-pa
 
 ## Communicate plainly
 
-Use the user's language. Lead with the resulting behavior, explain important safeguards and the selected verification cost, then ask the single approval question. Avoid architecture slogans and serial option menus.
+Use the user's language. Lead with the resulting behavior, explain important safeguards and the verification cost, then ask the single approval question. Avoid architecture slogans and serial option menus.

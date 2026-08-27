@@ -1,4 +1,4 @@
-version: 10
+version: 11
 skill: click
 evaluation_conditions:
   - no-plugin
@@ -60,19 +60,19 @@ global_invariants:
   - "Does not ask the user to provide technical terminology that can be inferred from the request and codebase"
   - "Activates only after explicit plugin selection or `$click` invocation"
   - "Treats equivalent build, design, implement, and do-it wording in any language as the same full workflow after explicit Click selection"
-  - "Presents a complete developer execution contract and a faithful plain-language explanation before modifying code, tests, configuration, or schemas when Click is activated"
-  - "Includes non-empty implementation, phases, steps, tasks, plan, and execution_order fields without duplicating one generic checklist"
-  - "Builds the contract top-down from design meaning before deriving proportional execution fields"
+  - "Presents a compact developer execution contract and a faithful plain-language explanation before modifying code, tests, configuration, or schemas when Click is activated"
+  - "Includes outcome, scoped boundary, must_hold, build.approach, verification scale and done_when, and plain_language without parallel plan, phase, step, task, minimality, or proof sections"
+  - "Adds build.semantics, build.order, or an intermediate gate only when the work materially requires them"
   - "Treats the staged developer execution contract as the approval target and waits for explicit approval after showing it"
   - "Passes exactly the contract staged for approval and keeps that semantic contract fixed during one-shot implementation"
   - "Allows necessary in-scope dependencies, MCP tools, external services, graders, files, and low-level tactics without a replacement contract"
-  - "Does not change the approved outcome, user-visible behavior, semantic boundary, invariants, or verification commitment"
+  - "Does not change the approved outcome, user-visible behavior, boundary, must-hold conditions, or verification commitment"
   - "Keeps the execution contract proportional instead of freezing the architecture of the entire system"
   - "Treats required behavior as a hard gate, then selects the smallest justified design delta among passing candidates"
   - "Reuses existing boundaries and mechanisms unless current evidence proves they cannot preserve an invariant"
   - "Rejects material additions only when they are out of scope, speculative, or disproportionate; it does not ban a technology category"
-  - "Includes verification with a quick, focused, or full recommendation and selection, rationale, one final check batch, and an exceptional intermediate gate"
-  - "Does not run a separate verification ceremony after every field, phase, step, or task"
+  - "Includes verification with one quick, focused, or full scale and observable done_when checks for one final batch"
+  - "Does not create parallel verification ceremonies or include an intermediate gate without an irreversible boundary"
   - "Avoids serial technical preference questions by exposing consequential assumptions in the single contract review"
   - "Performs no implementation before the displayed developer execution contract is explicitly approved"
   - "Starts from the narrowest relevant repository evidence and widens only for unresolved consequential behavior"
@@ -125,8 +125,8 @@ cases:
     expected_mutation_gate: none-before-approval
     directive_semantics:
       - "Reads the actual checkout flow and preserves its vocabulary"
-      - "Translates compatibility risk into characterization obligations, safe-seam constraints, transactional invariants, and focused proof"
-      - "Derives repository-specific implementation, phases, steps, tasks, plan, and execution order from those design obligations"
+      - "Translates compatibility risk into characterization obligations, safe-seam constraints, must-hold behavior, and focused completion evidence"
+      - "Compacts repository-specific implementation and real sequencing constraints into build.approach and optional build.order"
     minimality_expectations:
       reuse: "The existing checkout and refund boundary"
       reject_without_evidence:
@@ -142,7 +142,7 @@ cases:
     directive_semantics:
       - "Distinguishes identity erasure from legally retained records"
       - "Expresses data lineage, retention, anonymization, audit, and verification consequences appropriate to the system"
-      - "Produces the complete execution contract even though the user explicitly forbids coding"
+      - "Produces the compact execution contract even though the user explicitly forbids coding"
     minimality_expectations:
       reuse: "Existing account-deletion and finance retention paths discovered in the system"
       reject_without_evidence:
@@ -172,8 +172,8 @@ cases:
     expected_mutation_gate: none-before-approval
     directive_semantics:
       - "Locates billing, entitlement, and CRM integration boundaries before implementation"
-      - "Defines cancellation state, access expiration, duplicate handling, external notification failure, and proof before code changes"
-      - "Shows a complete execution plan derived from those semantics, explains it faithfully, and waits for approval"
+      - "Defines cancellation state, access expiration, duplicate handling, external notification failure, and completion evidence before code changes"
+      - "Shows one compact contract derived from those semantics, explains it faithfully, and waits for approval"
     minimality_expectations:
       reuse: "Existing billing, entitlement, and CRM integration contracts"
       reject_without_evidence:
@@ -186,7 +186,7 @@ cases:
     expected_mode: review
     expected_mutation_gate: none-before-approval
     directive_semantics:
-      - "Responds in Korean and exposes the complete execution contract in top-down order"
+      - "Responds in Korean and exposes the compact execution contract in top-down order"
       - "Surfaces unresolved consequential retention decisions instead of guessing"
       - "Does not modify code, tests, configuration, or schemas before approval"
     minimality_expectations:
@@ -204,7 +204,7 @@ cases:
       - "Translates duplicate-refund prevention and API compatibility into an authoritative developer execution contract"
       - "Explains the same contract in easy Korean without hiding concurrency, retry, or compatibility meaning"
       - "Asks for approval of the developer contract and performs no implementation"
-      - "Includes distinct, proportional implementation, phases, steps, tasks, plan, and execution_order fields"
+      - "Uses one compact build approach and includes semantics or order only where duplicate-refund or compatibility behavior requires them"
     minimality_expectations:
       reuse: "Existing order-cancellation, refund persistence, payment adapter, and API contract boundaries discovered in the repository"
       reject_without_evidence:
@@ -218,7 +218,7 @@ cases:
     expected_mutation_gate: none-before-approval
     directive_semantics:
       - "Treats the casual Korean action wording as the full Click workflow after explicit selection"
-      - "Produces all required execution fields from repository evidence"
+      - "Produces all required compact contract areas from repository evidence"
       - "Shows the contract and easy Korean translation, then waits for approval before implementation"
     minimality_expectations:
       reuse: "Existing order API, order model, authorization, and focused test boundaries"
@@ -233,7 +233,7 @@ cases:
     expected_mutation_gate: none-before-approval
     directive_semantics:
       - "Treats the English design wording as design-and-implementation intent after explicit selection"
-      - "Produces the same complete execution contract required for build or implement wording"
+      - "Produces the same compact execution contract required for build or implement wording"
       - "Waits for approval and then permits only the approved contract"
     minimality_expectations:
       reuse: "Existing order API, authorization, persistence, and tests"
@@ -249,7 +249,7 @@ cases:
     directive_semantics:
       - "Honors explicit invocation and directive-only mode"
       - "Defines ownership, ordering, concurrency, duplicate, reconciliation, and verification semantics where material"
-      - "Includes the complete set of execution fields while keeping them proportional"
+      - "Includes the compact contract while keeping optional semantics and order proportional"
       - "Does not implement the directive"
     minimality_expectations:
       reuse: "Existing channel adapters and inventory owner when the system provides them"
