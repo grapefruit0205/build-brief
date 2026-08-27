@@ -2,6 +2,9 @@
 
 English | [한국어](README.ko.md)
 
+[![CI](https://github.com/grapefruit0205/build-brief/actions/workflows/ci.yml/badge.svg)](https://github.com/grapefruit0205/build-brief/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 Build Brief is an explicitly invoked Codex plugin that turns a software request and the relevant repository context into a complete, approval-bound developer execution contract. It creates the developer contract first, translates the same meaning into plain language, asks for approval, and then implements only what was approved.
 
 It is not an architecture-pattern picker. Users do not have to choose “modular monolith,” “microservices,” “event-driven,” “batch,” or “functional.” Build Brief derives whatever software-design language the actual behavior and codebase require, then maps that meaning into executable work.
@@ -11,6 +14,37 @@ It is not an architecture-pattern picker. Users do not have to choose “modular
 Strong coding models already infer design from natural language. Build Brief does not add intelligence to the model. It makes the model's implicit reasoning visible, reviewable, reusable, and approval-bound when requirements, invariants, compatibility, failure behavior, or handoffs matter.
 
 Natural language remains the default. Use Build Brief only when you want to inspect and approve the complete design-and-execution meaning before code changes.
+
+Codex can load a Skill when its metadata matches a request or when the user invokes it directly. Build Brief deliberately accepts only direct selection so it does not turn ordinary coding into an unwanted approval gate. See the official [OpenAI Skills documentation](https://developers.openai.com/plugins/concepts/skills).
+
+## Is it worth using?
+
+Build Brief has a credible use case, but its quality benefit is not yet proven by post-v0.8 behavioral A/B results. Treat the current release as an experimental approval guardrail, not as a claim that every task becomes better when wrapped in a design process.
+
+The value equation is simple: use it when the expected cost of misunderstood scope or an invisible design assumption is greater than the cost of one contract review.
+
+| It is a good candidate when... | Prefer ordinary natural-language coding when... |
+| --- | --- |
+| A brownfield change must preserve compatibility, data ownership, idempotency, concurrency, migration, or failure behavior | The change is small, local, reversible, and already unambiguous |
+| A non-specialist needs to approve the same meaning that a developer or agent will execute | You do not need to inspect the design before the model implements it |
+| Work will be handed between people, models, or sessions and implicit assumptions would be costly | You are exploring a disposable prototype and expect the direction to change rapidly |
+| Scope drift or speculative architecture has caused rework before | The extra review, tokens, and latency cost more than a likely misunderstanding |
+
+### Evidence status
+
+Verified for v0.8.0:
+
+- The repository encodes explicit-only activation, fail-open uninvoked behavior, complete contract fields, staged-versus-passed digest equality, opt-out, and optional strict mode.
+- Thirty-four deterministic tests cover the Hook, grader, and repository policy. The release passed the public [Linux, macOS, and Windows CI run](https://github.com/grapefruit0205/build-brief/actions/runs/33041589014).
+- The semantic scorer can reject missing execution fields, premature implementation, explanation mismatch, unapproved scope, and unjustified design additions after a model or human supplies the semantic judgment.
+
+Not established yet:
+
+- Whether Build Brief improves implementation success, reduces missed invariants, or reduces overdesign across real projects.
+- Whether any quality gain outweighs its additional tokens, latency, and approval step.
+- Adoption, retention, or user-satisfaction evidence.
+
+The included golden cases and A/B harness are evaluation infrastructure, not product-performance results.
 
 ## How it works
 
@@ -164,6 +198,27 @@ python3 -m unittest discover -s tests -v
 `evals/golden-prompts.yaml` defines expected behavior; it is not a benchmark result. The bounded A/B runner compares no-plugin, explicitly invoked Skill-only, and explicitly invoked Skill-plus-Hook conditions on pinned disposable repositories. The semantic grader hard-fails missing behavior, unwanted blocking, premature implementation, explanation mismatch, missing execution fields, and changes outside the approved contract, then penalizes unjustified design delta.
 
 The recorded v0.5.0 opt-out pilot remains historical evidence for the unwanted-blocking defect fixed in later releases. It contains one run per condition and is not a general performance claim.
+
+## Related approaches
+
+Yes, adjacent and overlapping tools already exist. Build Brief is not presented as the first or only spec-driven workflow.
+
+| Project | Where it overlaps | Build Brief's narrower emphasis |
+| --- | --- | --- |
+| [GitHub Spec Kit](https://github.com/github/spec-kit) | Moves from specification through planning and tasks into implementation | One explicitly invoked, repository-aware execution contract and approval boundary instead of a durable multi-command specification process |
+| [OpenSpec](https://github.com/Fission-AI/OpenSpec) | Adds agreement and structured artifacts before AI-assisted coding | No project-local spec store; the Hook keeps only a contract digest outside the target repository |
+| [Kiro Specs](https://kiro.dev/docs/cli/v3/specs/) | Produces requirements, design, tasks, and verified execution | A Codex plugin centered on one full-contract review rather than an integrated multi-phase product workflow |
+| [Spec-Driven Development Plugin](https://github.com/Habib0x0/spec-driven-plugin) | Provides requirements, design, and task workflows for Claude Code and Codex | A single developer contract paired with a faithful non-technical explanation and one approval target |
+| [AI SDLC Skills](https://github.com/kevinlin/skills) | Uses spec-driven stages and human approval gates before implementation | One top-down approval of the complete execution meaning rather than an approval gate between every stage |
+| [Spec-Driven Planning](https://github.com/johnnykor82/spec-driven-planning) | Adds a planning gate, scope-change protocol, and verification for long-running Codex work | Creates the approval target from natural language and repository context; it does not assume an approved specification already exists |
+
+This is a bounded positioning comparison, not an exhaustive novelty search. Build Brief's hypothesis is that some users want less ceremony than a persistent specification system but a stronger approval boundary than an ordinary prompt: developer language first, an equivalent easy explanation second, then approval and scope-locked execution.
+
+## Help validate the hypothesis
+
+The most useful contribution is reproducible evidence, not a testimonial. Open an [issue](https://github.com/grapefruit0205/build-brief/issues) with a public disposable repository, one consequential request, the model and environment, and raw results for ordinary Codex, explicitly invoked Skill-only, and Skill-plus-Hook runs. Report implementation success, missed invariants, unjustified design additions, scope fidelity, tokens, elapsed time, and tool calls.
+
+Do not run the A/B harness against production systems or repositories containing secrets. Keep failed and unfavorable results; they are part of the evidence.
 
 ## Current limits
 
