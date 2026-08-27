@@ -1,0 +1,34 @@
+{
+  "name": "build-brief",
+  "version": "0.3.0",
+  "description": "Compile plain-language software intent into an implementation-ready design contract before coding.",
+  "author": {
+    "name": "Junseok Pak",
+    "url": "https://github.com/grapefruit0205"
+  },
+  "homepage": "https://github.com/grapefruit0205/build-brief",
+  "repository": "https://github.com/grapefruit0205/build-brief",
+  "keywords": [
+    "natural-language",
+    "intent-compiler",
+    "design-language",
+    "software-design",
+    "engineering-directives",
+    "vibe-coding"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Build Brief",
+    "shortDescription": "Translate software intent into precise build commands.",
+    "longDescription": "Build Brief automatically recognizes non-trivial software requests, reads the actual codebase, and completes a proportional design contract before implementation. Users can let it build automatically, review the contract first, or request a handoff-ready directive without coding.",
+    "developerName": "Junseok Pak",
+    "category": "Productivity",
+    "capabilities": [],
+    "websiteURL": "https://github.com/grapefruit0205/build-brief",
+    "defaultPrompt": [
+      "Compile an implementation-ready design contract for this request, then build it.",
+      "Show me the design contract first and wait for approval before coding.",
+      "Turn this request into a handoff-ready engineering directive without coding."
+    ]
+  }
+}

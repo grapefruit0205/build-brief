@@ -1,0 +1,7 @@
+# Personal agent state must stay outside this distributable repository.
+.claude/
+memory/
+CHECKPOINT.md
+HANDOFF.md
+**/ballast.rules.json
+

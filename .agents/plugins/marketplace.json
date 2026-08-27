@@ -1,0 +1,21 @@
+{
+  "name": "build-brief",
+  "interface": {
+    "displayName": "Build Brief"
+  },
+  "plugins": [
+    {
+      "name": "build-brief",
+      "source": {
+        "source": "url",
+        "url": "https://github.com/grapefruit0205/build-brief.git",
+        "ref": "main"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}
