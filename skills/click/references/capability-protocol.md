@@ -1,6 +1,6 @@
 # Structured Capability Protocol
 
-Use protocol version `1` whenever Click routes inspection, implementation commands, or final verification through Bash. Every executable and argument is a separate JSON string. The Hook executes accepted argv arrays with `shell=False`; never hide a shell, pipeline, redirect, command substitution, or background job inside an entry.
+Use protocol version `1` whenever Click routes inspection, implementation commands, or final verification through Bash. Every executable and argument is a separate JSON string. The Hook executes accepted local argv arrays with `shell=False`; never hide a shell, pipeline, redirect, command substitution, or background job inside an entry. Canonical SSH requests still start the local `ssh` process with `shell=False`, but OpenSSH requires one remote command string. Click constructs it by POSIX-quoting each validated remote argv item, and the remote POSIX shell parses that quoted representation.
 
 ## Inspection
 
@@ -8,9 +8,12 @@ Use before approval for an ambiguous but read-only command, and during approved 
 
 ```text
 click-gate inspect '{"version":1,"commands":[["git","status","--short"],["sed","-n","1,160p","src/app.py"]]}'
+click-gate inspect '{"version":1,"commands":[["ssh","gx10-01","docker","ps","--format","{{.Names}}|{{.Image}}"]]}'
 ```
 
 Every command must match the Hook's read-only argv policy. One request may contain up to eight commands, which run serially and stop on the first failure. The Hook rejects shell interpreters and write-capable options. In active review and implementation it stores only a request digest and result metadata, applies the existing output cap and retry policy, and detects repository-wide inventory from the validated argv.
+
+The SSH inspection form is deliberately narrow: `ssh <target> <remote executable> <args...>`, with no SSH client options. It reuses Click's bounded local read-only policy and adds hostname display, `docker ps`, approved `nvidia-smi` query flags, and read-only `systemctl` subcommands. Opaque remote command strings, nested SSH, shell or `sudo` wrappers, and mutating remote commands are rejected. Structured mutation and verification runners use the same literal-preserving preparation, but only the allowlisted remote reads qualify as inspection or read-only verification.
 
 Recognized simple Bash reads remain compatible: the Hook converts safe direct syntax into the same internal argv request. It accepts direct `&&` sequencing only when every segment is independently read-only; it rejects pipelines and other shell control because their behavior is not represented by the protocol. Use explicit `inspect` whenever a legitimate read is not recognized.
 

@@ -9,6 +9,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 
 SCRIPT = Path(
@@ -407,6 +408,137 @@ class ClickGateTests(unittest.TestCase):
                 self.assertEqual(
                     denied["hookSpecificOutput"]["permissionDecision"], "deny"
                 )
+
+    def test_structured_ssh_inspection_accepts_only_bounded_remote_reads(self) -> None:
+        allowed = (
+            ["ssh", "example-host", "hostname"],
+            ["ssh", "user@example-host", "cat", "/etc/os-release"],
+            [
+                "ssh",
+                "example-host",
+                "docker",
+                "ps",
+                "--format",
+                "{{.Names}}|{{.Image}}",
+            ],
+            [
+                "ssh",
+                "example-host",
+                "nvidia-smi",
+                "--query-gpu=name,uuid",
+                "--format=csv,noheader",
+            ],
+            ["ssh", "example-host", "systemctl", "is-active", "docker"],
+        )
+        denied = (
+            ["ssh", "-o", "ProxyCommand=helper", "example-host", "hostname"],
+            ["ssh", "example-host", "docker ps"],
+            ["ssh", "example-host", "sudo", "-n", "true"],
+            ["ssh", "example-host", "bash", "-c", "hostname"],
+            ["ssh", "example-host", "ssh", "other-host", "hostname"],
+            ["ssh", "example-host", "docker", "stop", "service"],
+            ["ssh", "example-host", "docker", "exec", "service", "true"],
+            ["ssh", "example-host", "systemctl", "restart", "service"],
+            ["ssh", "example-host", "nvidia-smi", "-pl", "100"],
+            ["ssh", "example-host", "hostname", "replacement"],
+        )
+
+        for argv in allowed:
+            with self.subTest(allowed=argv):
+                self.assertTrue(CLICK_GATE._is_read_only_tokens(argv))
+        for argv in denied:
+            with self.subTest(denied=argv):
+                self.assertFalse(CLICK_GATE._is_read_only_tokens(argv))
+                payload = self.inspect_gate([argv])
+                self.assertEqual(
+                    payload["hookSpecificOutput"]["permissionDecision"], "deny"
+                )
+
+    def test_direct_structured_ssh_read_becomes_an_observation(self) -> None:
+        self.approve_contract()
+        command = (
+            "ssh example-host docker ps --format "
+            "'{{.Names}}|{{.Image}}'"
+        )
+        request, broad, error = CLICK_GATE._inspection_request_from_bash(command)
+        self.assertEqual(error, "")
+        self.assertFalse(broad)
+        self.assertEqual(
+            request,
+            {
+                "version": 1,
+                "commands": [
+                    [
+                        "ssh",
+                        "example-host",
+                        "docker",
+                        "ps",
+                        "--format",
+                        "{{.Names}}|{{.Image}}",
+                    ]
+                ],
+            },
+        )
+        payload = self.pre_tool("Bash", command, "turn-2")
+        rewritten = payload["hookSpecificOutput"]["updatedInput"]["command"]
+        self.assertIn("run-observation", rewritten)
+
+        piped = self.pre_tool(
+            "Bash",
+            "ssh example-host docker ps --format {{.Names}}|{{.Image}}",
+            "turn-2",
+        )
+        self.assertEqual(
+            piped["hookSpecificOutput"]["permissionDecision"], "deny"
+        )
+
+    def test_structured_ssh_execution_preserves_remote_argv_literals(self) -> None:
+        remote_argv = [
+            "docker",
+            "ps",
+            "--format",
+            "{{.Names}}|{{.Image}}",
+            "--filter",
+            "label=owner's service",
+        ]
+        argv = ["ssh", "example-host", *remote_argv]
+        prepared = CLICK_GATE._execution_argv(argv)
+        self.assertEqual(prepared[:2], ["ssh", "example-host"])
+        self.assertEqual(shlex.split(prepared[2], posix=True), remote_argv)
+
+        with mock.patch.object(CLICK_GATE.subprocess, "run") as run:
+            run.return_value.returncode = 0
+            self.assertEqual(CLICK_GATE._execute_argv_commands([argv]), 0)
+        self.assertEqual(run.call_args.args[0], prepared)
+        self.assertFalse(run.call_args.kwargs["check"])
+
+    def test_structured_ssh_execution_keeps_mutations_explicit(self) -> None:
+        remote_argv = ["python3", "tool.py", "--value", "literal|value"]
+        prepared = CLICK_GATE._execution_argv(
+            ["ssh", "example-host", *remote_argv]
+        )
+        self.assertEqual(shlex.split(prepared[2], posix=True), remote_argv)
+        self.assertFalse(
+            CLICK_GATE._is_read_only_tokens(
+                ["ssh", "example-host", *remote_argv]
+            )
+        )
+
+        unsupported = ["ssh", "-p", "2222", "example-host", "hostname"]
+        self.assertEqual(CLICK_GATE._execution_argv(unsupported), unsupported)
+
+    def test_structured_ssh_read_is_valid_targeted_verification(self) -> None:
+        self.approve_contract()
+        payload = self.verify_checks(
+            [
+                {
+                    "argv": ["ssh", "example-host", "hostname"],
+                    "class": "targeted",
+                }
+            ]
+        )
+        output = payload["hookSpecificOutput"]
+        self.assertEqual(output["permissionDecision"], "allow")
 
     def test_structured_inspection_emulates_get_content_cross_platform(self) -> None:
         (self.workspace / "native.txt").write_text(

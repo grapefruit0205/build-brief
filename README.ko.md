@@ -169,12 +169,15 @@ Click은 코드를 건드리기 전에 다음과 같은 축약 계약을 제시�
 
 ### 구조화 capability
 
-각 capability는 프로토콜 버전 `1`을 사용하고 실행 파일과 모든 인자를 분리합니다. 승인된 argv 배열은 `shell=False`로 실행되므로 요청 안에 pipeline, redirection, command substitution, shell wrapper를 숨길 수 없습니다.
+각 capability는 프로토콜 버전 `1`을 사용하고 실행 파일과 모든 인자를 분리합니다. 승인된 로컬 argv 배열은 `shell=False`로 실행되므로 요청 안에 pipeline, redirection, command substitution, shell wrapper를 숨길 수 없습니다. 정형 SSH 요청에서도 로컬 `ssh` 프로세스는 `shell=False`로 시작합니다. 다만 OpenSSH가 원격 명령을 단일 문자열로 받기 때문에 Click은 검증된 원격 argv를 안전하게 인용해 그 문자열을 만듭니다. 원격 POSIX shell이 이 인용된 argv 표현을 파싱하므로 SSH 자체를 shell-free 원격 전송이라고 설명하지는 않습니다.
 
 ```text
 click-gate inspect '{"version":1,"commands":[["git","status","--short"],["sed","-n","1,160p","src/app.py"]]}'
+click-gate inspect '{"version":1,"commands":[["ssh","gx10-01","docker","ps","--format","{{.Names}}|{{.Image}}"]]}'
 click-gate mutate '{"version":1,"argv":["python3","scripts/generate.py","--target","src"]}'
 ```
+
+SSH 읽기 경로는 SSH 클라이언트 옵션이 없는 `ssh <대상> <원격 실행 파일> <인자...>` 형식만 의도적으로 허용합니다. 기존의 제한된 읽기 전용 명령에 더해 hostname 표시, `docker ps`, 승인된 `nvidia-smi` 조회 옵션, 읽기 전용 `systemctl` 하위 명령만 인식합니다. 불투명한 원격 명령 문자열, 중첩 SSH, shell 또는 `sudo` wrapper, 원격 변경 명령은 fail-closed로 거부합니다. 승인된 mutation과 verification runner도 원격 argv 리터럴을 보존하는 같은 준비 과정을 사용하지만, 인용 처리가 mutation을 읽기 전용으로 바꾸거나 계약·검증 예산을 우회하게 하지는 않습니다.
 
 `inspect`는 Hook이 허용한 제한된 읽기 전용 작업만 받습니다. `mutate`는 정확한 계약 승인이 있어야 하고 이전 근거를 오래된 것으로 표시합니다. `apply_patch`, `Edit`, `Write` 같은 명확한 편집 도구는 shell envelope 없이 그대로 지원합니다. 잘못된 요청과 shell interpreter는 fail-closed로 거부합니다. 정확한 schema와 적용 경계는 [capability protocol](skills/click/references/capability-protocol.md)에 있습니다.
 

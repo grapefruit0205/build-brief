@@ -224,6 +224,39 @@ READ_ONLY_GIT_SUBCOMMANDS = {
     "status",
 }
 
+READ_ONLY_REMOTE_COMMANDS = {
+    "hostname",
+}
+READ_ONLY_SYSTEMCTL_SUBCOMMANDS = {
+    "is-active",
+    "is-enabled",
+    "list-unit-files",
+    "list-units",
+    "show",
+    "status",
+}
+READ_ONLY_HOSTNAME_OPTIONS = {
+    "-d",
+    "-f",
+    "-i",
+    "-I",
+    "-s",
+    "--all-ip-addresses",
+    "--domain",
+    "--fqdn",
+    "--help",
+    "--ip-address",
+    "--short",
+    "--version",
+}
+READ_ONLY_NVIDIA_SMI_OPTIONS = {
+    "-L",
+    "-q",
+    "--help",
+    "--list-gpus",
+    "--query",
+}
+
 SHELL_CONTROL_PUNCTUATION = set("();<>|&")
 SED_READ_SCRIPT = re.compile(
     r"^\s*(?:\d+|\$)(?:\s*,\s*(?:\d+|\$))?\s*[pq]\s*$"
@@ -244,6 +277,8 @@ RG_OPTIONS_WITH_VALUES = {
     "--type-not",
 }
 ENVIRONMENT_ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+SSH_TARGET = re.compile(r"^[A-Za-z0-9_.-]+(?:@[A-Za-z0-9_.-]+)?$")
+SSH_REMOTE_EXECUTABLE = re.compile(r"^[A-Za-z0-9_./+-]+$")
 
 
 def _emit(payload: dict[str, Any]) -> None:
@@ -1699,7 +1734,49 @@ def _get_content_paths(tokens: list[str]) -> list[str] | None:
     return paths or None
 
 
-def _is_read_only_tokens(tokens: list[str]) -> bool:
+def _structured_ssh_parts(tokens: list[str]) -> tuple[str, list[str]] | None:
+    if len(tokens) < 3 or Path(tokens[0]).name.lower() != "ssh":
+        return None
+    target = tokens[1]
+    remote_argv = tokens[2:]
+    if target.startswith("-") or not SSH_TARGET.fullmatch(target):
+        return None
+    remote_executable = remote_argv[0]
+    if remote_executable.startswith("-") or not SSH_REMOTE_EXECUTABLE.fullmatch(
+        remote_executable
+    ):
+        return None
+    return target, remote_argv
+
+
+def _is_read_only_nvidia_smi(tokens: list[str]) -> bool:
+    for token in tokens[1:]:
+        if token in READ_ONLY_NVIDIA_SMI_OPTIONS:
+            continue
+        if token.startswith(
+            ("--format=", "--query-compute-apps=", "--query-gpu=")
+        ):
+            continue
+        return False
+    return True
+
+
+def _is_read_only_remote_tokens(tokens: list[str]) -> bool:
+    executable = Path(tokens[0]).name.lower()
+    if executable in READ_ONLY_REMOTE_COMMANDS:
+        return len(tokens) == 1 or all(
+            token in READ_ONLY_HOSTNAME_OPTIONS for token in tokens[1:]
+        )
+    if executable == "docker":
+        return len(tokens) >= 2 and tokens[1] == "ps"
+    if executable == "nvidia-smi":
+        return _is_read_only_nvidia_smi(tokens)
+    if executable == "systemctl":
+        return len(tokens) >= 2 and tokens[1] in READ_ONLY_SYSTEMCTL_SUBCOMMANDS
+    return _is_local_read_only_tokens(tokens)
+
+
+def _is_local_read_only_tokens(tokens: list[str]) -> bool:
     if not tokens:
         return False
     if ENVIRONMENT_ASSIGNMENT.match(tokens[0]):
@@ -1755,6 +1832,15 @@ def _is_read_only_tokens(tokens: list[str]) -> bool:
     ):
         return False
     return True
+
+
+def _is_read_only_tokens(tokens: list[str]) -> bool:
+    if not tokens:
+        return False
+    if Path(tokens[0]).name.lower() == "ssh":
+        parts = _structured_ssh_parts(tokens)
+        return parts is not None and _is_read_only_remote_tokens(parts[1])
+    return _is_local_read_only_tokens(tokens)
 
 
 def _is_read_only_bash(command: str) -> bool:
@@ -2343,6 +2429,14 @@ def _decode_encoded_request(encoded: str, label: str) -> tuple[str, str]:
         return "", f"Click {label} runner received an invalid request."
 
 
+def _execution_argv(argv: list[str]) -> list[str]:
+    parts = _structured_ssh_parts(argv)
+    if parts is None:
+        return argv
+    target, remote_argv = parts
+    return [argv[0], target, shlex.join(remote_argv)]
+
+
 def _execute_argv_commands(
     commands: list[list[str]], stdout_file: Any | None = None, stderr_file: Any | None = None
 ) -> int:
@@ -2350,7 +2444,7 @@ def _execute_argv_commands(
     for argv in commands:
         try:
             result = subprocess.run(
-                argv,
+                _execution_argv(argv),
                 stdout=stdout_file,
                 stderr=stderr_file,
                 check=False,
