@@ -1,0 +1,66 @@
+name: Add LINUX DO README link
+
+on:
+  push:
+    branches:
+      - docs/linux-do-community-link
+
+permissions:
+  contents: write
+
+jobs:
+  update-readme:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Add LINUX DO community link
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          python3 - <<'PY'
+          import base64
+          import json
+          import os
+          import urllib.parse
+          import urllib.request
+
+          repo = os.environ["REPO"]
+          branch = os.environ["BRANCH"]
+          token = os.environ["GH_TOKEN"]
+          headers = {
+              "Accept": "application/vnd.github+json",
+              "Authorization": f"Bearer {token}",
+              "X-GitHub-Api-Version": "2022-11-28",
+          }
+          url = f"https://api.github.com/repos/{repo}/contents/README.md?ref={urllib.parse.quote(branch, safe='')}"
+          with urllib.request.urlopen(urllib.request.Request(url, headers=headers)) as response:
+              current = json.load(response)
+
+          text = base64.b64decode(current["content"]).decode("utf-8")
+          link = "Community link: [LINUX DO](https://linux.do/)"
+          if link in text:
+              print("LINUX DO link already present")
+              raise SystemExit(0)
+
+          marker = "English | [한국어](README.ko.md) | [简体中文](README.zh-CN.md)"
+          if marker not in text:
+              raise SystemExit("README language marker not found")
+
+          updated = text.replace(marker, marker + "\n\n" + link, 1)
+          payload = json.dumps({
+              "message": "docs: link LINUX DO community",
+              "content": base64.b64encode(updated.encode("utf-8")).decode("ascii"),
+              "branch": branch,
+              "sha": current["sha"],
+          }).encode("utf-8")
+          request = urllib.request.Request(
+              f"https://api.github.com/repos/{repo}/contents/README.md",
+              data=payload,
+              headers={**headers, "Content-Type": "application/json"},
+              method="PUT",
+          )
+          with urllib.request.urlopen(request) as response:
+              result = json.load(response)
+          print("Updated README at", result["commit"]["sha"])
+          PY
