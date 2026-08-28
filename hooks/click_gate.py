@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""A small, local contract, mutation-order, and verification-budget guard.
+"""A small, local contract, mutation-order, anti-loop, and verification guard.
 
 The hook does not judge architecture quality, implementation choices, or Skill
 activation. It is fail-open until an explicitly invoked Click Skill arms the
 current turn, or until the user explicitly enables strict mode. After an
-approved contract, it also meters one final verification batch.
+approved contract, it also blocks observable exploration loops and meters one
+final verification batch.
 """
 
 from __future__ import annotations
@@ -36,6 +37,9 @@ VERIFICATION_UNIT_LIMITS = {"quick": 1, "focused": 4, "full": 10}
 VERIFICATION_BATCH_FIELDS = {"commands"}
 MAX_CONTRACT_CHARS = 4_000
 MAX_VERIFICATION_BATCH_CHARS = 6_000
+MAX_OBSERVATION_OUTPUT_BYTES = 48_000
+MAX_OBSERVATION_ENTRIES = 64
+OBSERVATION_RUNNING_TTL_SECONDS = 10 * 60
 VERIFY_RUNNING_TTL_SECONDS = 60 * 60
 STATE_TTL_SECONDS = 7 * 24 * 60 * 60
 
@@ -144,6 +148,44 @@ SHELL_CONTROL_PUNCTUATION = set("();<>|&")
 SED_READ_SCRIPT = re.compile(
     r"^\s*(?:\d+|\$)(?:\s*,\s*(?:\d+|\$))?\s*[pq]\s*$"
 )
+
+RG_OPTIONS_WITH_VALUES = {
+    "-g",
+    "--glob",
+    "--iglob",
+    "--ignore-file",
+    "--max-depth",
+    "--path-separator",
+    "--sort",
+    "--sortr",
+    "-t",
+    "--type",
+    "-T",
+    "--type-not",
+}
+POWERSHELL_OPTIONS_WITH_VALUES = {
+    "-depth",
+    "-exclude",
+    "-filter",
+    "-include",
+    "-literalpath",
+    "-path",
+}
+TEST_RUNNER_OPTIONS_WITH_VALUES = {
+    "-c",
+    "--config",
+    "-k",
+    "-m",
+    "--maxfail",
+    "--rootdir",
+    "--confcutdir",
+    "--basetemp",
+    "--ignore",
+    "--ignore-glob",
+    "--test-name-pattern",
+    "--test-path-patterns",
+}
+TEST_RUNNER_MODES = {"run", "test"}
 
 
 def _emit(payload: dict[str, Any]) -> None:
@@ -285,6 +327,10 @@ def _fresh_verification_state(contract: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _fresh_observation_state() -> dict[str, Any]:
+    return {"entries": {}}
+
+
 def _write_contract_state(
     event: dict[str, Any], status: str, digest: str, contract: dict[str, Any]
 ) -> None:
@@ -294,6 +340,7 @@ def _write_contract_state(
             "status": status,
             "contract_digest": digest,
             "verification": _fresh_verification_state(contract),
+            "observations": _fresh_observation_state(),
             "updated_at": int(time.time()),
         },
     )
@@ -329,6 +376,21 @@ def _mark_contract_mutated(event: dict[str, Any]) -> str:
     if verification.get("status") == "running":
         return "Click blocked this mutation while the final verification batch is running."
 
+    observations = state.get("observations")
+    if isinstance(observations, dict):
+        entries = observations.get("entries")
+        if isinstance(entries, dict):
+            now = time.time()
+            for entry in entries.values():
+                if not isinstance(entry, dict) or entry.get("status") != "running":
+                    continue
+                started_at = int(entry.get("started_at", 0))
+                if started_at and now - started_at <= OBSERVATION_RUNNING_TTL_SECONDS:
+                    return (
+                        "Click blocked this mutation while an approved read or search is "
+                        "running. Wait for that evidence before changing the implementation."
+                    )
+
     verification["mutation_revision"] = int(
         verification.get("mutation_revision", 0)
     ) + 1
@@ -339,6 +401,7 @@ def _mark_contract_mutated(event: dict[str, Any]) -> str:
         verification["failed_revision"] = -1
         verification["unchanged_failure_retries"] = 0
     state["verification"] = verification
+    state["observations"] = _fresh_observation_state()
     _save_contract_state(event, state)
     return ""
 
@@ -473,7 +536,7 @@ def _verification_cost(command: str) -> tuple[int, str]:
         return 3, ""
     executable, arguments = _command_parts(segments[0])
     if executable in {"pytest", "cargo"}:
-        if executable == "pytest" and not _has_positional_target(arguments):
+        if executable == "pytest" and _pytest_targets_are_broad(arguments):
             return 3, ""
         if executable == "cargo" and arguments[:1] in (["test"], ["nextest"]):
             if len(arguments) == 1:
@@ -481,6 +544,19 @@ def _verification_cost(command: str) -> tuple[int, str]:
     if executable in {"npm", "pnpm", "yarn", "bun"}:
         meaningful = [item for item in arguments if item not in {"run", "exec", "x"}]
         if meaningful and meaningful[0] == "test":
+            return 3, ""
+    if executable in {"jest", "vitest", "phpunit", "rspec"}:
+        if not _test_runner_targets(arguments):
+            return 3, ""
+    if executable in {"npx", "pnpx", "bunx"} and arguments:
+        if arguments[0] in {"jest", "vitest"} and not _test_runner_targets(
+            arguments[1:]
+        ):
+            return 3, ""
+    if executable in {"python", "python3", "py", "pypy", "pypy3"}:
+        if arguments[:2] == ["-m", "pytest"] and _pytest_targets_are_broad(
+            arguments[2:]
+        ):
             return 3, ""
     if executable in {"dotnet", "gradle", "gradlew", "gradlew.bat", "mvn", "mvnw", "mvnw.cmd"}:
         if any(argument in {"test", "check", "verify"} for argument in arguments):
@@ -611,10 +687,6 @@ def _command_parts(tokens: list[str]) -> tuple[str, list[str]]:
     return Path(remaining[0]).name.lower(), [item.lower() for item in remaining[1:]]
 
 
-def _has_positional_target(arguments: list[str]) -> bool:
-    return any(not argument.startswith("-") for argument in arguments)
-
-
 def _is_recognized_verification_tokens(tokens: list[str]) -> bool:
     executable, arguments = _command_parts(tokens)
     if not executable:
@@ -676,6 +748,225 @@ def _is_broad_verification_command(command: str) -> bool:
     return bool(error) or cost >= 3
 
 
+def _positional_arguments(
+    arguments: list[str], options_with_values: set[str] | None = None
+) -> list[str]:
+    value_options = options_with_values or set()
+    positions: list[str] = []
+    skip_value = False
+    options_finished = False
+    for argument in arguments:
+        lowered = argument.lower()
+        if skip_value:
+            skip_value = False
+            continue
+        if not options_finished and lowered == "--":
+            options_finished = True
+            continue
+        if not options_finished and lowered in value_options:
+            skip_value = True
+            continue
+        if not options_finished and any(
+            lowered.startswith(f"{option}=") for option in value_options
+        ):
+            continue
+        if not options_finished and lowered.startswith("-"):
+            continue
+        positions.append(lowered)
+    return positions
+
+
+def _test_runner_targets(arguments: list[str]) -> list[str]:
+    return [
+        target
+        for target in _positional_arguments(
+            arguments, TEST_RUNNER_OPTIONS_WITH_VALUES
+        )
+        if target not in TEST_RUNNER_MODES
+    ]
+
+
+def _pytest_targets_are_broad(arguments: list[str]) -> bool:
+    targets = _test_runner_targets(arguments)
+    if not targets:
+        return True
+    for target in targets:
+        path = target.split("::", 1)[0].rstrip("/\\")
+        leaf = Path(path).name.lower()
+        if path in {"", ".", ".."}:
+            return True
+        if leaf in {"test", "tests"}:
+            return True
+        if not Path(path).suffix:
+            return True
+    return False
+
+
+def _targets_repository_root(targets: list[str]) -> bool:
+    if not targets:
+        return True
+    return any(target.rstrip("/\\") in {"", ".", ".."} for target in targets)
+
+
+def _powershell_inventory_targets(arguments: list[str]) -> list[str]:
+    explicit_paths: list[str] = []
+    for index, argument in enumerate(arguments[:-1]):
+        if argument in {"-path", "-literalpath"}:
+            explicit_paths.append(arguments[index + 1])
+    positional = _positional_arguments(arguments, POWERSHELL_OPTIONS_WITH_VALUES)
+    return [*explicit_paths, *positional]
+
+
+def _is_broad_exploration_tokens(tokens: list[str]) -> bool:
+    executable, arguments = _command_parts(tokens)
+    if executable == "rg" and "--files" in arguments:
+        targets = _positional_arguments(arguments, RG_OPTIONS_WITH_VALUES)
+        return _targets_repository_root(targets)
+    if executable == "find":
+        targets = _positional_arguments(arguments)
+        return _targets_repository_root(targets[:1])
+    if executable == "tree":
+        targets = _positional_arguments(arguments)
+        return _targets_repository_root(targets)
+    if executable in {"ls", "get-childitem"}:
+        recursive = any(
+            argument in {"-r", "--recursive", "-recurse"}
+            for argument in arguments
+        )
+        if not recursive:
+            return False
+        options = (
+            POWERSHELL_OPTIONS_WITH_VALUES
+            if executable == "get-childitem"
+            else set()
+        )
+        targets = (
+            _powershell_inventory_targets(arguments)
+            if executable == "get-childitem"
+            else _positional_arguments(arguments, options)
+        )
+        return _targets_repository_root(targets)
+    if executable == "git":
+        subcommand = _git_subcommand(tokens)
+        if subcommand == "ls-files":
+            index = tokens.index(subcommand)
+            targets = _positional_arguments(
+                [item.lower() for item in tokens[index + 1 :]]
+            )
+            return _targets_repository_root(targets)
+        if subcommand == "ls-tree":
+            index = tokens.index(subcommand)
+            remainder = [item.lower() for item in tokens[index + 1 :]]
+            if "--" not in remainder:
+                return True
+            targets = remainder[remainder.index("--") + 1 :]
+            return _targets_repository_root(targets)
+    return False
+
+
+def _is_broad_exploration_command(command: str) -> bool:
+    segments = _shell_segments(command)
+    return bool(segments) and any(
+        _is_broad_exploration_tokens(segment) for segment in segments
+    )
+
+
+def _observation_digest(command: str) -> str:
+    segments = _shell_segments(command)
+    canonical = json.dumps(segments or [[command.strip()]], separators=(",", ":"))
+    return hashlib.sha256(canonical.encode()).hexdigest()
+
+
+def _observation_runner_command(
+    event: dict[str, Any], command: str, command_digest: str, runner_token: str
+) -> str:
+    encoded = base64.urlsafe_b64encode(command.encode()).decode()
+    arguments = [
+        sys.executable,
+        str(Path(__file__).resolve()),
+        "run-observation",
+        str(_contract_path(event)),
+        command_digest,
+        runner_token,
+        encoded,
+    ]
+    return subprocess.list2cmdline(arguments) if os.name == "nt" else shlex.join(arguments)
+
+
+def _prepare_observation(event: dict[str, Any], command: str) -> tuple[str, str]:
+    if _is_broad_exploration_command(command):
+        return (
+            "",
+            "Click blocked a repository-wide inventory rescan after approval. Narrow "
+            "the read or search to the approved area. If the approved boundary must "
+            "expand, stop and ask the user instead of reopening the whole repository.",
+        )
+
+    state = _read_contract_state(event)
+    if state.get("status") != "approved":
+        return "", "Click observation state is unavailable; approve the contract again."
+    verification = state.get("verification")
+    if not isinstance(verification, dict):
+        return "", "Click verification state is unavailable; approve the contract again."
+    if verification.get("status") == "running":
+        return "", "The final Click verification batch is already running."
+
+    observations = state.get("observations")
+    if not isinstance(observations, dict):
+        observations = _fresh_observation_state()
+    entries = observations.get("entries")
+    if not isinstance(entries, dict):
+        entries = {}
+
+    digest = _observation_digest(command)
+    revision = int(verification.get("mutation_revision", 0))
+    prior = entries.get(digest)
+    unchanged_retries = 0
+    if isinstance(prior, dict) and int(prior.get("revision", -1)) == revision:
+        status = str(prior.get("status", ""))
+        unchanged_retries = int(prior.get("unchanged_retries", 0))
+        if status == "success":
+            return (
+                "",
+                "Click blocked an identical successful read or search because neither "
+                "the implementation nor its evidence changed. Use the existing result "
+                "or issue a narrower, materially different query.",
+            )
+        if status == "running":
+            started_at = int(prior.get("started_at", 0))
+            if started_at and time.time() - started_at <= OBSERVATION_RUNNING_TTL_SECONDS:
+                return "", "The identical Click read or search is already running."
+            status = "failed"
+        if status in {"failed", "incomplete"}:
+            if unchanged_retries >= 1:
+                return (
+                    "",
+                    "The identical read or search already failed or produced incomplete "
+                    "evidence twice. Change or narrow the command instead of repeating it.",
+                )
+            unchanged_retries += 1
+
+    runner_token = secrets.token_urlsafe(24)
+    entries[digest] = {
+        "revision": revision,
+        "status": "running",
+        "attempts": int(prior.get("attempts", 0)) + 1
+        if isinstance(prior, dict)
+        else 1,
+        "unchanged_retries": unchanged_retries,
+        "runner_token_digest": hashlib.sha256(runner_token.encode()).hexdigest(),
+        "started_at": int(time.time()),
+        "last_exit_code": None,
+        "output_bytes": 0,
+    }
+    while len(entries) > MAX_OBSERVATION_ENTRIES:
+        entries.pop(next(iter(entries)))
+    observations["entries"] = entries
+    state["observations"] = observations
+    _save_contract_state(event, state)
+    return _observation_runner_command(event, command, digest, runner_token), ""
+
+
 def _verification_runner_command(
     event: dict[str, Any], batch: dict[str, Any], batch_digest: str, runner_token: str
 ) -> str:
@@ -706,6 +997,22 @@ def _prepare_verification(
     scale = str(verification.get("scale", ""))
     if scale not in VERIFICATION_UNIT_LIMITS:
         return "", "Approved Click verification scale is invalid; stage and approve again."
+
+    observations = state.get("observations")
+    if isinstance(observations, dict):
+        entries = observations.get("entries")
+        if isinstance(entries, dict):
+            now = time.time()
+            for entry in entries.values():
+                if not isinstance(entry, dict) or entry.get("status") != "running":
+                    continue
+                started_at = int(entry.get("started_at", 0))
+                if started_at and now - started_at <= OBSERVATION_RUNNING_TTL_SECONDS:
+                    return (
+                        "",
+                        "Wait for the approved read or search to finish before starting "
+                        "the final verification batch.",
+                    )
 
     batch, units, error = _validate_verification_batch(raw, scale)
     if error:
@@ -860,6 +1167,11 @@ def _is_read_only_bash(command: str) -> bool:
     return segments is not None and all(_is_read_only_tokens(segment) for segment in segments)
 
 
+def _is_plan_tool(tool_name: str) -> bool:
+    normalized = tool_name.lower().replace("::", "__").replace(".", "__")
+    return normalized.split("__")[-1] == "update_plan"
+
+
 def _handle_pre_tool(event: dict[str, Any]) -> None:
     tool_name = str(event.get("tool_name", ""))
     tool_input = event.get("tool_input")
@@ -922,15 +1234,12 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
                         )
                         return
                     existing_contract = _read_contract_state(event)
-                    if (
-                        existing_contract.get("status") == "approved"
-                        and existing_contract.get("contract_digest") != digest
-                    ):
+                    if existing_contract.get("status") == "approved":
                         _deny(
-                            "Click is already executing one approved contract. Keep working "
-                            "inside that contract instead of replacing it mid-run. If the "
-                            "approved outcome or authority is no longer sufficient, stop and "
-                            "report the blocker."
+                            "Click is already executing one approved contract. Do not restage, "
+                            "replan, or replace it mid-run. Keep working inside that contract; "
+                            "if the approved outcome or authority is no longer sufficient, "
+                            "stop and report the blocker."
                         )
                         return
                     _write_contract_state(event, "staged", digest, contract)
@@ -964,10 +1273,24 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
                 _allow_rewritten("echo Click mutation gate passed")
                 return
 
-    if tool_name == "Bash" and _is_read_only_bash(str(command)):
+    status = _read_state(event).get("status")
+    if _is_plan_tool(tool_name):
+        if status == "passed":
+            _deny(
+                "Click blocked a new plan after approval. Implement the approved compact "
+                "contract directly; only the user can change its outcome or boundary."
+            )
         return
 
-    status = _read_state(event).get("status")
+    if tool_name == "Bash" and _is_read_only_bash(str(command)):
+        if status == "passed":
+            rewritten, observation_error = _prepare_observation(event, str(command))
+            if observation_error:
+                _deny(observation_error)
+                return
+            _allow_rewritten(rewritten)
+        return
+
     if status in {"passed", "bypassed"}:
         if status == "passed":
             contract_state = _read_contract_state(event)
@@ -1071,6 +1394,136 @@ def _record_verification_result(
     return True
 
 
+def _record_observation_result(
+    path: Path,
+    command_digest: str,
+    runner_token: str,
+    exit_code: int,
+    output_bytes: int,
+    incomplete: bool,
+) -> bool:
+    try:
+        state = json.loads(path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return False
+    if state.get("status") != "approved":
+        return False
+    observations = state.get("observations")
+    if not isinstance(observations, dict):
+        return False
+    entries = observations.get("entries")
+    if not isinstance(entries, dict):
+        return False
+    entry = entries.get(command_digest)
+    if not isinstance(entry, dict) or entry.get("status") != "running":
+        return False
+    token_digest = hashlib.sha256(runner_token.encode()).hexdigest()
+    if not secrets.compare_digest(
+        str(entry.get("runner_token_digest", "")), token_digest
+    ):
+        return False
+
+    entry["runner_token_digest"] = ""
+    entry["started_at"] = 0
+    entry["last_exit_code"] = exit_code
+    entry["output_bytes"] = output_bytes
+    if exit_code != 0:
+        entry["status"] = "failed"
+    elif incomplete:
+        entry["status"] = "incomplete"
+    else:
+        entry["status"] = "success"
+    entries[command_digest] = entry
+    observations["entries"] = entries
+    state["observations"] = observations
+    state["updated_at"] = int(time.time())
+    _write_json(path, state)
+    return True
+
+
+def _copy_limited_output(handle: Any, target: Any, remaining: int) -> int:
+    copied = 0
+    while copied < remaining:
+        chunk = handle.read(min(16_384, remaining - copied))
+        if not chunk:
+            break
+        target.write(chunk)
+        target.flush()
+        copied += len(chunk)
+    return copied
+
+
+def _run_observation(arguments: list[str]) -> int:
+    if len(arguments) != 4:
+        sys.stderr.write(
+            "usage: click_gate.py run-observation <state> <digest> <token> <command>\n"
+        )
+        return 2
+    state_path = Path(arguments[0])
+    command_digest, runner_token, encoded = arguments[1:]
+    try:
+        command = base64.urlsafe_b64decode(encoded.encode()).decode()
+    except (ValueError, UnicodeDecodeError):
+        sys.stderr.write("Click observation runner received an invalid command.\n")
+        return 2
+    if _observation_digest(command) != command_digest:
+        sys.stderr.write("Click observation runner command digest did not match.\n")
+        return 2
+
+    exit_code = 0
+    try:
+        with tempfile.TemporaryFile() as stdout_file, tempfile.TemporaryFile() as stderr_file:
+            try:
+                result = subprocess.run(
+                    _verification_shell_arguments(command),
+                    stdout=stdout_file,
+                    stderr=stderr_file,
+                    check=False,
+                )
+                exit_code = int(result.returncode)
+            except OSError as exc:
+                stderr_file.write(f"Click could not start observation: {exc}\n".encode())
+                exit_code = 127
+
+            stdout_bytes = stdout_file.tell()
+            stderr_bytes = stderr_file.tell()
+            output_bytes = stdout_bytes + stderr_bytes
+            incomplete = output_bytes > MAX_OBSERVATION_OUTPUT_BYTES
+            if not _record_observation_result(
+                state_path,
+                command_digest,
+                runner_token,
+                exit_code,
+                output_bytes,
+                incomplete,
+            ):
+                sys.stderr.write("Click could not record the observation result safely.\n")
+                return exit_code or 2
+
+            stdout_file.seek(0)
+            stderr_file.seek(0)
+            remaining = MAX_OBSERVATION_OUTPUT_BYTES
+            if exit_code == 0:
+                remaining -= _copy_limited_output(
+                    stdout_file, sys.stdout.buffer, remaining
+                )
+                _copy_limited_output(stderr_file, sys.stderr.buffer, remaining)
+            else:
+                remaining -= _copy_limited_output(
+                    stderr_file, sys.stderr.buffer, remaining
+                )
+                _copy_limited_output(stdout_file, sys.stdout.buffer, remaining)
+            if incomplete:
+                sys.stderr.write(
+                    "\n[Click] Read/search output exceeded 48,000 bytes. Narrow or "
+                    "paginate the next command; one unchanged retry is available.\n"
+                )
+    except OSError as exc:
+        sys.stderr.write(f"Click observation runner failed: {exc}\n")
+        return 127
+    return exit_code
+
+
 def _run_verification(arguments: list[str]) -> int:
     if len(arguments) != 4:
         sys.stderr.write(
@@ -1114,6 +1567,8 @@ def _run_verification(arguments: list[str]) -> int:
 
 
 def main() -> int:
+    if len(sys.argv) >= 2 and sys.argv[1] == "run-observation":
+        return _run_observation(sys.argv[2:])
     if len(sys.argv) >= 2 and sys.argv[1] == "run-verification":
         return _run_verification(sys.argv[2:])
     if len(sys.argv) != 2 or sys.argv[1] != "pre-tool":

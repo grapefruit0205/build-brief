@@ -145,6 +145,12 @@ class ClickGateTests(unittest.TestCase):
         arguments = [sys.executable, "-c", f"raise SystemExit({exit_code})"]
         return subprocess.list2cmdline(arguments) if os.name == "nt" else shlex.join(arguments)
 
+    def read_file_command(self, path: str, fail_hard: bool = False) -> str:
+        if os.name == "nt":
+            error_action = " -ErrorAction Stop" if fail_hard else ""
+            return f"Get-Content -Raw{error_action} {path}"
+        return f"sed -n '1,99999p' {path}"
+
     def verify_gate(
         self, commands: list[str], turn_id: str = "turn-2"
     ) -> dict:
@@ -173,7 +179,10 @@ class ClickGateTests(unittest.TestCase):
         hooks = config["hooks"]
         self.assertNotIn("SessionStart", hooks)
         self.assertNotIn("UserPromptSubmit", hooks)
-        self.assertEqual(hooks["PreToolUse"][0]["matcher"], "^(Bash|apply_patch|Edit|Write)$")
+        self.assertEqual(
+            hooks["PreToolUse"][0]["matcher"],
+            "^(Bash|apply_patch|Edit|Write|update_plan|functions\\.update_plan)$",
+        )
         pre_tool_handler = hooks["PreToolUse"][0]["hooks"][0]
         self.assertTrue(pre_tool_handler["command"].endswith('click_gate.py\" pre-tool'))
 
@@ -200,6 +209,10 @@ class ClickGateTests(unittest.TestCase):
             self.pre_tool("apply_patch", "*** Begin Patch\n*** End Patch")
         )
         self.assertIsNone(self.pre_tool("Bash", "python3 update_schema.py"))
+
+    def test_uninvoked_plan_and_exploration_remain_fail_open(self) -> None:
+        self.assertIsNone(self.pre_tool("update_plan", ""))
+        self.assertIsNone(self.pre_tool("Bash", "rg --files"))
 
     def test_armed_gate_denies_apply_patch_before_contract(self) -> None:
         self.arm_gate()
@@ -414,6 +427,17 @@ class ClickGateTests(unittest.TestCase):
         )
         self.assertIn("costs 3", broad["hookSpecificOutput"]["permissionDecisionReason"])
 
+        for command in ("pytest tests", "python3 -m pytest tests", "vitest run"):
+            with self.subTest(command=command):
+                denied = self.verify_gate([command])
+                self.assertEqual(
+                    denied["hookSpecificOutput"]["permissionDecision"], "deny"
+                )
+                self.assertIn(
+                    "costs 3",
+                    denied["hookSpecificOutput"]["permissionDecisionReason"],
+                )
+
         full = self.contract()
         full["verification"]["scale"] = "full"
         self.bypass_gate("turn-2")
@@ -472,6 +496,167 @@ class ClickGateTests(unittest.TestCase):
             stale_retry["hookSpecificOutput"]["permissionDecision"], "allow"
         )
 
+    def test_identical_successful_read_is_blocked_until_mutation(self) -> None:
+        (self.workspace / "README.md").write_text("hello\n", encoding="utf-8")
+        self.approve_contract()
+        command = self.read_file_command("README.md")
+
+        first = self.pre_tool("Bash", command, "turn-2")
+        self.assertEqual(first["hookSpecificOutput"]["permissionDecision"], "allow")
+        completed = self.run_rewritten(first)
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertEqual(completed.stdout.strip(), "hello")
+
+        repeated = self.pre_tool("Bash", command, "turn-2")
+        self.assertEqual(
+            repeated["hookSpecificOutput"]["permissionDecision"], "deny"
+        )
+        self.assertIn(
+            "identical successful read",
+            repeated["hookSpecificOutput"]["permissionDecisionReason"],
+        )
+
+        self.assertIsNone(
+            self.pre_tool("apply_patch", "*** Begin Patch\n*** End Patch", "turn-2")
+        )
+        after_mutation = self.pre_tool("Bash", command, "turn-2")
+        self.assertEqual(
+            after_mutation["hookSpecificOutput"]["permissionDecision"], "allow"
+        )
+
+    def test_observation_digest_normalizes_shell_spacing(self) -> None:
+        (self.workspace / "README.md").write_text("hello\n", encoding="utf-8")
+        self.approve_contract()
+
+        first = self.pre_tool(
+            "Bash", "sed -n '1,99999p' README.md", "turn-2"
+        )
+        self.assertEqual(self.run_rewritten(first).returncode, 0)
+        repeated = self.pre_tool(
+            "Bash", "sed   -n   '1,99999p'   README.md", "turn-2"
+        )
+        self.assertEqual(
+            repeated["hookSpecificOutput"]["permissionDecision"], "deny"
+        )
+        self.assertIn(
+            "identical successful read",
+            repeated["hookSpecificOutput"]["permissionDecisionReason"],
+        )
+
+    def test_running_observation_blocks_mutation_and_final_verification(self) -> None:
+        (self.workspace / "README.md").write_text("hello\n", encoding="utf-8")
+        self.approve_contract()
+        observation = self.pre_tool(
+            "Bash", self.read_file_command("README.md"), "turn-2"
+        )
+        self.assertEqual(
+            observation["hookSpecificOutput"]["permissionDecision"], "allow"
+        )
+
+        mutation = self.pre_tool(
+            "apply_patch", "*** Begin Patch\n*** End Patch", "turn-2"
+        )
+        self.assertEqual(
+            mutation["hookSpecificOutput"]["permissionDecision"], "deny"
+        )
+        self.assertIn(
+            "read or search is running",
+            mutation["hookSpecificOutput"]["permissionDecisionReason"],
+        )
+
+        verification = self.verify_gate([self.verification_command()])
+        self.assertEqual(
+            verification["hookSpecificOutput"]["permissionDecision"], "deny"
+        )
+        self.assertIn(
+            "read or search to finish",
+            verification["hookSpecificOutput"]["permissionDecisionReason"],
+        )
+
+    def test_failed_or_incomplete_read_gets_one_unchanged_retry(self) -> None:
+        self.approve_contract()
+        missing = self.read_file_command("missing.txt", fail_hard=True)
+
+        first_failure = self.pre_tool("Bash", missing, "turn-2")
+        self.assertNotEqual(self.run_rewritten(first_failure).returncode, 0)
+        retry_failure = self.pre_tool("Bash", missing, "turn-2")
+        self.assertNotEqual(self.run_rewritten(retry_failure).returncode, 0)
+        blocked_failure = self.pre_tool("Bash", missing, "turn-2")
+        self.assertEqual(
+            blocked_failure["hookSpecificOutput"]["permissionDecision"], "deny"
+        )
+
+        self.assertIsNone(
+            self.pre_tool("apply_patch", "*** Begin Patch\n*** End Patch", "turn-2")
+        )
+        (self.workspace / "large.txt").write_text(
+            "x" * 60_000, encoding="utf-8"
+        )
+        large = self.read_file_command("large.txt")
+        first_large = self.pre_tool("Bash", large, "turn-2")
+        completed = self.run_rewritten(first_large)
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertIn("exceeded 48,000 bytes", completed.stderr)
+        retry_large = self.pre_tool("Bash", large, "turn-2")
+        self.assertEqual(
+            retry_large["hookSpecificOutput"]["permissionDecision"], "allow"
+        )
+        self.assertEqual(self.run_rewritten(retry_large).returncode, 0)
+        blocked_large = self.pre_tool("Bash", large, "turn-2")
+        self.assertEqual(
+            blocked_large["hookSpecificOutput"]["permissionDecision"], "deny"
+        )
+
+    def test_approved_boundary_blocks_repository_wide_inventory_rescans(self) -> None:
+        self.approve_contract()
+        for command in (
+            "rg --files",
+            "find . -maxdepth 2 -type f",
+            "tree",
+            "ls -R",
+            "Get-ChildItem -Recurse -Path .",
+            "git ls-files",
+            "rg --files . src",
+        ):
+            with self.subTest(command=command):
+                payload = self.pre_tool("Bash", command, "turn-2")
+                self.assertEqual(
+                    payload["hookSpecificOutput"]["permissionDecision"], "deny"
+                )
+                self.assertIn(
+                    "repository-wide inventory rescan",
+                    payload["hookSpecificOutput"]["permissionDecisionReason"],
+                )
+
+        for command in (
+            "rg --files src",
+            "find src -type f",
+            "Get-ChildItem -Recurse -Path src",
+        ):
+            with self.subTest(command=command):
+                payload = self.pre_tool("Bash", command, "turn-2")
+                self.assertEqual(
+                    payload["hookSpecificOutput"]["permissionDecision"], "allow"
+                )
+
+        targeted = self.pre_tool("Bash", "rg threshold .", "turn-2")
+        self.assertEqual(
+            targeted["hookSpecificOutput"]["permissionDecision"], "allow"
+        )
+
+    def test_approved_contract_blocks_new_plan_tool_calls(self) -> None:
+        self.approve_contract()
+        for tool_name in ("update_plan", "functions.update_plan"):
+            with self.subTest(tool_name=tool_name):
+                payload = self.pre_tool(tool_name, "", "turn-2")
+                self.assertEqual(
+                    payload["hookSpecificOutput"]["permissionDecision"], "deny"
+                )
+                self.assertIn(
+                    "new plan after approval",
+                    payload["hookSpecificOutput"]["permissionDecisionReason"],
+                )
+
     def test_running_batch_blocks_parallel_mutation_and_verification(self) -> None:
         contract = self.contract()
         contract["verification"]["scale"] = "quick"
@@ -525,6 +710,9 @@ class ClickGateTests(unittest.TestCase):
         self.approve_contract()
         for command in (
             "python3 -m unittest discover -s tests",
+            "pytest tests",
+            "python3 -m pytest tests",
+            "vitest run",
             "pytest tests/unit && pytest tests/integration",
             "pytest tests/unit > verification.txt",
             "npm test -- --runInBand",
@@ -646,6 +834,13 @@ class ClickGateTests(unittest.TestCase):
         self.assertEqual(output["permissionDecision"], "deny")
         self.assertIn("one approved contract", output["permissionDecisionReason"])
 
+    def test_approved_contract_cannot_be_restaged_unchanged(self) -> None:
+        self.approve_contract()
+        payload = self.stage_gate(turn_id="turn-2")
+        output = payload["hookSpecificOutput"]
+        self.assertEqual(output["permissionDecision"], "deny")
+        self.assertIn("Do not restage", output["permissionDecisionReason"])
+
     def test_verification_change_requires_the_exact_staged_contract(self) -> None:
         self.arm_gate("turn-1")
         self.stage_gate(turn_id="turn-1")
@@ -688,6 +883,13 @@ class ClickGateTests(unittest.TestCase):
 
     def test_state_records_a_digest_not_contract_plaintext(self) -> None:
         self.approve_contract()
+        (self.workspace / "private-marker.txt").write_text(
+            "private marker\n", encoding="utf-8"
+        )
+        observation = self.pre_tool(
+            "Bash", self.read_file_command("private-marker.txt"), "turn-2"
+        )
+        self.assertEqual(self.run_rewritten(observation).returncode, 0)
         state_text = "\n".join(
             path.read_text()
             for path in (self.plugin_data / "gate-state").glob("*.json")
@@ -699,6 +901,8 @@ class ClickGateTests(unittest.TestCase):
         self.assertNotIn("threshold crossing", state_text)
         self.assertNotIn("existing notification mechanism", state_text)
         self.assertNotIn("재고가 임계값", state_text)
+        self.assertNotIn("private-marker.txt", state_text)
+        self.assertNotIn("private marker", state_text)
 
     def test_gate_pass_does_not_leak_into_a_new_turn(self) -> None:
         self.set_mode("strict")

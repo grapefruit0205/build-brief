@@ -7,7 +7,7 @@ English | [한국어](README.ko.md)
 
 **Contract-first, build-fast. Approve the minimum sufficient contract once; Click implements inside it to a working result.**
 
-Click is an explicitly selected Codex plugin. Mention `@Click` with a natural-language software request. It reads the relevant repository, translates the request into a compact developer execution contract, explains the same meaning plainly, chooses how much final verification is appropriate, and asks for one approval before coding. After implementation, its Hook meters and executes the final verification commands against that automatically selected budget.
+Click is an explicitly selected Codex plugin. Mention `@Click` with a natural-language software request. It reads the relevant repository, translates the request into a compact developer execution contract, explains the same meaning plainly, chooses how much final verification is appropriate, and asks for one approval before coding. After approval, its Hook blocks observable exploration and replanning loops; after implementation, it meters and executes the final verification commands against the automatically selected budget.
 
 It is not an architecture-pattern picker. You do not have to choose “modular monolith,” “microservices,” “event-driven,” “batch,” or “functional.” Click derives the engineering language the real behavior and codebase require.
 
@@ -17,7 +17,7 @@ It is not an architecture-pattern picker. You do not have to choose “modular m
 2. Click inspects the smallest relevant part of the repository.
 3. It shows one compact developer contract, one easy explanation, and one verification scale.
 4. You approve once.
-5. Click implements in one shot, then the Hook meters and executes the completion checks once.
+5. Click implements in one shot while the Hook blocks observable loops, then meters and executes the completion checks once.
 
 ```mermaid
 flowchart LR
@@ -25,7 +25,8 @@ flowchart LR
     B --> C["Easy explanation<br/>+ verification scale"]
     C --> D{"Approve once?"}
     D -->|Yes| E["One-shot implementation<br/>inside the contract"]
-    E --> F["One budgeted final<br/>verification batch"]
+    E --> G["Observable anti-loop<br/>Hook guard"]
+    G --> F["One budgeted final<br/>verification batch"]
     D -->|Change proposal| B
 ```
 
@@ -33,7 +34,7 @@ Click does not ask a chain of technical preference questions when it can infer a
 
 ## What exactly is locked?
 
-The Hook stores the contract digest and non-content verification metadata outside the target repository. It does not persist the contract text. The contract passed after approval must be byte-for-byte equivalent after canonical JSON normalization; a different contract is rejected.
+The Hook stores the contract digest and non-content observation/verification metadata outside the target repository. It does not persist the contract text, read/search commands, or their output. The contract passed after approval must be byte-for-byte equivalent after canonical JSON normalization; a different contract is rejected.
 
 The lock applies to the **meaning of the work**:
 
@@ -46,7 +47,22 @@ It does not freeze every implementation tool. Inside that approved envelope, Cli
 
 Click stops only when it needs authority you did not grant, an uncovered irreversible or paid external action, or a change to the approved outcome or semantic boundary.
 
-The Hook enforces contract shape, ordering, staged-versus-passed equality, and the deterministic budget policy for visible verification commands. It does not prove architecture correctness, genuine human approval, semantic fidelity of every changed line, or the true work hidden inside a custom script.
+The Hook enforces contract shape, ordering, staged-versus-passed equality, observable anti-loop rules, and the deterministic budget policy for visible verification commands. It does not prove architecture correctness, genuine human approval, semantic fidelity of every changed line, or the true work hidden inside a custom script.
+
+## Implementation without loops
+
+After approval, the compact contract remains the single source of truth. Click does not generate another plan or reclassify every action into phases and steps.
+
+The Hook deterministically handles four visible forms of avoidable work:
+
+- An approved read-only Bash command runs through a local observation runner. The runner stores only a normalized command digest, mutation revision, exit code, output size, and status—not the command or its output. An identical successful read or search is blocked until an in-scope mutation makes that evidence stale.
+- A failed observation or output above 48,000 bytes gets one unchanged retry. If it still fails or remains incomplete, the next command must be narrowed or materially changed.
+- Matched `update_plan` calls and every attempt to restage or replace an approved contract are rejected. A real outcome or boundary change must go back to the user.
+- Repository-wide inventory rescans such as root-level `rg --files`, `find .`, recursive root `ls`/`Get-ChildItem`, `tree`, `git ls-files`, and unscoped recursive `git ls-tree` are rejected after approval. Path-scoped inventory and concrete content searches remain available.
+
+Recognized broad verification outside `click-gate verify` is also rejected, as described below. A mutation clears the successful observation ledger so changed files can be read again.
+
+These guards cover visible matched tool calls. They cannot inspect hidden reasoning, detect a plan written only in prose, cover reads through an unmatched MCP or connector, or decide whether every edit semantically obeys a natural-language boundary. They reduce tool loops; they are not a reasoning-token cap or security sandbox.
 
 ## Verification without ceremony
 
@@ -176,7 +192,7 @@ Use ordinary natural-language coding when the change is tiny, obvious, reversibl
 
 ## Evidence and limits
 
-The repository deterministically tests explicit-only activation, uninvoked fail-open behavior, opt-out, safe read-only commands, compact-contract completeness, conditional build constraints, verification profiles and unit ceilings, staged-versus-passed digest equality, one-shot contract locking, final-batch execution and retry state, contract-text-free state, and repository policy. Public CI runs on Linux, macOS, and Windows.
+The repository deterministically tests explicit-only activation, uninvoked fail-open behavior, opt-out, safe read-only commands, compact-contract completeness, conditional build constraints, identical-read blocking and bounded failure retry, broad-inventory and replanning rejection, verification profiles and unit ceilings, staged-versus-passed digest equality, one-shot contract locking, final-batch execution and retry state, content-free Hook state, and repository policy. Public CI runs on Linux, macOS, and Windows.
 
 The included golden cases, semantic grader, and A/B runner are evaluation infrastructure. Post-v0.9 behavioral A/B evidence has not yet established that Click improves implementation success, reduces missed invariants, or saves time and tokens across real projects.
 
@@ -189,7 +205,7 @@ The Hook is an ordering and recognized-command budget guardrail, not a security 
 .agents/plugins/marketplace.json      GitHub marketplace entry
 skills/click/                         One-shot design-and-build Skill
 skills/fix/                           Compact repair Skill
-hooks/click_gate.py                   Contract, digest, and verification-budget guard
+hooks/click_gate.py                   Contract, anti-loop, digest, and verification guard
 hooks/hooks.json                      Lifecycle Hook configuration
 evals/                                Golden cases, A/B runner, semantic grader
 tests/                                Deterministic Hook, grader, and policy tests

@@ -1,7 +1,7 @@
 {
   "name": "click",
-  "version": "0.11.0",
-  "description": "When explicitly selected as @Click, compile software intent into one compact approval-bound execution contract, a faithful plain-language explanation, and one automatically budgeted final verification batch.",
+  "version": "0.12.0",
+  "description": "When explicitly selected as @Click, compile software intent into one compact approval-bound execution contract with a faithful plain-language explanation, block observable implementation loops, and run one automatically budgeted final verification batch.",
   "author": {
     "name": "Junseok Pak",
     "url": "https://github.com/grapefruit0205"
@@ -16,6 +16,7 @@
     "software-design",
     "engineering-directives",
     "one-shot",
+    "anti-loop",
     "verification",
     "vibe-coding"
   ],
@@ -23,7 +24,7 @@
   "interface": {
     "displayName": "Click",
     "shortDescription": "Approve once, then implement the contract in one shot.",
-    "longDescription": "When explicitly selected as @Click, Click translates a software request and repository context into one compact contract covering the outcome, boundary, must-hold behavior, build approach, and final verification, explains the same meaning plainly, and asks once for approval. Optional semantics and execution order appear only when the work needs them. After approval it implements in one shot while necessary in-scope implementation details remain flexible, then the Hook meters and executes one final verification batch within the automatically selected scale. The bundled Fix skill provides the same flow for natural-language bug reports. Without explicit selection Click adds no session context and blocks nothing.",
+    "longDescription": "When explicitly selected as @Click, Click translates a software request and repository context into one compact contract covering the outcome, boundary, must-hold behavior, build approach, and final verification, explains the same meaning plainly, and asks once for approval. Optional semantics and execution order appear only when the work needs them. After approval it implements in one shot while the Hook blocks identical successful reads, repository-wide inventory rescans, matched replanning, replacement contracts, and verification outside the automatically selected budget. Necessary in-scope implementation details remain flexible. The bundled Fix skill provides the same flow for natural-language bug reports. Without explicit selection Click adds no session context and blocks nothing.",
     "developerName": "Junseok Pak",
     "category": "Productivity",
     "capabilities": [
@@ -32,7 +33,7 @@
     "websiteURL": "https://github.com/grapefruit0205/click",
     "defaultPrompt": [
       "Use Click to create one compact developer execution contract, choose and automatically budget a verification scale, explain it plainly, and ask once before implementation.",
-      "Use Click to design and implement this change in one approved shot, with one final verification batch.",
+      "Use Click to design and implement this change in one approved shot, blocking observable tool loops and using one final verification batch.",
       "Use Fix to translate this bug report into a compact repair contract and ask once before repairing it."
     ]
   }

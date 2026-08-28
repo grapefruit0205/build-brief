@@ -1,6 +1,6 @@
 ---
 name: click
-description: When explicitly invoked for software work, compile repository-aware intent into one approval-bound execution contract, explain it plainly, then implement it in one shot with an automatically enforced verification budget. Never invoke implicitly.
+description: When explicitly invoked for software work, compile repository-aware intent into one approval-bound execution contract, explain it plainly, then implement it in one shot with observable anti-loop guards and an automatically enforced verification budget. Never invoke implicitly.
 ---
 
 # Click
@@ -24,7 +24,7 @@ Do not ask a series of technical preference questions before producing the contr
 
 Do not treat an existing system as blank or infer permission for unrelated cleanup, migration, or product expansion. If the user asks only for a contract or handoff, produce the same contract without implementation.
 
-For broad cross-boundary work, read [references/translation-guide.md](references/translation-guide.md). Whenever a contract will be shown or staged, read [references/directive-format.md](references/directive-format.md) and [references/verification-profiles.md](references/verification-profiles.md).
+For broad cross-boundary work, read [references/translation-guide.md](references/translation-guide.md). Whenever a contract will be shown or staged, read [references/directive-format.md](references/directive-format.md) and [references/verification-profiles.md](references/verification-profiles.md). Before post-approval implementation, read [references/anti-loop-policy.md](references/anti-loop-policy.md).
 
 ## Compile one compact contract
 
@@ -65,7 +65,7 @@ After explicit approval:
 
 1. Run `click-gate arm` in the approval turn.
 2. Run `click-gate pass '<Execution Contract JSON>'` with the exact staged JSON.
-3. Implement continuously inside the approved semantic boundary.
+3. Implement continuously inside the approved semantic boundary without creating a new plan, restaging the contract, or reopening repository-wide inventory exploration.
 4. Submit the smallest sufficient final batch as `click-gate verify '{"commands":["<one shell command per entry>"]}'`. Do not chain checks inside one entry to hide their cost.
 5. Report results and material implementation choices.
 
@@ -73,13 +73,15 @@ The Hook executes the accepted batch and records its real exit code. After succe
 
 Do not create a replacement contract or request reapproval for an in-scope technical choice. MCP tools, external services, dependencies, graders, architecture tactics, files, and implementation order may change when necessary to deliver the approved result while preserving its boundary and must-hold conditions. The approved contract remains unchanged because it already grants that implementation freedom.
 
+After approval, reuse successful read/search evidence. If more evidence is needed, issue a narrower or materially different query. The Hook blocks an identical successful Bash observation until an in-scope mutation makes it stale, allows one unchanged retry after a failed or oversized observation, rejects repository-wide inventory rescans, and rejects matched plan-tool calls. Do not evade those guards with renamed wrappers or prose-only duplicate plans.
+
 Stop only when completion needs authority the user has not granted, an irreversible or paid external action not covered by approval, or a change to the approved outcome, user-visible behavior, boundary, must-hold condition, or verification commitment. Report the blocker; do not silently widen the work or substitute a new mid-run contract.
 
 ## Prevent overdesign by evidence, not bans
 
 Choose the smallest design that satisfies every invariant. No component category is forbidden. A new dependency, service, queue, store, MCP, grader, abstraction, or operational component is valid when it is a proportionate way to complete the approved work. Prefer existing structure when it is equally capable; do not add speculative architecture for hypothetical scale, teams, or reuse.
 
-The Hook validates contract shape, mutation ordering, and exact staged-versus-passed equality. It cannot prove design truth, semantic implementation fidelity, or authentic human approval. If Hook enforcement is unavailable, preserve the same ordering at instruction level and disclose that fact.
+The Hook validates contract shape, mutation ordering, exact staged-versus-passed equality, recognized observation loops, and visible verification breadth. It cannot see hidden reasoning, prose-only plans, connector reads outside its matcher, design truth, semantic implementation fidelity, or authentic human approval. If Hook enforcement is unavailable, preserve the same ordering at instruction level and disclose that fact.
 
 ## Communicate plainly
 

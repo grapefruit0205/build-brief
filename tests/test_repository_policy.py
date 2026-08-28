@@ -19,7 +19,7 @@ class RepositoryPolicyTests(unittest.TestCase):
             (ROOT / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8")
         )
         self.assertEqual(manifest["name"], "click")
-        self.assertEqual(manifest["version"], "0.11.0")
+        self.assertEqual(manifest["version"], "0.12.0")
         self.assertEqual(manifest["license"], "MIT")
         self.assertIn("explicit", manifest["description"].lower())
         self.assertIn("plain-language", manifest["description"].lower())
@@ -28,6 +28,8 @@ class RepositoryPolicyTests(unittest.TestCase):
         self.assertIn("one shot", manifest["interface"]["longDescription"].lower())
         self.assertIn("verification", manifest["interface"]["longDescription"].lower())
         self.assertIn("automatically", manifest["interface"]["longDescription"].lower())
+        self.assertIn("replanning", manifest["interface"]["longDescription"].lower())
+        self.assertIn("anti-loop", manifest["keywords"])
         self.assertIn("@Click", manifest["description"])
 
     def test_readmes_use_plugin_mention_as_the_default_invocation(self) -> None:
@@ -48,6 +50,18 @@ class RepositoryPolicyTests(unittest.TestCase):
         self.assertIn("custom wrapper", english)
         self.assertIn("자동 상한", korean)
         self.assertIn("사용자 정의 래퍼", korean)
+
+    def test_readmes_document_observable_anti_loop_guards_and_limits(self) -> None:
+        english = (ROOT / "README.md").read_text(encoding="utf-8")
+        korean = (ROOT / "README.ko.md").read_text(encoding="utf-8")
+        for readme in (english, korean):
+            self.assertIn("48,000", readme)
+            self.assertIn("update_plan", readme)
+            self.assertIn("rg --files", readme)
+        self.assertIn("Implementation without loops", english)
+        self.assertIn("hidden reasoning", english)
+        self.assertIn("실행 루프 없이 구현", korean)
+        self.assertIn("숨은 추론", korean)
 
     def test_marketplace_exposes_click_from_the_click_catalog(self) -> None:
         marketplace = json.loads(
