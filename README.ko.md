@@ -1,6 +1,6 @@
 # Click
 
-[English](README.md) | 한국어
+[English](README.md) | 한국어 | [简体中文](README.zh-CN.md)
 
 [![CI](https://github.com/grapefruit0205/click/actions/workflows/ci.yml/badge.svg)](https://github.com/grapefruit0205/click/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)

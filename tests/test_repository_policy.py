@@ -6,6 +6,7 @@ import unittest
 
 
 ROOT = Path(__file__).parents[1]
+README_NAMES = ("README.md", "README.ko.md", "README.zh-CN.md")
 
 
 class RepositoryPolicyTests(unittest.TestCase):
@@ -35,7 +36,7 @@ class RepositoryPolicyTests(unittest.TestCase):
         self.assertIn("structured", manifest["description"].lower())
 
     def test_readmes_use_plugin_mention_as_the_default_invocation(self) -> None:
-        for readme_name in ("README.md", "README.ko.md"):
+        for readme_name in README_NAMES:
             with self.subTest(readme=readme_name):
                 readme = (ROOT / readme_name).read_text(encoding="utf-8")
                 self.assertIn("@Click", readme)
@@ -45,32 +46,40 @@ class RepositoryPolicyTests(unittest.TestCase):
     def test_readmes_document_automatic_budget_and_its_limit(self) -> None:
         english = (ROOT / "README.md").read_text(encoding="utf-8")
         korean = (ROOT / "README.ko.md").read_text(encoding="utf-8")
-        for readme in (english, korean):
+        chinese = (ROOT / "README.zh-CN.md").read_text(encoding="utf-8")
+        for readme in (english, korean, chinese):
             self.assertIn("click-gate verify", readme)
             self.assertIn("10", readme)
         self.assertIn("Automatic ceiling", english)
         self.assertIn("custom wrapper", english)
         self.assertIn("자동 상한", korean)
         self.assertIn("사용자 정의 래퍼", korean)
+        self.assertIn("自动上限", chinese)
+        self.assertIn("自定义 wrapper", chinese)
         self.assertIn("minimum class", english.lower())
         self.assertIn("최소 class", korean)
+        self.assertIn("最低 class", chinese)
         self.assertIn("Python `-c`", english)
         self.assertIn("Python `-c`", korean)
+        self.assertIn("Python `-c`", chinese)
 
     def test_readmes_document_distinct_turn_approval_and_git_mutation_guard(self) -> None:
         english = (ROOT / "README.md").read_text(encoding="utf-8")
         korean = (ROOT / "README.ko.md").read_text(encoding="utf-8")
-        for readme in (english, korean):
+        chinese = (ROOT / "README.zh-CN.md").read_text(encoding="utf-8")
+        for readme in (english, korean, chinese):
             self.assertIn("UserPromptSubmit", readme)
             self.assertIn("staged_turn_id", readme)
             self.assertIn("non-ignored untracked", readme)
         self.assertIn("later user turn", english)
         self.assertIn("다음 사용자 turn", korean)
+        self.assertIn("后续用户 turn", chinese)
 
     def test_readmes_document_observable_anti_loop_guards_and_limits(self) -> None:
         english = (ROOT / "README.md").read_text(encoding="utf-8")
         korean = (ROOT / "README.ko.md").read_text(encoding="utf-8")
-        for readme in (english, korean):
+        chinese = (ROOT / "README.zh-CN.md").read_text(encoding="utf-8")
+        for readme in (english, korean, chinese):
             self.assertIn("48,000", readme)
             self.assertIn("update_plan", readme)
             self.assertIn("rg --files", readme)
@@ -78,10 +87,13 @@ class RepositoryPolicyTests(unittest.TestCase):
         self.assertIn("hidden reasoning", english)
         self.assertIn("실행 루프 없이 구현", korean)
         self.assertIn("숨은 추론", korean)
+        self.assertIn("无循环实现", chinese)
+        self.assertIn("隐藏推理", chinese)
 
     def test_readmes_document_structured_capabilities_and_shell_boundary(self) -> None:
         english = (ROOT / "README.md").read_text(encoding="utf-8")
         korean = (ROOT / "README.ko.md").read_text(encoding="utf-8")
+        chinese = (ROOT / "README.zh-CN.md").read_text(encoding="utf-8")
         protocol = (
             ROOT
             / "skills"
@@ -89,13 +101,14 @@ class RepositoryPolicyTests(unittest.TestCase):
             / "references"
             / "capability-protocol.md"
         ).read_text(encoding="utf-8")
-        for document in (english, korean, protocol):
+        for document in (english, korean, chinese, protocol):
             self.assertIn("click-gate inspect", document)
             self.assertIn("click-gate mutate", document)
             self.assertIn('"version":1', document)
             self.assertIn("shell=False", document)
         self.assertIn('"checks"', english)
         self.assertIn('"checks"', korean)
+        self.assertIn('"checks"', chinese)
         self.assertIn("hosted tools", protocol)
 
     def test_marketplace_exposes_click_from_the_click_catalog(self) -> None:
