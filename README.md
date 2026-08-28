@@ -173,11 +173,11 @@ Each capability uses protocol version `1` and separates the executable from ever
 
 ```text
 click-gate inspect '{"version":1,"commands":[["git","status","--short"],["sed","-n","1,160p","src/app.py"]]}'
-click-gate inspect '{"version":1,"commands":[["ssh","gx10-01","docker","ps","--format","{{.Names}}|{{.Image}}"]]}'
+click-gate inspect '{"version":1,"commands":[["ssh","example-host","docker","ps","--format","{{.Names}}|{{.Image}}"]]}'
 click-gate mutate '{"version":1,"argv":["python3","scripts/generate.py","--target","src"]}'
 ```
 
-The SSH read path intentionally accepts only `ssh <target> <remote executable> <args...>` with no SSH client options. It recognizes the existing bounded read-only commands plus hostname display, `docker ps`, approved `nvidia-smi` query flags, and read-only `systemctl` subcommands. Opaque remote command strings, nested SSH, shell or `sudo` wrappers, and mutating remote commands fail closed. The same literal-preserving SSH argv preparation applies to approved mutation and verification runners; quoting never makes a mutation read-only or bypasses the contract and verification budget.
+The SSH read path intentionally accepts only `ssh <target> <remote executable> <args...>` with no SSH client options. It recognizes the existing bounded read-only commands plus Git `merge-base`, narrowly validated `git remote` listing and `get-url` forms, hostname display, `docker ps`, approved `nvidia-smi` query flags, and read-only `systemctl` subcommands. Git remote writes and network operations, opaque remote command strings, nested SSH, shell or `sudo` wrappers, and other mutating remote commands fail closed. The same literal-preserving SSH argv preparation applies to approved mutation and verification runners; quoting never makes a mutation read-only or bypasses the contract and verification budget.
 
 `inspect` accepts only the Hook's bounded read-only operations. `mutate` requires the exact approved contract and marks prior evidence stale. Ordinary canonical edit tools such as `apply_patch`, `Edit`, and `Write` remain supported mutations without a shell envelope. Malformed requests and shell interpreters fail closed. See [the capability protocol](skills/click/references/capability-protocol.md) for the exact schemas and enforcement boundary.
 

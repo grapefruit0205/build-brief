@@ -173,11 +173,11 @@ flowchart TB
 
 ```text
 click-gate inspect '{"version":1,"commands":[["git","status","--short"],["sed","-n","1,160p","src/app.py"]]}'
-click-gate inspect '{"version":1,"commands":[["ssh","gx10-01","docker","ps","--format","{{.Names}}|{{.Image}}"]]}'
+click-gate inspect '{"version":1,"commands":[["ssh","example-host","docker","ps","--format","{{.Names}}|{{.Image}}"]]}'
 click-gate mutate '{"version":1,"argv":["python3","scripts/generate.py","--target","src"]}'
 ```
 
-SSH 读取路径有意只接受不带 SSH 客户端选项的 `ssh <目标> <远程可执行程序> <参数...>` 形式。除了现有限定的只读命令，它只识别主机名显示、`docker ps`、获准的 `nvidia-smi` 查询参数以及只读 `systemctl` 子命令。不透明的远程命令字符串、嵌套 SSH、shell 或 `sudo` wrapper，以及会修改远程状态的命令都会 fail closed。获准的 mutation 和 verification runner 也使用同一套保留远程 argv 字面值的准备过程；引用处理不会把 mutation 变成只读操作，也不会绕过契约或验证预算。
+SSH 读取路径有意只接受不带 SSH 客户端选项的 `ssh <目标> <远程可执行程序> <参数...>` 形式。除了现有限定的只读命令，它只识别 Git `merge-base`、经过严格验证的 `git remote` 列表和 `get-url` 形式、主机名显示、`docker ps`、获准的 `nvidia-smi` 查询参数以及只读 `systemctl` 子命令。Git 远程写入和网络操作、不透明的远程命令字符串、嵌套 SSH、shell 或 `sudo` wrapper，以及其他会修改远程状态的命令都会 fail closed。获准的 mutation 和 verification runner 也使用同一套保留远程 argv 字面值的准备过程；引用处理不会把 mutation 变成只读操作，也不会绕过契约或验证预算。
 
 `inspect` 只接受 Hook 限定的只读操作。`mutate` 要求提供完全相同的已批准契约，并把先前证据标记为 stale。`apply_patch`、`Edit` 和 `Write` 等普通标准编辑工具仍可作为 mutation 使用，不需要 shell envelope。格式错误的请求和 shell interpreter 会 fail closed。精确 schema 和执行边界请参阅[能力协议](skills/click/references/capability-protocol.md)。
 

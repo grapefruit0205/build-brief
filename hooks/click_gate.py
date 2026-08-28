@@ -218,7 +218,9 @@ READ_ONLY_GIT_SUBCOMMANDS = {
     "log",
     "ls-files",
     "ls-tree",
+    "merge-base",
     "name-rev",
+    "remote",
     "rev-parse",
     "show",
     "status",
@@ -1027,7 +1029,7 @@ def _control_request(command: str) -> tuple[str | None, str, str]:
     )
 
 
-def _git_subcommand(tokens: list[str]) -> str:
+def _git_subcommand_index(tokens: list[str]) -> int | None:
     index = 1
     while index < len(tokens):
         token = tokens[index]
@@ -1040,8 +1042,34 @@ def _git_subcommand(tokens: list[str]) -> str:
         if token.startswith("-"):
             index += 1
             continue
-        return token
-    return ""
+        return index
+    return None
+
+
+def _git_subcommand(tokens: list[str]) -> str:
+    index = _git_subcommand_index(tokens)
+    return tokens[index] if index is not None else ""
+
+
+def _is_read_only_git_remote(tokens: list[str]) -> bool:
+    index = _git_subcommand_index(tokens)
+    if index is None or tokens[index] != "remote":
+        return False
+
+    arguments = tokens[index + 1 :]
+    if not arguments or arguments in (["-v"], ["--verbose"]):
+        return True
+    if arguments[0] != "get-url" or len(arguments) < 2:
+        return False
+
+    options = arguments[1:-1]
+    remote_name = arguments[-1]
+    return (
+        bool(remote_name)
+        and not remote_name.startswith("-")
+        and len(options) == len(set(options))
+        and all(option in {"--all", "--push"} for option in options)
+    )
 
 
 def _shell_segments(command: str) -> list[list[str]] | None:
@@ -1361,15 +1389,16 @@ def _is_broad_exploration_tokens(tokens: list[str]) -> bool:
         targets = _positional_arguments(arguments)
         return _targets_repository_root(targets)
     if executable == "git":
-        subcommand = _git_subcommand(tokens)
+        index = _git_subcommand_index(tokens)
+        if index is None:
+            return False
+        subcommand = tokens[index]
         if subcommand == "ls-files":
-            index = tokens.index(subcommand)
             targets = _positional_arguments(
                 [item.lower() for item in tokens[index + 1 :]]
             )
             return _targets_repository_root(targets)
         if subcommand == "ls-tree":
-            index = tokens.index(subcommand)
             remainder = [item.lower() for item in tokens[index + 1 :]]
             if "--" not in remainder:
                 return True
@@ -1784,7 +1813,10 @@ def _is_local_read_only_tokens(tokens: list[str]) -> bool:
 
     executable = Path(tokens[0]).name.lower()
     if executable == "git":
-        if _git_subcommand(tokens) not in READ_ONLY_GIT_SUBCOMMANDS:
+        subcommand = _git_subcommand(tokens)
+        if subcommand not in READ_ONLY_GIT_SUBCOMMANDS:
+            return False
+        if subcommand == "remote" and not _is_read_only_git_remote(tokens):
             return False
         return not any(
             token in {"--ext-diff", "--textconv"}

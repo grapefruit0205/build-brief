@@ -8,12 +8,12 @@ Use before approval for an ambiguous but read-only command, and during approved 
 
 ```text
 click-gate inspect '{"version":1,"commands":[["git","status","--short"],["sed","-n","1,160p","src/app.py"]]}'
-click-gate inspect '{"version":1,"commands":[["ssh","gx10-01","docker","ps","--format","{{.Names}}|{{.Image}}"]]}'
+click-gate inspect '{"version":1,"commands":[["ssh","example-host","docker","ps","--format","{{.Names}}|{{.Image}}"]]}'
 ```
 
 Every command must match the Hook's read-only argv policy. One request may contain up to eight commands, which run serially and stop on the first failure. The Hook rejects shell interpreters and write-capable options. In active review and implementation it stores only a request digest and result metadata, applies the existing output cap and retry policy, and detects repository-wide inventory from the validated argv.
 
-The SSH inspection form is deliberately narrow: `ssh <target> <remote executable> <args...>`, with no SSH client options. It reuses Click's bounded local read-only policy and adds hostname display, `docker ps`, approved `nvidia-smi` query flags, and read-only `systemctl` subcommands. Opaque remote command strings, nested SSH, shell or `sudo` wrappers, and mutating remote commands are rejected. Structured mutation and verification runners use the same literal-preserving preparation, but only the allowlisted remote reads qualify as inspection or read-only verification.
+The SSH inspection form is deliberately narrow: `ssh <target> <remote executable> <args...>`, with no SSH client options. It reuses Click's bounded local read-only policy and adds Git `merge-base`, only `git remote`, `git remote -v|--verbose`, and `git remote get-url [--all] [--push] <name>`, hostname display, `docker ps`, approved `nvidia-smi` query flags, and read-only `systemctl` subcommands. Git remote writes and network operations, opaque remote command strings, nested SSH, shell or `sudo` wrappers, and other mutating remote commands are rejected. Structured mutation and verification runners use the same literal-preserving preparation, but only the allowlisted remote reads qualify as inspection or read-only verification.
 
 Recognized simple Bash reads remain compatible: the Hook converts safe direct syntax into the same internal argv request. It accepts direct `&&` sequencing only when every segment is independently read-only; it rejects pipelines and other shell control because their behavior is not represented by the protocol. Use explicit `inspect` whenever a legitimate read is not recognized.
 

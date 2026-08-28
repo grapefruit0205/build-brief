@@ -429,6 +429,27 @@ class ClickGateTests(unittest.TestCase):
                 "--format=csv,noheader",
             ],
             ["ssh", "example-host", "systemctl", "is-active", "docker"],
+            [
+                "ssh",
+                "example-host",
+                "git",
+                "-C",
+                "/srv/project",
+                "merge-base",
+                "HEAD",
+                "origin/main",
+            ],
+            ["ssh", "example-host", "git", "remote"],
+            ["ssh", "example-host", "git", "remote", "-v"],
+            [
+                "ssh",
+                "example-host",
+                "git",
+                "remote",
+                "get-url",
+                "--all",
+                "origin",
+            ],
         )
         denied = (
             ["ssh", "-o", "ProxyCommand=helper", "example-host", "hostname"],
@@ -441,6 +462,35 @@ class ClickGateTests(unittest.TestCase):
             ["ssh", "example-host", "systemctl", "restart", "service"],
             ["ssh", "example-host", "nvidia-smi", "-pl", "100"],
             ["ssh", "example-host", "hostname", "replacement"],
+            ["ssh", "example-host", "git", "fetch", "origin"],
+            [
+                "ssh",
+                "example-host",
+                "git",
+                "remote",
+                "add",
+                "backup",
+                "url",
+            ],
+            [
+                "ssh",
+                "example-host",
+                "git",
+                "remote",
+                "set-url",
+                "origin",
+                "url",
+            ],
+            ["ssh", "example-host", "git", "remote", "get-url"],
+            [
+                "ssh",
+                "example-host",
+                "git",
+                "remote",
+                "get-url",
+                "origin",
+                "extra",
+            ],
         )
 
         for argv in allowed:
@@ -453,6 +503,42 @@ class ClickGateTests(unittest.TestCase):
                 self.assertEqual(
                     payload["hookSpecificOutput"]["permissionDecision"], "deny"
                 )
+
+    def test_git_remote_read_policy_is_narrow_for_local_and_ssh(self) -> None:
+        allowed_arguments = (
+            ["remote"],
+            ["remote", "-v"],
+            ["remote", "--verbose"],
+            ["remote", "get-url", "origin"],
+            ["remote", "get-url", "--push", "origin"],
+            ["remote", "get-url", "--all", "--push", "origin"],
+        )
+        denied_arguments = (
+            ["remote", "show", "origin"],
+            ["remote", "add", "backup", "url"],
+            ["remote", "remove", "origin"],
+            ["remote", "rename", "origin", "upstream"],
+            ["remote", "set-url", "origin", "url"],
+            ["remote", "update"],
+            ["remote", "prune", "origin"],
+            ["remote", "get-url"],
+            ["remote", "get-url", "--all"],
+            ["remote", "get-url", "--all", "--all", "origin"],
+            ["remote", "get-url", "origin", "--push"],
+        )
+
+        for arguments in allowed_arguments:
+            with self.subTest(allowed=arguments):
+                local = ["git", "-C", "/srv/project", *arguments]
+                remote = ["ssh", "example-host", *local]
+                self.assertTrue(CLICK_GATE._is_read_only_tokens(local))
+                self.assertTrue(CLICK_GATE._is_read_only_tokens(remote))
+        for arguments in denied_arguments:
+            with self.subTest(denied=arguments):
+                local = ["git", "-C", "/srv/project", *arguments]
+                remote = ["ssh", "example-host", *local]
+                self.assertFalse(CLICK_GATE._is_read_only_tokens(local))
+                self.assertFalse(CLICK_GATE._is_read_only_tokens(remote))
 
     def test_direct_structured_ssh_read_becomes_an_observation(self) -> None:
         self.approve_contract()

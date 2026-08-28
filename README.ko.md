@@ -173,11 +173,11 @@ Click은 코드를 건드리기 전에 다음과 같은 축약 계약을 제시�
 
 ```text
 click-gate inspect '{"version":1,"commands":[["git","status","--short"],["sed","-n","1,160p","src/app.py"]]}'
-click-gate inspect '{"version":1,"commands":[["ssh","gx10-01","docker","ps","--format","{{.Names}}|{{.Image}}"]]}'
+click-gate inspect '{"version":1,"commands":[["ssh","example-host","docker","ps","--format","{{.Names}}|{{.Image}}"]]}'
 click-gate mutate '{"version":1,"argv":["python3","scripts/generate.py","--target","src"]}'
 ```
 
-SSH 읽기 경로는 SSH 클라이언트 옵션이 없는 `ssh <대상> <원격 실행 파일> <인자...>` 형식만 의도적으로 허용합니다. 기존의 제한된 읽기 전용 명령에 더해 hostname 표시, `docker ps`, 승인된 `nvidia-smi` 조회 옵션, 읽기 전용 `systemctl` 하위 명령만 인식합니다. 불투명한 원격 명령 문자열, 중첩 SSH, shell 또는 `sudo` wrapper, 원격 변경 명령은 fail-closed로 거부합니다. 승인된 mutation과 verification runner도 원격 argv 리터럴을 보존하는 같은 준비 과정을 사용하지만, 인용 처리가 mutation을 읽기 전용으로 바꾸거나 계약·검증 예산을 우회하게 하지는 않습니다.
+SSH 읽기 경로는 SSH 클라이언트 옵션이 없는 `ssh <대상> <원격 실행 파일> <인자...>` 형식만 의도적으로 허용합니다. 기존의 제한된 읽기 전용 명령에 더해 Git `merge-base`, 엄격하게 검증한 `git remote` 목록·`get-url` 형식, hostname 표시, `docker ps`, 승인된 `nvidia-smi` 조회 옵션, 읽기 전용 `systemctl` 하위 명령만 인식합니다. Git 원격 쓰기와 네트워크 작업, 불투명한 원격 명령 문자열, 중첩 SSH, shell 또는 `sudo` wrapper, 그 밖의 원격 변경 명령은 fail-closed로 거부합니다. 승인된 mutation과 verification runner도 원격 argv 리터럴을 보존하는 같은 준비 과정을 사용하지만, 인용 처리가 mutation을 읽기 전용으로 바꾸거나 계약·검증 예산을 우회하게 하지는 않습니다.
 
 `inspect`는 Hook이 허용한 제한된 읽기 전용 작업만 받습니다. `mutate`는 정확한 계약 승인이 있어야 하고 이전 근거를 오래된 것으로 표시합니다. `apply_patch`, `Edit`, `Write` 같은 명확한 편집 도구는 shell envelope 없이 그대로 지원합니다. 잘못된 요청과 shell interpreter는 fail-closed로 거부합니다. 정확한 schema와 적용 경계는 [capability protocol](skills/click/references/capability-protocol.md)에 있습니다.
 
