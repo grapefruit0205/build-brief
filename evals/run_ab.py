@@ -655,7 +655,7 @@ def _candidate_checks(
         )
         checks.append(
             _check(
-                "v0.16.0 hardened one-shot contract Hook",
+                "v0.17.0 hardened one-shot contract Hook",
                 _run(
                     [sys.executable, str(HOOK_TEST)],
                     cwd=ROOT,

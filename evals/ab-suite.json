@@ -1,12 +1,12 @@
 {
   "schema_version": 6,
-  "release_under_test": "0.16.0",
+  "release_under_test": "0.17.0",
   "model": "gpt-5.6-sol",
   "reasoning_effort": "max",
   "judge_model": "gpt-5.6-sol",
   "judge_reasoning_effort": "high",
   "runs_per_condition": 5,
-  "random_seed": 16016,
+  "random_seed": 17017,
   "conditions": [
     "no-plugin",
     "explicit-skill-only",

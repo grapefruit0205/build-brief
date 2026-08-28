@@ -1,6 +1,6 @@
 {
   "name": "click",
-  "version": "0.16.0",
+  "version": "0.17.0",
   "description": "Choose Always ON or Manual once; Manual uses @Click and locks an activated contract across turns. Approve one compact plain-language execution contract in a later user turn, then use structured inspect, mutate, and scope-inferred verify runners to reduce observable implementation loops.",
   "author": {
     "name": "Junseok Pak",

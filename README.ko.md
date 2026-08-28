@@ -237,11 +237,11 @@ Click의 핵심 대상은 다음 두 그룹입니다.
 
 ## 근거와 솔직한 한계
 
-v0.16.0 소스 후보는 현재 로컬에서 결정적 테스트 120개를 통과했습니다. 저장소 밖 영구 모드 선택, 요청마다 주입되는 라우팅 문맥, Manual fail-open과 session-active mutation 차단, Always ON 변경 게이트, 코드 리뷰 anti-loop, 축약 계약 검증, 사용자 turn이 분리된 승인, 완료 계약 전환, active lifecycle 전체의 계획 차단, 범위 중심 검증 최소 class 추론, 일반 build·check runner, Python 검증 제한, Git 보호 content와 의심스러운 신규 경로 변경 감지, 버전이 있는 inspect·mutate·verify 요청, shell 없는 argv 실행, 상태 잠금과 중단 runner 복구, 재시도 상태, 본문을 저장하지 않는 Hook 상태, A/B 격리와 metric, 의미 grader, 저장소 정책을 다룹니다. 크로스 플랫폼 CI는 Linux·macOS·Windows용으로 설정되어 있습니다.
+v0.17.0 소스 후보는 현재 로컬에서 결정적 테스트 129개를 통과했습니다. 저장소 밖 영구 모드 선택, 요청마다 주입되는 라우팅 문맥, Manual fail-open과 session-active mutation 차단, Always ON 변경 게이트, 코드 리뷰 anti-loop, 축약 계약 검증, 사용자 turn이 분리된 승인과 동일 계약 재-stage 거부, 완료 계약 전환, active lifecycle 전체의 계획 차단, turn을 넘는 승인 계약의 관찰 근거 재사용, 범위 중심 검증 최소 class 추론, 일반 build·check runner, Python 검증 제한, Git 보호 content와 의심스러운 신규 경로 변경 감지, 버전이 있는 inspect·mutate·verify 요청, 실제 runner와 일치하는 shell 없는 argv 처리, 상태 잠금과 중단 runner 복구, 재시도 상태, 본문을 저장하지 않는 Hook 상태, staged·untracked·committed 후보 변경까지 수집하는 A/B 격리와 metric, 의미 grader, 저장소 정책을 다룹니다. 크로스 플랫폼 CI는 Linux·macOS·Windows용으로 설정되어 있습니다.
 
 저장소에는 version 15 golden case, 의미 grader, A/B runner도 포함되어 있습니다. A/B suite는 고정된 self-hosted 작업 6개, 조건 3개, 조건별 무작위 순서 5회, `gpt-5.6-sol`의 `max` 추론으로 설정되어 있습니다. 유료 호출 전에 source checkout이 clean인지와 suite·manifest 버전이 같은지 검사하고, 정확한 Click commit을 임시 local marketplace에 clone하여 임시 `CODEX_HOME`에 설치합니다. candidate는 실행자의 실제 사용자 config가 아니라 이 격리 config만 읽고, runner는 발견한 다른 plugin을 모두 명시적으로 끄며 trial별 Click 상태도 분리합니다. plugin이 필요 없는 judge만 `--ignore-user-config`를 사용합니다. summary에는 Codex 버전, Click 버전·commit, 임시 config 경로, OS, Python, installed plugin, 조건별 active plugin을 기록하고 임시 runtime은 종료 뒤 삭제합니다. root inventory metric은 문자열 검색 대신 Hook의 argv parser를 재사용합니다. 정확성·토큰·경과 시간·완료 tool item·성공 명령 중복·root inventory 반복·plan item·검증 명령의 분포와 no-plugin baseline 대비 paired delta를 기록합니다. 총 90개 condition trial은 유료 모델 시간과 비용이 들기 때문에 설치나 CI에서 **자동 실행하지 않습니다**.
 
-이는 평가 기반 시설이지 benchmark 결과가 아닙니다. 실제로 실행하고 사람이 표본 보정한 뒤, 서로 관련 없는 여러 실제 저장소에서도 반복하기 전까지 Click이 프로젝트 전반의 성공률·정확도·시간·토큰·과설계를 개선한다고 주장하지 않습니다. 저장된 v0.5.0 단일 pilot은 과거 실패 근거일 뿐 v0.16.0의 효과 증거가 아닙니다.
+이는 평가 기반 시설이지 benchmark 결과가 아닙니다. 실제로 실행하고 사람이 표본 보정한 뒤, 서로 관련 없는 여러 실제 저장소에서도 반복하기 전까지 Click이 프로젝트 전반의 성공률·정확도·시간·토큰·과설계를 개선한다고 주장하지 않습니다. 저장된 v0.5.0 단일 pilot은 과거 실패 근거일 뿐 v0.17.0의 효과 증거가 아닙니다.
 
 Click이 이 분야에서 최초이거나 유일하다고 주장하지 않습니다. spec-driven·autonomous loop·승인 게이트 도구와 겹치지만, 영구 선택 한 번·축약 계약 하나·승인 한 번·One-shot 구현·관찰 가능한 anti-loop 안전망·최종 검증 예산 하나에 의도적으로 좁게 집중합니다.
 
