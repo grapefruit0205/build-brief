@@ -81,7 +81,7 @@ jobs:
       - name: Commit hardened candidate
         shell: bash
         run: |
-          git rm .github/workflows/apply-boundary-hardening.yml scripts/apply_boundary_hardening.py
+          git rm -f .github/workflows/apply-boundary-hardening.yml scripts/apply_boundary_hardening.py
           git add -A
           git diff --cached --check
           git config user.name 'github-actions[bot]'
