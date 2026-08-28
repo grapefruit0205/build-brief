@@ -234,8 +234,7 @@ class ClickGateTests(unittest.TestCase):
 
     def read_file_command(self, path: str, fail_hard: bool = False) -> str:
         if os.name == "nt":
-            error_action = " -ErrorAction Stop" if fail_hard else ""
-            return f"Get-Content -Raw{error_action} {path}"
+            return f"Get-Content -Raw {path}"
         return f"sed -n '1,99999p' {path}"
 
     def inspect_gate(
@@ -345,7 +344,6 @@ class ClickGateTests(unittest.TestCase):
     def test_read_only_bash_is_allowed_before_gate(self) -> None:
         self.assertIsNone(self.pre_tool("Bash", "rg --files"))
         self.assertIsNone(self.pre_tool("Bash", "git status --short"))
-        self.assertIsNone(self.pre_tool("Bash", "Get-ChildItem -Force"))
         self.assertIsNone(self.pre_tool("Bash", "Get-Content README.md"))
         self.assertIsNone(self.pre_tool("Bash", "sed -n '1,240p' README.md"))
         self.assertIsNone(
@@ -358,6 +356,20 @@ class ClickGateTests(unittest.TestCase):
         self.assertEqual(
             piped_after_arm["hookSpecificOutput"]["permissionDecision"], "deny"
         )
+
+    def test_unsupported_powershell_cmdlets_are_not_read_only_capabilities(self) -> None:
+        for command in (
+            "Get-ChildItem",
+            "Get-Command",
+            "Get-Item",
+            "Get-Location",
+            "Measure-Object",
+            "Resolve-Path",
+            "Select-String",
+            "Test-Path",
+        ):
+            with self.subTest(command=command):
+                self.assertFalse(CLICK_GATE._is_read_only_tokens([command]))
 
     def test_unset_default_blocks_first_mutation_and_requests_one_choice(self) -> None:
         payload = self.pre_tool("apply_patch", "*** Begin Patch\n*** End Patch")
@@ -406,6 +418,41 @@ class ClickGateTests(unittest.TestCase):
         result = self.run_rewritten(payload)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout, "portable inspection\n")
+
+        for option in ("-Path", "-LiteralPath"):
+            with self.subTest(option=option):
+                option_payload = self.inspect_gate(
+                    [["Get-Content", "-Raw", option, "native.txt"]]
+                )
+                option_result = self.run_rewritten(option_payload)
+                self.assertEqual(option_result.returncode, 0, option_result.stderr)
+                self.assertEqual(option_result.stdout, "portable inspection\n")
+
+    def test_get_content_rejects_options_the_native_runner_does_not_implement(self) -> None:
+        for option, value in (
+            ("-Tail", "10"),
+            ("-TotalCount", "10"),
+            ("-Encoding", "utf8"),
+            ("-ErrorAction", "Stop"),
+        ):
+            with self.subTest(option=option):
+                denied = self.inspect_gate(
+                    [["Get-Content", option, value, "native.txt"]]
+                )
+                self.assertEqual(
+                    denied["hookSpecificOutput"]["permissionDecision"], "deny"
+                )
+
+    def test_structured_capabilities_reject_environment_assignment_prefixes(self) -> None:
+        for label, argv in (
+            ("inspection", ["LC_ALL=C", "sort", "README.md"]),
+            ("mutation", ["CI=1", "npm", "run", "build"]),
+            ("verification", ["CI=1", "npm", "test"]),
+        ):
+            with self.subTest(label=label):
+                normalized, error = CLICK_GATE._validate_argv(argv, label.title())
+                self.assertIsNone(normalized)
+                self.assertIn("NAME=value", error)
 
     def test_direct_read_sequence_is_rewritten_as_shell_free_inspection(self) -> None:
         self.approve_contract()
@@ -545,6 +592,50 @@ class ClickGateTests(unittest.TestCase):
         self.assertIn(
             "active execution contract",
             payload["hookSpecificOutput"]["permissionDecisionReason"],
+        )
+
+    def test_incomplete_approved_contract_blocks_later_turn_root_inventory(self) -> None:
+        self.set_default("manual", "turn-0")
+        self.arm_gate("turn-1")
+        self.stage_gate(turn_id="turn-1")
+        self.arm_gate("turn-2")
+        self.pass_gate(turn_id="turn-2")
+
+        payload = self.pre_tool("Bash", "rg --files", turn_id="turn-3")
+        self.assertEqual(payload["hookSpecificOutput"]["permissionDecision"], "deny")
+        self.assertIn(
+            "repository-wide inventory rescan",
+            payload["hookSpecificOutput"]["permissionDecisionReason"],
+        )
+
+    def test_incomplete_approved_contract_tracks_later_turn_direct_reads(self) -> None:
+        (self.workspace / "README.md").write_text("hello\n", encoding="utf-8")
+        self.approve_contract()
+        command = self.read_file_command("README.md")
+
+        first = self.pre_tool("Bash", command, turn_id="turn-3")
+        self.assertEqual(first["hookSpecificOutput"]["permissionDecision"], "allow")
+        self.assertEqual(self.run_rewritten(first).returncode, 0)
+        repeated = self.pre_tool("Bash", command, turn_id="turn-3")
+        self.assertEqual(
+            repeated["hookSpecificOutput"]["permissionDecision"], "deny"
+        )
+        self.assertIn(
+            "identical successful read",
+            repeated["hookSpecificOutput"]["permissionDecisionReason"],
+        )
+
+    def test_incomplete_approved_contract_tracks_later_turn_structured_reads(self) -> None:
+        (self.workspace / "README.md").write_text("hello\n", encoding="utf-8")
+        self.approve_contract()
+        commands = [["Get-Content", "-Raw", "README.md"]]
+
+        first = self.inspect_gate(commands, turn_id="turn-3")
+        self.assertEqual(first["hookSpecificOutput"]["permissionDecision"], "allow")
+        self.assertEqual(self.run_rewritten(first).returncode, 0)
+        repeated = self.inspect_gate(commands, turn_id="turn-3")
+        self.assertEqual(
+            repeated["hookSpecificOutput"]["permissionDecision"], "deny"
         )
 
     def test_always_on_default_persists_and_gates_later_mutations(self) -> None:
@@ -1472,7 +1563,6 @@ class ClickGateTests(unittest.TestCase):
             "find . -maxdepth 2 -type f",
             "tree",
             "ls -R",
-            "Get-ChildItem -Recurse -Path .",
             "git ls-files",
             "rg --files . src",
         ):
@@ -1489,7 +1579,6 @@ class ClickGateTests(unittest.TestCase):
         for command in (
             "rg --files src",
             "find src -type f",
-            "Get-ChildItem -Recurse -Path src",
         ):
             with self.subTest(command=command):
                 payload = self.pre_tool("Bash", command, "turn-2")
@@ -1734,6 +1823,20 @@ class ClickGateTests(unittest.TestCase):
         self.assertEqual(
             payload["hookSpecificOutput"]["updatedInput"]["command"],
             "echo Click mutation gate passed",
+        )
+
+    def test_identical_staged_contract_cannot_be_restaged_in_a_later_turn(self) -> None:
+        self.arm_gate("turn-1")
+        self.stage_gate(turn_id="turn-1")
+        self.arm_gate("turn-2")
+
+        repeated = self.stage_gate(turn_id="turn-2")
+        self.assertEqual(
+            repeated["hookSpecificOutput"]["permissionDecision"], "deny"
+        )
+        self.assertIn(
+            "identical Click execution contract is already staged",
+            repeated["hookSpecificOutput"]["permissionDecisionReason"],
         )
 
     def test_always_on_cannot_stage_and_pass_in_the_same_user_turn(self) -> None:

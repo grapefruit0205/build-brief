@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
 import unittest
 
 from evals.run_ab import (
@@ -11,12 +15,41 @@ from evals.run_ab import (
     _is_root_inventory,
     _is_verification_command,
     _paired_deltas,
+    _candidate_checks,
+    _repository_snapshot,
     _runtime_trace,
     _thread_id_from_jsonl,
 )
 
 
 class ABRunnerTests(unittest.TestCase):
+    def repository_fixture(self) -> tuple[Path, str]:
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        repository = Path(temporary.name)
+        subprocess.run(["git", "init", "--quiet"], cwd=repository, check=True)
+        subprocess.run(
+            ["git", "config", "user.name", "Click Tests"],
+            cwd=repository,
+            check=True,
+        )
+        subprocess.run(
+            ["git", "config", "user.email", "click-tests@example.invalid"],
+            cwd=repository,
+            check=True,
+        )
+        (repository / "app.py").write_text("value = 1\n", encoding="utf-8")
+        subprocess.run(["git", "add", "app.py"], cwd=repository, check=True)
+        subprocess.run(
+            ["git", "commit", "--quiet", "-m", "base"],
+            cwd=repository,
+            check=True,
+        )
+        base = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=repository, text=True
+        ).strip()
+        return repository, base
+
     def test_schedule_is_repeated_complete_and_seeded(self) -> None:
         cases = [{"id": "a"}, {"id": "b"}]
         conditions = ["no-plugin", "explicit-skill-and-hook"]
@@ -129,6 +162,55 @@ class ABRunnerTests(unittest.TestCase):
             ]
         )
         self.assertEqual(_thread_id_from_jsonl(events), "thread-candidate-7")
+
+    def test_repository_snapshot_captures_staged_and_untracked_changes(self) -> None:
+        repository, base = self.repository_fixture()
+        (repository / "app.py").write_text("value = 2\n", encoding="utf-8")
+        subprocess.run(["git", "add", "app.py"], cwd=repository, check=True)
+        (repository / "new_feature.py").write_text(
+            "enabled = True\n", encoding="utf-8"
+        )
+
+        snapshot = _repository_snapshot(repository, base)
+
+        self.assertTrue(snapshot["changed"])
+        self.assertIn("value = 2", snapshot["diff"])
+        self.assertIn("M  app.py", snapshot["status"])
+        self.assertIn("?? new_feature.py", snapshot["status"])
+        self.assertIn("enabled = True", snapshot["untracked_evidence"])
+
+    def test_repository_snapshot_and_checks_reject_candidate_commits(self) -> None:
+        repository, base = self.repository_fixture()
+        (repository / "app.py").write_text("value = 3\n", encoding="utf-8")
+        subprocess.run(["git", "add", "app.py"], cwd=repository, check=True)
+        subprocess.run(
+            ["git", "commit", "--quiet", "-m", "candidate commit"],
+            cwd=repository,
+            check=True,
+        )
+
+        snapshot = _repository_snapshot(repository, base)
+        checks = _candidate_checks(
+            {
+                "id": "fixture",
+                "checks": [
+                    {
+                        "name": "no-op",
+                        "argv": [sys.executable, "-c", "raise SystemExit(0)"],
+                    }
+                ],
+            },
+            repository,
+            base,
+            snapshot,
+        )
+
+        self.assertTrue(snapshot["head_changed"])
+        self.assertIn("value = 3", snapshot["diff"])
+        commit_check = next(
+            check for check in checks if check["name"] == "candidate did not create a commit"
+        )
+        self.assertFalse(commit_check["passed"])
 
     def test_aggregate_reports_distribution_and_paired_baseline_delta(self) -> None:
         scores = [

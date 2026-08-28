@@ -187,26 +187,18 @@ READ_ONLY_COMMANDS = {
     "file",
     "find",
     "grep",
-    "get-childitem",
-    "get-command",
     "get-content",
-    "get-item",
-    "get-location",
     "head",
     "ls",
-    "measure-object",
     "pwd",
     "readlink",
     "realpath",
-    "resolve-path",
     "rg",
-    "select-string",
     "sed",
     "sort",
     "stat",
     "tail",
     "test",
-    "test-path",
     "tree",
     "tr",
     "true",
@@ -251,14 +243,9 @@ RG_OPTIONS_WITH_VALUES = {
     "-T",
     "--type-not",
 }
-POWERSHELL_OPTIONS_WITH_VALUES = {
-    "-depth",
-    "-exclude",
-    "-filter",
-    "-include",
-    "-literalpath",
-    "-path",
-}
+ENVIRONMENT_ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+
+
 def _emit(payload: dict[str, Any]) -> None:
     sys.stdout.write(json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
 
@@ -619,13 +606,17 @@ def _contract_is_completed(state: dict[str, Any]) -> bool:
     )
 
 
+def _approved_contract_is_active(state: dict[str, Any]) -> bool:
+    return bool(
+        state.get("status") == "approved"
+        and not _contract_is_completed(state)
+    )
+
+
 def _session_contract_is_active(state: dict[str, Any]) -> bool:
     return bool(
         state.get("status") == "staged"
-        or (
-            state.get("status") == "approved"
-            and not _contract_is_completed(state)
-        )
+        or _approved_contract_is_active(state)
     )
 
 
@@ -817,6 +808,12 @@ def _validate_argv(value: Any, label: str) -> tuple[list[str] | None, str]:
     ):
         return None, f"Every {label} `argv` item must be a non-empty NUL-free string."
     argv = list(value)
+    if ENVIRONMENT_ASSIGNMENT.match(argv[0]):
+        return (
+            None,
+            f"{label} cannot use a NAME=value environment prefix. Pass direct argv; "
+            "a future protocol may add an explicit environment field.",
+        )
     executable = Path(argv[0]).name.lower()
     if executable in SHELL_EXECUTABLES:
         return (
@@ -1308,15 +1305,6 @@ def _targets_repository_root(targets: list[str]) -> bool:
     return any(target.rstrip("/\\") in {"", ".", ".."} for target in targets)
 
 
-def _powershell_inventory_targets(arguments: list[str]) -> list[str]:
-    explicit_paths: list[str] = []
-    for index, argument in enumerate(arguments[:-1]):
-        if argument in {"-path", "-literalpath"}:
-            explicit_paths.append(arguments[index + 1])
-    positional = _positional_arguments(arguments, POWERSHELL_OPTIONS_WITH_VALUES)
-    return [*explicit_paths, *positional]
-
-
 def _is_broad_exploration_tokens(tokens: list[str]) -> bool:
     executable, arguments = _command_parts(tokens)
     if executable == "rg" and "--files" in arguments:
@@ -1328,23 +1316,14 @@ def _is_broad_exploration_tokens(tokens: list[str]) -> bool:
     if executable == "tree":
         targets = _positional_arguments(arguments)
         return _targets_repository_root(targets)
-    if executable in {"ls", "get-childitem"}:
+    if executable == "ls":
         recursive = any(
-            argument in {"-r", "--recursive", "-recurse"}
+            argument in {"-r", "--recursive"}
             for argument in arguments
         )
         if not recursive:
             return False
-        options = (
-            POWERSHELL_OPTIONS_WITH_VALUES
-            if executable == "get-childitem"
-            else set()
-        )
-        targets = (
-            _powershell_inventory_targets(arguments)
-            if executable == "get-childitem"
-            else _positional_arguments(arguments, options)
-        )
+        targets = _positional_arguments(arguments)
         return _targets_repository_root(targets)
     if executable == "git":
         subcommand = _git_subcommand(tokens)
@@ -1696,15 +1675,34 @@ def _is_read_only_sed(tokens: list[str]) -> bool:
     return index < len(tokens) and all(not token.startswith("-") for token in tokens[index:])
 
 
+def _get_content_paths(tokens: list[str]) -> list[str] | None:
+    if not tokens or Path(tokens[0]).name.lower() != "get-content":
+        return None
+    paths: list[str] = []
+    index = 1
+    while index < len(tokens):
+        argument = tokens[index]
+        lowered = argument.lower()
+        if lowered == "-raw":
+            index += 1
+            continue
+        if lowered in {"-path", "-literalpath"}:
+            if index + 1 >= len(tokens):
+                return None
+            paths.append(tokens[index + 1])
+            index += 2
+            continue
+        if argument.startswith("-"):
+            return None
+        paths.append(argument)
+        index += 1
+    return paths or None
+
+
 def _is_read_only_tokens(tokens: list[str]) -> bool:
     if not tokens:
         return False
-    while tokens and "=" in tokens[0] and not tokens[0].startswith(("=", "-")):
-        name, _, _ = tokens[0].partition("=")
-        if not name.replace("_", "a").isalnum():
-            break
-        tokens.pop(0)
-    if not tokens:
+    if ENVIRONMENT_ASSIGNMENT.match(tokens[0]):
         return False
 
     executable = Path(tokens[0]).name.lower()
@@ -1719,6 +1717,8 @@ def _is_read_only_tokens(tokens: list[str]) -> bool:
         )
     if executable not in READ_ONLY_COMMANDS:
         return False
+    if executable == "get-content":
+        return _get_content_paths(tokens) is not None
     if executable == "sed":
         return _is_read_only_sed(tokens)
     if executable == "file" and any(
@@ -1923,12 +1923,24 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
                     return
                 assert request is not None
                 current_status = _read_state(event).get("status")
-                if current_status in {"passed", "review"}:
+                approved_session_active = _approved_contract_is_active(
+                    _read_contract_state(event)
+                )
+                if current_status == "review":
                     rewritten, inspection_error = _prepare_observation(
                         event,
                         request,
                         broad_inventory,
-                        review=current_status == "review",
+                        review=True,
+                    )
+                    if inspection_error:
+                        _deny(inspection_error)
+                        return
+                elif current_status == "passed" or approved_session_active:
+                    rewritten, inspection_error = _prepare_observation(
+                        event,
+                        request,
+                        broad_inventory,
                     )
                     if inspection_error:
                         _deny(inspection_error)
@@ -1994,6 +2006,15 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
                         )
                         return
                     existing_contract = _read_contract_state(event)
+                    if (
+                        existing_contract.get("status") == "staged"
+                        and existing_contract.get("contract_digest") == digest
+                    ):
+                        _deny(
+                            "The identical Click execution contract is already staged. "
+                            "Pass it after the user's approval instead of staging it again."
+                        )
+                        return
                     if (
                         existing_contract.get("status") == "staged"
                         and existing_contract.get("staged_turn_id") == current_turn_id
@@ -2090,7 +2111,10 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
             _inspection_request_from_bash(str(command))
         )
     if tool_name == "Bash" and inspection_request is not None:
-        if status == "passed":
+        approved_session_active = _approved_contract_is_active(
+            _read_contract_state(event)
+        )
+        if status == "passed" or approved_session_active:
             rewritten, observation_error = _prepare_observation(
                 event, inspection_request, broad_inventory
             )
@@ -2358,24 +2382,15 @@ def _execute_native_get_content(
 ) -> int | None:
     if Path(argv[0]).name.lower() != "get-content":
         return None
-    paths: list[str] = []
-    skip_value = False
-    for argument in argv[1:]:
-        lowered = argument.lower()
-        if skip_value:
-            skip_value = False
-            continue
-        if lowered in {"-erroraction", "-encoding", "-readcount", "-totalcount", "-tail"}:
-            skip_value = True
-            continue
-        if lowered in {"-raw", "-force"}:
-            continue
-        if argument.startswith("-"):
-            return 2
-        paths.append(argument)
-    if not paths:
+    paths = _get_content_paths(argv)
+    if paths is None:
         _write_runner_stream(
-            stderr_file, b"Click Get-Content inspection requires a file path.\n", error=True
+            stderr_file,
+            (
+                b"Click Get-Content inspection supports only positional paths, "
+                b"-Path, -LiteralPath, and -Raw.\n"
+            ),
+            error=True,
         )
         return 2
     try:

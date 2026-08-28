@@ -45,6 +45,8 @@ CONDITION_ARGS = {
 }
 ISOLATED_MARKETPLACE = "click-ab-isolated"
 ISOLATED_PLUGIN_SELECTOR = f"click@{ISOLATED_MARKETPLACE}"
+MAX_UNTRACKED_EVIDENCE_BYTES = 30_000
+MAX_UNTRACKED_FILE_BYTES = 8_000
 
 
 def _run(
@@ -477,12 +479,135 @@ def _clone_case(case: dict[str, Any], destination: Path) -> None:
         raise RuntimeError(f"git checkout failed: {checkout.stderr.strip()}")
 
 
-def _candidate_checks(case: dict[str, Any], candidate: Path) -> list[dict[str, Any]]:
+def _untracked_content_evidence(candidate: Path, paths: list[str]) -> str:
+    sections: list[str] = []
+    remaining = MAX_UNTRACKED_EVIDENCE_BYTES
+    for relative in paths:
+        if remaining <= 0:
+            sections.append("[untracked evidence truncated]")
+            break
+        relative_path = Path(relative)
+        if relative_path.is_absolute() or ".." in relative_path.parts:
+            sections.append(f"--- {relative} ---\n[unsafe path omitted]")
+            continue
+        path = candidate / relative_path
+        try:
+            if path.is_symlink():
+                rendered = f"--- {relative} ---\n[symlink target omitted]"
+            elif not path.is_file():
+                rendered = f"--- {relative} ---\n[not a regular file]"
+            else:
+                size = path.stat().st_size
+                with path.open("rb") as handle:
+                    data = handle.read(MAX_UNTRACKED_FILE_BYTES + 1)
+                truncated = len(data) > MAX_UNTRACKED_FILE_BYTES
+                data = data[:MAX_UNTRACKED_FILE_BYTES]
+                if b"\x00" in data:
+                    body = f"[binary content omitted; {size} bytes]"
+                else:
+                    body = data.decode("utf-8", errors="replace")
+                    if truncated:
+                        body += f"\n[file evidence truncated; {size} bytes total]"
+                rendered = f"--- {relative} ---\n{body}"
+        except OSError as exc:
+            rendered = f"--- {relative} ---\n[unreadable: {exc}]"
+        encoded_size = len(rendered.encode("utf-8"))
+        if encoded_size > remaining:
+            rendered = rendered.encode("utf-8")[:remaining].decode(
+                "utf-8", errors="ignore"
+            )
+            rendered += "\n[untracked evidence truncated]"
+            remaining = 0
+        else:
+            remaining -= encoded_size
+        sections.append(rendered)
+    return "\n\n".join(sections)
+
+
+def _repository_snapshot(candidate: Path, base_commit: str) -> dict[str, Any]:
+    diff_result = _run(
+        ["git", "diff", "--no-ext-diff", "--binary", base_commit, "--"],
+        cwd=candidate,
+        timeout=60,
+    )
+    _require_success(diff_result, "candidate repository diff")
+    status_result = _run(
+        ["git", "status", "--porcelain=v1", "--untracked-files=all"],
+        cwd=candidate,
+        timeout=60,
+    )
+    _require_success(status_result, "candidate repository status")
+    head_result = _run(
+        ["git", "rev-parse", "HEAD"], cwd=candidate, timeout=60
+    )
+    _require_success(head_result, "candidate HEAD lookup")
+    untracked_result = _run(
+        ["git", "ls-files", "--others", "--exclude-standard", "-z"],
+        cwd=candidate,
+        timeout=60,
+    )
+    _require_success(untracked_result, "candidate untracked-file lookup")
+    untracked_paths = [
+        path for path in untracked_result.stdout.split("\x00") if path
+    ]
+    head_commit = head_result.stdout.strip()
+    status = status_result.stdout
+    return {
+        "base_commit": base_commit,
+        "head_commit": head_commit,
+        "head_changed": head_commit != base_commit,
+        "diff": diff_result.stdout,
+        "status": status,
+        "untracked_paths": untracked_paths,
+        "untracked_evidence": _untracked_content_evidence(
+            candidate, untracked_paths
+        ),
+        "changed": bool(
+            head_commit != base_commit
+            or diff_result.stdout.strip()
+            or status.strip()
+        ),
+    }
+
+
+def _write_repository_snapshot(
+    run_dir: Path, prefix: str, snapshot: dict[str, Any]
+) -> None:
+    _write(run_dir / f"{prefix}.patch", str(snapshot["diff"]))
+    _write(run_dir / f"{prefix}.status", str(snapshot["status"]))
+    _write(
+        run_dir / f"{prefix}.untracked.txt",
+        str(snapshot["untracked_evidence"]),
+    )
+    _write(
+        run_dir / f"{prefix}.head.txt",
+        f"base={snapshot['base_commit']}\nhead={snapshot['head_commit']}\n",
+    )
+
+
+def _candidate_checks(
+    case: dict[str, Any],
+    candidate: Path,
+    base_commit: str,
+    snapshot: dict[str, Any],
+) -> list[dict[str, Any]]:
     checks = [
         _check(
-            "git diff --check",
-            _run(["git", "diff", "--check"], cwd=candidate, timeout=60),
-        )
+            "git diff from base --check",
+            _run(
+                ["git", "diff", "--check", base_commit, "--"],
+                cwd=candidate,
+                timeout=60,
+            ),
+        ),
+        {
+            "name": "candidate did not create a commit",
+            "passed": not bool(snapshot["head_changed"]),
+            "required": True,
+            "evidence": (
+                f"base={snapshot['base_commit']} head={snapshot['head_commit']}"
+            ),
+        },
     ]
     raw_checks = case.get("checks")
     if raw_checks is None:
@@ -551,6 +676,12 @@ def _judge_prompt(
     approval_followup: str | None,
     diff: str,
     pre_approval_diff: str,
+    candidate_status: str,
+    pre_approval_status: str,
+    candidate_untracked: str,
+    pre_approval_untracked: str,
+    candidate_head_changed: bool,
+    pre_approval_head_changed: bool,
     preview_message: str,
     final_message: str,
     checks: list[dict[str, Any]],
@@ -567,8 +698,14 @@ def _judge_prompt(
         "automated_checks": checks,
         "runtime_trace": runtime_trace,
         "pre_approval_diff": pre_approval_diff[-30_000:],
+        "pre_approval_git_status": pre_approval_status[-12_000:],
+        "pre_approval_untracked_content": pre_approval_untracked[-30_000:],
+        "pre_approval_head_changed": pre_approval_head_changed,
         "candidate_design_preview": preview_message[-12_000:],
         "candidate_diff": diff[-60_000:],
+        "candidate_git_status": candidate_status[-12_000:],
+        "candidate_untracked_content": candidate_untracked[-30_000:],
+        "candidate_head_changed": candidate_head_changed,
         "candidate_final_message": final_message[-12_000:],
     }
     return (
@@ -828,6 +965,12 @@ def main() -> int:
             if candidate.exists():
                 shutil.rmtree(candidate)
             _clone_case(case, candidate)
+            base_commit_result = _run(
+                ["git", "rev-parse", "HEAD"], cwd=candidate, timeout=60
+            )
+            _require_success(base_commit_result, "case base commit lookup")
+            base_commit = base_commit_result.stdout.strip()
+            _write(run_dir / "base-commit.txt", base_commit + "\n")
 
             approval_followup = case.get("approval_followup")
             needs_followup = bool(approval_followup) and condition != "no-plugin"
@@ -882,13 +1025,11 @@ def main() -> int:
                 if preview_path.exists()
                 else ""
             )
-            pre_approval_diff_result = _run(
-                ["git", "diff", "--no-ext-diff", "--binary"],
-                cwd=candidate,
-                timeout=60,
+            pre_approval_snapshot = _repository_snapshot(candidate, base_commit)
+            pre_approval_diff = str(pre_approval_snapshot["diff"])
+            _write_repository_snapshot(
+                run_dir, "pre-approval", pre_approval_snapshot
             )
-            pre_approval_diff = pre_approval_diff_result.stdout
-            _write(run_dir / "pre-approval.patch", pre_approval_diff)
             _write(run_dir / "preview-events.jsonl", candidate_result.stdout)
             _write(run_dir / "preview-stderr.txt", candidate_result.stderr)
 
@@ -942,22 +1083,26 @@ def main() -> int:
             _write(run_dir / "events.jsonl", combined_events)
             _write(run_dir / "codex-stderr.txt", combined_stderr)
 
-            diff_result = _run(
-                ["git", "diff", "--no-ext-diff", "--binary"],
-                cwd=candidate,
-                timeout=60,
+            candidate_snapshot = _repository_snapshot(candidate, base_commit)
+            diff = str(candidate_snapshot["diff"])
+            _write_repository_snapshot(run_dir, "candidate", candidate_snapshot)
+            checks = _candidate_checks(
+                case, candidate, base_commit, candidate_snapshot
             )
-            diff = diff_result.stdout
-            _write(run_dir / "candidate.patch", diff)
-            checks = _candidate_checks(case, candidate)
             if needs_followup:
                 checks.append(
                     {
                         "name": "repository unchanged before execution contract approval",
-                        "passed": not pre_approval_diff.strip(),
+                        "passed": not bool(pre_approval_snapshot["changed"]),
                         "required": True,
-                        "evidence": pre_approval_diff[-4_000:]
-                        or "no pre-approval repository diff",
+                        "evidence": (
+                            f"base={pre_approval_snapshot['base_commit']} "
+                            f"head={pre_approval_snapshot['head_commit']}\n"
+                            f"{pre_approval_snapshot['status']}\n"
+                            f"{pre_approval_diff[-2_000:]}\n"
+                            f"{str(pre_approval_snapshot['untracked_evidence'])[-1_500:]}"
+                        ).strip()
+                        or "no pre-approval repository changes",
                     }
                 )
             runtime_trace = _runtime_trace(combined_events + "\n" + combined_stderr)
@@ -999,6 +1144,20 @@ def main() -> int:
                     ),
                     diff=diff,
                     pre_approval_diff=pre_approval_diff,
+                    candidate_status=str(candidate_snapshot["status"]),
+                    pre_approval_status=str(pre_approval_snapshot["status"]),
+                    candidate_untracked=str(
+                        candidate_snapshot["untracked_evidence"]
+                    ),
+                    pre_approval_untracked=str(
+                        pre_approval_snapshot["untracked_evidence"]
+                    ),
+                    candidate_head_changed=bool(
+                        candidate_snapshot["head_changed"]
+                    ),
+                    pre_approval_head_changed=bool(
+                        pre_approval_snapshot["head_changed"]
+                    ),
                     preview_message=preview_message,
                     final_message=final_message,
                     checks=checks,
