@@ -10,6 +10,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 
 
 SCRIPT = Path(
@@ -507,6 +508,155 @@ class ClickGateTests(unittest.TestCase):
                 self.assertEqual(
                     denied["hookSpecificOutput"]["permissionDecision"], "deny"
                 )
+
+    def test_structured_ssh_inspection_reuses_bounded_git_policy(self) -> None:
+        allowed = (
+            ["ssh", "example-host", "git", "status", "--short"],
+            ["ssh", "user@example-host", "git", "rev-parse", "HEAD"],
+            ["ssh", "example-host", "git", "merge-base", "HEAD", "origin/main"],
+            ["ssh", "example-host", "git", "remote", "get-url", "origin"],
+            [
+                "ssh",
+                "example-host",
+                "git",
+                "remote",
+                "get-url",
+                "--all",
+                "origin",
+            ],
+        )
+        denied = (
+            ["ssh", "-o", "ProxyCommand=helper", "example-host", "git", "status"],
+            ["ssh", "example-host", "git status"],
+            ["ssh", "example-host", "hostname"],
+            ["ssh", "example-host", "docker", "ps"],
+            ["ssh", "example-host", "systemctl", "status", "service"],
+            ["ssh", "example-host", "nvidia-smi", "-L"],
+            ["ssh", "example-host", "sudo", "-n", "true"],
+            ["ssh", "example-host", "bash", "-c", "git status"],
+            ["ssh", "example-host", "ssh", "other-host", "git", "status"],
+            ["ssh", "example-host", "git", "fetch"],
+            ["ssh", "example-host", "git", "log", "-1"],
+            ["ssh", "example-host", "git", "rev-parse", "origin/main"],
+            ["ssh", "example-host", "git", "remote", "-v"],
+            ["ssh", "example-host", "git", "remote", "set-url", "origin", "x"],
+        )
+
+        for argv in allowed:
+            with self.subTest(allowed=argv):
+                self.assertTrue(CLICK_GATE._is_read_only_tokens(argv))
+        for argv in denied:
+            with self.subTest(denied=argv):
+                self.assertFalse(CLICK_GATE._is_read_only_tokens(argv))
+                payload = self.inspect_gate([argv])
+                self.assertEqual(
+                    payload["hookSpecificOutput"]["permissionDecision"], "deny"
+                )
+
+    def test_direct_structured_ssh_read_becomes_an_observation(self) -> None:
+        self.approve_contract()
+        command = "ssh example-host git status --short"
+        request, broad, error = CLICK_GATE._inspection_request_from_bash(command)
+        self.assertEqual(error, "")
+        self.assertFalse(broad)
+        self.assertEqual(
+            request,
+            {
+                "version": 1,
+                "commands": [
+                    ["ssh", "example-host", "git", "status", "--short"]
+                ],
+            },
+        )
+        payload = self.pre_tool("Bash", command, "turn-2")
+        rewritten = payload["hookSpecificOutput"]["updatedInput"]["command"]
+        self.assertIn("run-observation", rewritten)
+
+        piped = self.pre_tool(
+            "Bash",
+            "ssh example-host git status --short | head -1",
+            "turn-2",
+        )
+        self.assertEqual(
+            piped["hookSpecificOutput"]["permissionDecision"], "deny"
+        )
+
+    def test_structured_ssh_execution_preserves_remote_argv_literals(self) -> None:
+        remote_argv = [
+            "git",
+            "merge-base",
+            "HEAD",
+            "literal|value;still-one-argument",
+        ]
+        argv = ["ssh", "example-host", *remote_argv]
+        prepared = CLICK_GATE._execution_argv(argv)
+        safe_git_argv, error = CLICK_GATE._build_read_only_git_argv(remote_argv)
+        self.assertEqual(error, "")
+        self.assertEqual(prepared[:3], ["ssh", "-F", "none"])
+        self.assertIn("PermitLocalCommand=no", prepared)
+        self.assertIn("ClearAllForwardings=yes", prepared)
+        self.assertEqual(prepared[-2], "example-host")
+        self.assertEqual(shlex.split(prepared[-1], posix=True), safe_git_argv)
+
+        with mock.patch.object(CLICK_GATE.subprocess, "run") as run:
+            run.return_value.returncode = 0
+            self.assertEqual(CLICK_GATE._execute_argv_commands([argv]), 0)
+        self.assertEqual(run.call_args.args[0], prepared)
+        self.assertFalse(run.call_args.kwargs["check"])
+
+    def test_structured_ssh_execution_keeps_mutations_explicit(self) -> None:
+        remote_argv = ["python3", "tool.py", "--value", "literal|value"]
+        argv = ["ssh", "example-host", *remote_argv]
+        self.assertEqual(CLICK_GATE._execution_argv(argv), argv)
+        self.assertFalse(
+            CLICK_GATE._is_read_only_tokens(argv)
+        )
+
+        unsupported = ["ssh", "-p", "2222", "example-host", "git", "status"]
+        self.assertEqual(CLICK_GATE._execution_argv(unsupported), unsupported)
+
+    def test_structured_ssh_read_is_valid_targeted_verification(self) -> None:
+        self.approve_contract()
+        payload = self.verify_checks(
+            [
+                {
+                    "argv": ["ssh", "example-host", "git", "status", "--short"],
+                    "class": "targeted",
+                }
+            ]
+        )
+        output = payload["hookSpecificOutput"]
+        self.assertEqual(output["permissionDecision"], "allow")
+
+    def test_git_remote_output_redacts_credentials_and_query_tokens(self) -> None:
+        output = CLICK_GATE._redact_git_remote_output(
+            b"https://user:token@example.com/repo.git?access_token=secret\n"
+            b"ssh://user:password@example.com/repo.git#secret\n"
+            b"token@example.com:owner/repo.git\n"
+        )
+        self.assertEqual(
+            output,
+            b"https://example.com/repo.git\n"
+            b"ssh://example.com/repo.git\n"
+            b"example.com:owner/repo.git\n",
+        )
+        self.assertNotIn(b"token", output)
+        self.assertNotIn(b"password", output)
+        self.assertNotIn(b"secret", output)
+
+    def test_structured_ssh_remote_url_is_redacted_before_output(self) -> None:
+        argv = ["ssh", "example-host", "git", "remote", "get-url", "origin"]
+        with tempfile.TemporaryFile() as stdout_file, tempfile.TemporaryFile() as stderr_file:
+            with mock.patch.object(CLICK_GATE.subprocess, "run") as run:
+                run.return_value.returncode = 0
+                run.return_value.stdout = b"https://user:secret@example.com/repo.git\n"
+                run.return_value.stderr = b""
+                self.assertEqual(
+                    CLICK_GATE._execute_argv_commands([argv], stdout_file, stderr_file),
+                    0,
+                )
+            stdout_file.seek(0)
+            self.assertEqual(stdout_file.read(), b"https://example.com/repo.git\n")
 
     def test_structured_inspection_emulates_get_content_cross_platform(self) -> None:
         (self.workspace / "native.txt").write_text(
@@ -2264,6 +2414,10 @@ class ClickGateTests(unittest.TestCase):
             ["git", "cat-file", "--filters", "HEAD:README.md"],
             ["git", "cat-file", "--textconv", "HEAD:README.md"],
             ["git", "show", "--textconv", "HEAD"],
+            ["git", "remote"],
+            ["git", "remote", "-v"],
+            ["git", "remote", "set-url", "origin", "https://example.com/repo.git"],
+            ["git", "remote", "add", "backup", "https://example.com/repo.git"],
         )
         for argv in commands:
             with self.subTest(argv=argv):
@@ -2277,6 +2431,8 @@ class ClickGateTests(unittest.TestCase):
             ["git", "status", "--short"],
             ["git", "diff", "--check"],
             ["git", "log", "--oneline"],
+            ["git", "merge-base", "HEAD", "origin/main"],
+            ["git", "remote", "get-url", "origin"],
         ):
             with self.subTest(argv=argv):
                 request, _, error = CLICK_GATE._validate_inspection_request(

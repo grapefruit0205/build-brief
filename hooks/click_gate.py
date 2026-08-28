@@ -26,6 +26,7 @@ import sys
 import tempfile
 import time
 from typing import Any
+from urllib.parse import urlsplit, urlunsplit
 
 
 CONTROL_COMMAND = "click-gate"
@@ -217,7 +218,9 @@ READ_ONLY_GIT_SUBCOMMANDS = {
     "log",
     "ls-files",
     "ls-tree",
+    "merge-base",
     "name-rev",
+    "remote",
     "rev-parse",
     "show",
     "status",
@@ -264,7 +267,9 @@ GIT_READ_ONLY_EXACT_OPTIONS = {
         "-d", "-r", "-t", "-l", "--long", "-z", "--name-only", "--name-status",
         "--object-only", "--full-name", "--full-tree",
     },
+    "merge-base": {"--all", "--octopus", "--independent", "--is-ancestor", "--fork-point"},
     "name-rev": {"--tags", "--all", "--stdin", "--name-only", "--no-undefined", "--always"},
+    "remote": {"--all", "--push"},
     "rev-parse": {
         "--verify", "--short", "--abbrev-ref", "--symbolic-full-name", "--show-toplevel",
         "--show-prefix", "--show-cdup", "--git-dir", "--is-inside-work-tree",
@@ -337,6 +342,9 @@ RG_OPTIONS_WITH_VALUES = {
     "--type-not",
 }
 ENVIRONMENT_ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+SSH_TARGET = re.compile(r"^[A-Za-z0-9_.-]+(?:@[A-Za-z0-9_.-]+)?$")
+SSH_READ_ONLY_GIT_SUBCOMMANDS = {"merge-base", "remote", "rev-parse", "status"}
+GIT_REMOTE_NAME = re.compile(r"^[A-Za-z0-9_.-]+$")
 
 
 def _emit(payload: dict[str, Any]) -> None:
@@ -1155,6 +1163,20 @@ def _git_option_allowed(subcommand: str, token: str) -> bool:
     return False
 
 
+def _is_read_only_git_remote_arguments(arguments: list[str]) -> bool:
+    if not arguments or arguments[0] != "get-url":
+        return False
+    remote_names = [
+        argument
+        for argument in arguments[1:]
+        if argument not in {"--", "--all", "--push"}
+    ]
+    return (
+        len(remote_names) == 1
+        and GIT_REMOTE_NAME.fullmatch(remote_names[0]) is not None
+    )
+
+
 def _parse_read_only_git_tokens(
     tokens: list[str],
 ) -> tuple[list[str], str, list[str]] | None:
@@ -1202,6 +1224,8 @@ def _parse_read_only_git_tokens(
             continue
         if argument.startswith("-") and not _git_option_allowed(subcommand, argument):
             return None
+    if subcommand == "remote" and not _is_read_only_git_remote_arguments(arguments):
+        return None
     return global_arguments, subcommand, arguments
 
 
@@ -1932,7 +1956,30 @@ def _get_content_paths(tokens: list[str]) -> list[str] | None:
     return paths or None
 
 
-def _is_read_only_tokens(tokens: list[str]) -> bool:
+def _structured_ssh_parts(tokens: list[str]) -> tuple[str, list[str]] | None:
+    if len(tokens) < 4 or Path(tokens[0]).name.lower() != "ssh":
+        return None
+    target = tokens[1]
+    remote_argv = tokens[2:]
+    if target.startswith("-") or not SSH_TARGET.fullmatch(target):
+        return None
+    if remote_argv[0] != "git":
+        return None
+    parsed = _parse_read_only_git_tokens(remote_argv)
+    if parsed is None or parsed[1] not in SSH_READ_ONLY_GIT_SUBCOMMANDS:
+        return None
+    if parsed[1] == "rev-parse":
+        positional = [
+            argument
+            for argument in parsed[2]
+            if argument != "--" and not argument.startswith("-")
+        ]
+        if positional != ["HEAD"]:
+            return None
+    return target, remote_argv
+
+
+def _is_local_read_only_tokens(tokens: list[str]) -> bool:
     if not tokens:
         return False
     if ENVIRONMENT_ASSIGNMENT.match(tokens[0]):
@@ -1981,6 +2028,14 @@ def _is_read_only_tokens(tokens: list[str]) -> bool:
     ):
         return False
     return True
+
+
+def _is_read_only_tokens(tokens: list[str]) -> bool:
+    if not tokens:
+        return False
+    if Path(tokens[0]).name.lower() == "ssh":
+        return _structured_ssh_parts(tokens) is not None
+    return _is_local_read_only_tokens(tokens)
 
 
 def _is_read_only_bash(command: str) -> bool:
@@ -2598,18 +2653,88 @@ def _decode_encoded_request(encoded: str, label: str) -> tuple[str, str]:
         return "", f"Click {label} runner received an invalid request."
 
 
+def _execution_argv(argv: list[str]) -> list[str]:
+    parts = _structured_ssh_parts(argv)
+    if parts is None:
+        return argv
+    target, remote_argv = parts
+    safe_git_argv, error = _build_read_only_git_argv(remote_argv)
+    if error or safe_git_argv is None:
+        return argv
+    return [
+        argv[0],
+        "-F",
+        "none",
+        "-o",
+        "BatchMode=yes",
+        "-o",
+        "ClearAllForwardings=yes",
+        "-o",
+        "ForwardAgent=no",
+        "-o",
+        "PermitLocalCommand=no",
+        "-o",
+        "RemoteCommand=none",
+        "-o",
+        "RequestTTY=no",
+        target,
+        shlex.join(safe_git_argv),
+    ]
+
+
+def _is_git_remote_output_request(argv: list[str]) -> bool:
+    parts = _structured_ssh_parts(argv)
+    git_argv = parts[1] if parts is not None else argv
+    return _git_subcommand(git_argv) == "remote"
+
+
+def _redact_git_remote_url(value: str) -> str:
+    try:
+        parsed = urlsplit(value)
+    except ValueError:
+        if "://" not in value:
+            return value
+        scheme, remainder = value.split("://", 1)
+        remainder = remainder.rsplit("@", 1)[-1]
+        return f"{scheme}://{remainder.split('?', 1)[0].split('#', 1)[0]}"
+    if parsed.scheme and parsed.netloc:
+        netloc = parsed.netloc.rsplit("@", 1)[-1]
+        return urlunsplit((parsed.scheme, netloc, parsed.path, "", ""))
+    if re.fullmatch(r"[^/@\s]+@[^/\s:]+:.+", value):
+        return value.rsplit("@", 1)[-1].split("?", 1)[0].split("#", 1)[0]
+    return value
+
+
+def _redact_git_remote_output(data: bytes) -> bytes:
+    lines = []
+    for line in data.decode("utf-8", errors="replace").splitlines(keepends=True):
+        value = line.rstrip("\r\n")
+        lines.append(_redact_git_remote_url(value) + line[len(value) :])
+    return "".join(lines).encode()
+
+
 def _execute_argv_commands(
     commands: list[list[str]], stdout_file: Any | None = None, stderr_file: Any | None = None
 ) -> int:
     exit_code = 0
     for argv in commands:
         try:
+            redact = _is_git_remote_output_request(argv)
             result = subprocess.run(
-                argv,
-                stdout=stdout_file,
-                stderr=stderr_file,
+                _execution_argv(argv),
+                stdout=subprocess.PIPE if redact else stdout_file,
+                stderr=subprocess.PIPE if redact else stderr_file,
                 check=False,
             )
+            if redact:
+                _write_runner_stream(
+                    stdout_file, _redact_git_remote_output(result.stdout or b"")
+                )
+                _write_runner_stream(
+                    stderr_file,
+                    _redact_git_remote_output(result.stderr or b""),
+                    error=True,
+                )
             exit_code = int(result.returncode)
         except OSError as exc:
             message = f"Click could not start `{argv[0]}`: {exc}\n"
@@ -2671,13 +2796,23 @@ def _execute_read_only_git(
         )
         return 2
     try:
+        redact = _is_git_remote_output_request(argv)
         result = subprocess.run(
             safe_argv,
-            stdout=stdout_file,
-            stderr=stderr_file,
+            stdout=subprocess.PIPE if redact else stdout_file,
+            stderr=subprocess.PIPE if redact else stderr_file,
             env=_sanitized_git_environment(),
             check=False,
         )
+        if redact:
+            _write_runner_stream(
+                stdout_file, _redact_git_remote_output(result.stdout or b"")
+            )
+            _write_runner_stream(
+                stderr_file,
+                _redact_git_remote_output(result.stderr or b""),
+                error=True,
+            )
         return int(result.returncode)
     except OSError as exc:
         _write_runner_stream(
