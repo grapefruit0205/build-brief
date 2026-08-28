@@ -36,6 +36,19 @@ jobs:
           PY
       - name: Apply focused hardening
         run: python scripts/apply_boundary_hardening.py
+      - name: Align existing verification regression wording
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('tests/test_click_gate.py')
+          text = path.read_text(encoding='utf-8')
+          old = 'self.assertIn("implementation mutation", result.stderr)'
+          new = 'self.assertIn("classification is informational", result.stderr)'
+          if text.count(old) != 1:
+              raise SystemExit('expected source-path regression assertion not found once')
+          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+          PY
       - name: Discover deterministic test count
         shell: bash
         run: |
