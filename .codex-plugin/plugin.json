@@ -1,6 +1,6 @@
 {
   "name": "click",
-  "version": "0.12.0",
+  "version": "0.12.1",
   "description": "When explicitly selected as @Click, compile software intent into one compact approval-bound execution contract with a faithful plain-language explanation, block observable implementation loops, and run one automatically budgeted final verification batch.",
   "author": {
     "name": "Junseok Pak",

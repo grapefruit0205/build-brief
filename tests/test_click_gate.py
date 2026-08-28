@@ -543,6 +543,25 @@ class ClickGateTests(unittest.TestCase):
             repeated["hookSpecificOutput"]["permissionDecisionReason"],
         )
 
+    def test_identical_cat_read_is_observed_and_blocked(self) -> None:
+        (self.workspace / "README.md").write_text("hello\n", encoding="utf-8")
+        self.approve_contract()
+
+        first = self.pre_tool("Bash", "cat README.md", "turn-2")
+        self.assertEqual(first["hookSpecificOutput"]["permissionDecision"], "allow")
+        completed = self.run_rewritten(first)
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertEqual(completed.stdout.strip(), "hello")
+
+        repeated = self.pre_tool("Bash", "cat README.md", "turn-2")
+        self.assertEqual(
+            repeated["hookSpecificOutput"]["permissionDecision"], "deny"
+        )
+        self.assertIn(
+            "identical successful read",
+            repeated["hookSpecificOutput"]["permissionDecisionReason"],
+        )
+
     def test_running_observation_blocks_mutation_and_final_verification(self) -> None:
         (self.workspace / "README.md").write_text("hello\n", encoding="utf-8")
         self.approve_contract()

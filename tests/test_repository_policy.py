@@ -19,7 +19,7 @@ class RepositoryPolicyTests(unittest.TestCase):
             (ROOT / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8")
         )
         self.assertEqual(manifest["name"], "click")
-        self.assertEqual(manifest["version"], "0.12.0")
+        self.assertEqual(manifest["version"], "0.12.1")
         self.assertEqual(manifest["license"], "MIT")
         self.assertIn("explicit", manifest["description"].lower())
         self.assertIn("plain-language", manifest["description"].lower())

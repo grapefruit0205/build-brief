@@ -91,6 +91,7 @@ BROAD_VERIFICATION_PATTERNS = (
 
 READ_ONLY_COMMANDS = {
     "basename",
+    "cat",
     "cmp",
     "cut",
     "diff",
