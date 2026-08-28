@@ -49,19 +49,26 @@ def patch_hook() -> None:
 def patch_tests() -> None:
     path = ROOT / "tests" / "test_click_gate.py"
     text = path.read_text(encoding="utf-8")
-    old = '''    def test_simple_read_only_inspection_is_not_tracked_outside_review(self) -> None:
-        self.set_default("on")
-        (self.workspace / "readme.txt").write_text("hello\\n", encoding="utf-8")
-        command = self.read_file_command("readme.txt")
-        self.assertIsNone(self.pre_tool("Bash", command))
-        self.assertIsNone(self.pre_tool("Bash", command))
+    old = '''    def test_read_only_bash_is_allowed_before_gate(self) -> None:
+        self.assertIsNone(self.pre_tool("Bash", "rg --files"))
+        self.assertIsNone(self.pre_tool("Bash", "git status --short"))
+        self.assertIsNone(self.pre_tool("Bash", "Get-Content README.md"))
+        self.assertIsNone(self.pre_tool("Bash", "sed -n '1,240p' README.md"))
+        self.assertIsNone(
+            self.pre_tool("Bash", "sed -n '1,20p' README.md && git status --short")
+        )
+        piped = self.pre_tool("Bash", "rg --files | sort")
+        self.assertEqual(piped["hookSpecificOutput"]["permissionDecision"], "deny")
+        self.arm_gate()
+        piped_after_arm = self.pre_tool("Bash", "git status --short | head -20")
+        self.assertEqual(
+            piped_after_arm["hookSpecificOutput"]["permissionDecision"], "deny"
+        )
 '''
-    new = '''    def test_simple_read_only_inspection_is_not_tracked_outside_review(self) -> None:
-        self.set_default("on")
-        (self.workspace / "readme.txt").write_text("hello\\n", encoding="utf-8")
-        command = self.read_file_command("readme.txt")
-        self.assertIsNone(self.pre_tool("Bash", command))
-        self.assertIsNone(self.pre_tool("Bash", command))
+    new = '''    def test_read_only_bash_is_allowed_before_gate(self) -> None:
+        self.assertIsNone(self.pre_tool("Bash", "rg --files"))
+        self.assertIsNone(self.pre_tool("Bash", "Get-Content README.md"))
+        self.assertIsNone(self.pre_tool("Bash", "sed -n '1,240p' README.md"))
 
         initialized = subprocess.run(
             ["git", "init", "--quiet"],
@@ -79,8 +86,27 @@ def patch_tests() -> None:
             "run-inspection-once",
             git_read["hookSpecificOutput"]["updatedInput"]["command"],
         )
-        completed = self.run_rewritten(git_read)
-        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertEqual(self.run_rewritten(git_read).returncode, 0)
+
+        mixed_read = self.pre_tool(
+            "Bash", "sed -n '1,20p' README.md && git status --short"
+        )
+        self.assertEqual(
+            mixed_read["hookSpecificOutput"]["permissionDecision"], "allow"
+        )
+        self.assertIn(
+            "run-inspection-once",
+            mixed_read["hookSpecificOutput"]["updatedInput"]["command"],
+        )
+        self.assertEqual(self.run_rewritten(mixed_read).returncode, 0)
+
+        piped = self.pre_tool("Bash", "rg --files | sort")
+        self.assertEqual(piped["hookSpecificOutput"]["permissionDecision"], "deny")
+        self.arm_gate()
+        piped_after_arm = self.pre_tool("Bash", "git status --short | head -20")
+        self.assertEqual(
+            piped_after_arm["hookSpecificOutput"]["permissionDecision"], "deny"
+        )
 '''
     path.write_text(
         replace_once(text, old, new, "direct Git inspection regression"), encoding="utf-8"
