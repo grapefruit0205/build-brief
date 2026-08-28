@@ -24,6 +24,7 @@
   "interface": {
     "displayName": "Click",
     "shortDescription": "Approve once, then implement the contract in one shot.",
+    "composerIcon": "./assets/icon.svg",
     "longDescription": "Click asks once whether software changes should use Always ON (recommended) or Manual mode. Always ON applies one compact contract and one later-turn approval before supported software mutations; Manual applies the same workflow only when @Click is selected and then keeps that staged or incomplete approved session contract mutation-locked across turns. Questions, explanations, and simple read-only inspection remain normal. Code review needs no build contract. After approval Click implements in one shot. During an active review or approved build, versioned argv-based inspect, mutate, and verify runners make supported command intent explicit, execute without a shell, reuse evidence, infer minimum verification cost from runner kind and actual scope, detect protected Git content and obvious new implementation paths changed by checks, and enforce the automatically selected verification budget. The Hook blocks parallel replanning and replacement contracts while necessary in-scope implementation details remain flexible. The bundled Fix skill provides the same compact repair flow for direct invocation.",
     "developerName": "Junseok Pak",
     "category": "Productivity",
