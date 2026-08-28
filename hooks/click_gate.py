@@ -2378,6 +2378,11 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
                 _deny(observation_error)
                 return
             _allow_rewritten(rewritten)
+        elif any(
+            Path(argv[0]).name.lower() in {"git", "git.exe"}
+            for argv in inspection_request["commands"]
+        ):
+            _allow_rewritten(_inspection_once_runner_command(inspection_request))
         return
 
     if tool_name == "Bash" and status in {"passed", "review"}:

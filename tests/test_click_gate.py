@@ -417,12 +417,38 @@ class ClickGateTests(unittest.TestCase):
 
     def test_read_only_bash_is_allowed_before_gate(self) -> None:
         self.assertIsNone(self.pre_tool("Bash", "rg --files"))
-        self.assertIsNone(self.pre_tool("Bash", "git status --short"))
         self.assertIsNone(self.pre_tool("Bash", "Get-Content README.md"))
         self.assertIsNone(self.pre_tool("Bash", "sed -n '1,240p' README.md"))
-        self.assertIsNone(
-            self.pre_tool("Bash", "sed -n '1,20p' README.md && git status --short")
+
+        initialized = subprocess.run(
+            ["git", "init", "--quiet"],
+            cwd=self.workspace,
+            capture_output=True,
+            text=True,
+            check=False,
         )
+        self.assertEqual(initialized.returncode, 0, initialized.stderr)
+        git_read = self.pre_tool("Bash", "git status --short")
+        self.assertEqual(
+            git_read["hookSpecificOutput"]["permissionDecision"], "allow"
+        )
+        self.assertIn(
+            "run-inspection-once",
+            git_read["hookSpecificOutput"]["updatedInput"]["command"],
+        )
+        self.assertEqual(self.run_rewritten(git_read).returncode, 0)
+
+        mixed_read = self.pre_tool(
+            "Bash", "sed -n '1,20p' README.md && git status --short"
+        )
+        self.assertEqual(
+            mixed_read["hookSpecificOutput"]["permissionDecision"], "allow"
+        )
+        self.assertIn(
+            "run-inspection-once",
+            mixed_read["hookSpecificOutput"]["updatedInput"]["command"],
+        )
+
         piped = self.pre_tool("Bash", "rg --files | sort")
         self.assertEqual(piped["hookSpecificOutput"]["permissionDecision"], "deny")
         self.arm_gate()
