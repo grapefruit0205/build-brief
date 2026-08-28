@@ -605,7 +605,15 @@ class ClickGateTests(unittest.TestCase):
         self.set_default("on")
         self.start_review()
         (self.workspace / "review.py").write_text("value = 1\n", encoding="utf-8")
-        first = self.pre_tool("Bash", "rg --files")
+        initialized = subprocess.run(
+            ["git", "init", "--quiet"],
+            cwd=self.workspace,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(initialized.returncode, 0, initialized.stderr)
+        first = self.pre_tool("Bash", "git ls-files")
         self.assertEqual(first["hookSpecificOutput"]["permissionDecision"], "allow")
         self.assertEqual(self.run_rewritten(first).returncode, 0)
 
