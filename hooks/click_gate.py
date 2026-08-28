@@ -291,8 +291,8 @@ GIT_READ_ONLY_EXACT_OPTIONS = {
         "--no-ext-diff", "--no-textconv", "--oneline", "--abbrev-commit",
     },
     "status": {
-        "--short", "--porcelain", "--branch", "--show-stash", "--long", "--verbose",
-        "--ignored", "--no-renames", "-s", "-b", "-v", "-vv", "-sb",
+        "--short", "--porcelain", "--branch", "--show-stash", "--long",
+        "--ignored", "--no-renames", "-s", "-b", "-sb",
     },
 }
 GIT_READ_ONLY_OPTION_PREFIXES = {
@@ -304,25 +304,25 @@ GIT_READ_ONLY_OPTION_PREFIXES = {
         "--submodule=", "--diff-filter=",
     ),
     "for-each-ref": (
-        "--format=", "--sort=", "--count=", "--points-at=", "--merged=", "--no-merged=",
+        "--sort=", "--count=", "--points-at=", "--merged=", "--no-merged=",
         "--contains=", "--no-contains=",
     ),
     "log": (
-        "--format=", "--pretty=", "--date=", "--since=", "--after=", "--until=",
+        "--date=", "--since=", "--after=", "--until=",
         "--before=", "--author=", "--committer=", "--grep=", "--max-count=", "--skip=",
         "--abbrev=", "--decorate=", "--stat=", "--relative=", "--unified=",
         "--word-diff=", "--word-diff-regex=", "--src-prefix=", "--dst-prefix=",
         "--line-prefix=", "--ignore-submodules=", "--submodule=", "--diff-filter=",
     ),
     "ls-files": (
-        "--exclude=", "--exclude-from=", "--exclude-per-directory=", "--format=",
+        "--exclude=", "--exclude-from=", "--exclude-per-directory=",
         "--with-tree=", "--abbrev=",
     ),
-    "ls-tree": ("--format=", "--abbrev="),
+    "ls-tree": ("--abbrev=",),
     "name-rev": ("--refs=", "--exclude="),
     "rev-parse": ("--short=", "--abbrev-ref=", "--path-format=", "--disambiguate="),
     "show": (
-        "--format=", "--pretty=", "--date=", "--stat=", "--relative=", "--unified=",
+        "--date=", "--stat=", "--relative=", "--unified=",
         "--word-diff=", "--word-diff-regex=", "--src-prefix=", "--dst-prefix=",
         "--line-prefix=", "--ignore-submodules=", "--submodule=", "--diff-filter=",
     ),
@@ -1252,6 +1252,8 @@ def _sanitized_git_environment(
         if not key.upper().startswith("GIT_")
     }
     environment["GIT_OPTIONAL_LOCKS"] = "0"
+    environment["GIT_CONFIG_NOSYSTEM"] = "1"
+    environment["GIT_CONFIG_GLOBAL"] = os.devnull
     return environment
 
 
@@ -1261,12 +1263,21 @@ def _build_read_only_git_argv(tokens: list[str]) -> tuple[list[str] | None, str]
         return None, "Git argv is outside Click's supported read-only option policy."
     global_arguments, subcommand, arguments = parsed
     forced = ["--no-ext-diff", "--no-textconv"] if subcommand in GIT_DIFF_RENDERING_SUBCOMMANDS else []
+    safe_config = [
+        "-c",
+        "core.fsmonitor=false",
+        "-c",
+        "diff.external=",
+        "-c",
+        "log.showSignature=false",
+        "-c",
+        "format.pretty=medium",
+    ]
     return [
         "git",
         "--no-pager",
         "--no-optional-locks",
-        "-c",
-        "core.fsmonitor=false",
+        *safe_config,
         *global_arguments,
         subcommand,
         *forced,
@@ -2672,10 +2683,29 @@ def _execution_argv(argv: list[str]) -> list[str]:
         return argv
     return [
         "ssh",
+        "-n",
         "-F",
         "none",
         "-o",
         "BatchMode=yes",
+        "-o",
+        "KbdInteractiveAuthentication=no",
+        "-o",
+        "PasswordAuthentication=no",
+        "-o",
+        "NumberOfPasswordPrompts=0",
+        "-o",
+        "StrictHostKeyChecking=yes",
+        "-o",
+        "UpdateHostKeys=no",
+        "-o",
+        "ConnectTimeout=10",
+        "-o",
+        "ConnectionAttempts=1",
+        "-o",
+        "ServerAliveInterval=5",
+        "-o",
+        "ServerAliveCountMax=1",
         "-o",
         "ClearAllForwardings=yes",
         "-o",

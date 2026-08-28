@@ -593,7 +593,15 @@ class ClickGateTests(unittest.TestCase):
         prepared = CLICK_GATE._execution_argv(argv)
         safe_git_argv, error = CLICK_GATE._build_read_only_git_argv(remote_argv)
         self.assertEqual(error, "")
-        self.assertEqual(prepared[:3], ["ssh", "-F", "none"])
+        self.assertEqual(prepared[:4], ["ssh", "-n", "-F", "none"])
+        self.assertIn("BatchMode=yes", prepared)
+        self.assertIn("StrictHostKeyChecking=yes", prepared)
+        self.assertIn("ConnectTimeout=10", prepared)
+        self.assertIn("ConnectionAttempts=1", prepared)
+        self.assertIn("ServerAliveInterval=5", prepared)
+        self.assertIn("ServerAliveCountMax=1", prepared)
+        self.assertIn("NumberOfPasswordPrompts=0", prepared)
+        self.assertIn("UpdateHostKeys=no", prepared)
         self.assertIn("PermitLocalCommand=no", prepared)
         self.assertIn("ClearAllForwardings=yes", prepared)
         self.assertEqual(prepared[-2], "example-host")
@@ -2415,6 +2423,16 @@ class ClickGateTests(unittest.TestCase):
             ["git", "cat-file", "--filters", "HEAD:README.md"],
             ["git", "cat-file", "--textconv", "HEAD:README.md"],
             ["git", "show", "--textconv", "HEAD"],
+            ["git", "log", "--format=%G?", "-1"],
+            ["git", "log", "--pretty=format:%H", "-1"],
+            ["git", "show", "--format=%H", "HEAD"],
+            ["git", "show", "--show-signature", "HEAD"],
+            ["git", "for-each-ref", "--format=%(objectname)", "refs/heads"],
+            ["git", "ls-files", "--format=%(objectname)"],
+            ["git", "ls-tree", "--format=%(objectname)", "HEAD"],
+            ["git", "status", "--verbose"],
+            ["git", "status", "-v"],
+            ["git", "status", "-vv"],
             ["git", "remote"],
             ["git", "remote", "-v"],
             ["git", "remote", "set-url", "origin", "https://example.com/repo.git"],
@@ -2450,6 +2468,9 @@ class ClickGateTests(unittest.TestCase):
         self.assertIn("--no-pager", safe)
         self.assertIn("--no-optional-locks", safe)
         self.assertIn("core.fsmonitor=false", safe)
+        self.assertIn("diff.external=", safe)
+        self.assertIn("log.showSignature=false", safe)
+        self.assertIn("format.pretty=medium", safe)
         self.assertIn("--no-ext-diff", safe)
         self.assertIn("--no-textconv", safe)
 
@@ -2465,6 +2486,8 @@ class ClickGateTests(unittest.TestCase):
         self.assertNotIn("GIT_EXTERNAL_DIFF", environment)
         self.assertNotIn("GIT_CONFIG_COUNT", environment)
         self.assertEqual(environment["GIT_OPTIONAL_LOCKS"], "0")
+        self.assertEqual(environment["GIT_CONFIG_NOSYSTEM"], "1")
+        self.assertEqual(environment["GIT_CONFIG_GLOBAL"], os.devnull)
 
     def test_bypass_requires_exact_same_turn_one_use_authorization(self) -> None:
         self.set_default("on", "turn-0")
