@@ -1,0 +1,24 @@
+name: Plugin Security Scan
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Scan plugin
+        uses: hashgraph-online/ai-plugin-scanner-action@6c4a64c217ac7884f2678b080b73eb80decf889e # v1
+        with:
+          plugin_dir: "."
+          mode: "scan"
+          min_score: "80"
+          fail_on_severity: "high"
+          upload_sarif: "false"
+          pr_comment: "off"
