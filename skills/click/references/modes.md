@@ -21,15 +21,18 @@ Do not choose on the user's behalf. `click-gate default status` reports the stor
 
 Apply the compact contract to software creation, modification, deletion, refactoring, and repair. Questions, explanations, and simple read-only inspection do not need a contract. The Hook blocks matched mutations until the exact staged contract has been approved and passed.
 
+After final verification passes for the current mutation revision, a later software-change request may stage a fresh contract without `bypass`. An approved contract that is unverified, running, failed, or stale still blocks replacement. Staging the next contract resets its observation, mutation, and verification state and requires a new user approval.
+
 For a read-only code review:
 
 1. Run `click-gate review`.
 2. Do not stage a build contract or ask for contract approval.
-3. Allow one useful repository-wide inventory when needed, then narrow later reads and searches.
-4. Reuse successful evidence. The Hook blocks an identical successful matched shell read or search, and blocks a second successful repository-wide inventory attempt in the same review turn.
-5. Report findings without modifying the project. A later request to fix findings starts the normal compact-contract workflow.
+3. Use `click-gate inspect` with argv arrays for explicit review evidence. Compatible simple direct reads are converted to the same internal structure.
+4. Allow one useful repository-wide inventory when needed, then narrow later reads and searches.
+5. Reuse successful evidence. The Hook blocks an identical successful structured read or search, and blocks a second successful repository-wide inventory attempt in the same review turn.
+6. Report findings without modifying the project. A later request to fix findings starts the normal compact-contract workflow.
 
-The review guard is intentionally narrower than the build gate. It observes recognized Bash or PowerShell reads and searches routed through the bundled Hook. It cannot deduplicate hidden reasoning, hosted search, unmatched connectors, or custom wrappers.
+The review guard is intentionally narrower than the build gate. It observes structured inspection and compatible simple reads routed through the bundled local Hook. It cannot deduplicate hidden reasoning, hosted search, unmatched connectors, or custom wrappers.
 
 ## Manual
 

@@ -4,15 +4,16 @@ Apply the build guards after the exact staged Click contract has been approved a
 
 ## Hard observable guards
 
-1. **Reuse successful evidence.** Approved read-only Bash commands are executed by the local observation runner. It stores a normalized command digest, mutation revision, exit code, output size, and status—not the command or output. An identical successful read or search is blocked until an in-scope mutation clears the evidence ledger.
+1. **Reuse successful evidence.** Approved read-only argv requests are executed with `shell=False` by the local observation runner. Compatible simple Bash reads are converted to the same request. The runner stores a normalized request digest, mutation revision, exit code, output size, and status—not argv or output. An identical successful read or search is blocked until an in-scope mutation clears the evidence ledger.
 2. **Retry bounded failures, not loops.** A failed command or output larger than 48,000 bytes may be retried unchanged once. If it still fails or remains incomplete, narrow or change the command. Do not repeat it again.
 3. **Do not replan after approval.** Matched `update_plan` tool calls and every attempt to restage or replace the approved contract are blocked. Implement directly from the compact contract. If the approved outcome or boundary must change, stop and ask the user.
-4. **Do not reopen repository inventory.** After approval, repository-wide inventory commands such as root-level `rg --files`, `find .`, recursive root `ls`/`Get-ChildItem`, `tree`, `git ls-files`, or an unscoped recursive `git ls-tree` are blocked. Path-scoped inventory and concrete content searches remain available.
-5. **Keep broad verification in the budget.** Recognized full-suite, security, coverage, audit, end-to-end, and benchmark checks must run through `click-gate verify` and fit the approved scale.
+4. **Do not reopen repository inventory.** After approval, repository-wide inventory argv such as root-level `rg --files`, `find .`, recursive root `ls`/`Get-ChildItem`, `tree`, `git ls-files`, or an unscoped recursive `git ls-tree` are blocked. Path-scoped inventory and concrete content searches remain available.
+5. **Make write intent explicit.** An ambiguous implementation command must use `click-gate mutate`; ordinary edit tools remain deterministic mutations. Direct active Bash is not guessed writable.
+6. **Keep broad verification in the budget.** Final checks use argv-based `click-gate verify` entries with explicit `targeted`, `broad`, or `deep` classes and must fit the approved scale.
 
 ## Read-only code review
 
-When Always ON is active and the user requests code review without changes, run `click-gate review`. Do not create or approve a build contract. One repository-wide inventory may be used to establish review context; after a successful inventory, narrow later reads and searches. Identical successful matched shell observations are blocked for the review turn. Mutations and plan-tool churn are rejected while review mode is active.
+When Always ON is active and the user requests code review without changes, run `click-gate review`. Do not create or approve a build contract. Use structured inspection or compatible simple direct reads. One repository-wide inventory may establish context; after success, narrow later reads and searches. Identical successful observations are blocked for the review turn. Mutations and plan-tool churn are rejected while review mode is active.
 
 Questions, explanations, and simple read-only lookups do not enter review mode and are not recorded in the observation ledger.
 

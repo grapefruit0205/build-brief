@@ -21,9 +21,11 @@ On first use, you choose **Always ON** or **Manual**.
 - Always ON applies Click only to software-changing requests.
 - Manual applies it when you mention `@Click`.
 - Questions, explanations, and simple read-only inspection stay normal.
-- Code review needs no build contract, but a read-only guard blocks repeated successful shell reads and repeat repository-wide inventory.
+- Code review needs no build contract, but a read-only guard blocks repeated successful reads and repeat repository-wide inventory.
 
-For a code change, Click turns the request and repository context into one compact contract: outcome, boundary, must-hold behavior, build approach, verification scale, and a plain-language explanation. You approve it once. After that, the Hook rejects replacement contracts, matched replanning, repeated successful observations, repository-wide rescans, and broad verification outside the approved budget.
+For a code change, Click turns the request and repository context into one compact contract: outcome, boundary, must-hold behavior, build approach, verification scale, and a plain-language explanation. You approve it once. After that, the Hook rejects replacement contracts, matched replanning, repeated successful observations, repository-wide rescans, and verification outside the approved budget.
+
+Version 0.14 also stops guessing whether an ambiguous shell string is read-only or writable during active work. It uses versioned argv-based `inspect`, `mutate`, and `verify` requests, validates their capability, and executes accepted commands without a shell. Simple supported lookups remain normal. This reduces a real source of false blocking and missed mutations, but it is a local workflow guard—not a security sandbox or a claim of perfect tool coverage.
 
 This is not a claim that Click invents better architecture than the model. The model already knows how to design software. Click's job is narrower: keep the agent inside one visible boundary and stop observable execution loops after approval.
 
@@ -55,7 +57,7 @@ I would especially value feedback from people who have seen strong reasoning mod
 
 I built Click, an MIT-licensed Codex plugin for a specific failure mode I keep seeing with capable coding agents: the model can implement the feature, but keeps revisiting the plan, rereading the same evidence, rescanning the repository, and expanding verification.
 
-Click asks for one compact, plain-language approval before code changes, then uses local lifecycle Hooks to hold the staged contract digest, reject replacement plans, deduplicate successful matched shell observations, block repository-wide rescans, and meter one final verification batch. Its Always ON mode applies only to software mutations; questions and simple inspection remain normal, while code review gets a separate read-only anti-loop guard without a build contract.
+Click asks for one compact, plain-language approval before code changes, then uses local lifecycle Hooks to hold the staged contract digest, reject replacement plans, deduplicate successful structured observations, block repository-wide rescans, and meter one final verification batch. Versioned argv-based inspect, mutate, and verify runners make supported command intent explicit and run without a shell. Its Always ON mode applies only to software mutations; questions and simple inspection remain normal, while code review gets a separate read-only anti-loop guard without a build contract.
 
 It is intentionally smaller than a full spec-driven workflow. I am not claiming measured accuracy or token improvements yet; the current evidence is deterministic enforcement and tests. I would like feedback on whether this boundary-first, anti-loop workflow solves a real problem or merely moves prompt ceremony into a plugin.
 
@@ -80,9 +82,11 @@ Repository: https://github.com/grapefruit0205/click
 - Always ON은 소프트웨어를 실제로 바꾸는 요청에만 적용됩니다.
 - Manual은 `@Click`을 멘션했을 때만 적용됩니다.
 - 질문·설명·단순 조회는 평소처럼 처리합니다.
-- 코드 리뷰는 구현 계약 없이 진행하지만, 읽기 전용 안전망으로 성공한 동일 shell 조회와 저장소 전체 재탐색 반복을 막습니다.
+- 코드 리뷰는 구현 계약 없이 진행하지만, 읽기 전용 안전망으로 성공한 동일 조회와 저장소 전체 재탐색 반복을 막습니다.
 
 코드 변경 요청에서는 저장소 맥락을 바탕으로 결과, 범위, 반드시 지킬 동작, 최소 구현 경로, 검증 규모, 쉬운 설명을 하나의 축약 계약으로 만듭니다. 사용자가 한 번 승인하면 Hook이 대체 계약, 일치하는 재계획, 성공한 동일 조회, 저장소 전체 재탐색, 검증 예산 밖의 광범위 테스트를 제한합니다.
+
+0.14 버전은 활성 작업 중 애매한 shell 문자열을 보고 읽기인지 쓰기인지 억지로 추측하지 않습니다. 버전이 있는 argv 기반 `inspect`·`mutate`·`verify` 요청으로 의도를 명시하고, 허용된 명령은 shell 없이 실행합니다. 지원되는 단순 조회는 그대로 편하게 쓸 수 있습니다. 오탐과 누락의 한 원인을 줄이는 장치이지, 모든 도구를 완벽히 막는 보안 샌드박스는 아닙니다.
 
 Click이 모델보다 더 좋은 아키텍처를 발명한다고 주장하지는 않습니다. 모델은 이미 소프트웨어 설계를 할 수 있습니다. Click의 역할은 더 좁습니다. **승인한 경계를 눈에 보이게 고정하고, 승인 뒤 관찰 가능한 실행 루프를 줄이는 것**입니다.
 

@@ -9,9 +9,9 @@ English | [한국어](README.ko.md)
 
 Click is a Codex plugin for people tired of capable models repeatedly planning, rereading, rescanning, and over-verifying software work. On first use, choose **Always ON (recommended)** or **Manual**. Always ON applies Click automatically to software creation, modification, deletion, refactoring, and repair. Manual applies it only when you mention `@Click`.
 
-For a change, Click reads the narrowest relevant repository context, translates the request into one compact execution contract, explains the same meaning plainly, and asks for one approval before editing. After approval it implements inside that boundary in one shot. Its Hook blocks observable rereading, rescanning, replanning, and out-of-budget verification loops while leaving necessary in-scope implementation choices open.
+For a change, Click reads the narrowest relevant repository context, translates the request into one compact execution contract, explains the same meaning plainly, and asks for one approval before editing. After approval it implements inside that boundary in one shot. During active work, versioned argv-based `inspect`, `mutate`, and `verify` runners make supported command intent explicit and execute it without a shell. The Hook blocks observable rereading, rescanning, replanning, and out-of-budget verification loops while leaving necessary in-scope implementation choices open.
 
-Questions, explanations, and simple read-only inspection remain normal in Always ON mode. Code review also needs no build contract or approval; Click instead applies a read-only anti-loop guard that allows initial evidence gathering but blocks repeated successful matched shell reads and repeat repository-wide inventory.
+Questions, explanations, and simple read-only inspection remain normal in Always ON mode. Code review also needs no build contract or approval; Click instead applies a read-only anti-loop guard that allows initial evidence gathering but blocks repeated successful structured reads and repeat repository-wide inventory.
 
 Click is not an architecture-pattern picker or a full specification system. You do not need to choose “modular monolith,” “event-driven,” “batch,” or “functional” up front. Click derives the smallest design language that the requested behavior and existing system actually need.
 
@@ -70,6 +70,8 @@ flowchart TB
 The initial request is not approval of an unseen design. Click first shows both the developer contract and the easy explanation. You may revise or cancel that proposal. Once you approve it, Click keeps the semantic contract fixed and implements without asking you to approve another plan.
 
 Only a real change to the approved result, boundary, must-hold behavior, or verification commitment requires stopping. Necessary files, libraries, tools, services, and implementation tactics inside the approved boundary do not require a replacement contract.
+
+When final verification passes for the current code revision, the next change request can stage a fresh contract normally. Verification that has not run, is running, failed, or became stale after another mutation does not unlock replacement. The new contract starts with clean inspection, mutation, and verification state and needs its own approval; no `bypass` or manual state deletion is required.
 
 ## Example: from request to approval
 
@@ -141,9 +143,9 @@ The contract locks the result and its boundaries. It does not lock every low-lev
 | Simple read-only lookup | Inspect normally without creating an observation ledger |
 | User explicitly opts out | Bypass Click for that turn only |
 
-During code review, Click permits one useful repository-wide inventory when needed. After a successful inventory it requires narrower inspection, blocks an identical successful matched shell read or search, rejects plan-tool churn, and prevents project mutation while the review guard is active. A later request to fix findings starts a separate compact build contract.
+During code review, Click permits one useful repository-wide inventory when needed. After a successful inventory it requires narrower inspection, blocks an identical successful read or search, rejects plan-tool churn, and prevents project mutation while the review guard is active. A later request to fix findings starts a separate compact build contract.
 
-The review guard currently observes recognized Bash and PowerShell reads/searches that pass through the local Hook. It does not deduplicate hidden reasoning, hosted search, unmatched connectors, or custom wrappers.
+Simple recognized direct reads remain convenient. For ambiguous or tracked work, Click uses `click-gate inspect` with a program-and-arguments array instead of guessing from a shell string. The review guard covers supported local Hook paths; it does not deduplicate hidden reasoning, hosted search, unmatched connectors, or custom wrappers.
 
 ## Implementation without loops
 
@@ -151,14 +153,26 @@ After approval, the Hook enforces four observable rules:
 
 | Guard | What happens |
 | --- | --- |
-| Reuse evidence | An identical normalized read or search that already succeeded is blocked until an in-scope mutation makes the evidence stale. |
+| Reuse evidence | An identical structured read or search that already succeeded is blocked until an in-scope mutation makes the evidence stale. |
 | No replanning | Matched `update_plan` calls and attempts to stage or pass a replacement contract are rejected. |
 | No full inventory reset | Root-level inventory such as `rg --files`, `find .`, recursive root listings, and equivalent Git inventory scans are rejected; path-scoped inspection remains available. |
-| Keep broad checks in budget | Recognized full-suite, security, coverage, audit, end-to-end, and benchmark checks must run through `click-gate verify`. |
+| Make command intent explicit | Ambiguous active Bash is rejected with guidance to use structured `inspect` for reading, `mutate` for implementation, or `verify` for final checks. |
+| Keep checks in budget | Final checks must run through the structured `click-gate verify` batch and fit the approved scale. |
 
-A failed observation or one whose output exceeds 48,000 bytes gets one unchanged retry. A source mutation resets successful observation evidence because the code may have changed. The Hook stores a command digest and non-content metadata, not the command or its output.
+A failed observation or one whose output exceeds 48,000 bytes gets one unchanged retry. A source mutation resets successful observation evidence because the code may have changed. Hook state changes use a cross-platform lock so parallel result recording does not strand a false “running” observation. The Hook stores request digests and non-content metadata, not command bodies or output.
 
-These are tool-level guardrails, not a reasoning-token cap. The Hook cannot inspect hidden reasoning, detect a plan written only in prose, observe unmatched connectors, prove semantic boundary compliance, or stop a custom wrapper from hiding several operations inside one visible command.
+These are tool-level guardrails, not a reasoning-token cap or operating-system sandbox. The Hook cannot inspect hidden reasoning, detect a plan written only in prose, observe unmatched connectors or hosted tools, prove semantic boundary compliance, or stop allowed custom code from hiding several operations.
+
+### Structured capabilities
+
+Each capability uses protocol version `1` and separates the executable from every argument. Accepted argv arrays run with `shell=False`, so pipelines, redirections, command substitutions, and shell wrappers cannot be hidden in the request.
+
+```text
+click-gate inspect '{"version":1,"commands":[["git","status","--short"],["sed","-n","1,160p","src/app.py"]]}'
+click-gate mutate '{"version":1,"argv":["python3","scripts/generate.py","--target","src"]}'
+```
+
+`inspect` accepts only the Hook's bounded read-only operations. `mutate` requires the exact approved contract and marks prior evidence stale. Ordinary canonical edit tools such as `apply_patch`, `Edit`, and `Write` remain supported mutations without a shell envelope. Malformed requests and shell interpreters fail closed. See [the capability protocol](skills/click/references/capability-protocol.md) for the exact schemas and enforcement boundary.
 
 ## Automatic verification budget
 
@@ -170,15 +184,15 @@ Click chooses the smallest sufficient scale from the current risk and repository
 | `focused` | Ordinary bounded feature or repair | 4 units |
 | `full` | Payments, auth, deletion, migrations, public contracts, or cross-boundary concurrency | 10 units |
 
-A targeted command costs 1 unit, a recognized broad suite costs 3, and a recognized security, audit, coverage, end-to-end, or benchmark command costs 5. These values are ceilings, not targets.
+A `targeted` check costs 1 unit, a `broad` check costs 3, and a `deep` check costs 5. These values are ceilings, not targets.
 
-Click submits one shell command per entry to:
+Click submits one explicit argv check per entry to:
 
 ```text
-click-gate verify '{"commands":["<command>", "<command>"]}'
+click-gate verify '{"version":1,"checks":[{"argv":["python3","-m","unittest","discover","-s","tests","-q"],"class":"broad"},{"argv":["git","diff","--check"],"class":"targeted"}]}'
 ```
 
-The Hook executes the accepted final batch and records the real exit codes. A failed batch may be retried once unchanged for a transient failure; after that, an in-scope mutation is required. A later mutation makes an earlier success stale and permits the same batch again.
+The Hook validates the declared classes, executes the accepted final batch without a shell, and records the real exit codes. Legacy shell-string `commands` batches are rejected with migration guidance. A failed batch may be retried once unchanged for a transient failure; after that, an in-scope mutation is required. A later mutation makes an earlier success stale and permits the same batch again.
 
 The budget covers recognized visible commands. A custom wrapper can conceal expensive work, so this is not a security or resource sandbox and does not prove that the chosen tests are semantically sufficient.
 
@@ -215,7 +229,7 @@ Manual mode or a per-turn bypass is usually better for tiny, obvious, reversible
 
 ## Evidence and honest limits
 
-The v0.13.0 source release passes 75 deterministic tests covering persistent out-of-repository mode selection, per-prompt routing context, first-mutation setup, Manual fail-open behavior, Always ON mutation gating, code-review anti-loop behavior, compact-contract validation, approval equality, verification ceilings, retry state, content-free Hook state, semantic-grader mechanics, evaluation routing cases, and repository policy. Cross-platform CI validates Linux, macOS, and Windows.
+The v0.14.0 source release has 89 deterministic tests covering persistent out-of-repository mode selection, per-prompt routing context, first-mutation setup, Manual fail-open behavior, Always ON mutation gating, code-review anti-loop behavior, compact-contract validation, approval equality and completed-contract rollover, versioned inspect/mutate/verify requests, shell-free argv execution, state locking and abandoned-runner recovery, verification ceilings, retry state, content-free Hook state, semantic-grader mechanics, evaluation routing cases, and repository policy. Cross-platform CI validates Linux, macOS, and Windows.
 
 The repository also includes golden cases, a semantic grader, and an A/B runner. They are evaluation infrastructure, not evidence that Click already improves success rate, accuracy, time, or token use across real projects. That behavioral comparison still needs repeated trials and human calibration.
 
@@ -231,8 +245,9 @@ A ready-to-edit launch post for developer communities is available in [COMMUNITY
 .agents/plugins/marketplace.json      GitHub marketplace entry
 skills/click/                         One-shot design-and-build Skill
 skills/click/references/modes.md      Persistent mode and code-review behavior
+skills/click/references/capability-protocol.md  Structured runner schemas
 skills/fix/                           Compact repair Skill
-hooks/click_gate.py                   Contract, anti-loop, digest, and verification guard
+hooks/click_gate.py                   Contract, capability, anti-loop, and budget guard
 hooks/hooks.json                      Lifecycle Hook configuration
 evals/                                Golden cases, A/B runner, semantic grader
 tests/                                Deterministic Hook, grader, and policy tests

@@ -165,9 +165,8 @@ class ClickGateTests(unittest.TestCase):
         self.assertIsNotNone(payload)
         return payload
 
-    def verification_command(self, exit_code: int = 0) -> str:
-        arguments = [sys.executable, "-c", f"raise SystemExit({exit_code})"]
-        return subprocess.list2cmdline(arguments) if os.name == "nt" else shlex.join(arguments)
+    def verification_argv(self, exit_code: int = 0) -> list[str]:
+        return [sys.executable, "-c", f"raise SystemExit({exit_code})"]
 
     def read_file_command(self, path: str, fail_hard: bool = False) -> str:
         if os.name == "nt":
@@ -175,10 +174,60 @@ class ClickGateTests(unittest.TestCase):
             return f"Get-Content -Raw{error_action} {path}"
         return f"sed -n '1,99999p' {path}"
 
-    def verify_gate(
-        self, commands: list[str], turn_id: str = "turn-2"
+    def inspect_gate(
+        self, commands: list[list[str]], turn_id: str = "turn-1"
     ) -> dict:
-        batch = {"commands": commands}
+        request = {"version": 1, "commands": commands}
+        command = f"click-gate inspect {shlex.quote(json.dumps(request))}"
+        payload = self.pre_tool("Bash", command, turn_id)
+        self.assertIsNotNone(payload)
+        return payload
+
+    def mutate_gate(self, argv: list[str], turn_id: str = "turn-2") -> dict:
+        request = {"version": 1, "argv": argv}
+        command = f"click-gate mutate {shlex.quote(json.dumps(request))}"
+        payload = self.pre_tool("Bash", command, turn_id)
+        self.assertIsNotNone(payload)
+        return payload
+
+    def verification_class(self, command: str) -> str:
+        lowered = command.lower()
+        if any(marker in lowered for marker in ("playwright", "coverage", "audit")):
+            return "deep"
+        if any(
+            marker in lowered
+            for marker in (
+                "unittest discover",
+                "pytest tests",
+                "vitest run",
+                "npm test",
+            )
+        ):
+            return "broad"
+        return "targeted"
+
+    def verify_gate(
+        self, commands: list[str | list[str]], turn_id: str = "turn-2"
+    ) -> dict:
+        checks = []
+        for value in commands:
+            if isinstance(value, list):
+                argv = value
+                rendered = " ".join(value)
+            else:
+                argv = shlex.split(value, posix=True)
+                rendered = value
+            checks.append(
+                {"argv": argv, "class": self.verification_class(rendered)}
+            )
+        batch = {"version": 1, "checks": checks}
+        command = f"click-gate verify {shlex.quote(json.dumps(batch))}"
+        payload = self.pre_tool("Bash", command, turn_id)
+        self.assertIsNotNone(payload)
+        return payload
+
+    def legacy_verify_gate(self, commands: list[str], turn_id: str = "turn-2") -> dict:
+        batch = {"version": 1, "commands": commands}
         command = f"click-gate verify {shlex.quote(json.dumps(batch))}"
         payload = self.pre_tool("Bash", command, turn_id)
         self.assertIsNotNone(payload)
@@ -227,10 +276,12 @@ class ClickGateTests(unittest.TestCase):
         self.assertIsNone(
             self.pre_tool("Bash", "sed -n '1,20p' README.md && git status --short")
         )
-        self.assertIsNone(self.pre_tool("Bash", "rg --files | sort"))
+        piped = self.pre_tool("Bash", "rg --files | sort")
+        self.assertEqual(piped["hookSpecificOutput"]["permissionDecision"], "deny")
         self.arm_gate()
-        self.assertIsNone(
-            self.pre_tool("Bash", "git status --short | head -20")
+        piped_after_arm = self.pre_tool("Bash", "git status --short | head -20")
+        self.assertEqual(
+            piped_after_arm["hookSpecificOutput"]["permissionDecision"], "deny"
         )
 
     def test_unset_default_blocks_first_mutation_and_requests_one_choice(self) -> None:
@@ -239,6 +290,144 @@ class ClickGateTests(unittest.TestCase):
         reason = payload["hookSpecificOutput"]["permissionDecisionReason"]
         self.assertIn("Always ON", reason)
         self.assertIn("Manual", reason)
+
+    def test_structured_inspection_runs_shell_free_and_blocks_repeat(self) -> None:
+        self.approve_contract()
+        initialized = subprocess.run(
+            ["git", "init", "--quiet"],
+            cwd=self.workspace,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(initialized.returncode, 0, initialized.stderr)
+        first = self.inspect_gate([["git", "status", "--short"]], "turn-2")
+        self.assertEqual(first["hookSpecificOutput"]["permissionDecision"], "allow")
+        self.assertEqual(self.run_rewritten(first).returncode, 0)
+        repeated = self.inspect_gate([["git", "status", "--short"]], "turn-2")
+        self.assertEqual(
+            repeated["hookSpecificOutput"]["permissionDecision"], "deny"
+        )
+
+    def test_structured_inspection_rejects_shells_and_write_options(self) -> None:
+        for commands in (
+            [["bash", "-c", "cat README.md"]],
+            [["find", ".", "-delete"]],
+            [["sort", "README.md", "-o", "sorted.txt"]],
+        ):
+            with self.subTest(commands=commands):
+                denied = self.inspect_gate(commands)
+                self.assertEqual(
+                    denied["hookSpecificOutput"]["permissionDecision"], "deny"
+                )
+
+    def test_structured_inspection_emulates_get_content_cross_platform(self) -> None:
+        (self.workspace / "native.txt").write_text(
+            "portable inspection\n", encoding="utf-8"
+        )
+        payload = self.inspect_gate(
+            [["Get-Content", "-Raw", "native.txt"]]
+        )
+        result = self.run_rewritten(payload)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "portable inspection\n")
+
+    def test_direct_read_sequence_is_rewritten_as_shell_free_inspection(self) -> None:
+        self.approve_contract()
+        (self.workspace / "first.txt").write_text("first\n", encoding="utf-8")
+        (self.workspace / "second.txt").write_text("second\n", encoding="utf-8")
+        if os.name == "nt":
+            command = "Get-Content -Raw first.txt && Get-Content -Raw second.txt"
+        else:
+            command = "sed -n '1,5p' first.txt && sed -n '1,5p' second.txt"
+        payload = self.pre_tool("Bash", command, "turn-2")
+        rewritten = payload["hookSpecificOutput"]["updatedInput"]["command"]
+        self.assertIn("run-observation", rewritten)
+        result = self.run_rewritten(payload)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("first", result.stdout)
+        self.assertIn("second", result.stdout)
+
+    def test_structured_requests_require_protocol_version_one(self) -> None:
+        request = {"version": 2, "commands": [["git", "status", "--short"]]}
+        command = f"click-gate inspect {shlex.quote(json.dumps(request))}"
+        denied = self.pre_tool("Bash", command)
+        self.assertEqual(denied["hookSpecificOutput"]["permissionDecision"], "deny")
+        self.assertIn("version", denied["hookSpecificOutput"]["permissionDecisionReason"])
+
+    def test_structured_mutation_requires_approval_and_rejects_shell_wrapper(self) -> None:
+        denied = self.mutate_gate([sys.executable, "-c", "print('no')"])
+        self.assertEqual(denied["hookSpecificOutput"]["permissionDecision"], "deny")
+        self.approve_contract()
+        shell = self.mutate_gate(["bash", "-c", "touch hidden.txt"])
+        self.assertEqual(shell["hookSpecificOutput"]["permissionDecision"], "deny")
+
+    def test_abandoned_structured_mutation_expires_instead_of_blocking_forever(self) -> None:
+        self.approve_contract()
+        pending = self.mutate_gate([sys.executable, "-c", "print('first')"])
+        self.assertEqual(
+            pending["hookSpecificOutput"]["permissionDecision"], "allow"
+        )
+        state_path = next(
+            (self.plugin_data / "gate-state").glob("session-contract-*.json")
+        )
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        state["mutation"]["started_at"] = 0
+        state_path.write_text(json.dumps(state), encoding="utf-8")
+
+        recovered = self.mutate_gate(
+            [sys.executable, "-c", "print('second')"], "turn-2"
+        )
+        self.assertEqual(
+            recovered["hookSpecificOutput"]["permissionDecision"], "allow"
+        )
+        result = self.run_rewritten(recovered)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("second", result.stdout)
+
+    def test_active_direct_bash_requires_a_structured_capability(self) -> None:
+        self.approve_contract()
+        denied = self.pre_tool("Bash", "python3 update_schema.py", "turn-2")
+        self.assertEqual(denied["hookSpecificOutput"]["permissionDecision"], "deny")
+        self.assertIn(
+            "click-gate mutate",
+            denied["hookSpecificOutput"]["permissionDecisionReason"],
+        )
+
+    def test_parallel_observation_results_do_not_leave_running_state(self) -> None:
+        self.approve_contract()
+        for name in ("a.txt", "b.txt"):
+            (self.workspace / name).write_text(name, encoding="utf-8")
+        payloads = [
+            self.pre_tool("Bash", self.read_file_command(name), "turn-2")
+            for name in ("a.txt", "b.txt")
+        ]
+        environment = os.environ.copy()
+        environment["PLUGIN_DATA"] = str(self.plugin_data)
+        environment["CLICK_CONFIG_HOME"] = str(self.plugin_data)
+        processes = [
+            subprocess.Popen(
+                payload["hookSpecificOutput"]["updatedInput"]["command"],
+                shell=True,
+                cwd=self.workspace,
+                env=environment,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            for payload in payloads
+        ]
+        for process in processes:
+            _, stderr = process.communicate(timeout=10)
+            self.assertEqual(process.returncode, 0, stderr)
+        states = [
+            json.loads(path.read_text(encoding="utf-8"))
+            for path in (self.plugin_data / "gate-state").glob("session-contract-*.json")
+        ]
+        self.assertEqual(len(states), 1)
+        entries = states[0]["observations"]["entries"]
+        self.assertEqual(len(entries), 2)
+        self.assertEqual({entry["status"] for entry in entries.values()}, {"success"})
 
     def test_manual_default_persists_and_keeps_uninvoked_mutations_fail_open(self) -> None:
         setting = self.set_default("manual")
@@ -480,7 +669,7 @@ class ClickGateTests(unittest.TestCase):
         self.arm_gate("turn-2")
         self.pass_gate(contract, "turn-2")
 
-        command = self.verification_command()
+        command = self.verification_argv()
         denied = self.verify_gate([command, command])
         self.assertEqual(
             denied["hookSpecificOutput"]["permissionDecision"], "deny"
@@ -536,12 +725,14 @@ class ClickGateTests(unittest.TestCase):
             expensive["hookSpecificOutput"]["permissionDecision"], "allow"
         )
 
-    def test_verification_batch_rejects_shell_chaining(self) -> None:
+    def test_verification_batch_rejects_legacy_shell_strings(self) -> None:
         self.approve_contract()
-        payload = self.verify_gate(["pytest tests/unit && pytest tests/integration"])
+        payload = self.legacy_verify_gate(
+            ["pytest tests/unit && pytest tests/integration"]
+        )
         self.assertEqual(payload["hookSpecificOutput"]["permissionDecision"], "deny")
         self.assertIn(
-            "without chaining",
+            "legacy shell-string",
             payload["hookSpecificOutput"]["permissionDecisionReason"],
         )
 
@@ -552,7 +743,7 @@ class ClickGateTests(unittest.TestCase):
         self.stage_gate(contract, "turn-1")
         self.arm_gate("turn-2")
         self.pass_gate(contract, "turn-2")
-        command = self.verification_command()
+        command = self.verification_argv()
 
         first = self.verify_gate([command])
         completed = self.run_rewritten(first)
@@ -749,7 +940,7 @@ class ClickGateTests(unittest.TestCase):
             mutation["hookSpecificOutput"]["permissionDecisionReason"],
         )
 
-        verification = self.verify_gate([self.verification_command()])
+        verification = self.verify_gate([self.verification_argv()])
         self.assertEqual(
             verification["hookSpecificOutput"]["permissionDecision"], "deny"
         )
@@ -849,7 +1040,7 @@ class ClickGateTests(unittest.TestCase):
         self.stage_gate(contract, "turn-1")
         self.arm_gate("turn-2")
         self.pass_gate(contract, "turn-2")
-        self.verify_gate([self.verification_command()])
+        self.verify_gate([self.verification_argv()])
 
         for tool_name, command in (
             ("apply_patch", "*** Begin Patch\n*** End Patch"),
@@ -872,7 +1063,7 @@ class ClickGateTests(unittest.TestCase):
         self.stage_gate(contract, "turn-1")
         self.arm_gate("turn-2")
         self.pass_gate(contract, "turn-2")
-        command = self.verification_command(exit_code=1)
+        command = self.verification_argv(exit_code=1)
 
         first = self.verify_gate([command])
         self.assertEqual(self.run_rewritten(first).returncode, 1)
@@ -911,8 +1102,9 @@ class ClickGateTests(unittest.TestCase):
                     "click-gate verify",
                     payload["hookSpecificOutput"]["permissionDecisionReason"],
                 )
-        self.assertIsNone(
-            self.pre_tool("Bash", "pytest tests/test_inventory.py", "turn-2")
+        targeted = self.pre_tool("Bash", "pytest tests/test_inventory.py", "turn-2")
+        self.assertEqual(
+            targeted["hookSpecificOutput"]["permissionDecision"], "deny"
         )
 
     def test_uninvoked_verification_remains_fail_open(self) -> None:
@@ -1020,6 +1212,66 @@ class ClickGateTests(unittest.TestCase):
         self.assertEqual(output["permissionDecision"], "deny")
         self.assertIn("one approved contract", output["permissionDecisionReason"])
 
+    def test_failed_contract_cannot_be_replaced(self) -> None:
+        self.approve_contract()
+        failed = self.verify_gate([self.verification_argv(1)])
+        result = self.run_rewritten(failed)
+        self.assertEqual(result.returncode, 1)
+
+        replacement = self.contract()
+        replacement["outcome"] = "send a purchasing summary"
+        self.arm_gate("turn-3")
+        payload = self.stage_gate(replacement, "turn-3")
+        self.assertEqual(
+            payload["hookSpecificOutput"]["permissionDecision"], "deny"
+        )
+        self.assertIn(
+            "final verification",
+            payload["hookSpecificOutput"]["permissionDecisionReason"],
+        )
+
+    def test_stale_completed_contract_cannot_be_replaced(self) -> None:
+        self.approve_contract()
+        passed = self.verify_gate([self.verification_argv()])
+        result = self.run_rewritten(passed)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIsNone(
+            self.pre_tool("apply_patch", "*** Begin Patch\n*** End Patch", "turn-2")
+        )
+
+        replacement = self.contract()
+        replacement["outcome"] = "send a purchasing summary"
+        self.arm_gate("turn-3")
+        payload = self.stage_gate(replacement, "turn-3")
+        self.assertEqual(
+            payload["hookSpecificOutput"]["permissionDecision"], "deny"
+        )
+
+    def test_completed_contract_allows_fresh_next_contract_state(self) -> None:
+        self.approve_contract()
+        passed = self.verify_gate([self.verification_argv()])
+        result = self.run_rewritten(passed)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+        replacement = self.contract()
+        replacement["outcome"] = "send a purchasing summary"
+        replacement["verification"]["scale"] = "quick"
+        self.arm_gate("turn-3")
+        payload = self.stage_gate(replacement, "turn-3")
+        self.assertEqual(
+            payload["hookSpecificOutput"]["permissionDecision"], "allow"
+        )
+        state_path = next(
+            (self.plugin_data / "gate-state").glob("session-contract-*.json")
+        )
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        self.assertEqual(state["status"], "staged")
+        self.assertEqual(state["verification"]["status"], "ready")
+        self.assertEqual(state["verification"]["scale"], "quick")
+        self.assertEqual(state["verification"]["mutation_revision"], 0)
+        self.assertEqual(state["observations"], {"entries": {}})
+        self.assertEqual(state["mutation"]["status"], "idle")
+
     def test_approved_contract_cannot_be_restaged_unchanged(self) -> None:
         self.approve_contract()
         payload = self.stage_gate(turn_id="turn-2")
@@ -1065,7 +1317,18 @@ class ClickGateTests(unittest.TestCase):
         self.assertIsNone(
             self.pre_tool("apply_patch", "*** Begin Patch\n*** End Patch", "turn-2")
         )
-        self.assertIsNone(self.pre_tool("Bash", "python3 update_schema.py", "turn-2"))
+        mutation = self.mutate_gate(
+            [
+                sys.executable,
+                "-c",
+                "from pathlib import Path; Path('generated.txt').write_text('ok')",
+            ],
+            "turn-2",
+        )
+        self.assertEqual(self.run_rewritten(mutation).returncode, 0)
+        self.assertEqual(
+            (self.workspace / "generated.txt").read_text(encoding="utf-8"), "ok"
+        )
 
     def test_state_records_a_digest_not_contract_plaintext(self) -> None:
         self.approve_contract()
@@ -1089,6 +1352,30 @@ class ClickGateTests(unittest.TestCase):
         self.assertNotIn("재고가 임계값", state_text)
         self.assertNotIn("private-marker.txt", state_text)
         self.assertNotIn("private marker", state_text)
+
+    def test_structured_mutation_state_does_not_store_command_plaintext(self) -> None:
+        self.approve_contract()
+        private_body = "mutation-private-marker"
+        payload = self.mutate_gate(
+            [
+                sys.executable,
+                "-c",
+                (
+                    "from pathlib import Path; "
+                    f"Path('generated.txt').write_text('{private_body}')"
+                ),
+            ],
+            "turn-2",
+        )
+        result = self.run_rewritten(payload)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        state_text = "\n".join(
+            path.read_text()
+            for path in (self.plugin_data / "gate-state").glob("*.json")
+        )
+        self.assertIn("request_digest", state_text)
+        self.assertNotIn(private_body, state_text)
+        self.assertNotIn("generated.txt", state_text)
 
     def test_gate_pass_does_not_leak_into_a_new_turn(self) -> None:
         self.set_mode("strict")

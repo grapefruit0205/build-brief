@@ -1,16 +1,19 @@
 #!/usr/bin/env python3
-"""A small, local contract, mutation-order, anti-loop, and verification guard.
+"""A local contract, structured-capability, anti-loop, and verification guard.
 
 The hook does not judge architecture quality or implementation choices. It can
 persist an Always ON or Manual preference outside the target repository. Always
 ON gates supported software mutations behind one approved Click contract;
 Manual remains fail-open until Click is explicitly armed. A read-only review
 mode applies the observation anti-loop without requiring a build contract.
+During active work, supported shell intent is expressed as versioned argv requests
+and executed without a shell by inspect, mutate, and verify runners.
 """
 
 from __future__ import annotations
 
 import base64
+from contextlib import contextmanager
 import hashlib
 import json
 import os
@@ -34,15 +37,39 @@ BUILD_FIELDS = {"approach", "semantics", "order"}
 VERIFICATION_FIELDS = {"scale", "done_when", "intermediate_gate"}
 VERIFICATION_SCALES = ("quick", "focused", "full")
 VERIFICATION_UNIT_LIMITS = {"quick": 1, "focused": 4, "full": 10}
-VERIFICATION_BATCH_FIELDS = {"commands"}
+CAPABILITY_PROTOCOL_VERSION = 1
+INSPECTION_REQUEST_FIELDS = {"version", "commands"}
+MUTATION_REQUEST_FIELDS = {"version", "argv"}
+VERIFICATION_BATCH_FIELDS = {"version", "checks"}
+VERIFICATION_CHECK_FIELDS = {"argv", "class"}
+VERIFICATION_CLASSES = {"targeted": 1, "broad": 3, "deep": 5}
+MAX_CAPABILITY_COMMANDS = 8
+MAX_ARGV_ITEMS = 128
 MAX_CONTRACT_CHARS = 4_000
+MAX_CAPABILITY_REQUEST_CHARS = 6_000
 MAX_VERIFICATION_BATCH_CHARS = 6_000
 MAX_OBSERVATION_OUTPUT_BYTES = 48_000
 MAX_OBSERVATION_ENTRIES = 64
 OBSERVATION_RUNNING_TTL_SECONDS = 10 * 60
+MUTATION_RUNNING_TTL_SECONDS = 10 * 60
 VERIFY_RUNNING_TTL_SECONDS = 60 * 60
 STATE_TTL_SECONDS = 7 * 24 * 60 * 60
+STATE_LOCK_TIMEOUT_SECONDS = 5
+STATE_LOCK_STALE_SECONDS = 30
 DEFAULT_MODES = {"on", "manual"}
+SHELL_EXECUTABLES = {
+    "bash",
+    "cmd",
+    "cmd.exe",
+    "dash",
+    "fish",
+    "ksh",
+    "powershell",
+    "powershell.exe",
+    "pwsh",
+    "sh",
+    "zsh",
+}
 
 VERIFICATION_EXECUTABLES = {
     "bandit",
@@ -77,19 +104,6 @@ VERIFICATION_NAME_MARKERS = (
     "verification",
     "verify",
 )
-EXPENSIVE_VERIFICATION_PATTERN = re.compile(
-    r"(?:^|[\s/_.:-])(?:audit|bandit|bench(?:mark)?|coverage|cypress|e2e|k6|"
-    r"locust|playwright|security|semgrep|snyk|trivy)(?:$|[\s/_.:-])",
-    re.IGNORECASE,
-)
-BROAD_VERIFICATION_PATTERNS = (
-    re.compile(r"\bunittest\s+discover\b", re.IGNORECASE),
-    re.compile(r"\bgo\s+test\s+\./\.\.\.(?:\s|$)", re.IGNORECASE),
-    re.compile(r"\bcargo\s+(?:test|nextest)(?:\s|$).*(?:--workspace|--all)", re.IGNORECASE),
-    re.compile(r"\b(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?test\s*$", re.IGNORECASE),
-    re.compile(r"\b(?:mvnw?|gradlew?|dotnet)\s+(?:test|check|verify)\s*$", re.IGNORECASE),
-)
-
 READ_ONLY_COMMANDS = {
     "basename",
     "cat",
@@ -173,23 +187,6 @@ POWERSHELL_OPTIONS_WITH_VALUES = {
     "-literalpath",
     "-path",
 }
-TEST_RUNNER_OPTIONS_WITH_VALUES = {
-    "-c",
-    "--config",
-    "-k",
-    "-m",
-    "--maxfail",
-    "--rootdir",
-    "--confcutdir",
-    "--basetemp",
-    "--ignore",
-    "--ignore-glob",
-    "--test-name-pattern",
-    "--test-path-patterns",
-}
-TEST_RUNNER_MODES = {"run", "test"}
-
-
 def _emit(payload: dict[str, Any]) -> None:
     sys.stdout.write(json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
 
@@ -292,6 +289,47 @@ def _write_json(path: Path, payload: dict[str, Any]) -> None:
     os.replace(temporary, path)
 
 
+@contextmanager
+def _state_lock() -> Any:
+    root = _state_root()
+    root.mkdir(mode=0o700, parents=True, exist_ok=True)
+    lock_path = root / ".state.lock"
+    deadline = time.monotonic() + STATE_LOCK_TIMEOUT_SECONDS
+    descriptor: int | None = None
+    while descriptor is None:
+        try:
+            descriptor = os.open(
+                lock_path,
+                os.O_CREAT | os.O_EXCL | os.O_WRONLY,
+                0o600,
+            )
+            os.write(descriptor, str(os.getpid()).encode())
+        except FileExistsError:
+            try:
+                stale = time.time() - lock_path.stat().st_mtime > STATE_LOCK_STALE_SECONDS
+            except OSError:
+                stale = False
+            if stale:
+                try:
+                    lock_path.unlink()
+                except OSError:
+                    pass
+                continue
+            if time.monotonic() >= deadline:
+                raise OSError("timed out waiting for Click state lock")
+            time.sleep(0.025)
+    try:
+        yield
+    finally:
+        try:
+            os.close(descriptor)
+        finally:
+            try:
+                lock_path.unlink()
+            except OSError:
+                pass
+
+
 def _write_state(event: dict[str, Any], status: str, contract_digest: str = "") -> None:
     payload = {
         "status": status,
@@ -370,6 +408,26 @@ def _fresh_observation_state() -> dict[str, Any]:
     return {"entries": {}}
 
 
+def _fresh_mutation_state() -> dict[str, Any]:
+    return {
+        "status": "idle",
+        "request_digest": "",
+        "runner_token_digest": "",
+        "started_at": 0,
+        "last_exit_code": None,
+    }
+
+
+def _mutation_is_running(mutation: Any) -> bool:
+    if not isinstance(mutation, dict) or mutation.get("status") != "running":
+        return False
+    started_at = int(mutation.get("started_at", 0))
+    return bool(
+        started_at
+        and time.time() - started_at <= MUTATION_RUNNING_TTL_SECONDS
+    )
+
+
 def _write_review_state(event: dict[str, Any]) -> None:
     _write_json(
         _review_path(event),
@@ -411,6 +469,7 @@ def _write_contract_state(
             "contract_digest": digest,
             "verification": _fresh_verification_state(contract),
             "observations": _fresh_observation_state(),
+            "mutation": _fresh_mutation_state(),
             "updated_at": int(time.time()),
         },
     )
@@ -436,10 +495,28 @@ def _save_contract_state(event: dict[str, Any], state: dict[str, Any]) -> None:
     _write_json(_contract_path(event), state)
 
 
+def _contract_is_completed(state: dict[str, Any]) -> bool:
+    if state.get("status") != "approved":
+        return False
+    verification = state.get("verification")
+    if not isinstance(verification, dict):
+        return False
+    return bool(
+        verification.get("status") == "passed"
+        and int(verification.get("verified_revision", -1))
+        == int(verification.get("mutation_revision", 0))
+    )
+
+
 def _mark_contract_mutated(event: dict[str, Any]) -> str:
     state = _read_contract_state(event)
     if state.get("status") != "approved":
         return ""
+    mutation = state.get("mutation")
+    if _mutation_is_running(mutation):
+        return "Click blocked a second mutation while a structured mutation is running."
+    if isinstance(mutation, dict) and mutation.get("status") == "running":
+        state["mutation"] = _fresh_mutation_state()
     verification = state.get("verification")
     if not isinstance(verification, dict):
         return "Click verification state is unavailable; stage and approve the contract again."
@@ -589,78 +666,152 @@ def _validate_contract(raw: str) -> tuple[dict[str, Any] | None, str]:
     return value, ""
 
 
-def _verification_cost(command: str) -> tuple[int, str]:
-    if not command.strip():
-        return 0, "Verification commands must be non-empty strings."
-    segments = _shell_segments(command)
-    if segments is None or len(segments) != 1:
+def _decode_capability_request(
+    raw: str, label: str, *, limit: int = MAX_CAPABILITY_REQUEST_CHARS
+) -> tuple[dict[str, Any] | None, str]:
+    if len(raw) > limit:
+        return None, f"{label} request must stay under {limit:,} characters."
+    try:
+        value = json.loads(raw)
+    except json.JSONDecodeError:
+        return None, f"{label} request must be valid JSON."
+    if not isinstance(value, dict):
+        return None, f"{label} request must be a JSON object."
+    if value.get("version") != CAPABILITY_PROTOCOL_VERSION:
         return (
-            0,
-            "Each verification entry must be one shell command without chaining, pipes, "
-            "redirection, background execution, command substitution, or newlines.",
+            None,
+            f"{label} request `version` must be {CAPABILITY_PROTOCOL_VERSION}.",
         )
-    normalized = " ".join(segments[0])
-    if EXPENSIVE_VERIFICATION_PATTERN.search(normalized):
-        return 5, ""
-    if any(pattern.search(normalized) for pattern in BROAD_VERIFICATION_PATTERNS):
-        return 3, ""
-    executable, arguments = _command_parts(segments[0])
-    if executable in {"pytest", "cargo"}:
-        if executable == "pytest" and _pytest_targets_are_broad(arguments):
-            return 3, ""
-        if executable == "cargo" and arguments[:1] in (["test"], ["nextest"]):
-            if len(arguments) == 1:
-                return 3, ""
-    if executable in {"npm", "pnpm", "yarn", "bun"}:
-        meaningful = [item for item in arguments if item not in {"run", "exec", "x"}]
-        if meaningful and meaningful[0] == "test":
-            return 3, ""
-    if executable in {"jest", "vitest", "phpunit", "rspec"}:
-        if not _test_runner_targets(arguments):
-            return 3, ""
-    if executable in {"npx", "pnpx", "bunx"} and arguments:
-        if arguments[0] in {"jest", "vitest"} and not _test_runner_targets(
-            arguments[1:]
-        ):
-            return 3, ""
-    if executable in {"python", "python3", "py", "pypy", "pypy3"}:
-        if arguments[:2] == ["-m", "pytest"] and _pytest_targets_are_broad(
-            arguments[2:]
-        ):
-            return 3, ""
-    if executable in {"dotnet", "gradle", "gradlew", "gradlew.bat", "mvn", "mvnw", "mvnw.cmd"}:
-        if any(argument in {"test", "check", "verify"} for argument in arguments):
-            return 3, ""
-    return 1, ""
+    return value, ""
+
+
+def _validate_argv(value: Any, label: str) -> tuple[list[str] | None, str]:
+    if not isinstance(value, list) or not value:
+        return None, f"{label} `argv` must be a non-empty string list."
+    if len(value) > MAX_ARGV_ITEMS:
+        return None, f"{label} `argv` may contain at most {MAX_ARGV_ITEMS} items."
+    if any(
+        not isinstance(item, str) or not item or "\x00" in item for item in value
+    ):
+        return None, f"Every {label} `argv` item must be a non-empty NUL-free string."
+    argv = list(value)
+    executable = Path(argv[0]).name.lower()
+    if executable in SHELL_EXECUTABLES:
+        return (
+            None,
+            f"{label} cannot invoke a shell interpreter. Pass the executable and each "
+            "argument directly instead of using `-c` or `-Command`.",
+        )
+    return argv, ""
+
+
+def _validate_inspection_request(
+    raw: str,
+) -> tuple[dict[str, Any] | None, bool, str]:
+    value, error = _decode_capability_request(raw, "Inspection")
+    if error:
+        return None, False, error
+    assert value is not None
+    unknown = sorted(set(value) - INSPECTION_REQUEST_FIELDS)
+    if unknown:
+        rendered = ", ".join(f"`{field}`" for field in unknown)
+        return None, False, f"Inspection request contains unsupported field(s): {rendered}."
+    commands = value.get("commands")
+    if not isinstance(commands, list) or not commands:
+        return None, False, "Inspection `commands` must be a non-empty argv-list list."
+    if len(commands) > MAX_CAPABILITY_COMMANDS:
+        return (
+            None,
+            False,
+            f"Inspection may contain at most {MAX_CAPABILITY_COMMANDS} commands.",
+        )
+    normalized: list[list[str]] = []
+    broad = False
+    for index, raw_argv in enumerate(commands, start=1):
+        argv, argv_error = _validate_argv(raw_argv, f"Inspection command {index}")
+        if argv_error:
+            return None, False, argv_error
+        assert argv is not None
+        if not _is_read_only_tokens(list(argv)):
+            return (
+                None,
+                False,
+                f"Inspection command {index} is not a supported read-only argv operation.",
+            )
+        broad = broad or _is_broad_exploration_tokens(argv)
+        normalized.append(argv)
+    return {"version": CAPABILITY_PROTOCOL_VERSION, "commands": normalized}, broad, ""
+
+
+def _validate_mutation_request(raw: str) -> tuple[dict[str, Any] | None, str]:
+    value, error = _decode_capability_request(raw, "Mutation")
+    if error:
+        return None, error
+    assert value is not None
+    unknown = sorted(set(value) - MUTATION_REQUEST_FIELDS)
+    if unknown:
+        rendered = ", ".join(f"`{field}`" for field in unknown)
+        return None, f"Mutation request contains unsupported field(s): {rendered}."
+    argv, argv_error = _validate_argv(value.get("argv"), "Mutation")
+    if argv_error:
+        return None, argv_error
+    assert argv is not None
+    return {"version": CAPABILITY_PROTOCOL_VERSION, "argv": argv}, ""
 
 
 def _validate_verification_batch(
     raw: str, scale: str
 ) -> tuple[dict[str, Any] | None, int, str]:
-    if len(raw) > MAX_VERIFICATION_BATCH_CHARS:
-        return None, 0, "Verification batch must stay under 6,000 characters."
-    try:
-        value = json.loads(raw)
-    except json.JSONDecodeError:
-        return None, 0, "Verification batch must be valid JSON."
-    if not isinstance(value, dict):
-        return None, 0, "Verification batch must be a JSON object."
+    value, error = _decode_capability_request(
+        raw, "Verification batch", limit=MAX_VERIFICATION_BATCH_CHARS
+    )
+    if error:
+        return None, 0, error
+    assert value is not None
+    if "commands" in value:
+        return (
+            None,
+            0,
+            "Click 0.14 verification uses `checks` with argv arrays and an explicit "
+            "`class`; legacy shell-string `commands` are no longer accepted.",
+        )
     unknown = sorted(set(value) - VERIFICATION_BATCH_FIELDS)
     if unknown:
         rendered = ", ".join(f"`{field}`" for field in unknown)
         return None, 0, f"Verification batch contains unsupported field(s): {rendered}."
-    commands = value.get("commands")
-    if not isinstance(commands, list) or not commands:
-        return None, 0, "Verification batch `commands` must be a non-empty list."
-    if any(not isinstance(command, str) or not command.strip() for command in commands):
-        return None, 0, "Every verification command must be a non-empty string."
-
+    checks = value.get("checks")
+    if not isinstance(checks, list) or not checks:
+        return None, 0, "Verification batch `checks` must be a non-empty list."
+    if len(checks) > MAX_CAPABILITY_COMMANDS:
+        return None, 0, f"Verification may contain at most {MAX_CAPABILITY_COMMANDS} checks."
+    normalized: list[dict[str, Any]] = []
     units = 0
-    for command in commands:
-        cost, error = _verification_cost(command)
-        if error:
-            return None, 0, error
-        units += cost
+    for index, check in enumerate(checks, start=1):
+        if not isinstance(check, dict):
+            return None, 0, f"Verification check {index} must be an object."
+        unknown_check = sorted(set(check) - VERIFICATION_CHECK_FIELDS)
+        if unknown_check:
+            rendered = ", ".join(f"`{field}`" for field in unknown_check)
+            return None, 0, f"Verification check {index} has unsupported field(s): {rendered}."
+        argv, argv_error = _validate_argv(check.get("argv"), f"Verification check {index}")
+        if argv_error:
+            return None, 0, argv_error
+        assert argv is not None
+        if not (
+            _is_read_only_tokens(list(argv))
+            or _is_recognized_verification_tokens(argv)
+        ):
+            return (
+                None,
+                0,
+                f"Verification check {index} is neither read-only nor a recognized check.",
+            )
+        check_class = check.get("class")
+        if check_class not in VERIFICATION_CLASSES:
+            allowed = ", ".join(VERIFICATION_CLASSES)
+            return None, 0, f"Verification check {index} `class` must be one of: {allowed}."
+        units += VERIFICATION_CLASSES[str(check_class)]
+        normalized.append({"argv": argv, "class": check_class})
     limit = VERIFICATION_UNIT_LIMITS[scale]
     if units > limit:
         return (
@@ -669,7 +820,10 @@ def _validate_verification_batch(
             f"The {scale} verification budget allows {limit} unit(s), but this batch "
             f"costs {units}. Remove lower-value checks instead of expanding verification.",
         )
-    return {"commands": commands}, units, ""
+    return {
+        "version": CAPABILITY_PROTOCOL_VERSION,
+        "checks": normalized,
+    }, units, ""
 
 
 def _control_request(command: str) -> tuple[str | None, str, str]:
@@ -692,13 +846,21 @@ def _control_request(command: str) -> tuple[str | None, str, str]:
         "strict",
     }:
         return "mode", tokens[2], ""
-    if len(tokens) == 3 and tokens[1] in {"stage", "pass", "verify"}:
+    if len(tokens) == 3 and tokens[1] in {
+        "inspect",
+        "mutate",
+        "stage",
+        "pass",
+        "verify",
+    }:
         return tokens[1], tokens[2], ""
     return (
         "",
         "",
         f"Use `{CONTROL_COMMAND} arm`, `{CONTROL_COMMAND} stage '<Execution Contract "
         f"JSON>'`, `{CONTROL_COMMAND} pass '<Execution Contract JSON>'`, "
+        f"`{CONTROL_COMMAND} inspect '<Inspection JSON>'`, "
+        f"`{CONTROL_COMMAND} mutate '<Mutation JSON>'`, "
         f"`{CONTROL_COMMAND} verify '<Verification Batch JSON>'`, "
         f"`{CONTROL_COMMAND} review`, `{CONTROL_COMMAND} bypass`, "
         f"`{CONTROL_COMMAND} default on|manual|status`, or "
@@ -762,7 +924,10 @@ def _command_parts(tokens: list[str]) -> tuple[str, list[str]]:
         remaining.pop(0)
     if not remaining:
         return "", []
-    return Path(remaining[0]).name.lower(), [item.lower() for item in remaining[1:]]
+    executable = Path(remaining[0]).name.lower()
+    if executable.endswith(".exe"):
+        executable = executable[:-4]
+    return executable, [item.lower() for item in remaining[1:]]
 
 
 def _is_recognized_verification_tokens(tokens: list[str]) -> bool:
@@ -772,6 +937,8 @@ def _is_recognized_verification_tokens(tokens: list[str]) -> bool:
     if executable in VERIFICATION_EXECUTABLES:
         return True
     if executable in {"python", "python3", "py", "pypy", "pypy3"}:
+        if "-c" in arguments:
+            return True
         if len(arguments) >= 2 and arguments[0] == "-m":
             return arguments[1] in {
                 "coverage",
@@ -791,7 +958,9 @@ def _is_recognized_verification_tokens(tokens: list[str]) -> bool:
         return any(marker in target for marker in VERIFICATION_NAME_MARKERS)
     if executable in {"npx", "pnpx", "bunx"}:
         target = arguments[0] if arguments else ""
-        return any(marker in target for marker in VERIFICATION_NAME_MARKERS)
+        return target in VERIFICATION_EXECUTABLES or any(
+            marker in target for marker in VERIFICATION_NAME_MARKERS
+        )
     if executable == "cargo":
         return bool(arguments) and arguments[0] in {"audit", "bench", "nextest", "test"}
     if executable == "go":
@@ -821,11 +990,6 @@ def _is_recognized_verification_command(command: str) -> bool:
     return _is_recognized_verification_tokens(fallback)
 
 
-def _is_broad_verification_command(command: str) -> bool:
-    cost, error = _verification_cost(command)
-    return bool(error) or cost >= 3
-
-
 def _positional_arguments(
     arguments: list[str], options_with_values: set[str] | None = None
 ) -> list[str]:
@@ -852,32 +1016,6 @@ def _positional_arguments(
             continue
         positions.append(lowered)
     return positions
-
-
-def _test_runner_targets(arguments: list[str]) -> list[str]:
-    return [
-        target
-        for target in _positional_arguments(
-            arguments, TEST_RUNNER_OPTIONS_WITH_VALUES
-        )
-        if target not in TEST_RUNNER_MODES
-    ]
-
-
-def _pytest_targets_are_broad(arguments: list[str]) -> bool:
-    targets = _test_runner_targets(arguments)
-    if not targets:
-        return True
-    for target in targets:
-        path = target.split("::", 1)[0].rstrip("/\\")
-        leaf = Path(path).name.lower()
-        if path in {"", ".", ".."}:
-            return True
-        if leaf in {"test", "tests"}:
-            return True
-        if not Path(path).suffix:
-            return True
-    return False
 
 
 def _targets_repository_root(targets: list[str]) -> bool:
@@ -949,22 +1087,23 @@ def _is_broad_exploration_command(command: str) -> bool:
     )
 
 
-def _observation_digest(command: str) -> str:
-    segments = _shell_segments(command)
-    canonical = json.dumps(segments or [[command.strip()]], separators=(",", ":"))
+def _capability_digest(request: dict[str, Any]) -> str:
+    canonical = json.dumps(request, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(canonical.encode()).hexdigest()
 
 
 def _observation_runner_command(
-    state_path: Path, command: str, command_digest: str, runner_token: str
+    state_path: Path, request: dict[str, Any], request_digest: str, runner_token: str
 ) -> str:
-    encoded = base64.urlsafe_b64encode(command.encode()).decode()
+    encoded = base64.urlsafe_b64encode(
+        json.dumps(request, ensure_ascii=False, separators=(",", ":")).encode()
+    ).decode()
     arguments = [
         sys.executable,
         str(Path(__file__).resolve()),
         "run-observation",
         str(state_path),
-        command_digest,
+        request_digest,
         runner_token,
         encoded,
     ]
@@ -972,9 +1111,8 @@ def _observation_runner_command(
 
 
 def _prepare_observation(
-    event: dict[str, Any], command: str, *, review: bool = False
+    event: dict[str, Any], request: dict[str, Any], broad_inventory: bool, *, review: bool = False
 ) -> tuple[str, str]:
-    broad_inventory = _is_broad_exploration_command(command)
     if broad_inventory and not review:
         return (
             "",
@@ -993,6 +1131,11 @@ def _prepare_observation(
         state = _read_contract_state(event)
         if state.get("status") != "approved":
             return "", "Click observation state is unavailable; approve the contract again."
+        mutation = state.get("mutation")
+        if _mutation_is_running(mutation):
+            return "", "Wait for the structured Click mutation to finish before inspection."
+        if isinstance(mutation, dict) and mutation.get("status") == "running":
+            state["mutation"] = _fresh_mutation_state()
         verification = state.get("verification")
         if not isinstance(verification, dict):
             return "", "Click verification state is unavailable; approve the contract again."
@@ -1007,7 +1150,7 @@ def _prepare_observation(
     if not isinstance(entries, dict):
         entries = {}
 
-    digest = _observation_digest(command)
+    digest = _capability_digest(request)
     if review and broad_inventory:
         for existing in entries.values():
             if (
@@ -1070,7 +1213,66 @@ def _prepare_observation(
         _save_review_state(event, state)
     else:
         _save_contract_state(event, state)
-    return _observation_runner_command(state_path, command, digest, runner_token), ""
+    return _observation_runner_command(state_path, request, digest, runner_token), ""
+
+
+def _encoded_request(request: dict[str, Any]) -> str:
+    return base64.urlsafe_b64encode(
+        json.dumps(request, ensure_ascii=False, separators=(",", ":")).encode()
+    ).decode()
+
+
+def _inspection_once_runner_command(request: dict[str, Any]) -> str:
+    arguments = [
+        sys.executable,
+        str(Path(__file__).resolve()),
+        "run-inspection-once",
+        _encoded_request(request),
+    ]
+    return subprocess.list2cmdline(arguments) if os.name == "nt" else shlex.join(arguments)
+
+
+def _mutation_runner_command(
+    event: dict[str, Any], request: dict[str, Any], request_digest: str, runner_token: str
+) -> str:
+    arguments = [
+        sys.executable,
+        str(Path(__file__).resolve()),
+        "run-mutation",
+        str(_contract_path(event)),
+        request_digest,
+        runner_token,
+        _encoded_request(request),
+    ]
+    return subprocess.list2cmdline(arguments) if os.name == "nt" else shlex.join(arguments)
+
+
+def _prepare_mutation(event: dict[str, Any], raw: str) -> tuple[str, str]:
+    state = _read_contract_state(event)
+    if state.get("status") != "approved":
+        return "", "Approve the staged Click execution contract before mutation."
+    request, error = _validate_mutation_request(raw)
+    if error:
+        return "", error
+    assert request is not None
+    mutation_error = _mark_contract_mutated(event)
+    if mutation_error:
+        return "", mutation_error
+
+    state = _read_contract_state(event)
+    request_digest = _capability_digest(request)
+    runner_token = secrets.token_urlsafe(24)
+    state["mutation"] = {
+        "status": "running",
+        "request_digest": request_digest,
+        "runner_token_digest": hashlib.sha256(runner_token.encode()).hexdigest(),
+        "started_at": int(time.time()),
+        "last_exit_code": None,
+    }
+    _save_contract_state(event, state)
+    return _mutation_runner_command(
+        event, request, request_digest, runner_token
+    ), ""
 
 
 def _verification_runner_command(
@@ -1097,6 +1299,11 @@ def _prepare_verification(
     state = _read_contract_state(event)
     if state.get("status") != "approved":
         return "", "Approve the staged Click execution contract before verification."
+    mutation = state.get("mutation")
+    if _mutation_is_running(mutation):
+        return "", "Wait for the structured Click mutation to finish before verification."
+    if isinstance(mutation, dict) and mutation.get("status") == "running":
+        state["mutation"] = _fresh_mutation_state()
     verification = state.get("verification")
     if not isinstance(verification, dict):
         return "", "Click verification state is unavailable; stage and approve again."
@@ -1267,10 +1474,55 @@ def _is_read_only_tokens(tokens: list[str]) -> bool:
 
 
 def _is_read_only_bash(command: str) -> bool:
-    if not command.strip():
-        return False
-    segments = _shell_segments(command)
-    return segments is not None and all(_is_read_only_tokens(segment) for segment in segments)
+    request, _, _ = _inspection_request_from_bash(command)
+    return request is not None
+
+
+def _inspection_request_from_bash(
+    command: str,
+) -> tuple[dict[str, Any] | None, bool, str]:
+    if not command.strip() or "\n" in command or "\r" in command or "`" in command:
+        return None, False, ""
+    try:
+        lexer = shlex.shlex(
+            command,
+            posix=True,
+            punctuation_chars="".join(sorted(SHELL_CONTROL_PUNCTUATION)),
+        )
+        lexer.whitespace_split = True
+        lexer.commenters = ""
+        tokens = list(lexer)
+    except ValueError:
+        return None, False, ""
+
+    commands: list[list[str]] = [[]]
+    for token in tokens:
+        if token == "&&":
+            if not commands[-1]:
+                return None, False, ""
+            commands.append([])
+            continue
+        if token == "|":
+            return (
+                None,
+                False,
+                "Click structured inspection does not execute pipelines. Pass direct argv "
+                "commands or narrow the read instead.",
+            )
+        if token and set(token).issubset(SHELL_CONTROL_PUNCTUATION):
+            return None, False, ""
+        commands[-1].append(token)
+    if not commands[-1]:
+        return None, False, ""
+    raw = json.dumps(
+        {"version": CAPABILITY_PROTOCOL_VERSION, "commands": commands},
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+    request, broad, error = _validate_inspection_request(raw)
+    if error and "not a supported read-only argv operation" in error:
+        return None, False, ""
+    return request, broad, error
 
 
 def _is_plan_tool(tool_name: str) -> bool:
@@ -1289,8 +1541,10 @@ def _handle_prompt_submit() -> None:
             "explanations, and simple read-only inspection do not need a contract. For a "
             "read-only code review, run `click-gate review` before shell reads/searches; "
             "do not stage a build contract, and reuse successful evidence instead of "
-            "repeating reads or repository-wide inventory. Use `click-gate bypass` only "
-            "when the user explicitly opts out for the current turn."
+            "repeating reads or repository-wide inventory. During review or approved "
+            "implementation use versioned `click-gate inspect`, `click-gate mutate`, and "
+            "`click-gate verify` argv requests when direct Bash intent is ambiguous. Use "
+            "`click-gate bypass` only when the user explicitly opts out for the current turn."
         )
     elif default_mode == "manual":
         context = (
@@ -1371,6 +1625,43 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
                     _write_state(event, "idle")
                 _allow_rewritten(f"echo Click mode set to {value}")
                 return
+            if action == "inspect":
+                request, broad_inventory, inspection_error = (
+                    _validate_inspection_request(value)
+                )
+                if inspection_error:
+                    _deny(inspection_error)
+                    return
+                assert request is not None
+                current_status = _read_state(event).get("status")
+                if current_status in {"passed", "review"}:
+                    rewritten, inspection_error = _prepare_observation(
+                        event,
+                        request,
+                        broad_inventory,
+                        review=current_status == "review",
+                    )
+                    if inspection_error:
+                        _deny(inspection_error)
+                        return
+                else:
+                    rewritten = _inspection_once_runner_command(request)
+                _allow_rewritten(rewritten)
+                return
+            if action == "mutate":
+                current_status = _read_state(event).get("status")
+                if current_status != "passed" and _read_mode(event) != "strict":
+                    _deny(
+                        "Pass the approved Click execution contract in the current turn "
+                        "before starting a structured mutation."
+                    )
+                    return
+                rewritten, mutation_error = _prepare_mutation(event, value)
+                if mutation_error:
+                    _deny(mutation_error)
+                    return
+                _allow_rewritten(rewritten)
+                return
             if action == "verify":
                 current_status = _read_state(event).get("status")
                 if current_status != "passed" and _read_mode(event) != "strict":
@@ -1409,12 +1700,16 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
                         )
                         return
                     existing_contract = _read_contract_state(event)
-                    if existing_contract.get("status") == "approved":
+                    if (
+                        existing_contract.get("status") == "approved"
+                        and not _contract_is_completed(existing_contract)
+                    ):
                         _deny(
                             "Click is already executing one approved contract. Do not restage, "
-                            "replan, or replace it mid-run. Keep working inside that contract; "
-                            "if the approved outcome or authority is no longer sufficient, "
-                            "stop and report the blocker."
+                            "replan, or replace it mid-run. Finish its current revision and "
+                            "final verification before staging the next contract. If the "
+                            "approved outcome or authority is no longer sufficient, stop and "
+                            "report the blocker."
                         )
                         return
                     _write_contract_state(event, "staged", digest, contract)
@@ -1463,21 +1758,62 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
             )
         return
 
-    if tool_name == "Bash" and _is_read_only_bash(str(command)):
+    inspection_request: dict[str, Any] | None = None
+    broad_inventory = False
+    inspection_parse_error = ""
+    if tool_name == "Bash":
+        inspection_request, broad_inventory, inspection_parse_error = (
+            _inspection_request_from_bash(str(command))
+        )
+    if tool_name == "Bash" and inspection_request is not None:
         if status == "passed":
-            rewritten, observation_error = _prepare_observation(event, str(command))
+            rewritten, observation_error = _prepare_observation(
+                event, inspection_request, broad_inventory
+            )
             if observation_error:
                 _deny(observation_error)
                 return
             _allow_rewritten(rewritten)
         elif status == "review":
             rewritten, observation_error = _prepare_observation(
-                event, str(command), review=True
+                event, inspection_request, broad_inventory, review=True
             )
             if observation_error:
                 _deny(observation_error)
                 return
             _allow_rewritten(rewritten)
+        return
+
+    if tool_name == "Bash" and status in {"passed", "review"}:
+        if inspection_parse_error:
+            _deny(inspection_parse_error)
+            return
+        if status == "review":
+            _deny(
+                "Click review accepts only structured read-only argv operations. Use "
+                "`click-gate inspect '<Inspection JSON>'`; mutation and replanning remain "
+                "blocked during review."
+            )
+            return
+        contract_state = _read_contract_state(event)
+        verification = contract_state.get("verification")
+        if isinstance(verification, dict) and verification.get("status") == "running":
+            _deny(
+                "The final Click verification batch is running. Wait for it to finish "
+                "before starting another command or mutating the implementation."
+            )
+            return
+        if _is_recognized_verification_command(str(command)):
+            _deny(
+                "Click 0.14 final checks use `click-gate verify` with argv-based `checks` "
+                "and an explicit targeted, broad, or deep class."
+            )
+            return
+        _deny(
+            "Click does not guess whether this Bash command mutates the workspace. Use "
+            "`click-gate inspect` for read-only argv operations or `click-gate mutate` "
+            "for an approved implementation command."
+        )
         return
 
     if status == "review":
@@ -1502,21 +1838,6 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
                     "The final Click verification batch is running. Wait for it to finish "
                     "before starting another command or mutating the implementation."
                 )
-                return
-            if tool_name == "Bash" and _is_recognized_verification_command(str(command)):
-                if verification_status == "passed":
-                    _deny(
-                        "The approved final verification already passed. Click blocks "
-                        "additional verification until an in-scope mutation makes it stale."
-                    )
-                    return
-                if _is_broad_verification_command(str(command)):
-                    _deny(
-                        "Run broad, full-suite, security, coverage, benchmark, or end-to-end "
-                        "checks through `click-gate verify '<Verification Batch JSON>'` so "
-                        "the approved automatic budget can be enforced."
-                    )
-                    return
                 return
             mutation_error = _mark_contract_mutated(event)
             if mutation_error:
@@ -1551,21 +1872,6 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
             "Click for this turn, run "
             "`click-gate bypass`."
         )
-
-
-def _verification_shell_arguments(command: str) -> list[str]:
-    if os.name == "nt":
-        return [
-            "powershell.exe",
-            "-NoProfile",
-            "-NonInteractive",
-            "-Command",
-            command,
-        ]
-    shell = os.environ.get("SHELL", "")
-    if not shell or not Path(shell).is_file():
-        shell = "/bin/bash" if Path("/bin/bash").is_file() else "/bin/sh"
-    return [shell, "-lc" if Path(shell).name in {"bash", "zsh", "ksh"} else "-c", command]
 
 
 def _record_verification_result(
@@ -1666,52 +1972,124 @@ def _copy_limited_output(handle: Any, target: Any, remaining: int) -> int:
     return copied
 
 
-def _run_observation(arguments: list[str]) -> int:
-    if len(arguments) != 4:
-        sys.stderr.write(
-            "usage: click_gate.py run-observation <state> <digest> <token> <command>\n"
+def _decode_encoded_request(encoded: str, label: str) -> tuple[str, str]:
+    try:
+        return base64.urlsafe_b64decode(encoded.encode()).decode(), ""
+    except (ValueError, UnicodeDecodeError):
+        return "", f"Click {label} runner received an invalid request."
+
+
+def _execute_argv_commands(
+    commands: list[list[str]], stdout_file: Any | None = None, stderr_file: Any | None = None
+) -> int:
+    exit_code = 0
+    for argv in commands:
+        try:
+            result = subprocess.run(
+                argv,
+                stdout=stdout_file,
+                stderr=stderr_file,
+                check=False,
+            )
+            exit_code = int(result.returncode)
+        except OSError as exc:
+            message = f"Click could not start `{argv[0]}`: {exc}\n"
+            if stderr_file is None:
+                sys.stderr.write(message)
+            else:
+                stderr_file.write(message.encode())
+            exit_code = 127
+        if exit_code != 0:
+            break
+    return exit_code
+
+
+def _write_runner_stream(handle: Any | None, data: bytes, *, error: bool = False) -> None:
+    if handle is not None:
+        handle.write(data)
+        return
+    target = sys.stderr.buffer if error else sys.stdout.buffer
+    target.write(data)
+    target.flush()
+
+
+def _execute_native_get_content(
+    argv: list[str], stdout_file: Any | None, stderr_file: Any | None
+) -> int | None:
+    if Path(argv[0]).name.lower() != "get-content":
+        return None
+    paths: list[str] = []
+    skip_value = False
+    for argument in argv[1:]:
+        lowered = argument.lower()
+        if skip_value:
+            skip_value = False
+            continue
+        if lowered in {"-erroraction", "-encoding", "-readcount", "-totalcount", "-tail"}:
+            skip_value = True
+            continue
+        if lowered in {"-raw", "-force"}:
+            continue
+        if argument.startswith("-"):
+            return 2
+        paths.append(argument)
+    if not paths:
+        _write_runner_stream(
+            stderr_file, b"Click Get-Content inspection requires a file path.\n", error=True
         )
         return 2
-    state_path = Path(arguments[0])
-    command_digest, runner_token, encoded = arguments[1:]
     try:
-        command = base64.urlsafe_b64decode(encoded.encode()).decode()
-    except (ValueError, UnicodeDecodeError):
-        sys.stderr.write("Click observation runner received an invalid command.\n")
-        return 2
-    if _observation_digest(command) != command_digest:
-        sys.stderr.write("Click observation runner command digest did not match.\n")
-        return 2
+        for path in paths:
+            _write_runner_stream(stdout_file, Path(path).read_bytes())
+    except OSError as exc:
+        _write_runner_stream(
+            stderr_file, f"Click could not read {path}: {exc}\n".encode(), error=True
+        )
+        return 1
+    return 0
 
-    exit_code = 0
+
+def _execute_inspection_commands(
+    commands: list[list[str]], stdout_file: Any | None = None, stderr_file: Any | None = None
+) -> int:
+    for argv in commands:
+        native_result = _execute_native_get_content(argv, stdout_file, stderr_file)
+        if native_result is not None:
+            if native_result != 0:
+                return native_result
+            continue
+        exit_code = _execute_argv_commands([argv], stdout_file, stderr_file)
+        if exit_code != 0:
+            return exit_code
+    return 0
+
+
+def _run_inspection_request(
+    request: dict[str, Any], state_result: tuple[Path, str, str] | None = None
+) -> int:
+    commands = request["commands"]
     try:
         with tempfile.TemporaryFile() as stdout_file, tempfile.TemporaryFile() as stderr_file:
-            try:
-                result = subprocess.run(
-                    _verification_shell_arguments(command),
-                    stdout=stdout_file,
-                    stderr=stderr_file,
-                    check=False,
-                )
-                exit_code = int(result.returncode)
-            except OSError as exc:
-                stderr_file.write(f"Click could not start observation: {exc}\n".encode())
-                exit_code = 127
+            exit_code = _execute_inspection_commands(commands, stdout_file, stderr_file)
 
             stdout_bytes = stdout_file.tell()
             stderr_bytes = stderr_file.tell()
             output_bytes = stdout_bytes + stderr_bytes
             incomplete = output_bytes > MAX_OBSERVATION_OUTPUT_BYTES
-            if not _record_observation_result(
-                state_path,
-                command_digest,
-                runner_token,
-                exit_code,
-                output_bytes,
-                incomplete,
-            ):
-                sys.stderr.write("Click could not record the observation result safely.\n")
-                return exit_code or 2
+            if state_result is not None:
+                state_path, request_digest, runner_token = state_result
+                with _state_lock():
+                    recorded = _record_observation_result(
+                        state_path,
+                        request_digest,
+                        runner_token,
+                        exit_code,
+                        output_bytes,
+                        incomplete,
+                    )
+                if not recorded:
+                    sys.stderr.write("Click could not record the observation result safely.\n")
+                    return exit_code or 2
 
             stdout_file.seek(0)
             stderr_file.seek(0)
@@ -1737,6 +2115,109 @@ def _run_observation(arguments: list[str]) -> int:
     return exit_code
 
 
+def _run_inspection_once(arguments: list[str]) -> int:
+    if len(arguments) != 1:
+        sys.stderr.write("usage: click_gate.py run-inspection-once <request>\n")
+        return 2
+    raw, error = _decode_encoded_request(arguments[0], "inspection")
+    if error:
+        sys.stderr.write(f"{error}\n")
+        return 2
+    request, _, error = _validate_inspection_request(raw)
+    if error:
+        sys.stderr.write(f"{error}\n")
+        return 2
+    assert request is not None
+    return _run_inspection_request(request)
+
+
+def _run_observation(arguments: list[str]) -> int:
+    if len(arguments) != 4:
+        sys.stderr.write(
+            "usage: click_gate.py run-observation <state> <digest> <token> <request>\n"
+        )
+        return 2
+    state_path = Path(arguments[0])
+    request_digest, runner_token, encoded = arguments[1:]
+    raw, error = _decode_encoded_request(encoded, "observation")
+    if error:
+        sys.stderr.write(f"{error}\n")
+        return 2
+    request, _, error = _validate_inspection_request(raw)
+    if error:
+        sys.stderr.write(f"{error}\n")
+        return 2
+    assert request is not None
+    if _capability_digest(request) != request_digest:
+        sys.stderr.write("Click observation runner request digest did not match.\n")
+        return 2
+    return _run_inspection_request(
+        request, (state_path, request_digest, runner_token)
+    )
+
+
+def _record_mutation_result(
+    path: Path, request_digest: str, runner_token: str, exit_code: int
+) -> bool:
+    try:
+        state = json.loads(path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return False
+    mutation = state.get("mutation")
+    if not isinstance(mutation, dict) or mutation.get("status") != "running":
+        return False
+    if mutation.get("request_digest") != request_digest:
+        return False
+    token_digest = hashlib.sha256(runner_token.encode()).hexdigest()
+    if not secrets.compare_digest(
+        str(mutation.get("runner_token_digest", "")), token_digest
+    ):
+        return False
+    mutation.update(
+        {
+            "status": "passed" if exit_code == 0 else "failed",
+            "runner_token_digest": "",
+            "started_at": 0,
+            "last_exit_code": exit_code,
+        }
+    )
+    state["mutation"] = mutation
+    state["updated_at"] = int(time.time())
+    _write_json(path, state)
+    return True
+
+
+def _run_mutation(arguments: list[str]) -> int:
+    if len(arguments) != 4:
+        sys.stderr.write(
+            "usage: click_gate.py run-mutation <state> <digest> <token> <request>\n"
+        )
+        return 2
+    state_path = Path(arguments[0])
+    request_digest, runner_token, encoded = arguments[1:]
+    raw, error = _decode_encoded_request(encoded, "mutation")
+    if error:
+        sys.stderr.write(f"{error}\n")
+        return 2
+    request, error = _validate_mutation_request(raw)
+    if error:
+        sys.stderr.write(f"{error}\n")
+        return 2
+    assert request is not None
+    if _capability_digest(request) != request_digest:
+        sys.stderr.write("Click mutation runner request digest did not match.\n")
+        return 2
+    exit_code = _execute_argv_commands([request["argv"]])
+    with _state_lock():
+        recorded = _record_mutation_result(
+            state_path, request_digest, runner_token, exit_code
+        )
+    if not recorded:
+        sys.stderr.write("Click could not record the mutation result safely.\n")
+        return exit_code or 2
+    return exit_code
+
+
 def _run_verification(arguments: list[str]) -> int:
     if len(arguments) != 4:
         sys.stderr.write(
@@ -1745,43 +2226,55 @@ def _run_verification(arguments: list[str]) -> int:
         return 2
     state_path = Path(arguments[0])
     batch_digest, runner_token, encoded = arguments[1:]
+    raw, error = _decode_encoded_request(encoded, "verification")
+    if error:
+        sys.stderr.write(f"{error}\n")
+        return 2
     try:
-        decoded = base64.urlsafe_b64decode(encoded.encode()).decode()
-        batch = json.loads(decoded)
-    except (ValueError, UnicodeDecodeError, json.JSONDecodeError):
-        sys.stderr.write("Click verification runner received an invalid batch.\n")
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        scale = str(state["verification"]["scale"])
+    except (FileNotFoundError, KeyError, TypeError, json.JSONDecodeError, OSError):
+        sys.stderr.write("Click verification runner could not read its approved scale.\n")
         return 2
-    commands = batch.get("commands") if isinstance(batch, dict) else None
-    if not isinstance(commands, list) or not commands:
-        sys.stderr.write("Click verification runner received no commands.\n")
+    batch, _, error = _validate_verification_batch(raw, scale)
+    if error:
+        sys.stderr.write(f"{error}\n")
         return 2
+    assert batch is not None
+    if _capability_digest(batch) != batch_digest:
+        sys.stderr.write("Click verification runner batch digest did not match.\n")
+        return 2
+    checks = batch["checks"]
 
     exit_code = 0
-    for index, command in enumerate(commands, start=1):
-        if not isinstance(command, str):
-            exit_code = 2
-            break
-        print(f"[Click verification {index}/{len(commands)}] {command}", flush=True)
-        try:
-            result = subprocess.run(_verification_shell_arguments(command), check=False)
-            exit_code = int(result.returncode)
-        except OSError as exc:
-            sys.stderr.write(f"Click could not start verification: {exc}\n")
-            exit_code = 127
+    for index, check in enumerate(checks, start=1):
+        argv = check["argv"]
+        rendered = subprocess.list2cmdline(argv) if os.name == "nt" else shlex.join(argv)
+        print(
+            f"[Click verification {index}/{len(checks)}:{check['class']}] {rendered}",
+            flush=True,
+        )
+        exit_code = _execute_argv_commands([argv])
         if exit_code != 0:
             break
 
-    if not _record_verification_result(
-        state_path, batch_digest, runner_token, exit_code
-    ):
+    with _state_lock():
+        recorded = _record_verification_result(
+            state_path, batch_digest, runner_token, exit_code
+        )
+    if not recorded:
         sys.stderr.write("Click could not record the verification result safely.\n")
         return exit_code or 2
     return exit_code
 
 
 def main() -> int:
+    if len(sys.argv) >= 2 and sys.argv[1] == "run-inspection-once":
+        return _run_inspection_once(sys.argv[2:])
     if len(sys.argv) >= 2 and sys.argv[1] == "run-observation":
         return _run_observation(sys.argv[2:])
+    if len(sys.argv) >= 2 and sys.argv[1] == "run-mutation":
+        return _run_mutation(sys.argv[2:])
     if len(sys.argv) >= 2 and sys.argv[1] == "run-verification":
         return _run_verification(sys.argv[2:])
     if len(sys.argv) != 2 or sys.argv[1] not in {"pre-tool", "prompt-submit"}:
@@ -1792,7 +2285,8 @@ def main() -> int:
         if sys.argv[1] == "prompt-submit":
             _handle_prompt_submit()
         else:
-            _handle_pre_tool(event)
+            with _state_lock():
+                _handle_pre_tool(event)
     except (OSError, ValueError) as exc:
         sys.stderr.write(f"click hook error: {exc}\n")
         return 1

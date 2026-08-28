@@ -19,7 +19,7 @@ class RepositoryPolicyTests(unittest.TestCase):
             (ROOT / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8")
         )
         self.assertEqual(manifest["name"], "click")
-        self.assertEqual(manifest["version"], "0.13.0")
+        self.assertEqual(manifest["version"], "0.14.0")
         self.assertEqual(manifest["license"], "MIT")
         self.assertIn("always on", manifest["description"].lower())
         self.assertIn("manual", manifest["description"].lower())
@@ -32,6 +32,7 @@ class RepositoryPolicyTests(unittest.TestCase):
         self.assertIn("replanning", manifest["interface"]["longDescription"].lower())
         self.assertIn("anti-loop", manifest["keywords"])
         self.assertIn("@Click", manifest["description"])
+        self.assertIn("structured", manifest["description"].lower())
 
     def test_readmes_use_plugin_mention_as_the_default_invocation(self) -> None:
         for readme_name in ("README.md", "README.ko.md"):
@@ -63,6 +64,25 @@ class RepositoryPolicyTests(unittest.TestCase):
         self.assertIn("hidden reasoning", english)
         self.assertIn("실행 루프 없이 구현", korean)
         self.assertIn("숨은 추론", korean)
+
+    def test_readmes_document_structured_capabilities_and_shell_boundary(self) -> None:
+        english = (ROOT / "README.md").read_text(encoding="utf-8")
+        korean = (ROOT / "README.ko.md").read_text(encoding="utf-8")
+        protocol = (
+            ROOT
+            / "skills"
+            / "click"
+            / "references"
+            / "capability-protocol.md"
+        ).read_text(encoding="utf-8")
+        for document in (english, korean, protocol):
+            self.assertIn("click-gate inspect", document)
+            self.assertIn("click-gate mutate", document)
+            self.assertIn('"version":1', document)
+            self.assertIn("shell=False", document)
+        self.assertIn('"checks"', english)
+        self.assertIn('"checks"', korean)
+        self.assertIn("hosted tools", protocol)
 
     def test_marketplace_exposes_click_from_the_click_catalog(self) -> None:
         marketplace = json.loads(
@@ -170,7 +190,7 @@ class RepositoryPolicyTests(unittest.TestCase):
         suite = json.loads(
             (ROOT / "evals" / "ab-suite.json").read_text(encoding="utf-8")
         )
-        self.assertEqual(suite["schema_version"], 3)
+        self.assertEqual(suite["schema_version"], 4)
         self.assertEqual(
             suite["conditions"],
             ["no-plugin", "explicit-skill-only", "explicit-skill-and-hook"],
@@ -189,7 +209,7 @@ class RepositoryPolicyTests(unittest.TestCase):
         catalog = (
             ROOT / "evals" / "golden-prompts.yaml"
         ).read_text(encoding="utf-8")
-        self.assertIn("version: 12", catalog)
+        self.assertIn("version: 13", catalog)
         for case_id in (
             "unset-first-mutation-choice",
             "always-on-trivial-edit",
@@ -199,6 +219,9 @@ class RepositoryPolicyTests(unittest.TestCase):
             self.assertIn(f"id: {case_id}", catalog)
         self.assertIn("default_mode: manual", catalog)
         self.assertIn("default_mode: on", catalog)
+        self.assertIn("id: structured-capability-active-build", catalog)
+        self.assertIn("id: structured-capability-review", catalog)
+        self.assertIn("id: completed-contract-rollover", catalog)
 
 
 if __name__ == "__main__":
