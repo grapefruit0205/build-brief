@@ -34,7 +34,7 @@ Use Always ON for future software changes (recommended), or Manual only when I m
 @Click 添加订单取消功能。防止重复退款，并保持现有 API 兼容。
 ```
 
-之后你可以说“Set Click to Always ON”“Set Click to Manual”或“Skip Click for this task”。前两个偏好会持久保存在目标仓库之外；最后一个只对当前 turn 绕过 Click。Click 不会把偏好或契约文件放进你的项目。
+之后你可以说“Set Click to Always ON”或“Set Click to Manual”，这些偏好会持久保存在目标仓库之外。若只想绕过一个 turn，请把用户提示的第一行写成 `@Click bypass`，或使用自动补全形式 `[@Click](plugin://click@click) bypass`；Hook 只授权同一 turn 的一次 `click-gate bypass`，并保留活动契约。要丢弃活动契约，请使用对应的 `cancel` 形式来授权一次 `click-gate cancel`。`@Click` 标签和动作不区分大小写，但 plugin URI 必须完全匹配，指令行不能包含其他文字；实际任务可以从第二行继续。两种授权都不能重复使用或带到下一个 turn。Click 不会把偏好或契约文件放进你的项目。
 
 <details>
 <summary>从 Build Brief 或旧版 Click 升级</summary>
@@ -144,7 +144,8 @@ flowchart TB
 | 只做代码审查、不修复 | 不需要构建契约或批准；使用只读防循环守卫 |
 | 提问或解释 | 正常回答 |
 | 简单的只读查询 | 正常检查，不创建 observation ledger |
-| 用户明确选择退出 | 只在当前 turn 绕过 Click |
+| 第一行是普通或自动补全的 `@Click bypass` | 只在当前 turn 绕过 Click，并保留活动契约 |
+| 第一行是普通或自动补全的 `@Click cancel` | 清除活动契约一次 |
 
 代码审查期间，Click 会在需要时允许一次有用的全仓库清单读取。清单读取成功后，它会要求使用更窄范围的检查，阻止完全相同的成功读取或搜索，拒绝 plan 工具反复变动，并在审查守卫活动期间阻止项目 mutation。之后若要求修复发现的问题，则会启动一份独立的精简构建契约。
 

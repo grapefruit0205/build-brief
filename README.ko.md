@@ -34,7 +34,7 @@ ChatGPT 데스크톱 앱을 다시 시작하고 포함된 Click Hook을 검토�
 @Click 주문 취소 기능을 추가해줘. 중복 환불을 방지하고 기존 API 호환성을 유지해야 해.
 ```
 
-나중에 “Click을 Always ON으로 설정해줘” 또는 “Click을 Manual로 설정해줘”라고 바꿀 수 있고, 이 설정은 대상 저장소 밖에 유지됩니다. 정확히 한 turn만 우회하려면 사용자 프롬프트 첫 줄을 `@Click bypass`로 쓰며, Hook은 같은 turn의 `click-gate bypass` 한 번만 승인하고 active 계약은 그대로 보존합니다. active 계약 자체를 버리려면 첫 줄에 `@Click cancel`을 쓰고 같은 turn의 `click-gate cancel` 한 번을 사용합니다. 두 권한은 재사용하거나 다음 turn으로 가져갈 수 없습니다. Click은 프로젝트 안에 설정이나 계약 파일을 만들지 않습니다.
+나중에 “Click을 Always ON으로 설정해줘” 또는 “Click을 Manual로 설정해줘”라고 바꿀 수 있고, 이 설정은 대상 저장소 밖에 유지됩니다. 정확히 한 turn만 우회하려면 사용자 프롬프트 첫 줄에 `@Click bypass` 또는 자동완성 형식인 `[@Click](plugin://click@click) bypass`를 씁니다. Hook은 같은 turn의 `click-gate bypass` 한 번만 승인하고 active 계약은 그대로 보존합니다. active 계약을 버릴 때는 같은 형식의 `cancel` 명령으로 `click-gate cancel` 한 번을 승인합니다. `@Click` 이름과 명령의 대소문자는 구분하지 않지만 plugin URI는 정확히 일치해야 하며, 명령 줄에 다른 문구를 붙일 수 없습니다. 실제 작업 내용은 둘째 줄부터 이어서 쓸 수 있습니다. 두 권한은 재사용하거나 다음 turn으로 가져갈 수 없습니다. Click은 프로젝트 안에 설정이나 계약 파일을 만들지 않습니다.
 
 <details>
 <summary>Build Brief 또는 예전 Click 설치에서 이전하기</summary>
@@ -144,8 +144,8 @@ Click은 코드를 건드리기 전에 다음과 같은 축약 계약을 제시�
 | 수정 없는 코드 리뷰 | 구현 계약과 승인 없이 읽기 전용 anti-loop 안전망만 적용 |
 | 질문 또는 설명 | 평소처럼 바로 답변 |
 | 단순 읽기 전용 조회 | 관찰 기록을 만들지 않고 평소처럼 확인 |
-| 첫 줄이 `@Click bypass` | 해당 turn의 우회 한 번을 승인하고 active 계약은 유지 |
-| 첫 줄이 `@Click cancel` | active 계약을 지우는 cancel 한 번을 승인 |
+| 첫 줄이 일반 또는 자동완성 `@Click bypass` | 해당 turn의 우회 한 번을 승인하고 active 계약은 유지 |
+| 첫 줄이 일반 또는 자동완성 `@Click cancel` | active 계약을 지우는 cancel 한 번을 승인 |
 
 코드 리뷰에서는 필요하면 저장소 전체 목록을 처음 한 번 확인할 수 있습니다. 성공한 뒤에는 범위를 좁혀 확인해야 하며, 동일한 성공 읽기·검색과 두 번째 저장소 전체 목록 탐색을 차단합니다. 계획 도구 반복과 프로젝트 수정도 리뷰 모드에서는 거부합니다. 발견 사항을 나중에 고쳐 달라고 요청하면 별도의 축약 구현 계약을 시작합니다.
 
