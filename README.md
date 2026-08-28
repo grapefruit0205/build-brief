@@ -2,6 +2,8 @@
 
 English | [한국어](README.ko.md) | [简体中文](README.zh-CN.md)
 
+Community link: [LINUX DO](https://linux.do/)
+
 [![CI](https://github.com/grapefruit0205/click/actions/workflows/ci.yml/badge.svg)](https://github.com/grapefruit0205/click/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
