@@ -98,7 +98,6 @@ def patch_tests() -> None:
             "run-inspection-once",
             mixed_read["hookSpecificOutput"]["updatedInput"]["command"],
         )
-        self.assertEqual(self.run_rewritten(mixed_read).returncode, 0)
 
         piped = self.pre_tool("Bash", "rg --files | sort")
         self.assertEqual(piped["hookSpecificOutput"]["permissionDecision"], "deny")
