@@ -36,16 +36,24 @@ The review guard is intentionally narrower than the build gate. It observes stru
 
 ## Manual
 
-Ordinary work remains fail-open only while no Click contract is active. Apply Click when the user selects `@Click` or invokes `$click`; then run `click-gate arm` and use the normal compact-contract workflow. Once a proposal is staged, or approved but incomplete, that session contract blocks ordinary mutations and plan tools across later turns. On the approval or resume turn, arm and pass the exact same contract before editing. Current-revision completion or an explicit per-turn bypass releases unrelated later work.
+Ordinary work remains fail-open only while no Click contract is active. Apply Click when the user selects `@Click` or invokes `$click`; then run `click-gate arm` and use the normal compact-contract workflow. Once a proposal is staged, or approved but incomplete, that session contract blocks ordinary mutations and plan tools across later turns. On the approval or resume turn, arm and pass the exact same contract before editing. Ephemeral turn, review, prompt, and temporary session state may age out after seven days, but staged and approved-incomplete contracts are never removed by that cleanup. A per-turn bypass suspends enforcement only for its authorized turn; it does not release or erase an active contract.
 
-## Per-turn bypass
+## User-authorized bypass and cancel
 
-When the user explicitly asks not to use Click for the current turn, run:
+A bypass is authorized only when the first line of the current user prompt is exactly:
 
 ```text
-click-gate bypass
+@Click bypass
 ```
 
-This clears the current Click contract/review state and allows that turn to proceed normally. It does not change the persistent Always ON or Manual preference.
+Then run `click-gate bypass` once in that same turn. The authorization marker is one-use and cannot carry into another turn. Bypass leaves any staged or approved-incomplete contract intact; it only suspends Click enforcement for the authorized turn. The persistent Always ON or Manual preference is unchanged.
+
+To discard an active contract, the first line must instead be exactly:
+
+```text
+@Click cancel
+```
+
+Then run `click-gate cancel` once in that turn. Cancel clears the active contract and review state but does not change the persistent mode. A bare `click-gate bypass` or `click-gate cancel` without its matching user directive is denied.
 
 The legacy `click-gate mode strict|adaptive` command remains available as a session-only compatibility control. Prefer the persistent default modes for normal use.

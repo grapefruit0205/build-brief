@@ -79,7 +79,8 @@ MAX_OBSERVATION_ENTRIES = 64
 OBSERVATION_RUNNING_TTL_SECONDS = 10 * 60
 MUTATION_RUNNING_TTL_SECONDS = 10 * 60
 VERIFY_RUNNING_TTL_SECONDS = 60 * 60
-STATE_TTL_SECONDS = 7 * 24 * 60 * 60
+EPHEMERAL_STATE_TTL_SECONDS = 7 * 24 * 60 * 60
+COMPLETED_CONTRACT_TTL_SECONDS = 30 * 24 * 60 * 60
 STATE_LOCK_TIMEOUT_SECONDS = 5
 STATE_LOCK_STALE_SECONDS = 30
 DEFAULT_MODES = {"on", "manual"}
@@ -209,12 +210,10 @@ READ_ONLY_COMMANDS = {
 }
 
 READ_ONLY_GIT_SUBCOMMANDS = {
-    "cat-file",
     "check-ignore",
     "describe",
     "diff",
     "for-each-ref",
-    "grep",
     "log",
     "ls-files",
     "ls-tree",
@@ -222,6 +221,100 @@ READ_ONLY_GIT_SUBCOMMANDS = {
     "rev-parse",
     "show",
     "status",
+}
+
+GIT_DIFF_RENDERING_SUBCOMMANDS = {"diff", "log", "show"}
+GIT_GLOBAL_ALLOWED_PREFIXES = ("--git-dir=", "--work-tree=")
+GIT_GLOBAL_REJECTED_OPTIONS = {"-p", "--paginate", "-c", "--config-env"}
+GIT_READ_ONLY_EXACT_OPTIONS = {
+    "check-ignore": {
+        "-q", "--quiet", "-v", "--verbose", "--stdin", "-z", "--no-index",
+        "--non-matching",
+    },
+    "describe": {
+        "--always", "--tags", "--all", "--long", "--exact-match", "--contains",
+        "--debug", "--first-parent", "--broken",
+    },
+    "diff": {
+        "--cached", "--staged", "--check", "--quiet", "--exit-code", "--stat",
+        "--shortstat", "--numstat", "--name-only", "--name-status", "--summary",
+        "--binary", "--patch", "--no-patch", "--raw", "--minimal", "--patience",
+        "--histogram", "--no-color", "--relative", "--ignore-space-at-eol",
+        "--ignore-all-space", "--ignore-space-change", "--ignore-blank-lines", "-w",
+        "-b", "--no-ext-diff", "--no-textconv",
+    },
+    "for-each-ref": {"--ignore-case", "--omit-empty"},
+    "log": {
+        "--oneline", "--no-decorate", "--decorate", "--stat", "--shortstat",
+        "--numstat", "--name-only", "--name-status", "--summary", "--no-merges",
+        "--merges", "--first-parent", "--all", "--branches", "--tags", "--remotes",
+        "--reflog", "--reverse", "--topo-order", "--date-order", "--author-date-order",
+        "--parents", "--children", "--boundary", "--simplify-by-decoration",
+        "--full-history", "--simplify-merges", "--ancestry-path", "--follow",
+        "--no-patch", "--patch", "--abbrev-commit", "--no-color", "--no-ext-diff",
+        "--no-textconv",
+    },
+    "ls-files": {
+        "--cached", "--deleted", "--modified", "--others", "--ignored", "--stage",
+        "--unmerged", "--killed", "--directory", "--no-empty-directory", "--eol",
+        "--deduplicate", "--sparse", "--debug", "--exclude-standard", "--error-unmatch",
+        "-c", "-d", "-m", "-o", "-i", "-s", "-u", "-k", "-t", "-v", "-f", "-z",
+    },
+    "ls-tree": {
+        "-d", "-r", "-t", "-l", "--long", "-z", "--name-only", "--name-status",
+        "--object-only", "--full-name", "--full-tree",
+    },
+    "name-rev": {"--tags", "--all", "--stdin", "--name-only", "--no-undefined", "--always"},
+    "rev-parse": {
+        "--verify", "--short", "--abbrev-ref", "--symbolic-full-name", "--show-toplevel",
+        "--show-prefix", "--show-cdup", "--git-dir", "--is-inside-work-tree",
+        "--is-bare-repository", "--show-object-format", "--sq", "--revs-only",
+        "--no-revs", "--flags", "--no-flags", "--quiet", "-q",
+    },
+    "show": {
+        "--stat", "--shortstat", "--numstat", "--name-only", "--name-status", "--summary",
+        "--binary", "--patch", "--no-patch", "--raw", "--minimal", "--patience",
+        "--histogram", "--no-color", "--relative", "--ignore-space-at-eol",
+        "--ignore-all-space", "--ignore-space-change", "--ignore-blank-lines", "-w", "-b",
+        "--no-ext-diff", "--no-textconv", "--oneline", "--abbrev-commit",
+    },
+    "status": {
+        "--short", "--porcelain", "--branch", "--show-stash", "--long", "--verbose",
+        "--ignored", "--no-renames", "-s", "-b", "-v", "-vv", "-sb",
+    },
+}
+GIT_READ_ONLY_OPTION_PREFIXES = {
+    "check-ignore": ("--exclude-standard",),
+    "describe": ("--abbrev=", "--candidates=", "--match=", "--exclude="),
+    "diff": (
+        "--stat=", "--relative=", "--unified=", "--word-diff=", "--word-diff-regex=",
+        "--src-prefix=", "--dst-prefix=", "--line-prefix=", "--ignore-submodules=",
+        "--submodule=", "--diff-filter=",
+    ),
+    "for-each-ref": (
+        "--format=", "--sort=", "--count=", "--points-at=", "--merged=", "--no-merged=",
+        "--contains=", "--no-contains=",
+    ),
+    "log": (
+        "--format=", "--pretty=", "--date=", "--since=", "--after=", "--until=",
+        "--before=", "--author=", "--committer=", "--grep=", "--max-count=", "--skip=",
+        "--abbrev=", "--decorate=", "--stat=", "--relative=", "--unified=",
+        "--word-diff=", "--word-diff-regex=", "--src-prefix=", "--dst-prefix=",
+        "--line-prefix=", "--ignore-submodules=", "--submodule=", "--diff-filter=",
+    ),
+    "ls-files": (
+        "--exclude=", "--exclude-from=", "--exclude-per-directory=", "--format=",
+        "--with-tree=", "--abbrev=",
+    ),
+    "ls-tree": ("--format=", "--abbrev="),
+    "name-rev": ("--refs=", "--exclude="),
+    "rev-parse": ("--short=", "--abbrev-ref=", "--path-format=", "--disambiguate="),
+    "show": (
+        "--format=", "--pretty=", "--date=", "--stat=", "--relative=", "--unified=",
+        "--word-diff=", "--word-diff-regex=", "--src-prefix=", "--dst-prefix=",
+        "--line-prefix=", "--ignore-submodules=", "--submodule=", "--diff-filter=",
+    ),
+    "status": ("--porcelain=", "--ignored=", "--find-renames="),
 }
 
 SHELL_CONTROL_PUNCTUATION = set("();<>|&")
@@ -561,24 +654,63 @@ def _save_contract_state(event: dict[str, Any], state: dict[str, Any]) -> None:
     _write_json(_contract_path(event), state)
 
 
-def _record_user_prompt(event: dict[str, Any]) -> None:
+def _prompt_authorization(prompt: Any) -> str:
+    if not isinstance(prompt, str) or not prompt:
+        return ""
+    first_line = prompt.splitlines()[0] if prompt.splitlines() else ""
+    return {
+        "@Click bypass": "bypass",
+        "@Click cancel": "cancel",
+    }.get(first_line, "")
+
+
+def _record_user_prompt(event: dict[str, Any]) -> str:
     turn_id = str(event.get("turn_id", ""))
     if not turn_id:
         raise ValueError("Click requires the Codex turn_id on UserPromptSubmit")
+    authorization = _prompt_authorization(event.get("prompt", ""))
     _write_json(
         _prompt_path(event),
-        {"turn_id": turn_id, "updated_at": int(time.time())},
+        {
+            "turn_id": turn_id,
+            "authorization": authorization,
+            "updated_at": int(time.time()),
+        },
     )
+    return authorization
 
 
-def _read_user_prompt_turn(event: dict[str, Any]) -> str:
+def _read_user_prompt_state(event: dict[str, Any]) -> dict[str, Any]:
     try:
         value = json.loads(_prompt_path(event).read_text(encoding="utf-8"))
     except (FileNotFoundError, json.JSONDecodeError, OSError):
-        return ""
-    if not isinstance(value, dict):
-        return ""
-    return str(value.get("turn_id", ""))
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def _read_user_prompt_turn(event: dict[str, Any]) -> str:
+    return str(_read_user_prompt_state(event).get("turn_id", ""))
+
+
+def _consume_user_authorization(event: dict[str, Any], expected: str) -> str:
+    turn_id = str(event.get("turn_id", ""))
+    if not turn_id:
+        return f"Click {expected} requires a current Codex turn_id."
+    state = _read_user_prompt_state(event)
+    if str(state.get("turn_id", "")) != turn_id:
+        return (
+            f"Click {expected} requires an exact first-line `@Click {expected}` "
+            "directive in this user turn."
+        )
+    if state.get("authorization") != expected:
+        return (
+            f"Click {expected} requires an exact first-line `@Click {expected}` "
+            "directive in this user turn."
+        )
+    state["authorization"] = ""
+    state["updated_at"] = int(time.time())
+    _write_json(_prompt_path(event), state)
+    return ""
 
 
 def _active_prompt_turn_error(event: dict[str, Any]) -> str:
@@ -670,11 +802,26 @@ def _prune_state() -> None:
     root = _state_root()
     if not root.exists():
         return
-    cutoff = time.time() - STATE_TTL_SECONDS
+    now = time.time()
     for candidate in root.glob("*.json"):
         try:
-            if candidate.stat().st_mtime < cutoff:
-                candidate.unlink()
+            age = now - candidate.stat().st_mtime
+        except OSError:
+            continue
+        ttl = EPHEMERAL_STATE_TTL_SECONDS
+        if candidate.name.startswith("session-contract-"):
+            try:
+                value = json.loads(candidate.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                value = {}
+            if isinstance(value, dict) and _session_contract_is_active(value):
+                continue
+            if isinstance(value, dict) and _contract_is_completed(value):
+                ttl = COMPLETED_CONTRACT_TTL_SECONDS
+        if age <= ttl:
+            continue
+        try:
+            candidate.unlink()
         except OSError:
             continue
 
@@ -957,7 +1104,7 @@ def _control_request(command: str) -> tuple[str | None, str, str]:
         return None, "", f"Malformed {CONTROL_COMMAND} command: {exc}."
     if not tokens or tokens[0] != CONTROL_COMMAND:
         return None, "", ""
-    if len(tokens) == 2 and tokens[1] in {"arm", "bypass", "review"}:
+    if len(tokens) == 2 and tokens[1] in {"arm", "bypass", "cancel", "review"}:
         return tokens[1], "", ""
     if len(tokens) == 3 and tokens[1] == "default" and tokens[2] in {
         "on",
@@ -987,26 +1134,112 @@ def _control_request(command: str) -> tuple[str | None, str, str]:
         f"`{CONTROL_COMMAND} mutate '<Mutation JSON>'`, "
         f"`{CONTROL_COMMAND} verify '<Verification Batch JSON>'`, "
         f"`{CONTROL_COMMAND} review`, `{CONTROL_COMMAND} bypass`, "
+        f"`{CONTROL_COMMAND} cancel`, "
         f"`{CONTROL_COMMAND} default on|manual|status`, or "
         f"`{CONTROL_COMMAND} mode adaptive|strict`.",
     )
 
 
-def _git_subcommand(tokens: list[str]) -> str:
+def _git_option_allowed(subcommand: str, token: str) -> bool:
+    if token in GIT_READ_ONLY_EXACT_OPTIONS.get(subcommand, set()):
+        return True
+    if any(
+        token.startswith(prefix)
+        for prefix in GIT_READ_ONLY_OPTION_PREFIXES.get(subcommand, ())
+    ):
+        return True
+    if subcommand in GIT_DIFF_RENDERING_SUBCOMMANDS and re.fullmatch(r"-U\d+", token):
+        return True
+    if subcommand == "log" and re.fullmatch(r"-\d+", token):
+        return True
+    return False
+
+
+def _parse_read_only_git_tokens(
+    tokens: list[str],
+) -> tuple[list[str], str, list[str]] | None:
+    if not tokens or Path(tokens[0]).name.lower() not in {"git", "git.exe"}:
+        return None
+    global_arguments: list[str] = []
     index = 1
     while index < len(tokens):
         token = tokens[index]
-        if token == "-C" and index + 1 < len(tokens):
+        if token == "-C":
+            if index + 1 >= len(tokens):
+                return None
+            global_arguments.extend([token, tokens[index + 1]])
             index += 2
             continue
-        if token.startswith("--git-dir=") or token.startswith("--work-tree="):
+        if token.startswith(GIT_GLOBAL_ALLOWED_PREFIXES):
+            global_arguments.append(token)
             index += 1
             continue
+        if token in {"--no-pager", "--no-optional-locks"}:
+            index += 1
+            continue
+        if (
+            token in GIT_GLOBAL_REJECTED_OPTIONS
+            or token.startswith("--config-env=")
+            or (token.startswith("-c") and token != "-C")
+        ):
+            return None
         if token.startswith("-"):
-            index += 1
+            return None
+        subcommand = token
+        break
+    else:
+        return None
+
+    if subcommand not in READ_ONLY_GIT_SUBCOMMANDS:
+        return None
+    arguments = tokens[index + 1 :]
+    options_finished = False
+    for argument in arguments:
+        if options_finished:
             continue
-        return token
-    return ""
+        if argument == "--":
+            options_finished = True
+            continue
+        if argument.startswith("-") and not _git_option_allowed(subcommand, argument):
+            return None
+    return global_arguments, subcommand, arguments
+
+
+def _git_subcommand(tokens: list[str]) -> str:
+    parsed = _parse_read_only_git_tokens(tokens)
+    return parsed[1] if parsed is not None else ""
+
+
+def _sanitized_git_environment(
+    source: dict[str, str] | None = None,
+) -> dict[str, str]:
+    inherited = os.environ if source is None else source
+    environment = {
+        key: value
+        for key, value in inherited.items()
+        if not key.upper().startswith("GIT_")
+    }
+    environment["GIT_OPTIONAL_LOCKS"] = "0"
+    return environment
+
+
+def _build_read_only_git_argv(tokens: list[str]) -> tuple[list[str] | None, str]:
+    parsed = _parse_read_only_git_tokens(tokens)
+    if parsed is None:
+        return None, "Git argv is outside Click's supported read-only option policy."
+    global_arguments, subcommand, arguments = parsed
+    forced = ["--no-ext-diff", "--no-textconv"] if subcommand in GIT_DIFF_RENDERING_SUBCOMMANDS else []
+    return [
+        "git",
+        "--no-pager",
+        "--no-optional-locks",
+        "-c",
+        "core.fsmonitor=false",
+        *global_arguments,
+        subcommand,
+        *forced,
+        *arguments,
+    ], ""
 
 
 def _shell_segments(command: str) -> list[list[str]] | None:
@@ -1706,15 +1939,8 @@ def _is_read_only_tokens(tokens: list[str]) -> bool:
         return False
 
     executable = Path(tokens[0]).name.lower()
-    if executable == "git":
-        if _git_subcommand(tokens) not in READ_ONLY_GIT_SUBCOMMANDS:
-            return False
-        return not any(
-            token in {"--ext-diff", "--textconv"}
-            or token.startswith("--output")
-            or token.startswith("--open-files-in-pager")
-            for token in tokens[1:]
-        )
+    if executable in {"git", "git.exe"}:
+        return _parse_read_only_git_tokens(tokens) is not None
     if executable not in READ_ONLY_COMMANDS:
         return False
     if executable == "get-content":
@@ -1816,7 +2042,7 @@ def _is_plan_tool(tool_name: str) -> bool:
 
 def _handle_prompt_submit(event: dict[str, Any]) -> None:
     _prune_state()
-    _record_user_prompt(event)
+    authorization = _record_user_prompt(event)
     default_mode = _read_default_mode()
     if default_mode == "on":
         context = (
@@ -1850,6 +2076,12 @@ def _handle_prompt_submit(event: dict[str, Any]) -> None:
             "on` or `click-gate default manual`. Always ON gates later mutations behind one "
             "compact approval; Manual applies Click only when explicitly selected."
         )
+    if authorization:
+        context += (
+            f" The user's exact first-line `@Click {authorization}` directive authorizes "
+            f"one `click-gate {authorization}` in this turn only. Do not reuse that "
+            "authorization in another tool call or later turn."
+        )
     _emit(
         {
             "hookSpecificOutput": {
@@ -1879,10 +2111,24 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
                 return
             if action == "bypass":
                 _prune_state()
+                authorization_error = _consume_user_authorization(event, "bypass")
+                if authorization_error:
+                    _deny(authorization_error)
+                    return
                 _write_state(event, "bypassed")
-                _clear_contract_state(event)
                 _clear_review_state(event)
                 _allow_rewritten("echo Click bypassed for this turn")
+                return
+            if action == "cancel":
+                _prune_state()
+                authorization_error = _consume_user_authorization(event, "cancel")
+                if authorization_error:
+                    _deny(authorization_error)
+                    return
+                _clear_contract_state(event)
+                _clear_review_state(event)
+                _write_state(event, "idle")
+                _allow_rewritten("echo Click active contract cancelled")
                 return
             if action == "review":
                 _prune_state()
@@ -2086,6 +2332,8 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
                 return
 
     status = _read_state(event).get("status")
+    if status == "bypassed":
+        return
     if _is_plan_tool(tool_name):
         contract_state = _read_contract_state(event)
         session_contract_active = _session_contract_is_active(contract_state)
@@ -2130,6 +2378,11 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
                 _deny(observation_error)
                 return
             _allow_rewritten(rewritten)
+        elif any(
+            Path(argv[0]).name.lower() in {"git", "git.exe"}
+            for argv in inspection_request["commands"]
+        ):
+            _allow_rewritten(_inspection_once_runner_command(inspection_request))
         return
 
     if tool_name == "Bash" and status in {"passed", "review"}:
@@ -2222,7 +2475,9 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
             "then pass that same JSON. In Always ON mode, arm is optional because the "
             "persistent preference already activates the gate. If the user does not want "
             "Click for this turn, run "
-            "`click-gate bypass`."
+            "`click-gate bypass` only after the current user turn begins with the exact "
+            "first-line directive `@Click bypass`. Use `@Click cancel` plus `click-gate cancel` "
+            "to discard an active contract instead of bypassing it."
         )
 
 
@@ -2404,6 +2659,35 @@ def _execute_native_get_content(
     return 0
 
 
+def _execute_read_only_git(
+    argv: list[str], stdout_file: Any | None, stderr_file: Any | None
+) -> int:
+    safe_argv, error = _build_read_only_git_argv(argv)
+    if error or safe_argv is None:
+        _write_runner_stream(
+            stderr_file,
+            f"Click rejected Git inspection at execution time: {error}\n".encode(),
+            error=True,
+        )
+        return 2
+    try:
+        result = subprocess.run(
+            safe_argv,
+            stdout=stdout_file,
+            stderr=stderr_file,
+            env=_sanitized_git_environment(),
+            check=False,
+        )
+        return int(result.returncode)
+    except OSError as exc:
+        _write_runner_stream(
+            stderr_file,
+            f"Click could not start `git`: {exc}\n".encode(),
+            error=True,
+        )
+        return 127
+
+
 def _execute_inspection_commands(
     commands: list[list[str]], stdout_file: Any | None = None, stderr_file: Any | None = None
 ) -> int:
@@ -2413,7 +2697,10 @@ def _execute_inspection_commands(
             if native_result != 0:
                 return native_result
             continue
-        exit_code = _execute_argv_commands([argv], stdout_file, stderr_file)
+        if Path(argv[0]).name.lower() in {"git", "git.exe"}:
+            exit_code = _execute_read_only_git(argv, stdout_file, stderr_file)
+        else:
+            exit_code = _execute_argv_commands([argv], stdout_file, stderr_file)
         if exit_code != 0:
             return exit_code
     return 0
@@ -2576,8 +2863,16 @@ def _run_mutation(arguments: list[str]) -> int:
 def _git_capture(cwd: Path, arguments: list[str]) -> bytes | None:
     try:
         result = subprocess.run(
-            ["git", *arguments],
+            [
+                "git",
+                "--no-pager",
+                "--no-optional-locks",
+                "-c",
+                "core.fsmonitor=false",
+                *arguments,
+            ],
             cwd=cwd,
+            env=_sanitized_git_environment(),
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
             check=False,
@@ -2668,7 +2963,7 @@ def _git_workspace_snapshot(
     }
 
 
-def _new_untracked_requires_stale(relative: str) -> bool:
+def _new_untracked_is_suspicious(relative: str) -> bool:
     parts = [part.lower() for part in Path(relative).parts if part not in {"", "."}]
     if not parts:
         return False
@@ -2689,10 +2984,27 @@ def _new_untracked_requires_stale(relative: str) -> bool:
             "services",
         }:
             return True
-    return any(
+    if any(
         parts[index : index + 2] == ["db", "migrate"]
         for index in range(max(0, len(parts) - 1))
-    )
+    ):
+        return True
+    if len(parts) == 1:
+        name = parts[0]
+        suffix = Path(name).suffix.lower()
+        if suffix in {
+            ".c", ".cc", ".cpp", ".cs", ".go", ".h", ".hpp", ".java", ".js",
+            ".jsx", ".php", ".py", ".rb", ".rs", ".ts", ".tsx",
+        }:
+            return True
+        if name in {
+            "cargo.toml", "compose.yaml", "compose.yml", "docker-compose.yaml",
+            "docker-compose.yml", "dockerfile", "go.mod", "package-lock.json",
+            "package.json", "pnpm-lock.yaml", "pyproject.toml", "requirements.txt",
+            "yarn.lock",
+        }:
+            return True
+    return False
 
 
 def _run_verification(arguments: list[str]) -> int:
@@ -2755,18 +3067,19 @@ def _run_verification(arguments: list[str]) -> int:
                     f"{rendered_paths}. Review them before keeping the result.\n"
                 )
         suspicious_new = [
-            path for path in new_untracked if _new_untracked_requires_stale(path)
+            path for path in new_untracked if _new_untracked_is_suspicious(path)
         ]
         workspace_changed = (
             after is None
             or after["digest"] != before["digest"]
-            or bool(suspicious_new)
+            or bool(new_untracked)
         )
         if workspace_changed:
             if suspicious_new:
                 sys.stderr.write(
-                    "[Click] New source, configuration, or migration path appeared during "
-                    "verification; it is protected as an implementation mutation.\n"
+                    "[Click] A new path looks like source, configuration, or migration "
+                    "content; this classification is informational because every new "
+                    "non-ignored path already makes verification stale.\n"
                 )
             sys.stderr.write(
                 "[Click] Verification changed protected repository content. "
