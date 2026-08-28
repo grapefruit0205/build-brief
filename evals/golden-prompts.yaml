@@ -1,4 +1,4 @@
-version: 11
+version: 12
 skill: click
 evaluation_conditions:
   - no-plugin
@@ -30,6 +30,9 @@ evaluation_dimensions:
   - verification_scale
   - final_verification_batch
   - one_shot_execution
+  - default_mode_selection
+  - always_on_mutation_routing
+  - review_anti_loop
 grading_priority:
   correctness_gate: "The result must satisfy the requested observable behavior and material invariants before minimality is scored"
   optimization_target: "Among results that pass correctness, prefer the smallest justified design delta and greatest reuse of existing structure"
@@ -58,8 +61,11 @@ global_invariants:
   - "Compiles natural-language intent into an authoritative developer execution contract rather than selecting labels from a fixed catalog"
   - "Uses any software-design vocabulary the context requires and ties every term to a concrete implementation or verification consequence"
   - "Does not ask the user to provide technical terminology that can be inferred from the request and codebase"
-  - "Activates only after explicit plugin selection or `$click` invocation"
-  - "Treats equivalent build, design, implement, and do-it wording in any language as the same full workflow after explicit Click selection"
+  - "When unset, asks once for Always ON or Manual only before the first software mutation, never during questions, explanations, review, or simple inspection"
+  - "In Always ON, routes software mutations into the full contract workflow without requiring a mention; in Manual, activates only after `@Click` or `$click`"
+  - "Treats equivalent build, design, implement, and do-it wording in any language as the same full workflow whenever Click is active"
+  - "Routes code-review-only work in Always ON into a read-only anti-loop guard without a build contract or approval"
+  - "Leaves questions, explanations, and simple read-only lookups outside both the build contract and review observation ledger"
   - "Presents a compact developer execution contract and a faithful plain-language explanation before modifying code, tests, configuration, or schemas when Click is activated"
   - "Includes outcome, scoped boundary, must_hold, build.approach, verification scale and done_when, and plain_language without parallel plan, phase, step, task, minimality, or proof sections"
   - "Adds build.semantics, build.order, or an intermediate gate only when the work materially requires them"
@@ -76,13 +82,13 @@ global_invariants:
   - "Avoids serial technical preference questions by exposing consequential assumptions in the single contract review"
   - "Performs no implementation before the displayed developer execution contract is explicitly approved"
   - "Starts from the narrowest relevant repository evidence and widens only for unresolved consequential behavior"
-  - "Leaves every uninvoked and unarmed task unblocked"
-  - "Arms the mutation gate when explicit invocation activates Click"
+  - "Leaves every uninvoked Manual task unblocked and blocks the first unset mutation only to obtain the one persistent mode choice"
+  - "Gates supported mutations automatically in Always ON and arms the mutation gate when Manual invocation activates Click"
   - "Honors an explicit user opt-out immediately, including after the gate was armed"
   - "Enables session-wide strict blocking only when the user explicitly selects it"
   - "Never blocks covered read-only commands, including safe read-only pipelines"
   - "Stores runtime gate state outside the target repository and records no execution contract plaintext"
-  - "Adds no SessionStart or per-prompt context while unused"
+  - "Injects only concise mode-aware routing context per prompt and stores the persistent preference outside the target repository"
   - "Loads supporting references only when consequential unresolved behavior requires them"
   - "Supports explicit `$fix` invocation as a compact repair-contract workflow without auto-activating on ordinary bug reports"
 cases:
@@ -292,6 +298,7 @@ cases:
   - id: explicit-color-edit
     prompt: "Change the primary button from green to blue and leave everything else alone."
     expected_activation: false
+    default_mode: manual
     expected_mutation_gate: none-uninvoked
     reason: "This is a trivial explicit edit whose engineering implications are already clear."
     minimality_expectations:
@@ -302,6 +309,7 @@ cases:
   - id: uninvoked-consequential-change
     prompt: "Two people can edit the same project settings at once. Don't let one person's save silently erase the other's changes. Build the fix."
     expected_activation: false
+    default_mode: manual
     expected_mode: build
     expected_mutation_gate: none-uninvoked
     reason: "The request is consequential but did not explicitly select Click; normal model design and implementation should proceed without this Skill or Gate."
@@ -313,6 +321,7 @@ cases:
   - id: terminology-question
     prompt: "What is the difference between a monolith and microservices?"
     expected_activation: false
+    default_mode: on
     expected_mutation_gate: none
     reason: "This is an explanation request, not a request to translate intent into an execution directive."
     minimality_expectations:
@@ -323,12 +332,72 @@ cases:
   - id: isolated-typo
     prompt: "Fix the typo in the error message on line 42."
     expected_activation: false
+    default_mode: manual
     expected_mutation_gate: none-uninvoked
     reason: "This is a trivial fully specified correction."
     minimality_expectations:
       reuse: "The existing error-message location"
       reject_without_evidence:
         - "Any new abstraction, dependency, or architectural boundary"
+
+  - id: unset-first-mutation-choice
+    prompt: "Add a CSV export button to the existing report page."
+    default_mode: unset
+    expected_activation: mode-choice
+    expected_mode: build
+    expected_mutation_gate: choice-before-first-mutation
+    directive_semantics:
+      - "Asks once whether future software changes use Always ON or Manual and recommends Always ON"
+      - "Does not choose the persistent preference on the user's behalf"
+      - "Performs no mutation before the answer"
+    minimality_expectations:
+      reuse: "One short mode question without a design questionnaire"
+      reject_without_evidence:
+        - "A build contract before the user selects the mode"
+        - "Project-local preference state"
+
+  - id: always-on-trivial-edit
+    prompt: "Change the primary button from green to blue and leave everything else alone."
+    default_mode: on
+    expected_activation: true
+    expected_mode: build
+    expected_mutation_gate: none-before-approval
+    directive_semantics:
+      - "Uses an extremely short proportional contract because Always ON covers software mutations"
+      - "Keeps questions to the single contract approval and does not invent architecture"
+      - "Uses quick verification with one focused observable check"
+    minimality_expectations:
+      reuse: "The existing color token or button style"
+      reject_without_evidence:
+        - "A new design system, dependency, component, or abstraction"
+
+  - id: always-on-code-review
+    prompt: "Review the authentication middleware for concrete bugs. Do not change any files."
+    default_mode: on
+    expected_activation: true
+    expected_mode: review
+    expected_mutation_gate: read-only-review
+    directive_semantics:
+      - "Uses the read-only review guard without a build contract or approval prompt"
+      - "Allows initial repository context, then narrows inspection and reuses successful evidence"
+      - "Blocks repeated successful matched shell reads, a second successful root inventory, plan churn, and mutation"
+      - "Reports only evidence-backed findings"
+    minimality_expectations:
+      reuse: "The first useful inventory and focused authentication evidence"
+      reject_without_evidence:
+        - "A build contract, implementation plan, or file mutation"
+
+  - id: always-on-explanation
+    prompt: "Explain what idempotency means in a payment API."
+    default_mode: on
+    expected_activation: false
+    expected_mode: explanation
+    expected_mutation_gate: none
+    reason: "Always ON applies to software-changing work, not explanations."
+    minimality_expectations:
+      reuse: "A direct explanation without project inspection"
+      reject_without_evidence:
+        - "Any Click contract, review ledger, or approval prompt"
 
   - id: explicit-opt-out
     prompt: "Click 없이 이 기존 테스트의 이름만 더 명확하게 바꾸고 바로 진행해줘."

@@ -162,7 +162,7 @@ def _candidate_checks(case: dict[str, Any], candidate: Path) -> list[dict[str, A
         )
         checks.append(
             _check(
-                "v0.9.0 one-shot execution contract Hook",
+                "v0.13.0 persistent-mode and one-shot contract Hook",
                 _run(
                     [sys.executable, str(HOOK_TEST)],
                     cwd=ROOT,

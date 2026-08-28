@@ -1,20 +1,23 @@
 ---
 name: click
-description: When explicitly invoked for software work, compile repository-aware intent into one approval-bound execution contract, explain it plainly, then implement it in one shot with observable anti-loop guards and an automatically enforced verification budget. Never invoke implicitly.
+description: Compile repository-aware software intent into one approval-bound execution contract, explain it plainly, then implement it in one shot with anti-loop guards and an automatically enforced verification budget. Use when the user explicitly selects Click, or when Hook context says Click Always ON is enabled and the request will change software; use its read-only review guard for code review in Always ON mode. Do not use for questions, explanations, or simple inspection.
 ---
 
 # Click
 
 Translate the user's natural-language intent and actual repository context into the software-design and execution language the situation needs. Click is a semantic compiler and one-shot approval boundary, not a chooser over fixed architecture labels.
 
-## Activate only when explicitly selected
+## Respect the selected operating mode
 
-- Activate when the user selects or mentions `@Click`, or directly invokes the underlying `$click` Skill, for the current software work.
-- Treat “설계해줘”, “구현해줘”, “해줘”, “design it”, “build it”, and equivalent wording in any language as the same complete-contract workflow after explicit selection.
-- A question about Click is not an invocation. Never activate merely because work is large, architectural, vague, or risky.
-- If the user opts out after activation, run `click-gate bypass` and return to the ordinary workflow.
+- When Hook context reports `Always ON`, use the complete-contract workflow for software creation, modification, deletion, refactoring, or repair. Do not require `@Click`.
+- When Hook context reports `Manual`, activate only when the user selects or mentions `@Click`, or directly invokes `$click`.
+- When the mode is unset, do not interrupt questions, explanations, code review, or simple read-only inspection. Before the first software mutation, ask once whether to use **Always ON (recommended)** or **Manual**, then run `click-gate default on` or `click-gate default manual` after the answer.
+- Treat “설계해줘”, “구현해줘”, “해줘”, “design it”, “build it”, and equivalent wording in any language as the same complete-contract workflow when Click is active.
+- A question about Click is not a mutation request. If the user opts out for one active turn, run `click-gate bypass` and return to the ordinary workflow for that turn.
 
-Run `click-gate arm` before the first mutation. Read-only inspection remains available. Enable session-wide strict mode only when the user explicitly asks, with `click-gate mode strict`; otherwise keep adaptive mode.
+For a code-review-only request in Always ON mode, run `click-gate review`, inspect without a build contract or approval, reuse successful evidence, and report findings without changing files. Do not activate review mode for a simple lookup or explanation. If the user requests fixes as part of the same request, use the complete contract instead of review mode.
+
+Read [references/modes.md](references/modes.md) whenever choosing, changing, bypassing, or applying a mode. In Manual mode, run `click-gate arm` before staging. Always ON is already armed persistently. Read-only inspection remains available before the contract in either mode.
 
 ## Preserve intent without conducting a questionnaire
 
@@ -63,7 +66,7 @@ The original request is not approval of an unseen contract. Before approval, a r
 
 After explicit approval:
 
-1. Run `click-gate arm` in the approval turn.
+1. In Manual mode, run `click-gate arm` in the approval turn. In Always ON mode this is optional.
 2. Run `click-gate pass '<Execution Contract JSON>'` with the exact staged JSON.
 3. Implement continuously inside the approved semantic boundary without creating a new plan, restaging the contract, or reopening repository-wide inventory exploration.
 4. Submit the smallest sufficient final batch as `click-gate verify '{"commands":["<one shell command per entry>"]}'`. Do not chain checks inside one entry to hide their cost.
@@ -81,7 +84,7 @@ Stop only when completion needs authority the user has not granted, an irreversi
 
 Choose the smallest design that satisfies every invariant. No component category is forbidden. A new dependency, service, queue, store, MCP, grader, abstraction, or operational component is valid when it is a proportionate way to complete the approved work. Prefer existing structure when it is equally capable; do not add speculative architecture for hypothetical scale, teams, or reuse.
 
-The Hook validates contract shape, mutation ordering, exact staged-versus-passed equality, recognized observation loops, and visible verification breadth. It cannot see hidden reasoning, prose-only plans, connector reads outside its matcher, design truth, semantic implementation fidelity, or authentic human approval. If Hook enforcement is unavailable, preserve the same ordering at instruction level and disclose that fact.
+The Hook validates contract shape, mutation ordering, exact staged-versus-passed equality, recognized shell observation loops, and visible verification breadth. Its review guard covers matched shell reads and searches, not every possible connector read. It cannot see hidden reasoning, prose-only plans, connector reads outside its matcher, design truth, semantic implementation fidelity, or authentic human approval. If Hook enforcement is unavailable, preserve the same ordering at instruction level and disclose that fact.
 
 ## Communicate plainly
 

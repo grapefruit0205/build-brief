@@ -1,6 +1,6 @@
 # Execution Contract Presentation
 
-Use this format whenever an explicitly invoked Click contract is staged, shown, approved, implemented, or handed off. Keep every field proportional to the work.
+Use this format whenever an active Click contract is staged, shown, approved, implemented, or handed off, whether activation came from Always ON or an explicit Manual invocation. Keep every field proportional to the work.
 
 ## Canonical contract object
 

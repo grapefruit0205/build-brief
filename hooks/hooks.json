@@ -1,6 +1,19 @@
 {
-  "description": "Gate supported local mutations until an explicitly invoked Click execution contract has been staged, explained plainly, approved unchanged, and passed; then block observable exploration and replanning loops while metering one final verification batch within its automatic budget, with user opt-out and optional strict mode.",
+  "description": "Load the user's persistent Click mode, gate supported software mutations behind one approved compact contract in Always ON mode, preserve explicit activation in Manual mode, apply read-only anti-loop guards during code review, and meter one final verification batch within its automatic budget.",
   "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${PLUGIN_ROOT}/hooks/click_gate.py\" prompt-submit",
+            "commandWindows": "py -3 \"%PLUGIN_ROOT%\\hooks\\click_gate.py\" prompt-submit",
+            "timeout": 2,
+            "additionalContextLimit": 1400
+          }
+        ]
+      }
+    ],
     "PreToolUse": [
       {
         "matcher": "^(Bash|apply_patch|Edit|Write|update_plan|functions\\.update_plan)$",

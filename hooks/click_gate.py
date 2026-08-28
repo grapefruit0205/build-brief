@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """A small, local contract, mutation-order, anti-loop, and verification guard.
 
-The hook does not judge architecture quality, implementation choices, or Skill
-activation. It is fail-open until an explicitly invoked Click Skill arms the
-current turn, or until the user explicitly enables strict mode. After an
-approved contract, it also blocks observable exploration loops and meters one
-final verification batch.
+The hook does not judge architecture quality or implementation choices. It can
+persist an Always ON or Manual preference outside the target repository. Always
+ON gates supported software mutations behind one approved Click contract;
+Manual remains fail-open until Click is explicitly armed. A read-only review
+mode applies the observation anti-loop without requiring a build contract.
 """
 
 from __future__ import annotations
@@ -42,6 +42,7 @@ MAX_OBSERVATION_ENTRIES = 64
 OBSERVATION_RUNNING_TTL_SECONDS = 10 * 60
 VERIFY_RUNNING_TTL_SECONDS = 60 * 60
 STATE_TTL_SECONDS = 7 * 24 * 60 * 60
+DEFAULT_MODES = {"on", "manual"}
 
 VERIFICATION_EXECUTABLES = {
     "bandit",
@@ -234,12 +235,26 @@ def _state_root() -> Path:
     return Path(tempfile.gettempdir()) / "click-plugin-data" / "gate-state"
 
 
+def _preference_path() -> Path:
+    configured = os.environ.get("CLICK_CONFIG_HOME")
+    if configured:
+        return Path(configured) / "preferences.json"
+    if os.name == "nt":
+        base = os.environ.get("LOCALAPPDATA") or os.environ.get("APPDATA")
+        if base:
+            return Path(base) / "Click" / "preferences.json"
+    base = os.environ.get("XDG_CONFIG_HOME")
+    if base:
+        return Path(base) / "click" / "preferences.json"
+    return Path.home() / ".config" / "click" / "preferences.json"
+
+
 def _identity_path(event: dict[str, Any], scope: str) -> Path:
     identity = {
         "session_id": str(event.get("session_id", "")),
         "cwd": str(event.get("cwd", "")),
     }
-    if scope == "turn":
+    if scope in {"turn", "review"}:
         identity["turn_id"] = str(event.get("turn_id", ""))
     encoded = json.dumps(identity, sort_keys=True, separators=(",", ":")).encode()
     name = f"{scope}-{hashlib.sha256(encoded).hexdigest()}.json"
@@ -256,6 +271,10 @@ def _mode_path(event: dict[str, Any]) -> Path:
 
 def _contract_path(event: dict[str, Any]) -> Path:
     return _identity_path(event, "session-contract")
+
+
+def _review_path(event: dict[str, Any]) -> Path:
+    return _identity_path(event, "review")
 
 
 def _write_json(path: Path, payload: dict[str, Any]) -> None:
@@ -308,6 +327,25 @@ def _read_mode(event: dict[str, Any]) -> str:
     return "adaptive"
 
 
+def _write_default_mode(mode: str) -> None:
+    if mode not in DEFAULT_MODES:
+        raise ValueError(f"unsupported Click default mode: {mode}")
+    _write_json(
+        _preference_path(),
+        {"default_mode": mode, "updated_at": int(time.time())},
+    )
+
+
+def _read_default_mode() -> str:
+    try:
+        value = json.loads(_preference_path().read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return "unset"
+    if isinstance(value, dict) and value.get("default_mode") in DEFAULT_MODES:
+        return str(value["default_mode"])
+    return "unset"
+
+
 def _fresh_verification_state(contract: dict[str, Any]) -> dict[str, Any]:
     scale = str(contract["verification"]["scale"])
     return {
@@ -330,6 +368,37 @@ def _fresh_verification_state(contract: dict[str, Any]) -> dict[str, Any]:
 
 def _fresh_observation_state() -> dict[str, Any]:
     return {"entries": {}}
+
+
+def _write_review_state(event: dict[str, Any]) -> None:
+    _write_json(
+        _review_path(event),
+        {
+            "status": "review",
+            "observations": _fresh_observation_state(),
+            "updated_at": int(time.time()),
+        },
+    )
+
+
+def _read_review_state(event: dict[str, Any]) -> dict[str, Any]:
+    try:
+        value = json.loads(_review_path(event).read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return {"status": "none"}
+    return value if isinstance(value, dict) else {"status": "none"}
+
+
+def _save_review_state(event: dict[str, Any], state: dict[str, Any]) -> None:
+    state["updated_at"] = int(time.time())
+    _write_json(_review_path(event), state)
+
+
+def _clear_review_state(event: dict[str, Any]) -> None:
+    try:
+        _review_path(event).unlink()
+    except OSError:
+        pass
 
 
 def _write_contract_state(
@@ -610,8 +679,14 @@ def _control_request(command: str) -> tuple[str | None, str, str]:
         return None, "", f"Malformed {CONTROL_COMMAND} command: {exc}."
     if not tokens or tokens[0] != CONTROL_COMMAND:
         return None, "", ""
-    if len(tokens) == 2 and tokens[1] in {"arm", "bypass"}:
+    if len(tokens) == 2 and tokens[1] in {"arm", "bypass", "review"}:
         return tokens[1], "", ""
+    if len(tokens) == 3 and tokens[1] == "default" and tokens[2] in {
+        "on",
+        "manual",
+        "status",
+    }:
+        return "default", tokens[2], ""
     if len(tokens) == 3 and tokens[1] == "mode" and tokens[2] in {
         "adaptive",
         "strict",
@@ -625,7 +700,9 @@ def _control_request(command: str) -> tuple[str | None, str, str]:
         f"Use `{CONTROL_COMMAND} arm`, `{CONTROL_COMMAND} stage '<Execution Contract "
         f"JSON>'`, `{CONTROL_COMMAND} pass '<Execution Contract JSON>'`, "
         f"`{CONTROL_COMMAND} verify '<Verification Batch JSON>'`, "
-        f"`{CONTROL_COMMAND} bypass`, or `{CONTROL_COMMAND} mode adaptive|strict`.",
+        f"`{CONTROL_COMMAND} review`, `{CONTROL_COMMAND} bypass`, "
+        f"`{CONTROL_COMMAND} default on|manual|status`, or "
+        f"`{CONTROL_COMMAND} mode adaptive|strict`.",
     )
 
 
@@ -879,14 +956,14 @@ def _observation_digest(command: str) -> str:
 
 
 def _observation_runner_command(
-    event: dict[str, Any], command: str, command_digest: str, runner_token: str
+    state_path: Path, command: str, command_digest: str, runner_token: str
 ) -> str:
     encoded = base64.urlsafe_b64encode(command.encode()).decode()
     arguments = [
         sys.executable,
         str(Path(__file__).resolve()),
         "run-observation",
-        str(_contract_path(event)),
+        str(state_path),
         command_digest,
         runner_token,
         encoded,
@@ -894,8 +971,11 @@ def _observation_runner_command(
     return subprocess.list2cmdline(arguments) if os.name == "nt" else shlex.join(arguments)
 
 
-def _prepare_observation(event: dict[str, Any], command: str) -> tuple[str, str]:
-    if _is_broad_exploration_command(command):
+def _prepare_observation(
+    event: dict[str, Any], command: str, *, review: bool = False
+) -> tuple[str, str]:
+    broad_inventory = _is_broad_exploration_command(command)
+    if broad_inventory and not review:
         return (
             "",
             "Click blocked a repository-wide inventory rescan after approval. Narrow "
@@ -903,14 +983,22 @@ def _prepare_observation(event: dict[str, Any], command: str) -> tuple[str, str]
             "expand, stop and ask the user instead of reopening the whole repository.",
         )
 
-    state = _read_contract_state(event)
-    if state.get("status") != "approved":
-        return "", "Click observation state is unavailable; approve the contract again."
-    verification = state.get("verification")
-    if not isinstance(verification, dict):
-        return "", "Click verification state is unavailable; approve the contract again."
-    if verification.get("status") == "running":
-        return "", "The final Click verification batch is already running."
+    state_path = _review_path(event) if review else _contract_path(event)
+    if review:
+        state = _read_review_state(event)
+        if state.get("status") != "review":
+            return "", "Click review state is unavailable; activate review mode again."
+        revision = 0
+    else:
+        state = _read_contract_state(event)
+        if state.get("status") != "approved":
+            return "", "Click observation state is unavailable; approve the contract again."
+        verification = state.get("verification")
+        if not isinstance(verification, dict):
+            return "", "Click verification state is unavailable; approve the contract again."
+        if verification.get("status") == "running":
+            return "", "The final Click verification batch is already running."
+        revision = int(verification.get("mutation_revision", 0))
 
     observations = state.get("observations")
     if not isinstance(observations, dict):
@@ -920,7 +1008,20 @@ def _prepare_observation(event: dict[str, Any], command: str) -> tuple[str, str]
         entries = {}
 
     digest = _observation_digest(command)
-    revision = int(verification.get("mutation_revision", 0))
+    if review and broad_inventory:
+        for existing in entries.values():
+            if (
+                isinstance(existing, dict)
+                and existing.get("broad_inventory") is True
+                and existing.get("status") == "success"
+            ):
+                return (
+                    "",
+                    "Click review already completed one successful repository-wide "
+                    "inventory. Narrow the next read or search instead of rescanning "
+                    "the whole repository.",
+                )
+
     prior = entries.get(digest)
     unchanged_retries = 0
     if isinstance(prior, dict) and int(prior.get("revision", -1)) == revision:
@@ -959,13 +1060,17 @@ def _prepare_observation(event: dict[str, Any], command: str) -> tuple[str, str]
         "started_at": int(time.time()),
         "last_exit_code": None,
         "output_bytes": 0,
+        "broad_inventory": broad_inventory,
     }
     while len(entries) > MAX_OBSERVATION_ENTRIES:
         entries.pop(next(iter(entries)))
     observations["entries"] = entries
     state["observations"] = observations
-    _save_contract_state(event, state)
-    return _observation_runner_command(event, command, digest, runner_token), ""
+    if review:
+        _save_review_state(event, state)
+    else:
+        _save_contract_state(event, state)
+    return _observation_runner_command(state_path, command, digest, runner_token), ""
 
 
 def _verification_runner_command(
@@ -1173,6 +1278,45 @@ def _is_plan_tool(tool_name: str) -> bool:
     return normalized.split("__")[-1] == "update_plan"
 
 
+def _handle_prompt_submit() -> None:
+    _prune_state()
+    default_mode = _read_default_mode()
+    if default_mode == "on":
+        context = (
+            "Click Always ON is enabled. For software creation, modification, deletion, "
+            "or repair, compile the compact Click contract, explain it plainly, ask once, "
+            "and do not mutate until the exact staged contract is approved. Questions, "
+            "explanations, and simple read-only inspection do not need a contract. For a "
+            "read-only code review, run `click-gate review` before shell reads/searches; "
+            "do not stage a build contract, and reuse successful evidence instead of "
+            "repeating reads or repository-wide inventory. Use `click-gate bypass` only "
+            "when the user explicitly opts out for the current turn."
+        )
+    elif default_mode == "manual":
+        context = (
+            "Click Manual mode is enabled. Apply the Click contract workflow only when "
+            "the user explicitly selects @Click or $click. Ordinary software work and "
+            "code review remain fail-open unless explicitly activated."
+        )
+    else:
+        context = (
+            "Click is installed but its default mode is unset. Do not interrupt questions, "
+            "explanations, code review, or simple read-only inspection. Before the first "
+            "software creation, modification, deletion, or repair, ask once whether to use "
+            "Always ON (recommended) or Manual. After the answer, run `click-gate default "
+            "on` or `click-gate default manual`. Always ON gates later mutations behind one "
+            "compact approval; Manual applies Click only when explicitly selected."
+        )
+    _emit(
+        {
+            "hookSpecificOutput": {
+                "hookEventName": "UserPromptSubmit",
+                "additionalContext": context,
+            }
+        }
+    )
+
+
 def _handle_pre_tool(event: dict[str, Any]) -> None:
     tool_name = str(event.get("tool_name", ""))
     tool_input = event.get("tool_input")
@@ -1186,6 +1330,7 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
                 return
             if action == "arm":
                 _prune_state()
+                _clear_review_state(event)
                 _write_state(event, "armed")
                 _allow_rewritten("echo Click mutation gate armed")
                 return
@@ -1193,7 +1338,31 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
                 _prune_state()
                 _write_state(event, "bypassed")
                 _clear_contract_state(event)
+                _clear_review_state(event)
                 _allow_rewritten("echo Click bypassed for this turn")
+                return
+            if action == "review":
+                _prune_state()
+                current_status = _read_state(event).get("status")
+                if current_status in {"armed", "staged", "passed"}:
+                    _deny(
+                        "Click cannot enter read-only review mode while a build contract "
+                        "is active in this turn. Finish or explicitly bypass that workflow."
+                    )
+                    return
+                _write_review_state(event)
+                _write_state(event, "review")
+                _allow_rewritten("echo Click read-only review guard armed")
+                return
+            if action == "default":
+                _prune_state()
+                if value == "status":
+                    current = _read_default_mode()
+                    _allow_rewritten(f"echo Click default mode: {current}")
+                    return
+                _write_default_mode(value)
+                label = "Always ON" if value == "on" else "Manual"
+                _allow_rewritten(f"echo Click default mode set to {label}")
                 return
             if action == "mode":
                 _prune_state()
@@ -1228,8 +1397,13 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
 
                 current_status = _read_state(event).get("status")
                 strict = _read_mode(event) == "strict"
+                always_on = _read_default_mode() == "on"
                 if action == "stage":
-                    if current_status not in {"armed", "staged", "passed"} and not strict:
+                    if (
+                        current_status not in {"armed", "staged", "passed"}
+                        and not strict
+                        and not always_on
+                    ):
                         _deny(
                             "Arm Click before staging the execution contract for approval."
                         )
@@ -1248,7 +1422,7 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
                     _allow_rewritten("echo Click execution contract staged")
                     return
 
-                if current_status != "armed" and not strict:
+                if current_status != "armed" and not strict and not always_on:
                     _deny(
                         "Arm Click in the current turn before passing the approved "
                         "execution contract."
@@ -1281,6 +1455,12 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
                 "Click blocked a new plan after approval. Implement the approved compact "
                 "contract directly; only the user can change its outcome or boundary."
             )
+        elif status == "review":
+            _deny(
+                "Click blocked a plan during read-only review. Report findings from the "
+                "evidence already gathered; a later implementation request uses a separate "
+                "compact contract."
+            )
         return
 
     if tool_name == "Bash" and _is_read_only_bash(str(command)):
@@ -1290,6 +1470,22 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
                 _deny(observation_error)
                 return
             _allow_rewritten(rewritten)
+        elif status == "review":
+            rewritten, observation_error = _prepare_observation(
+                event, str(command), review=True
+            )
+            if observation_error:
+                _deny(observation_error)
+                return
+            _allow_rewritten(rewritten)
+        return
+
+    if status == "review":
+        _deny(
+            "Click review mode is read-only. Report the review findings without changing "
+            "the project. If the user asks for a fix, leave review mode and use a compact "
+            "Click build contract, or bypass Click for that turn when the user requests it."
+        )
         return
 
     if status in {"passed", "bypassed"}:
@@ -1327,16 +1523,32 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
                 _deny(mutation_error)
         return
 
-    if status in {"armed", "staged"} or _read_mode(event) == "strict":
+    default_mode = _read_default_mode()
+    if default_mode == "unset" and status == "idle":
         _deny(
-            "Click blocked this mutation because the activated execution contract has "
+            "Click needs its one-time default before the first software mutation. Ask the "
+            "user to choose Always ON (recommended) or Manual, then run `click-gate default "
+            "on` or `click-gate default manual`. Do not ask for this choice during questions, "
+            "explanations, code review, or simple read-only inspection."
+        )
+        return
+
+    if (
+        status in {"armed", "staged"}
+        or _read_mode(event) == "strict"
+        or default_mode == "on"
+    ):
+        _deny(
+            "Click blocked this mutation because the active execution contract has "
             "not been staged, explained plainly, explicitly approved, and matched for the "
             "current turn. Complete outcome, boundary.in_scope, boundary.out_of_scope, "
             "must_hold, build.approach, verification.scale, verification.done_when, and "
             "plain_language; add build.semantics, build.order, or an intermediate gate only "
             "when the work materially requires them; "
             "stage the exact JSON shown to the user, obtain approval, arm the approval turn, "
-            "then pass that same JSON. If the user does not want Click for this turn, run "
+            "then pass that same JSON. In Always ON mode, arm is optional because the "
+            "persistent preference already activates the gate. If the user does not want "
+            "Click for this turn, run "
             "`click-gate bypass`."
         )
 
@@ -1407,7 +1619,7 @@ def _record_observation_result(
         state = json.loads(path.read_text(encoding="utf-8"))
     except (FileNotFoundError, json.JSONDecodeError, OSError):
         return False
-    if state.get("status") != "approved":
+    if state.get("status") not in {"approved", "review"}:
         return False
     observations = state.get("observations")
     if not isinstance(observations, dict):
@@ -1572,12 +1784,15 @@ def main() -> int:
         return _run_observation(sys.argv[2:])
     if len(sys.argv) >= 2 and sys.argv[1] == "run-verification":
         return _run_verification(sys.argv[2:])
-    if len(sys.argv) != 2 or sys.argv[1] != "pre-tool":
-        sys.stderr.write("usage: click_gate.py pre-tool\n")
+    if len(sys.argv) != 2 or sys.argv[1] not in {"pre-tool", "prompt-submit"}:
+        sys.stderr.write("usage: click_gate.py pre-tool|prompt-submit\n")
         return 1
     try:
         event = _read_event()
-        _handle_pre_tool(event)
+        if sys.argv[1] == "prompt-submit":
+            _handle_prompt_submit()
+        else:
+            _handle_pre_tool(event)
     except (OSError, ValueError) as exc:
         sys.stderr.write(f"click hook error: {exc}\n")
         return 1

@@ -19,9 +19,10 @@ class RepositoryPolicyTests(unittest.TestCase):
             (ROOT / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8")
         )
         self.assertEqual(manifest["name"], "click")
-        self.assertEqual(manifest["version"], "0.12.1")
+        self.assertEqual(manifest["version"], "0.13.0")
         self.assertEqual(manifest["license"], "MIT")
-        self.assertIn("explicit", manifest["description"].lower())
+        self.assertIn("always on", manifest["description"].lower())
+        self.assertIn("manual", manifest["description"].lower())
         self.assertIn("plain-language", manifest["description"].lower())
         self.assertIn("execution contract", manifest["description"].lower())
         self.assertIn("compact", manifest["description"].lower())
@@ -72,7 +73,7 @@ class RepositoryPolicyTests(unittest.TestCase):
         self.assertEqual(marketplace["name"], "click")
         self.assertEqual(marketplace["plugins"][0]["name"], "click")
 
-    def test_click_and_fix_are_explicit_only_skills(self) -> None:
+    def test_click_supports_always_on_while_fix_remains_explicit(self) -> None:
         for skill_name in ("click", "fix"):
             with self.subTest(skill=skill_name):
                 skill_root = ROOT / "skills" / skill_name
@@ -82,9 +83,32 @@ class RepositoryPolicyTests(unittest.TestCase):
                 )
                 self.assertIn(f"name: {skill_name}", skill_text)
                 self.assertIn(f"${skill_name}", metadata)
-                self.assertIn("allow_implicit_invocation: false", metadata)
                 self.assertNotIn("[TODO:", skill_text)
                 self.assertIn("click-gate verify", skill_text)
+        click_metadata = (
+            ROOT / "skills" / "click" / "agents" / "openai.yaml"
+        ).read_text(encoding="utf-8")
+        fix_metadata = (
+            ROOT / "skills" / "fix" / "agents" / "openai.yaml"
+        ).read_text(encoding="utf-8")
+        self.assertIn("allow_implicit_invocation: true", click_metadata)
+        self.assertIn("allow_implicit_invocation: false", fix_metadata)
+
+    def test_persistent_modes_and_read_only_review_are_documented(self) -> None:
+        modes = (
+            ROOT / "skills" / "click" / "references" / "modes.md"
+        ).read_text(encoding="utf-8")
+        hook_config = json.loads(
+            (ROOT / "hooks" / "hooks.json").read_text(encoding="utf-8")
+        )
+        for phrase in (
+            "click-gate default on",
+            "click-gate default manual",
+            "click-gate review",
+            "click-gate bypass",
+        ):
+            self.assertIn(phrase, modes)
+        self.assertIn("UserPromptSubmit", hook_config["hooks"])
 
     def test_runtime_hook_has_no_external_python_dependency(self) -> None:
         source = (ROOT / "hooks" / "click_gate.py").read_text(encoding="utf-8")
@@ -160,6 +184,21 @@ class RepositoryPolicyTests(unittest.TestCase):
             case for case in suite["cases"] if case["expected_activation"]
         )
         self.assertTrue(approval_case["approval_followup"])
+
+    def test_golden_cases_cover_always_on_manual_and_review_routing(self) -> None:
+        catalog = (
+            ROOT / "evals" / "golden-prompts.yaml"
+        ).read_text(encoding="utf-8")
+        self.assertIn("version: 12", catalog)
+        for case_id in (
+            "unset-first-mutation-choice",
+            "always-on-trivial-edit",
+            "always-on-code-review",
+            "always-on-explanation",
+        ):
+            self.assertIn(f"id: {case_id}", catalog)
+        self.assertIn("default_mode: manual", catalog)
+        self.assertIn("default_mode: on", catalog)
 
 
 if __name__ == "__main__":

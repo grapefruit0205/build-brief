@@ -44,6 +44,7 @@ class ClickGateTests(unittest.TestCase):
     ) -> tuple[subprocess.CompletedProcess[str], dict | None]:
         environment = os.environ.copy()
         environment["PLUGIN_DATA"] = str(self.plugin_data)
+        environment["CLICK_CONFIG_HOME"] = str(self.plugin_data)
         result = subprocess.run(
             [sys.executable, str(SCRIPT), mode],
             input=json.dumps(event),
@@ -66,6 +67,17 @@ class ClickGateTests(unittest.TestCase):
         }
         result, payload = self.run_hook("pre-tool", event)
         self.assertEqual(result.returncode, 0, result.stderr)
+        return payload
+
+    def prompt_submit(self, prompt: str = "review this code") -> dict:
+        event = {
+            **self.base_event,
+            "hook_event_name": "UserPromptSubmit",
+            "prompt": prompt,
+        }
+        result, payload = self.run_hook("prompt-submit", event)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIsNotNone(payload)
         return payload
 
     def contract(self) -> dict:
@@ -141,6 +153,18 @@ class ClickGateTests(unittest.TestCase):
         self.assertIsNotNone(payload)
         return payload
 
+    def set_default(self, mode: str, turn_id: str = "turn-1") -> dict:
+        payload = self.pre_tool(
+            "Bash", f"click-gate default {mode}", turn_id
+        )
+        self.assertIsNotNone(payload)
+        return payload
+
+    def start_review(self, turn_id: str = "turn-1") -> dict:
+        payload = self.pre_tool("Bash", "click-gate review", turn_id)
+        self.assertIsNotNone(payload)
+        return payload
+
     def verification_command(self, exit_code: int = 0) -> str:
         arguments = [sys.executable, "-c", f"raise SystemExit({exit_code})"]
         return subprocess.list2cmdline(arguments) if os.name == "nt" else shlex.join(arguments)
@@ -164,6 +188,7 @@ class ClickGateTests(unittest.TestCase):
         command = payload["hookSpecificOutput"]["updatedInput"]["command"]
         environment = os.environ.copy()
         environment["PLUGIN_DATA"] = str(self.plugin_data)
+        environment["CLICK_CONFIG_HOME"] = str(self.plugin_data)
         return subprocess.run(
             command,
             shell=True,
@@ -174,11 +199,15 @@ class ClickGateTests(unittest.TestCase):
             check=False,
         )
 
-    def test_hook_config_has_no_session_or_prompt_context_injection(self) -> None:
+    def test_hook_config_loads_mode_for_each_prompt(self) -> None:
         config = json.loads(HOOK_CONFIG.read_text(encoding="utf-8"))
         hooks = config["hooks"]
         self.assertNotIn("SessionStart", hooks)
-        self.assertNotIn("UserPromptSubmit", hooks)
+        self.assertIn("UserPromptSubmit", hooks)
+        prompt_handler = hooks["UserPromptSubmit"][0]["hooks"][0]
+        self.assertTrue(
+            prompt_handler["command"].endswith('click_gate.py" prompt-submit')
+        )
         self.assertEqual(
             hooks["PreToolUse"][0]["matcher"],
             "^(Bash|apply_patch|Edit|Write|update_plan|functions\\.update_plan)$",
@@ -204,11 +233,64 @@ class ClickGateTests(unittest.TestCase):
             self.pre_tool("Bash", "git status --short | head -20")
         )
 
-    def test_uninvoked_hook_allows_unarmed_mutations(self) -> None:
+    def test_unset_default_blocks_first_mutation_and_requests_one_choice(self) -> None:
+        payload = self.pre_tool("apply_patch", "*** Begin Patch\n*** End Patch")
+        self.assertEqual(payload["hookSpecificOutput"]["permissionDecision"], "deny")
+        reason = payload["hookSpecificOutput"]["permissionDecisionReason"]
+        self.assertIn("Always ON", reason)
+        self.assertIn("Manual", reason)
+
+    def test_manual_default_persists_and_keeps_uninvoked_mutations_fail_open(self) -> None:
+        setting = self.set_default("manual")
+        self.assertEqual(
+            setting["hookSpecificOutput"]["updatedInput"]["command"],
+            "echo Click default mode set to Manual",
+        )
         self.assertIsNone(
             self.pre_tool("apply_patch", "*** Begin Patch\n*** End Patch")
         )
-        self.assertIsNone(self.pre_tool("Bash", "python3 update_schema.py"))
+        self.assertIsNone(
+            self.pre_tool("Bash", "python3 update_schema.py", turn_id="turn-2")
+        )
+
+    def test_always_on_default_persists_and_gates_later_mutations(self) -> None:
+        setting = self.set_default("on")
+        self.assertEqual(
+            setting["hookSpecificOutput"]["updatedInput"]["command"],
+            "echo Click default mode set to Always ON",
+        )
+        payload = self.pre_tool(
+            "apply_patch", "*** Begin Patch\n*** End Patch", turn_id="turn-2"
+        )
+        self.assertEqual(payload["hookSpecificOutput"]["permissionDecision"], "deny")
+        self.assertIn(
+            "active execution contract",
+            payload["hookSpecificOutput"]["permissionDecisionReason"],
+        )
+
+    def test_default_preference_stays_outside_the_target_repository(self) -> None:
+        self.set_default("on")
+        preference = self.plugin_data / "preferences.json"
+        self.assertTrue(preference.is_file())
+        self.assertFalse((self.workspace / "preferences.json").exists())
+        stored = json.loads(preference.read_text(encoding="utf-8"))
+        self.assertEqual(stored["default_mode"], "on")
+        self.assertEqual(set(stored), {"default_mode", "updated_at"})
+
+    def test_prompt_context_reflects_persistent_default(self) -> None:
+        unset = self.prompt_submit()["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("mode is unset", unset)
+        self.assertIn("Always ON (recommended)", unset)
+
+        self.set_default("on")
+        always_on = self.prompt_submit()["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("Always ON is enabled", always_on)
+        self.assertIn("read-only code review", always_on)
+
+        self.set_default("manual")
+        manual = self.prompt_submit()["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("Manual mode is enabled", manual)
+        self.assertIn("explicitly selects", manual)
 
     def test_uninvoked_plan_and_exploration_remain_fail_open(self) -> None:
         self.assertIsNone(self.pre_tool("update_plan", ""))
@@ -245,6 +327,7 @@ class ClickGateTests(unittest.TestCase):
         )
         self.assertEqual(payload["hookSpecificOutput"]["permissionDecision"], "deny")
         self.set_mode("adaptive", turn_id="turn-2")
+        self.set_default("manual", turn_id="turn-2")
         self.assertIsNone(
             self.pre_tool(
                 "apply_patch", "*** Begin Patch\n*** End Patch", turn_id="turn-2"
@@ -495,6 +578,81 @@ class ClickGateTests(unittest.TestCase):
         self.assertEqual(
             stale_retry["hookSpecificOutput"]["permissionDecision"], "allow"
         )
+
+    def test_review_mode_needs_no_contract_and_blocks_repeated_successful_reads(self) -> None:
+        self.set_default("on")
+        review = self.start_review()
+        self.assertEqual(
+            review["hookSpecificOutput"]["updatedInput"]["command"],
+            "echo Click read-only review guard armed",
+        )
+        (self.workspace / "review.py").write_text("value = 1\n", encoding="utf-8")
+        command = self.read_file_command("review.py")
+        first = self.pre_tool("Bash", command)
+        self.assertEqual(first["hookSpecificOutput"]["permissionDecision"], "allow")
+        self.assertEqual(self.run_rewritten(first).returncode, 0)
+
+        repeated = self.pre_tool("Bash", command)
+        self.assertEqual(
+            repeated["hookSpecificOutput"]["permissionDecision"], "deny"
+        )
+        self.assertIn(
+            "identical successful read",
+            repeated["hookSpecificOutput"]["permissionDecisionReason"],
+        )
+
+    def test_review_mode_allows_one_root_inventory_then_requires_narrowing(self) -> None:
+        self.set_default("on")
+        self.start_review()
+        (self.workspace / "review.py").write_text("value = 1\n", encoding="utf-8")
+        first = self.pre_tool("Bash", "rg --files")
+        self.assertEqual(first["hookSpecificOutput"]["permissionDecision"], "allow")
+        self.assertEqual(self.run_rewritten(first).returncode, 0)
+
+        second = self.pre_tool("Bash", "find . -maxdepth 2 -type f")
+        self.assertEqual(second["hookSpecificOutput"]["permissionDecision"], "deny")
+        self.assertIn(
+            "one successful repository-wide inventory",
+            second["hookSpecificOutput"]["permissionDecisionReason"],
+        )
+
+    def test_review_mode_is_read_only_and_blocks_plan_churn(self) -> None:
+        self.set_default("on")
+        self.start_review()
+        mutation = self.pre_tool("apply_patch", "*** Begin Patch\n*** End Patch")
+        self.assertEqual(
+            mutation["hookSpecificOutput"]["permissionDecision"], "deny"
+        )
+        self.assertIn("read-only", mutation["hookSpecificOutput"]["permissionDecisionReason"])
+
+        plan = self.pre_tool("update_plan", "")
+        self.assertEqual(plan["hookSpecificOutput"]["permissionDecision"], "deny")
+        self.assertIn("during read-only review", plan["hookSpecificOutput"]["permissionDecisionReason"])
+
+    def test_simple_read_only_inspection_is_not_tracked_outside_review(self) -> None:
+        self.set_default("on")
+        (self.workspace / "readme.txt").write_text("hello\n", encoding="utf-8")
+        command = self.read_file_command("readme.txt")
+        self.assertIsNone(self.pre_tool("Bash", command))
+        self.assertIsNone(self.pre_tool("Bash", command))
+
+    def test_always_on_bypass_is_limited_to_the_current_turn(self) -> None:
+        self.set_default("on")
+        self.bypass_gate()
+        self.assertIsNone(
+            self.pre_tool("apply_patch", "*** Begin Patch\n*** End Patch")
+        )
+        blocked = self.pre_tool(
+            "apply_patch", "*** Begin Patch\n*** End Patch", turn_id="turn-2"
+        )
+        self.assertEqual(blocked["hookSpecificOutput"]["permissionDecision"], "deny")
+
+    def test_always_on_can_stage_and_pass_without_explicit_arm(self) -> None:
+        self.set_default("on")
+        staged = self.stage_gate(turn_id="turn-1")
+        self.assertEqual(staged["hookSpecificOutput"]["permissionDecision"], "allow")
+        passed = self.pass_gate(turn_id="turn-2")
+        self.assertEqual(passed["hookSpecificOutput"]["permissionDecision"], "allow")
 
     def test_identical_successful_read_is_blocked_until_mutation(self) -> None:
         (self.workspace / "README.md").write_text("hello\n", encoding="utf-8")
@@ -750,6 +908,7 @@ class ClickGateTests(unittest.TestCase):
         )
 
     def test_uninvoked_verification_remains_fail_open(self) -> None:
+        self.set_default("manual")
         self.assertIsNone(
             self.pre_tool("Bash", "python3 -m unittest discover -s tests")
         )
