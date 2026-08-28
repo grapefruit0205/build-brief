@@ -31,6 +31,16 @@ class ClickGateTests(unittest.TestCase):
         self.plugin_data = Path(self.temporary.name) / "plugin-data"
         self.workspace = Path(self.temporary.name) / "workspace"
         self.workspace.mkdir()
+        self.submitted_turns: set[str] = set()
+        (self.workspace / "verification_fixture.py").write_text(
+            "import unittest\n\n"
+            "class VerificationFixture(unittest.TestCase):\n"
+            "    def test_pass(self):\n"
+            "        self.assertTrue(True)\n\n"
+            "    def test_fail(self):\n"
+            "        self.fail('expected verification failure')\n",
+            encoding="utf-8",
+        )
         self.base_event = {
             "session_id": "session-1",
             "turn_id": "turn-1",
@@ -56,7 +66,16 @@ class ClickGateTests(unittest.TestCase):
         payload = json.loads(result.stdout) if result.stdout else None
         return result, payload
 
-    def pre_tool(self, tool_name: str, command: str, turn_id: str = "turn-1") -> dict | None:
+    def pre_tool(
+        self,
+        tool_name: str,
+        command: str,
+        turn_id: str = "turn-1",
+        *,
+        submit_prompt: bool = True,
+    ) -> dict | None:
+        if submit_prompt and turn_id not in self.submitted_turns:
+            self.prompt_submit("test user request", turn_id)
         event = {
             **self.base_event,
             "turn_id": turn_id,
@@ -69,15 +88,19 @@ class ClickGateTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         return payload
 
-    def prompt_submit(self, prompt: str = "review this code") -> dict:
+    def prompt_submit(
+        self, prompt: str = "review this code", turn_id: str = "turn-1"
+    ) -> dict:
         event = {
             **self.base_event,
+            "turn_id": turn_id,
             "hook_event_name": "UserPromptSubmit",
             "prompt": prompt,
         }
         result, payload = self.run_hook("prompt-submit", event)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIsNotNone(payload)
+        self.submitted_turns.add(turn_id)
         return payload
 
     def contract(self) -> dict:
@@ -166,7 +189,43 @@ class ClickGateTests(unittest.TestCase):
         return payload
 
     def verification_argv(self, exit_code: int = 0) -> list[str]:
-        return [sys.executable, "-c", f"raise SystemExit({exit_code})"]
+        test_name = "test_pass" if exit_code == 0 else "test_fail"
+        return [
+            sys.executable,
+            "-m",
+            "unittest",
+            f"verification_fixture.VerificationFixture.{test_name}",
+        ]
+
+    def initialize_git(self, *tracked_paths: str) -> None:
+        initialized = subprocess.run(
+            ["git", "init", "--quiet"],
+            cwd=self.workspace,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(initialized.returncode, 0, initialized.stderr)
+        subprocess.run(
+            ["git", "add", *tracked_paths],
+            cwd=self.workspace,
+            check=True,
+        )
+        subprocess.run(
+            [
+                "git",
+                "-c",
+                "user.name=Click Tests",
+                "-c",
+                "user.email=click-tests@example.invalid",
+                "commit",
+                "--quiet",
+                "-m",
+                "fixture",
+            ],
+            cwd=self.workspace,
+            check=True,
+        )
 
     def read_file_command(self, path: str, fail_hard: bool = False) -> str:
         if os.name == "nt":
@@ -220,6 +279,15 @@ class ClickGateTests(unittest.TestCase):
             checks.append(
                 {"argv": argv, "class": self.verification_class(rendered)}
             )
+        batch = {"version": 1, "checks": checks}
+        command = f"click-gate verify {shlex.quote(json.dumps(batch))}"
+        payload = self.pre_tool("Bash", command, turn_id)
+        self.assertIsNotNone(payload)
+        return payload
+
+    def verify_checks(
+        self, checks: list[dict[str, object]], turn_id: str = "turn-2"
+    ) -> dict:
         batch = {"version": 1, "checks": checks}
         command = f"click-gate verify {shlex.quote(json.dumps(batch))}"
         payload = self.pre_tool("Bash", command, turn_id)
@@ -613,18 +681,21 @@ class ClickGateTests(unittest.TestCase):
         missing = self.contract()
         del missing["verification"]
         payload = self.pre_tool(
-            "Bash", f"click-gate stage {shlex.quote(json.dumps(missing))}"
+            "Bash",
+            f"click-gate stage {shlex.quote(json.dumps(missing))}",
+            "turn-missing",
         )
         self.assertIn(
             "verification", payload["hookSpecificOutput"]["permissionDecisionReason"]
         )
 
-        for scale in ("quick", "focused", "full"):
+        for index, scale in enumerate(("quick", "focused", "full"), start=1):
             with self.subTest(scale=scale):
                 contract = self.contract()
                 contract["verification"]["scale"] = scale
-                self.arm_gate()
-                payload = self.stage_gate(contract)
+                turn_id = f"turn-scale-{index}"
+                self.arm_gate(turn_id)
+                payload = self.stage_gate(contract, turn_id)
                 self.assertEqual(
                     payload["hookSpecificOutput"]["permissionDecision"], "allow"
                 )
@@ -632,7 +703,9 @@ class ClickGateTests(unittest.TestCase):
         invalid = self.contract()
         invalid["verification"]["scale"] = "every-step"
         payload = self.pre_tool(
-            "Bash", f"click-gate stage {shlex.quote(json.dumps(invalid))}"
+            "Bash",
+            f"click-gate stage {shlex.quote(json.dumps(invalid))}",
+            "turn-invalid-scale",
         )
         self.assertEqual(
             payload["hookSpecificOutput"]["permissionDecision"], "deny"
@@ -646,14 +719,16 @@ class ClickGateTests(unittest.TestCase):
         gated["verification"]["intermediate_gate"] = (
             "confirm immediately before applying the irreversible migration"
         )
-        self.arm_gate()
-        payload = self.stage_gate(gated)
+        self.arm_gate("turn-gated")
+        payload = self.stage_gate(gated, "turn-gated")
         self.assertEqual(payload["hookSpecificOutput"]["permissionDecision"], "allow")
 
         invalid_gate = self.contract()
         invalid_gate["verification"]["intermediate_gate"] = ""
         payload = self.pre_tool(
-            "Bash", f"click-gate stage {shlex.quote(json.dumps(invalid_gate))}"
+            "Bash",
+            f"click-gate stage {shlex.quote(json.dumps(invalid_gate))}",
+            "turn-invalid-gate",
         )
         self.assertEqual(payload["hookSpecificOutput"]["permissionDecision"], "deny")
         self.assertIn(
@@ -699,7 +774,15 @@ class ClickGateTests(unittest.TestCase):
         )
         self.assertIn("costs 3", broad["hookSpecificOutput"]["permissionDecisionReason"])
 
-        for command in ("pytest tests", "python3 -m pytest tests", "vitest run"):
+        for command in (
+            "pytest tests",
+            "python3 -m pytest tests",
+            "vitest run",
+            "cargo nextest run",
+            "cargo test --all",
+            "go test ./...",
+            "go test ./internal/...",
+        ):
             with self.subTest(command=command):
                 denied = self.verify_gate([command])
                 self.assertEqual(
@@ -724,6 +807,64 @@ class ClickGateTests(unittest.TestCase):
         self.assertEqual(
             expensive["hookSpecificOutput"]["permissionDecision"], "allow"
         )
+
+    def test_hook_raises_underdeclared_verification_to_its_minimum_class(self) -> None:
+        contract = self.contract()
+        contract["verification"]["scale"] = "quick"
+        self.arm_gate("turn-1")
+        self.stage_gate(contract, "turn-1")
+        self.arm_gate("turn-2")
+        self.pass_gate(contract, "turn-2")
+
+        broad_as_targeted = self.verify_checks(
+            [
+                {
+                    "argv": ["python3", "-m", "unittest", "discover", "-s", "tests"],
+                    "class": "targeted",
+                }
+            ]
+        )
+        output = broad_as_targeted["hookSpecificOutput"]
+        self.assertEqual(output["permissionDecision"], "deny")
+        self.assertIn("costs 3", output["permissionDecisionReason"])
+        self.assertIn("minimum-class inference", output["permissionDecisionReason"])
+
+    def test_deep_verification_cannot_be_underdeclared_as_broad(self) -> None:
+        self.approve_contract()
+        payload = self.verify_checks(
+            [
+                {
+                    "argv": ["npx", "playwright", "test"],
+                    "class": "broad",
+                }
+            ]
+        )
+        output = payload["hookSpecificOutput"]
+        self.assertEqual(output["permissionDecision"], "deny")
+        self.assertIn("costs 5", output["permissionDecisionReason"])
+
+    def test_inline_and_direct_python_programs_are_not_verification(self) -> None:
+        self.approve_contract()
+        for argv in (
+            [sys.executable, "-c", "raise SystemExit(0)"],
+            [sys.executable, "verify_project.py"],
+        ):
+            with self.subTest(argv=argv):
+                payload = self.verify_checks(
+                    [{"argv": argv, "class": "targeted"}]
+                )
+                output = payload["hookSpecificOutput"]
+                self.assertEqual(output["permissionDecision"], "deny")
+                self.assertIn("neither read-only nor a recognized check", output["permissionDecisionReason"])
+
+    def test_unknown_verification_wrapper_defaults_to_deep(self) -> None:
+        self.approve_contract()
+        payload = self.verify_checks(
+            [{"argv": ["project-test"], "class": "targeted"}]
+        )
+        output = payload["hookSpecificOutput"]
+        self.assertEqual(output["permissionDecision"], "deny")
+        self.assertIn("costs 5", output["permissionDecisionReason"])
 
     def test_verification_batch_rejects_legacy_shell_strings(self) -> None:
         self.approve_contract()
@@ -769,6 +910,197 @@ class ClickGateTests(unittest.TestCase):
         self.assertEqual(
             stale_retry["hookSpecificOutput"]["permissionDecision"], "allow"
         )
+
+    def test_verification_that_changes_repository_content_cannot_pass(self) -> None:
+        (self.workspace / ".gitignore").write_text("__pycache__/\n", encoding="utf-8")
+        (self.workspace / "app.py").write_text("VALUE = 1\n", encoding="utf-8")
+        (self.workspace / "mutating_test.py").write_text(
+            "import unittest\n"
+            "from pathlib import Path\n\n"
+            "class MutatingTest(unittest.TestCase):\n"
+            "    def test_mutates_source(self):\n"
+            "        Path('app.py').write_text('VALUE = 2\\n', encoding='utf-8')\n",
+            encoding="utf-8",
+        )
+        self.initialize_git(".gitignore", "app.py", "mutating_test.py")
+
+        contract = self.contract()
+        contract["verification"]["scale"] = "quick"
+        self.arm_gate("turn-1")
+        self.stage_gate(contract, "turn-1")
+        self.arm_gate("turn-2")
+        self.pass_gate(contract, "turn-2")
+        payload = self.verify_checks(
+            [
+                {
+                    "argv": [
+                        sys.executable,
+                        "-m",
+                        "unittest",
+                        "mutating_test.MutatingTest.test_mutates_source",
+                    ],
+                    "class": "targeted",
+                }
+            ]
+        )
+        result = self.run_rewritten(payload)
+        self.assertEqual(result.returncode, 3, result.stderr)
+        self.assertIn("changed protected repository content", result.stderr)
+
+        state_path = next(
+            (self.plugin_data / "gate-state").glob("session-contract-*.json")
+        )
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        verification = state["verification"]
+        self.assertEqual(verification["status"], "failed")
+        self.assertTrue(verification["workspace_changed"])
+        self.assertEqual(verification["mutation_revision"], 1)
+        self.assertNotEqual(
+            verification["verified_revision"], verification["mutation_revision"]
+        )
+
+        retry = self.verify_checks(
+            [
+                {
+                    "argv": [
+                        sys.executable,
+                        "-m",
+                        "unittest",
+                        "mutating_test.MutatingTest.test_mutates_source",
+                    ],
+                    "class": "targeted",
+                }
+            ]
+        )
+        self.assertEqual(retry["hookSpecificOutput"]["permissionDecision"], "deny")
+        self.assertIn("code mutation", retry["hookSpecificOutput"]["permissionDecisionReason"])
+
+    def test_verification_protects_preexisting_untracked_content(self) -> None:
+        (self.workspace / ".gitignore").write_text("__pycache__/\n", encoding="utf-8")
+        (self.workspace / "local-settings.txt").write_text("safe\n", encoding="utf-8")
+        (self.workspace / "untracked_mutating_test.py").write_text(
+            "import unittest\n"
+            "from pathlib import Path\n\n"
+            "class UntrackedMutatingTest(unittest.TestCase):\n"
+            "    def test_mutates_existing_file(self):\n"
+            "        Path('local-settings.txt').write_text('changed\\n', encoding='utf-8')\n",
+            encoding="utf-8",
+        )
+        self.initialize_git(".gitignore", "untracked_mutating_test.py")
+        contract = self.contract()
+        contract["verification"]["scale"] = "quick"
+        self.arm_gate("turn-1")
+        self.stage_gate(contract, "turn-1")
+        self.arm_gate("turn-2")
+        self.pass_gate(contract, "turn-2")
+
+        payload = self.verify_checks(
+            [
+                {
+                    "argv": [
+                        sys.executable,
+                        "-m",
+                        "unittest",
+                        (
+                            "untracked_mutating_test.UntrackedMutatingTest."
+                            "test_mutates_existing_file"
+                        ),
+                    ],
+                    "class": "targeted",
+                }
+            ]
+        )
+        result = self.run_rewritten(payload)
+        self.assertEqual(result.returncode, 3, result.stderr)
+        self.assertIn("changed protected repository content", result.stderr)
+
+    def test_verification_detects_content_committed_during_the_batch(self) -> None:
+        (self.workspace / ".gitignore").write_text("__pycache__/\n", encoding="utf-8")
+        (self.workspace / "app.py").write_text("VALUE = 1\n", encoding="utf-8")
+        (self.workspace / "committing_test.py").write_text(
+            "import subprocess\n"
+            "import unittest\n"
+            "from pathlib import Path\n\n"
+            "class CommittingTest(unittest.TestCase):\n"
+            "    def test_commits_source_change(self):\n"
+            "        Path('app.py').write_text('VALUE = 2\\n', encoding='utf-8')\n"
+            "        subprocess.run(['git', 'add', 'app.py'], check=True)\n"
+            "        subprocess.run([\n"
+            "            'git', '-c', 'user.name=Click Tests', '-c',\n"
+            "            'user.email=click-tests@example.invalid', 'commit', '--quiet',\n"
+            "            '-m', 'verification mutation'\n"
+            "        ], check=True)\n",
+            encoding="utf-8",
+        )
+        self.initialize_git(".gitignore", "app.py", "committing_test.py")
+        contract = self.contract()
+        contract["verification"]["scale"] = "quick"
+        self.arm_gate("turn-1")
+        self.stage_gate(contract, "turn-1")
+        self.arm_gate("turn-2")
+        self.pass_gate(contract, "turn-2")
+
+        payload = self.verify_checks(
+            [
+                {
+                    "argv": [
+                        sys.executable,
+                        "-m",
+                        "unittest",
+                        "committing_test.CommittingTest.test_commits_source_change",
+                    ],
+                    "class": "targeted",
+                }
+            ]
+        )
+        result = self.run_rewritten(payload)
+        self.assertEqual(result.returncode, 3, result.stderr)
+        self.assertIn("changed protected repository content", result.stderr)
+        clean_diff = subprocess.run(
+            ["git", "diff", "--quiet"], cwd=self.workspace, check=False
+        )
+        self.assertEqual(clean_diff.returncode, 0)
+
+    def test_new_untracked_verification_artifact_is_not_a_false_mutation(self) -> None:
+        (self.workspace / ".gitignore").write_text("__pycache__/\n", encoding="utf-8")
+        (self.workspace / "artifact_test.py").write_text(
+            "import unittest\n"
+            "from pathlib import Path\n\n"
+            "class ArtifactTest(unittest.TestCase):\n"
+            "    def test_writes_disposable_report(self):\n"
+            "        Path('new-report.tmp').write_text('result\\n', encoding='utf-8')\n",
+            encoding="utf-8",
+        )
+        self.initialize_git(".gitignore", "artifact_test.py")
+        contract = self.contract()
+        contract["verification"]["scale"] = "quick"
+        self.arm_gate("turn-1")
+        self.stage_gate(contract, "turn-1")
+        self.arm_gate("turn-2")
+        self.pass_gate(contract, "turn-2")
+
+        payload = self.verify_checks(
+            [
+                {
+                    "argv": [
+                        sys.executable,
+                        "-m",
+                        "unittest",
+                        "artifact_test.ArtifactTest.test_writes_disposable_report",
+                    ],
+                    "class": "targeted",
+                }
+            ]
+        )
+        result = self.run_rewritten(payload)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue((self.workspace / "new-report.tmp").exists())
+        state_path = next(
+            (self.plugin_data / "gate-state").glob("session-contract-*.json")
+        )
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        self.assertEqual(state["verification"]["status"], "passed")
+        self.assertFalse(state["verification"]["workspace_changed"])
 
     def test_review_mode_needs_no_contract_and_blocks_repeated_successful_reads(self) -> None:
         self.set_default("on")
@@ -1029,9 +1361,51 @@ class ClickGateTests(unittest.TestCase):
                     payload["hookSpecificOutput"]["permissionDecision"], "deny"
                 )
                 self.assertIn(
-                    "new plan after approval",
+                    "parallel plan",
                     payload["hookSpecificOutput"]["permissionDecisionReason"],
                 )
+
+    def test_armed_contract_workflow_blocks_plan_tool_calls(self) -> None:
+        self.arm_gate("turn-1")
+        for tool_name in ("update_plan", "functions.update_plan"):
+            with self.subTest(tool_name=tool_name):
+                payload = self.pre_tool(tool_name, "", "turn-1")
+                self.assertEqual(
+                    payload["hookSpecificOutput"]["permissionDecision"], "deny"
+                )
+                self.assertIn(
+                    "parallel plan",
+                    payload["hookSpecificOutput"]["permissionDecisionReason"],
+                )
+
+    def test_staged_session_contract_blocks_plan_in_a_later_turn(self) -> None:
+        self.arm_gate("turn-1")
+        self.stage_gate(turn_id="turn-1")
+        payload = self.pre_tool("update_plan", "", "turn-2")
+        self.assertEqual(payload["hookSpecificOutput"]["permissionDecision"], "deny")
+        self.assertIn(
+            "parallel plan", payload["hookSpecificOutput"]["permissionDecisionReason"]
+        )
+
+    def test_approved_session_contract_blocks_plan_in_a_later_turn(self) -> None:
+        self.approve_contract()
+        payload = self.pre_tool("update_plan", "", "turn-3")
+        self.assertEqual(payload["hookSpecificOutput"]["permissionDecision"], "deny")
+        self.assertIn(
+            "parallel plan", payload["hookSpecificOutput"]["permissionDecisionReason"]
+        )
+
+    def test_completed_contract_allows_plan_in_a_fresh_uninvoked_turn(self) -> None:
+        self.approve_contract()
+        verification = self.verify_gate([self.verification_argv()])
+        result = self.run_rewritten(verification)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIsNone(self.pre_tool("update_plan", "", "turn-3"))
+
+    def test_bypass_allows_plan_in_the_current_turn(self) -> None:
+        self.arm_gate("turn-1")
+        self.bypass_gate("turn-1")
+        self.assertIsNone(self.pre_tool("update_plan", "", "turn-1"))
 
     def test_running_batch_blocks_parallel_mutation_and_verification(self) -> None:
         contract = self.contract()
@@ -1178,7 +1552,7 @@ class ClickGateTests(unittest.TestCase):
         self.assertEqual(output["permissionDecision"], "deny")
         self.assertIn("differs", output["permissionDecisionReason"])
 
-    def test_contract_can_be_replaced_before_approval(self) -> None:
+    def test_contract_can_be_replaced_only_after_a_new_user_turn(self) -> None:
         original = self.contract()
         self.arm_gate("turn-1")
         self.stage_gate(original, "turn-1")
@@ -1187,12 +1561,98 @@ class ClickGateTests(unittest.TestCase):
             *revised["build"]["approach"],
             "update approved API documentation",
         ]
-        self.stage_gate(revised, "turn-1")
+        same_turn = self.stage_gate(revised, "turn-1")
+        self.assertEqual(
+            same_turn["hookSpecificOutput"]["permissionDecision"], "deny"
+        )
+        self.assertIn(
+            "already staged", same_turn["hookSpecificOutput"]["permissionDecisionReason"]
+        )
+
         self.arm_gate("turn-2")
-        payload = self.pass_gate(revised, "turn-2")
+        replacement = self.stage_gate(revised, "turn-2")
+        self.assertEqual(
+            replacement["hookSpecificOutput"]["permissionDecision"], "allow"
+        )
+        same_turn_pass = self.pass_gate(revised, "turn-2")
+        self.assertEqual(
+            same_turn_pass["hookSpecificOutput"]["permissionDecision"], "deny"
+        )
+
+        self.arm_gate("turn-3")
+        payload = self.pass_gate(revised, "turn-3")
         self.assertEqual(
             payload["hookSpecificOutput"]["updatedInput"]["command"],
             "echo Click mutation gate passed",
+        )
+
+    def test_always_on_cannot_stage_and_pass_in_the_same_user_turn(self) -> None:
+        self.set_default("on", "turn-1")
+        staged = self.stage_gate(turn_id="turn-1")
+        self.assertEqual(staged["hookSpecificOutput"]["permissionDecision"], "allow")
+
+        same_turn = self.pass_gate(turn_id="turn-1")
+        self.assertEqual(
+            same_turn["hookSpecificOutput"]["permissionDecision"], "deny"
+        )
+        self.assertIn(
+            "separate user response",
+            same_turn["hookSpecificOutput"]["permissionDecisionReason"],
+        )
+
+        later_turn = self.pass_gate(turn_id="turn-2")
+        self.assertEqual(
+            later_turn["hookSpecificOutput"]["permissionDecision"], "allow"
+        )
+
+    def test_stage_and_pass_require_a_user_prompt_for_their_exact_turn(self) -> None:
+        self.set_default("on", "turn-1")
+        stage_command = f"click-gate stage {shlex.quote(json.dumps(self.contract()))}"
+        missing_stage_prompt = self.pre_tool(
+            "Bash", stage_command, "turn-2", submit_prompt=False
+        )
+        self.assertEqual(
+            missing_stage_prompt["hookSpecificOutput"]["permissionDecision"], "deny"
+        )
+        self.assertIn(
+            "UserPromptSubmit",
+            missing_stage_prompt["hookSpecificOutput"]["permissionDecisionReason"],
+        )
+
+        self.stage_gate(turn_id="turn-2")
+        pass_command = f"click-gate pass {shlex.quote(json.dumps(self.contract()))}"
+        missing_pass_prompt = self.pre_tool(
+            "Bash", pass_command, "turn-3", submit_prompt=False
+        )
+        self.assertEqual(
+            missing_pass_prompt["hookSpecificOutput"]["permissionDecision"], "deny"
+        )
+        self.assertIn(
+            "UserPromptSubmit",
+            missing_pass_prompt["hookSpecificOutput"]["permissionDecisionReason"],
+        )
+
+    def test_contract_records_staging_and_approval_turns(self) -> None:
+        self.approve_contract()
+        state_path = next(
+            (self.plugin_data / "gate-state").glob("session-contract-*.json")
+        )
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        self.assertEqual(state["staged_turn_id"], "turn-1")
+        self.assertEqual(state["approved_turn_id"], "turn-2")
+
+    def test_completed_contract_cannot_be_passed_again(self) -> None:
+        self.approve_contract()
+        verification = self.verify_gate([self.verification_argv()])
+        result = self.run_rewritten(verification)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+        self.arm_gate("turn-3")
+        replay = self.pass_gate(turn_id="turn-3")
+        self.assertEqual(replay["hookSpecificOutput"]["permissionDecision"], "deny")
+        self.assertIn(
+            "already completed",
+            replay["hookSpecificOutput"]["permissionDecisionReason"],
         )
 
     def test_approved_contract_cannot_be_replaced_mid_run(self) -> None:
@@ -1380,11 +1840,11 @@ class ClickGateTests(unittest.TestCase):
     def test_gate_pass_does_not_leak_into_a_new_turn(self) -> None:
         self.set_mode("strict")
         self.stage_gate(turn_id="turn-1")
-        self.pass_gate(turn_id="turn-1")
+        self.pass_gate(turn_id="turn-2")
         payload = self.pre_tool(
             "apply_patch",
             "*** Begin Patch\n*** End Patch",
-            turn_id="turn-2",
+            turn_id="turn-3",
         )
         self.assertEqual(payload["hookSpecificOutput"]["permissionDecision"], "deny")
 

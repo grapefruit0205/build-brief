@@ -43,6 +43,32 @@ MUTATION_REQUEST_FIELDS = {"version", "argv"}
 VERIFICATION_BATCH_FIELDS = {"version", "checks"}
 VERIFICATION_CHECK_FIELDS = {"argv", "class"}
 VERIFICATION_CLASSES = {"targeted": 1, "broad": 3, "deep": 5}
+PYTHON_VERIFICATION_MODULES = {"coverage", "pytest", "unittest"}
+DEEP_VERIFICATION_EXECUTABLES = {
+    "bandit",
+    "cargo-audit",
+    "cypress",
+    "k6",
+    "locust",
+    "nox",
+    "playwright",
+    "semgrep",
+    "snyk",
+    "tox",
+    "trivy",
+}
+DEEP_VERIFICATION_MARKERS = {
+    "audit",
+    "bench",
+    "coverage",
+    "e2e",
+    "end-to-end",
+    "end_to_end",
+    "integration",
+    "load-test",
+    "load_test",
+    "security",
+}
 MAX_CAPABILITY_COMMANDS = 8
 MAX_ARGV_ITEMS = 128
 MAX_CONTRACT_CHARS = 4_000
@@ -270,6 +296,10 @@ def _contract_path(event: dict[str, Any]) -> Path:
     return _identity_path(event, "session-contract")
 
 
+def _prompt_path(event: dict[str, Any]) -> Path:
+    return _identity_path(event, "session-prompt")
+
+
 def _review_path(event: dict[str, Any]) -> Path:
     return _identity_path(event, "review")
 
@@ -400,6 +430,7 @@ def _fresh_verification_state(contract: dict[str, Any]) -> dict[str, Any]:
         "last_batch_digest": "",
         "locked_batch_digest": "",
         "runner_token_digest": "",
+        "workspace_changed": False,
         "started_at": 0,
     }
 
@@ -467,6 +498,8 @@ def _write_contract_state(
         {
             "status": status,
             "contract_digest": digest,
+            "staged_turn_id": str(event.get("turn_id", "")),
+            "approved_turn_id": "",
             "verification": _fresh_verification_state(contract),
             "observations": _fresh_observation_state(),
             "mutation": _fresh_mutation_state(),
@@ -493,6 +526,38 @@ def _clear_contract_state(event: dict[str, Any]) -> None:
 def _save_contract_state(event: dict[str, Any], state: dict[str, Any]) -> None:
     state["updated_at"] = int(time.time())
     _write_json(_contract_path(event), state)
+
+
+def _record_user_prompt(event: dict[str, Any]) -> None:
+    turn_id = str(event.get("turn_id", ""))
+    if not turn_id:
+        raise ValueError("Click requires the Codex turn_id on UserPromptSubmit")
+    _write_json(
+        _prompt_path(event),
+        {"turn_id": turn_id, "updated_at": int(time.time())},
+    )
+
+
+def _read_user_prompt_turn(event: dict[str, Any]) -> str:
+    try:
+        value = json.loads(_prompt_path(event).read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return ""
+    if not isinstance(value, dict):
+        return ""
+    return str(value.get("turn_id", ""))
+
+
+def _active_prompt_turn_error(event: dict[str, Any]) -> str:
+    turn_id = str(event.get("turn_id", ""))
+    if not turn_id:
+        return "Click cannot prove approval because this tool call has no Codex turn_id."
+    if _read_user_prompt_turn(event) != turn_id:
+        return (
+            "Click can stage or approve a contract only in a turn that began with a "
+            "UserPromptSubmit event. Ask the user to respond, then retry in that turn."
+        )
+    return ""
 
 
 def _contract_is_completed(state: dict[str, Any]) -> bool:
@@ -547,6 +612,7 @@ def _mark_contract_mutated(event: dict[str, Any]) -> str:
         verification["status"] = "ready"
         verification["failed_revision"] = -1
         verification["unchanged_failure_retries"] = 0
+        verification["workspace_changed"] = False
     state["verification"] = verification
     state["observations"] = _fresh_observation_state()
     _save_contract_state(event, state)
@@ -772,7 +838,7 @@ def _validate_verification_batch(
         return (
             None,
             0,
-            "Click 0.14 verification uses `checks` with argv arrays and an explicit "
+            "Click 0.15 verification uses `checks` with argv arrays and a submitted "
             "`class`; legacy shell-string `commands` are no longer accepted.",
         )
     unknown = sorted(set(value) - VERIFICATION_BATCH_FIELDS)
@@ -797,10 +863,11 @@ def _validate_verification_batch(
         if argv_error:
             return None, 0, argv_error
         assert argv is not None
-        if not (
-            _is_read_only_tokens(list(argv))
-            or _is_recognized_verification_tokens(argv)
-        ):
+        read_only = _is_read_only_tokens(list(argv))
+        minimum_class = (
+            "broad" if read_only and _is_broad_exploration_tokens(argv) else "targeted"
+        ) if read_only else _minimum_verification_class(argv)
+        if minimum_class is None:
             return (
                 None,
                 0,
@@ -810,15 +877,19 @@ def _validate_verification_batch(
         if check_class not in VERIFICATION_CLASSES:
             allowed = ", ".join(VERIFICATION_CLASSES)
             return None, 0, f"Verification check {index} `class` must be one of: {allowed}."
-        units += VERIFICATION_CLASSES[str(check_class)]
-        normalized.append({"argv": argv, "class": check_class})
+        effective_class = str(check_class)
+        if VERIFICATION_CLASSES[effective_class] < VERIFICATION_CLASSES[minimum_class]:
+            effective_class = minimum_class
+        units += VERIFICATION_CLASSES[effective_class]
+        normalized.append({"argv": argv, "class": effective_class})
     limit = VERIFICATION_UNIT_LIMITS[scale]
     if units > limit:
         return (
             None,
             units,
             f"The {scale} verification budget allows {limit} unit(s), but this batch "
-            f"costs {units}. Remove lower-value checks instead of expanding verification.",
+            f"costs {units} after Hook minimum-class inference. Remove lower-value "
+            "checks instead of expanding verification.",
         )
     return {
         "version": CAPABILITY_PROTOCOL_VERSION,
@@ -930,53 +1001,139 @@ def _command_parts(tokens: list[str]) -> tuple[str, list[str]]:
     return executable, [item.lower() for item in remaining[1:]]
 
 
-def _is_recognized_verification_tokens(tokens: list[str]) -> bool:
+def _contains_deep_verification_marker(values: list[str]) -> bool:
+    joined = " ".join(values)
+    return any(marker in joined for marker in DEEP_VERIFICATION_MARKERS)
+
+
+def _minimum_test_runner_class(runner: str, arguments: list[str]) -> str:
+    if _contains_deep_verification_marker([runner, *arguments]):
+        return "deep"
+    if runner == "unittest" and "discover" in arguments:
+        return "broad"
+    if any(
+        argument in {"-k", "-R", "--filter", "--test-name-pattern"}
+        or argument.startswith(("--filter=", "--test-name-pattern="))
+        for argument in arguments
+    ):
+        return "targeted"
+    broad_targets = {".", "./", "...", "./...", "all", "test", "tests", "spec"}
+    for argument in arguments:
+        if argument.startswith("-") or argument in {"run", "exec", "x"}:
+            continue
+        normalized = argument.rstrip("/\\")
+        if normalized in broad_targets:
+            continue
+        if "::" in argument or Path(normalized).suffix.lower() in {
+            ".go",
+            ".js",
+            ".jsx",
+            ".php",
+            ".py",
+            ".rb",
+            ".rs",
+            ".ts",
+            ".tsx",
+        }:
+            return "targeted"
+        if runner == "unittest" and "." in normalized:
+            return "targeted"
+    return "broad"
+
+
+def _minimum_verification_class(tokens: list[str]) -> str | None:
     executable, arguments = _command_parts(tokens)
     if not executable:
-        return False
-    if executable in VERIFICATION_EXECUTABLES:
-        return True
+        return None
+    if executable in DEEP_VERIFICATION_EXECUTABLES:
+        return "deep"
     if executable in {"python", "python3", "py", "pypy", "pypy3"}:
-        if "-c" in arguments:
-            return True
-        if len(arguments) >= 2 and arguments[0] == "-m":
-            return arguments[1] in {
-                "coverage",
-                "pytest",
-                "unittest",
-            }
-        script = next((item for item in arguments if not item.startswith("-")), "")
-        stem = Path(script).stem.lower()
-        return any(marker in stem for marker in VERIFICATION_NAME_MARKERS)
-    if executable in {"bash", "sh", "zsh", "pwsh", "powershell", "powershell.exe"}:
-        script = next((item for item in arguments if not item.startswith("-")), "")
-        stem = Path(script).stem.lower()
-        return any(marker in stem for marker in VERIFICATION_NAME_MARKERS)
+        if len(arguments) < 2 or arguments[0] != "-m":
+            return None
+        module = arguments[1]
+        if module not in PYTHON_VERIFICATION_MODULES:
+            return None
+        if module == "coverage":
+            return "deep"
+        return _minimum_test_runner_class(module, arguments[2:])
+    if executable in VERIFICATION_EXECUTABLES:
+        if executable in {"bats", "jest", "phpunit", "pytest", "rspec", "vitest"}:
+            return _minimum_test_runner_class(executable, arguments)
+        return "broad"
     if executable in {"npm", "pnpm", "yarn", "bun"}:
         meaningful = [item for item in arguments if item not in {"run", "exec", "x"}]
         target = meaningful[0] if meaningful else ""
-        return any(marker in target for marker in VERIFICATION_NAME_MARKERS)
+        if not any(marker in target for marker in VERIFICATION_NAME_MARKERS):
+            return None
+        return "deep" if _contains_deep_verification_marker(meaningful) else "broad"
     if executable in {"npx", "pnpx", "bunx"}:
-        target = arguments[0] if arguments else ""
-        return target in VERIFICATION_EXECUTABLES or any(
-            marker in target for marker in VERIFICATION_NAME_MARKERS
+        target_index = next(
+            (index for index, argument in enumerate(arguments) if not argument.startswith("-")),
+            -1,
         )
+        if target_index < 0:
+            return None
+        target = arguments[target_index]
+        nested_arguments = arguments[target_index + 1 :]
+        if target in DEEP_VERIFICATION_EXECUTABLES:
+            return "deep"
+        if target in {"jest", "pytest", "vitest"}:
+            return _minimum_test_runner_class(target, nested_arguments)
+        if target in VERIFICATION_EXECUTABLES:
+            return "broad"
+        if any(marker in target for marker in VERIFICATION_NAME_MARKERS):
+            return "deep"
+        return None
     if executable == "cargo":
-        return bool(arguments) and arguments[0] in {"audit", "bench", "nextest", "test"}
+        if not arguments or arguments[0] not in {"audit", "bench", "nextest", "test"}:
+            return None
+        if arguments[0] in {"audit", "bench"}:
+            return "deep"
+        if arguments[0] == "nextest":
+            return "broad"
+        test_targets = [
+            argument
+            for argument in arguments[1:]
+            if not argument.startswith("-") and argument not in {"all", "workspace"}
+        ]
+        return "targeted" if test_targets else "broad"
     if executable == "go":
-        return bool(arguments) and arguments[0] == "test"
+        if not arguments or arguments[0] != "test":
+            return None
+        targets = [argument for argument in arguments[1:] if not argument.startswith("-")]
+        recursive = any(target == "./..." or target.endswith("/...") for target in targets)
+        return "targeted" if targets and not recursive else "broad"
     if executable in {"dotnet", "gradle", "gradlew", "gradlew.bat", "mvn", "mvnw", "mvnw.cmd"}:
-        return any(
+        if not any(
             any(marker in argument for marker in VERIFICATION_NAME_MARKERS)
             for argument in arguments
-        )
+        ):
+            return None
+        if _contains_deep_verification_marker(arguments):
+            return "deep"
+        return "targeted" if any("filter" in item for item in arguments) else "broad"
     if executable in {"make", "gmake", "cmake", "ctest", "pre-commit"}:
-        return executable in {"ctest", "pre-commit"} or any(
+        recognized = executable in {"ctest", "pre-commit"} or any(
             any(marker in argument for marker in VERIFICATION_NAME_MARKERS)
             for argument in arguments
         )
+        if not recognized:
+            return None
+        if _contains_deep_verification_marker(arguments):
+            return "deep"
+        if executable == "ctest" and any(item in {"-R", "--tests-regex"} for item in arguments):
+            return "targeted"
+        if executable == "pre-commit" and "--files" in arguments:
+            return "targeted"
+        return "broad"
     stem = Path(executable).stem.lower()
-    return any(marker in stem for marker in VERIFICATION_NAME_MARKERS)
+    if any(marker in stem for marker in VERIFICATION_NAME_MARKERS):
+        return "deep"
+    return None
+
+
+def _is_recognized_verification_tokens(tokens: list[str]) -> bool:
+    return _minimum_verification_class(tokens) is not None
 
 
 def _is_recognized_verification_command(command: str) -> bool:
@@ -1530,14 +1687,16 @@ def _is_plan_tool(tool_name: str) -> bool:
     return normalized.split("__")[-1] == "update_plan"
 
 
-def _handle_prompt_submit() -> None:
+def _handle_prompt_submit(event: dict[str, Any]) -> None:
     _prune_state()
+    _record_user_prompt(event)
     default_mode = _read_default_mode()
     if default_mode == "on":
         context = (
             "Click Always ON is enabled. For software creation, modification, deletion, "
             "or repair, compile the compact Click contract, explain it plainly, ask once, "
-            "and do not mutate until the exact staged contract is approved. Questions, "
+            "and do not pass or mutate until a later UserPromptSubmit turn approves the "
+            "exact staged contract. Questions, "
             "explanations, and simple read-only inspection do not need a contract. For a "
             "read-only code review, run `click-gate review` before shell reads/searches; "
             "do not stage a build contract, and reuse successful evidence instead of "
@@ -1550,7 +1709,8 @@ def _handle_prompt_submit() -> None:
         context = (
             "Click Manual mode is enabled. Apply the Click contract workflow only when "
             "the user explicitly selects @Click or $click. Ordinary software work and "
-            "code review remain fail-open unless explicitly activated."
+            "code review remain fail-open unless explicitly activated. An activated contract "
+            "must be staged now and passed only after a later UserPromptSubmit turn."
         )
     else:
         context = (
@@ -1689,6 +1849,11 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
                 current_status = _read_state(event).get("status")
                 strict = _read_mode(event) == "strict"
                 always_on = _read_default_mode() == "on"
+                prompt_turn_error = _active_prompt_turn_error(event)
+                if prompt_turn_error:
+                    _deny(prompt_turn_error)
+                    return
+                current_turn_id = str(event.get("turn_id", ""))
                 if action == "stage":
                     if (
                         current_status not in {"armed", "staged", "passed"}
@@ -1700,6 +1865,16 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
                         )
                         return
                     existing_contract = _read_contract_state(event)
+                    if (
+                        existing_contract.get("status") == "staged"
+                        and existing_contract.get("staged_turn_id") == current_turn_id
+                    ):
+                        _deny(
+                            "Click already staged a contract in this user turn. Show that "
+                            "exact proposal and wait; a revised contract may be staged only "
+                            "after the user's next response."
+                        )
+                        return
                     if (
                         existing_contract.get("status") == "approved"
                         and not _contract_is_completed(existing_contract)
@@ -1729,6 +1904,21 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
                         "No staged Click execution contract is available for approval."
                     )
                     return
+                if staged.get("status") == "staged":
+                    staged_turn_id = str(staged.get("staged_turn_id", ""))
+                    if not staged_turn_id or staged_turn_id == current_turn_id:
+                        _deny(
+                            "Click requires one separate user response after the contract is "
+                            "staged. Show the proposal now and pass it only from the next "
+                            "UserPromptSubmit turn."
+                        )
+                        return
+                elif _contract_is_completed(staged):
+                    _deny(
+                        "This Click contract already completed final verification. Stage a "
+                        "fresh contract and obtain a new user response before another mutation."
+                    )
+                    return
                 if staged.get("contract_digest") != digest:
                     _deny(
                         "The execution contract differs from the version staged for user "
@@ -1736,6 +1926,8 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
                         "approval and show the complete contract again."
                     )
                     return
+                if staged.get("status") == "staged":
+                    staged["approved_turn_id"] = current_turn_id
                 staged["status"] = "approved"
                 staged["contract_digest"] = digest
                 _save_contract_state(event, staged)
@@ -1745,10 +1937,16 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
 
     status = _read_state(event).get("status")
     if _is_plan_tool(tool_name):
-        if status == "passed":
+        contract_state = _read_contract_state(event)
+        session_contract_active = contract_state.get("status") == "staged" or (
+            contract_state.get("status") == "approved"
+            and not _contract_is_completed(contract_state)
+        )
+        if status in {"armed", "staged", "passed"} or session_contract_active:
             _deny(
-                "Click blocked a new plan after approval. Implement the approved compact "
-                "contract directly; only the user can change its outcome or boundary."
+                "Click blocked a parallel plan while its compact contract workflow is active. "
+                "Show or implement the one contract directly; only a later user response can "
+                "revise a staged proposal, and only the user can change an approved boundary."
             )
         elif status == "review":
             _deny(
@@ -1805,7 +2003,7 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
             return
         if _is_recognized_verification_command(str(command)):
             _deny(
-                "Click 0.14 final checks use `click-gate verify` with argv-based `checks` "
+                "Click 0.15 final checks use `click-gate verify` with argv-based `checks` "
                 "and an explicit targeted, broad, or deep class."
             )
             return
@@ -1875,7 +2073,11 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
 
 
 def _record_verification_result(
-    path: Path, batch_digest: str, runner_token: str, exit_code: int
+    path: Path,
+    batch_digest: str,
+    runner_token: str,
+    exit_code: int,
+    workspace_changed: bool = False,
 ) -> bool:
     try:
         state = json.loads(path.read_text(encoding="utf-8"))
@@ -1898,7 +2100,15 @@ def _record_verification_result(
     verification["runner_token_digest"] = ""
     verification["started_at"] = 0
     verification["last_exit_code"] = exit_code
-    if exit_code == 0:
+    verification["workspace_changed"] = workspace_changed
+    if workspace_changed:
+        revision += 1
+        verification["mutation_revision"] = revision
+        verification["status"] = "failed"
+        verification["failed_revision"] = revision
+        verification["unchanged_failure_retries"] = 1
+        state["observations"] = _fresh_observation_state()
+    elif exit_code == 0:
         verification["status"] = "passed"
         verification["verified_revision"] = revision
         verification["failed_revision"] = -1
@@ -2218,6 +2428,99 @@ def _run_mutation(arguments: list[str]) -> int:
     return exit_code
 
 
+def _git_capture(cwd: Path, arguments: list[str]) -> bytes | None:
+    try:
+        result = subprocess.run(
+            ["git", *arguments],
+            cwd=cwd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+    except OSError:
+        return None
+    return result.stdout if result.returncode == 0 else None
+
+
+def _hash_workspace_path(hasher: Any, root: Path, relative: str) -> None:
+    encoded_path = os.fsencode(relative)
+    hasher.update(len(encoded_path).to_bytes(8, "big"))
+    hasher.update(encoded_path)
+    target = root / relative
+    try:
+        metadata = target.lstat()
+    except OSError:
+        hasher.update(b"missing")
+        return
+    hasher.update(str(metadata.st_mode).encode())
+    if target.is_symlink():
+        try:
+            hasher.update(os.fsencode(os.readlink(target)))
+        except OSError:
+            hasher.update(b"unreadable-link")
+        return
+    if not target.is_file():
+        hasher.update(b"non-file")
+        return
+    try:
+        with target.open("rb") as handle:
+            while True:
+                chunk = handle.read(128 * 1024)
+                if not chunk:
+                    break
+                hasher.update(chunk)
+    except OSError:
+        hasher.update(b"unreadable-file")
+
+
+def _git_workspace_snapshot(
+    cwd: Path, protected_untracked: list[str] | None = None
+) -> dict[str, Any] | None:
+    root_output = _git_capture(cwd, ["rev-parse", "--show-toplevel"])
+    if root_output is None:
+        return None
+    root = Path(os.fsdecode(root_output.strip()))
+    has_head = _git_capture(root, ["rev-parse", "--verify", "HEAD"]) is not None
+    diff_commands = (
+        [["diff", "--binary", "--no-ext-diff", "--no-textconv", "HEAD", "--"]]
+        if has_head
+        else [
+            ["diff", "--binary", "--no-ext-diff", "--no-textconv", "--cached", "--"],
+            ["diff", "--binary", "--no-ext-diff", "--no-textconv", "--"],
+        ]
+    )
+    hasher = hashlib.sha256()
+    if has_head:
+        head_tree = _git_capture(root, ["rev-parse", "HEAD^{tree}"])
+        if head_tree is None:
+            return None
+        hasher.update(len(head_tree).to_bytes(8, "big"))
+        hasher.update(head_tree)
+    for arguments in diff_commands:
+        diff = _git_capture(root, arguments)
+        if diff is None:
+            return None
+        hasher.update(len(diff).to_bytes(8, "big"))
+        hasher.update(diff)
+
+    if protected_untracked is None:
+        untracked_output = _git_capture(
+            root, ["ls-files", "--others", "--exclude-standard", "-z"]
+        )
+        if untracked_output is None:
+            return None
+        protected_untracked = [
+            os.fsdecode(item) for item in untracked_output.split(b"\0") if item
+        ]
+    for relative in sorted(protected_untracked):
+        _hash_workspace_path(hasher, root, relative)
+    return {
+        "root": str(root),
+        "digest": hasher.hexdigest(),
+        "protected_untracked": protected_untracked,
+    }
+
+
 def _run_verification(arguments: list[str]) -> int:
     if len(arguments) != 4:
         sys.stderr.write(
@@ -2245,6 +2548,7 @@ def _run_verification(arguments: list[str]) -> int:
         sys.stderr.write("Click verification runner batch digest did not match.\n")
         return 2
     checks = batch["checks"]
+    before = _git_workspace_snapshot(Path.cwd())
 
     exit_code = 0
     for index, check in enumerate(checks, start=1):
@@ -2258,9 +2562,28 @@ def _run_verification(arguments: list[str]) -> int:
         if exit_code != 0:
             break
 
+    workspace_changed = False
+    if before is not None:
+        after = _git_workspace_snapshot(
+            Path.cwd(), list(before["protected_untracked"])
+        )
+        workspace_changed = after is None or after["digest"] != before["digest"]
+        if workspace_changed:
+            sys.stderr.write(
+                "[Click] Verification changed protected repository content. "
+                "The batch is stale; perform or restore that change through the approved "
+                "mutation path before verifying again.\n"
+            )
+            if exit_code == 0:
+                exit_code = 3
+
     with _state_lock():
         recorded = _record_verification_result(
-            state_path, batch_digest, runner_token, exit_code
+            state_path,
+            batch_digest,
+            runner_token,
+            exit_code,
+            workspace_changed=workspace_changed,
         )
     if not recorded:
         sys.stderr.write("Click could not record the verification result safely.\n")
@@ -2283,7 +2606,8 @@ def main() -> int:
     try:
         event = _read_event()
         if sys.argv[1] == "prompt-submit":
-            _handle_prompt_submit()
+            with _state_lock():
+                _handle_prompt_submit(event)
         else:
             with _state_lock():
                 _handle_pre_tool(event)

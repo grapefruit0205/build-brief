@@ -19,7 +19,7 @@ Do not choose on the user's behalf. `click-gate default status` reports the stor
 
 ## Always ON
 
-Apply the compact contract to software creation, modification, deletion, refactoring, and repair. Questions, explanations, and simple read-only inspection do not need a contract. The Hook blocks matched mutations until the exact staged contract has been approved and passed.
+Apply the compact contract to software creation, modification, deletion, refactoring, and repair. Questions, explanations, and simple read-only inspection do not need a contract. The Hook blocks matched mutations until the exact staged contract has been approved and passed from a later `UserPromptSubmit` turn. It also blocks matched plan tools while the staged or incomplete approved session contract remains active.
 
 After final verification passes for the current mutation revision, a later software-change request may stage a fresh contract without `bypass`. An approved contract that is unverified, running, failed, or stale still blocks replacement. Staging the next contract resets its observation, mutation, and verification state and requires a new user approval.
 

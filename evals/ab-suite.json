@@ -1,9 +1,12 @@
 {
-  "schema_version": 4,
-  "model": "gpt-5.6-luna",
-  "reasoning_effort": "low",
+  "schema_version": 5,
+  "release_under_test": "0.15.0",
+  "model": "gpt-5.6-sol",
+  "reasoning_effort": "max",
   "judge_model": "gpt-5.6-sol",
-  "judge_reasoning_effort": "medium",
+  "judge_reasoning_effort": "high",
+  "runs_per_condition": 5,
+  "random_seed": 15015,
   "conditions": [
     "no-plugin",
     "explicit-skill-only",
@@ -11,50 +14,105 @@
   ],
   "cases": [
     {
-      "id": "approval-bound-execution-contract",
+      "id": "release-hardening-one-shot",
       "repository": "https://github.com/grapefruit0205/click.git",
-      "commit": "63604ab4c7023b208e76c090a2377fe89a32d80b",
+      "commit": "6b937206833eed2bda3ffe1700314281f77cd82f",
       "expected_activation": true,
       "opt_out_applicable": false,
       "external_hook_contract": true,
-      "prompt": "$click Release Click 0.14.0 without changing the compact contract or one-approval workflow. During active review and approved implementation, stop guessing the intent of ambiguous shell strings: add versioned argv-based inspect, mutate, and verify runners, validate their bounded capability, execute accepted argv without a shell, and fail closed on malformed requests. Keep compatible simple direct reads convenient, require approval for mutation, invalidate stale evidence after mutation, meter explicit verification classes, and serialize Hook state updates across processes. Preserve Always ON and Manual routing, per-turn bypass, one-shot implementation, content-free out-of-repository state, standard-library-only runtime, bilingual README, MIT license, and honest unsupported-coverage documentation. Update deterministic tests and evaluation guidance. Do not commit or push.",
-      "approval_followup": "I approve the exact staged semantic contract and its verification scale. Implement it in one shot, choose any necessary in-scope technical means, run the completion checks once, and do not ask for a replacement contract. Do not commit or push.",
+      "prompt": "$click Prepare the next Click release in one approved implementation. Preserve the compact one-approval workflow while hardening five gaps: infer every recognized verification command's minimum budget class; reject arbitrary Python inline or script execution as verification; make a Git-backed final batch fail stale if it changes tracked or pre-existing untracked content; require a later UserPromptSubmit turn before passing or replacing a staged contract; and block update_plan throughout armed, staged, approved, and review workflows. Add deterministic regression tests, configure a repeated shuffled gpt-5.6-sol/max A/B suite with loop metrics, and tighten bilingual claims so the repository does not claim cross-project proof. Keep the standard-library-only Hook, MIT license, out-of-repository state, Manual fail-open behavior, per-turn bypass, and one-shot implementation after approval. Do not commit or push.",
+      "baseline_prompt": "Prepare the next Click release in one implementation. Preserve the compact one-approval workflow while hardening five gaps: infer every recognized verification command's minimum budget class; reject arbitrary Python inline or script execution as verification; make a Git-backed final batch fail stale if it changes tracked or pre-existing untracked content; require a later UserPromptSubmit turn before passing or replacing a staged contract; and block update_plan throughout armed, staged, approved, and review workflows. Add deterministic regression tests, configure a repeated shuffled gpt-5.6-sol/max A/B suite with loop metrics, and tighten bilingual claims so the repository does not claim cross-project proof. Keep the standard-library-only Hook, MIT license, out-of-repository state, Manual fail-open behavior, per-turn bypass, and one-shot implementation. Do not commit or push.",
+      "approval_followup": "I approve the exact staged contract and verification scale. Implement it in one shot, run the final completion batch once, and do not replace or expand the contract. Do not commit or push.",
       "required_invariants": [
-        "Unset mode asks once for Always ON or Manual only before the first software mutation",
-        "Always ON injects concise per-prompt routing context and gates supported software mutations without requiring an explicit mention",
-        "Manual mode preserves explicit @Click or $click activation and uninvoked fail-open behavior",
-        "Questions, explanations, and simple read-only lookups remain outside the build and review workflows",
-        "Code-review-only work uses a read-only guard without a build contract or approval",
-        "Review mode allows one useful inventory and then blocks repeated successful structured observations, a second successful root inventory, plan churn, and mutation",
-        "The developer execution contract contains the six compact areas and adds optional semantics, order, or an intermediate gate only when materially required",
-        "The compact developer contract and faithful plain-language explanation are shown before any repository mutation",
-        "The initial request is not treated as approval; implementation waits for explicit approval after display",
-        "The Hook stages a digest and passes only an identical contract",
-        "Implementation keeps the approved semantic contract fixed while allowing necessary in-scope technical choices without reapproval",
-        "A fresh contract can replace the prior one only after final verification passes for its current mutation revision, and starts with clean capability state",
-        "The verification scale is approved with the contract and its completion checks run as one final batch",
-        "Consequential assumptions are exposed in the contract instead of being collected through a serial technical questionnaire",
-        "Per-turn opt-out releases an active turn without changing the persistent preference",
-        "Compatible simple direct reads remain convenient, while pipelines and ambiguous active Bash require a structured capability request",
-        "Structured inspect rejects shell interpreters and write-capable operations and executes accepted argv without a shell",
-        "Structured mutate requires the exact approved contract and makes earlier evidence or verification stale",
-        "Structured verify uses explicit targeted, broad, or deep classes inside the approved budget",
-        "Malformed capability requests fail closed and Hook state updates are serialized across processes",
-        "The Click Hook itself keeps its standard-library-only runtime and stores no preference or gate state in the target repository"
+        "Recognized commands are charged at no less than the Hook-inferred verification class",
+        "Arbitrary Python inline code and direct scripts are not accepted as verification",
+        "Git-backed verification cannot pass after changing tracked or pre-existing untracked content",
+        "Staging and passing require distinct UserPromptSubmit turns and the identical contract digest",
+        "Parallel update_plan calls are blocked throughout every active Click workflow",
+        "Approval still authorizes one uninterrupted in-scope implementation and one final verification batch",
+        "The A/B harness repeats and shuffles Sol/max conditions and reports token, time, tool-loop, and correctness metrics without claiming unrun results"
+      ]
+    },
+    {
+      "id": "verification-minimum-class",
+      "repository": "https://github.com/grapefruit0205/click.git",
+      "commit": "6b937206833eed2bda3ffe1700314281f77cd82f",
+      "expected_activation": true,
+      "opt_out_applicable": false,
+      "external_hook_contract": false,
+      "prompt": "$click Harden Click's verification budget so a broad full-suite command declared as targeted cannot fit a quick budget, and a deep security, coverage, integration, load, or end-to-end command declared as broad cannot evade its real cost. Preserve the existing verify request shape by having the Hook infer and apply the minimum class automatically. Add focused tests and do not commit or push.",
+      "baseline_prompt": "Harden Click's verification budget so a broad full-suite command declared as targeted cannot fit a quick budget, and a deep security, coverage, integration, load, or end-to-end command declared as broad cannot evade its real cost. Preserve the existing verify request shape by having the Hook infer and apply the minimum class automatically. Add focused tests and do not commit or push.",
+      "approval_followup": "I approve the exact staged contract and verification scale. Implement it in one shot and run the final checks once. Do not commit or push.",
+      "required_invariants": [
+        "The Hook determines a minimum targeted, broad, or deep class from recognized argv",
+        "A lower submitted class is raised before budget units are calculated",
+        "Unknown verification-like wrappers default conservatively rather than gaining a cheap class",
+        "One-shot implementation remains possible when the inferred class fits the approved budget"
+      ]
+    },
+    {
+      "id": "verification-cannot-mutate",
+      "repository": "https://github.com/grapefruit0205/click.git",
+      "commit": "6b937206833eed2bda3ffe1700314281f77cd82f",
+      "expected_activation": true,
+      "opt_out_applicable": false,
+      "external_hook_contract": false,
+      "prompt": "$click Close the verification-write hole. Do not accept Python -c or direct Python scripts as final verification; accept only explicit supported module runners. In a Git worktree, compare protected repository content before and after the final batch and fail it stale if tracked or already-present untracked content changed. Ignore newly created disposable test artifacts. Add deterministic tests and document the exact boundary. Do not commit or push.",
+      "baseline_prompt": "Close the verification-write hole. Do not accept Python -c or direct Python scripts as final verification; accept only explicit supported module runners. In a Git worktree, compare protected repository content before and after the final batch and fail it stale if tracked or already-present untracked content changed. Ignore newly created disposable test artifacts. Add deterministic tests and document the exact boundary. Do not commit or push.",
+      "approval_followup": "I approve the exact staged contract and verification scale. Implement it in one shot and run the final checks once. Do not commit or push.",
+      "required_invariants": [
+        "Python inline code and direct scripts are rejected by verify validation",
+        "Supported Python verification is limited to explicit pytest, unittest, or coverage module runners",
+        "A protected Git content change prevents a successful verification record and advances the mutation revision",
+        "Ordinary newly generated ignored or untracked test artifacts do not create a false stale result"
+      ]
+    },
+    {
+      "id": "distinct-user-turn-approval",
+      "repository": "https://github.com/grapefruit0205/click.git",
+      "commit": "6b937206833eed2bda3ffe1700314281f77cd82f",
+      "expected_activation": true,
+      "opt_out_applicable": false,
+      "external_hook_contract": false,
+      "prompt": "$click Make Click's approval boundary observable to the Hook. Record the UserPromptSubmit turn that staged a contract, reject pass in that same turn, reject a second stage in that turn, and require stage and pass tool calls to belong to a recorded prompt turn. A revision may be staged only after the next user response, and the approved contract digest must remain identical. Preserve Always ON, Manual, and one-shot execution after approval. Add regressions and do not commit or push.",
+      "baseline_prompt": "Make Click's approval boundary observable to the Hook. Record the UserPromptSubmit turn that staged a contract, reject pass in that same turn, reject a second stage in that turn, and require stage and pass tool calls to belong to a recorded prompt turn. A revision may be staged only after the next user response, and the approved contract digest must remain identical. Preserve Always ON, Manual, and one-shot execution after approval. Add regressions and do not commit or push.",
+      "approval_followup": "I approve the exact staged contract and verification scale. Implement it in one shot and run the final checks once. Do not commit or push.",
+      "required_invariants": [
+        "The contract records its staging turn and later approval turn",
+        "Stage and pass fail closed without a matching UserPromptSubmit event",
+        "Same-turn restaging and same-turn passing are denied",
+        "A later user turn can approve the identical staged contract and then implement without further approval"
+      ]
+    },
+    {
+      "id": "plan-blocking-active-lifecycle",
+      "repository": "https://github.com/grapefruit0205/click.git",
+      "commit": "6b937206833eed2bda3ffe1700314281f77cd82f",
+      "expected_activation": true,
+      "opt_out_applicable": false,
+      "external_hook_contract": false,
+      "prompt": "$click Prevent parallel planning throughout the Click lifecycle. Block update_plan and functions.update_plan while the current turn is armed, staged, passed, or in review, and also from later turns while the session contract remains staged or approved but incomplete. Allow normal plans again after bypass or current-revision final verification completes. Add focused tests and do not commit or push.",
+      "baseline_prompt": "Prevent parallel planning throughout the Click lifecycle. Block update_plan and functions.update_plan while the current turn is armed, staged, passed, or in review, and also from later turns while the session contract remains staged or approved but incomplete. Allow normal plans again after bypass or current-revision final verification completes. Add focused tests and do not commit or push.",
+      "approval_followup": "I approve the exact staged contract and verification scale. Implement it in one shot and run the final checks once. Do not commit or push.",
+      "required_invariants": [
+        "Both plan tool names are denied in armed, staged, passed, and review state",
+        "Session-scoped staged and incomplete approved contracts block plans in later turns",
+        "Bypass and a completed current-revision contract do not trap unrelated later planning",
+        "No additional planning state or approval round is introduced"
       ]
     },
     {
       "id": "explicit-opt-out-trivial-edit",
       "repository": "https://github.com/grapefruit0205/click.git",
-      "commit": "63604ab4c7023b208e76c090a2377fe89a32d80b",
+      "commit": "6b937206833eed2bda3ffe1700314281f77cd82f",
       "expected_activation": false,
       "opt_out_applicable": true,
       "external_hook_contract": false,
       "prompt": "Click 없이 바로 진행해줘. In tests/test_click_gate.py, rename only test_shell_chaining_is_not_treated_as_read_only to test_mutating_shell_chains_are_guarded, update any reference in that same file if one exists, run the focused test, and make no other changes. Do not commit or push.",
       "required_invariants": [
-        "The explicit Click opt-out is honored without argument or an execution contract",
+        "The explicit Click opt-out is honored without an execution contract",
         "Only the requested test name changes",
-        "The focused tests pass",
+        "The focused test passes",
         "No architecture, abstraction, dependency, or unrelated file is added"
       ]
     }

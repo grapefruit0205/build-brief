@@ -48,7 +48,7 @@ The contract is semantic rather than literal: it fixes the approved result, boun
 
 Choose `quick`, `focused`, or `full` from present risk and repository evidence. Contract approval also approves that scale; do not ask a second verification question.
 
-The Hook derives the executable ceiling automatically: `quick` has 1 unit, `focused` 4, and `full` 10. Declare each argv check as `targeted` (1 unit), `broad` (3), or `deep` (5) according to its real reach. These are ceilings, not targets. Select the smallest final batch that proves `done_when`.
+The Hook derives the executable ceiling automatically: `quick` has 1 unit, `focused` 4, and `full` 10. Submit each argv check as `targeted` (1 unit), `broad` (3), or `deep` (5) according to its real reach. The Hook independently infers a minimum class for recognized commands and raises any lower submission before charging the batch. These are ceilings, not targets. Select the smallest final batch that proves `done_when`.
 
 Run the listed `done_when` checks together once after implementation. Do not revalidate every contract item during implementation. Routine builds, app runs, and narrow feedback needed to implement may occur, but do not turn them into a shadow final suite. Run recognized broad checks only through the final budgeted batch. Use `intermediate_gate` only when a later action depends on an irreversible migration, destructive operation, deployment, paid external call, or similarly unrecoverable boundary. Omit it for routine edits, builds, and reversible implementation choices.
 
@@ -60,7 +60,7 @@ Run the listed `done_when` checks together once after implementation. Do not rev
 4. Ask one compact question: approve, change the proposed contract, simplify the explanation, or cancel.
 5. Stop without mutating project files.
 
-The original request is not approval of an unseen contract. Before approval, a requested change replaces the staged proposal and both views are shown again. The easy explanation must not add or hide material meaning.
+The original request is not approval of an unseen contract. The Hook records the `UserPromptSubmit` turn that stages the proposal and will not pass it or accept a second stage in that same turn. Before approval, a requested change may replace the proposal only after another user response, and both views are shown again. The easy explanation must not add or hide material meaning.
 
 ## Implement the approved contract in one shot
 
@@ -70,14 +70,14 @@ After explicit approval:
 2. Run `click-gate pass '<Execution Contract JSON>'` with the exact staged JSON.
 3. Implement continuously inside the approved semantic boundary without creating a new plan, restaging the contract, or reopening repository-wide inventory exploration. Use ordinary edit tools for file edits and `click-gate mutate '{"version":1,"argv":[...]}'` for an implementation command that may write.
 4. Use `click-gate inspect '{"version":1,"commands":[[...]]}'` when a read is ambiguous or when explicit tracked argv evidence is clearer than compatible direct read syntax.
-5. Submit the smallest sufficient final batch as `click-gate verify '{"version":1,"checks":[{"argv":[...],"class":"targeted"}]}'`. Use `targeted`, `broad`, or `deep` honestly; do not hide work in a shell or wrapper.
+5. Submit the smallest sufficient final batch as `click-gate verify '{"version":1,"checks":[{"argv":[...],"class":"targeted"}]}'`. Use `targeted`, `broad`, or `deep` honestly; the Hook raises underdeclared checks to their inferred minimum. Do not use Python `-c`, a direct Python script, a shell, or a renamed wrapper as verification.
 6. Report results and material implementation choices.
 
-The Hook executes the accepted batch and records its real exit code. After success, do not run another verification batch unless a later in-scope mutation makes the result stale; then re-run the same batch. After failure, fix the in-scope cause and retry. One unchanged retry is available for a transient failure, after which a code mutation is required. Do not bypass the budget with a renamed wrapper or a direct broad-suite command.
+The Hook executes the accepted batch and records its real exit code. In a Git worktree it also compares tracked and already-present untracked content before and after the batch; a protected-content change fails the batch stale instead of recording false success. Newly created disposable test artifacts are not protected by this comparison. After success, do not run another verification batch unless a later in-scope mutation makes the result stale; then re-run the same batch. After failure, fix the in-scope cause and retry. One unchanged retry is available for a transient failure, after which a code mutation is required. Do not bypass the budget with a renamed wrapper or a direct broad-suite command.
 
 Do not create a replacement contract or request reapproval for an in-scope technical choice. MCP tools, external services, dependencies, graders, architecture tactics, files, and implementation order may change when necessary to deliver the approved result while preserving its boundary and must-hold conditions. The approved contract remains unchanged because it already grants that implementation freedom.
 
-After approval, reuse successful read/search evidence. If more evidence is needed, issue a narrower or materially different structured query. The Hook converts compatible simple direct reads into argv requests, blocks an identical successful observation until an in-scope mutation makes it stale, allows one unchanged retry after a failed or oversized observation, rejects repository-wide inventory rescans, and rejects matched plan-tool calls. Do not evade those guards with renamed wrappers or prose-only duplicate plans.
+After approval, reuse successful read/search evidence. If more evidence is needed, issue a narrower or materially different structured query. The Hook converts compatible simple direct reads into argv requests, blocks an identical successful observation until an in-scope mutation makes it stale, allows one unchanged retry after a failed or oversized observation, rejects repository-wide inventory rescans, and rejects matched plan-tool calls throughout armed, staged, approved, and review workflows. Do not evade those guards with renamed wrappers or prose-only duplicate plans.
 
 Stop only when completion needs authority the user has not granted, an irreversible or paid external action not covered by approval, or a change to the approved outcome, user-visible behavior, boundary, must-hold condition, or verification commitment. Report the blocker; do not silently widen the work or substitute a new mid-run contract.
 
@@ -85,7 +85,7 @@ Stop only when completion needs authority the user has not granted, an irreversi
 
 Choose the smallest design that satisfies every invariant. No component category is forbidden. A new dependency, service, queue, store, MCP, grader, abstraction, or operational component is valid when it is a proportionate way to complete the approved work. Prefer existing structure when it is equally capable; do not add speculative architecture for hypothetical scale, teams, or reuse.
 
-The Hook validates contract shape, mutation ordering, exact staged-versus-passed equality, structured argv observations and commands, and the declared visible verification budget. Its review guard covers supported local Hook paths, not every connector read. It cannot see hidden reasoning, prose-only plans, connector reads outside its matcher, design truth, semantic implementation fidelity, or authentic human approval. If Hook enforcement is unavailable, preserve the same ordering at instruction level and disclose that fact.
+The Hook validates contract shape, distinct staging and approval turns, mutation ordering, exact staged-versus-passed equality, structured argv observations and commands, and the inferred visible verification budget. Its review guard covers supported local Hook paths, not every connector read. It can prove that another user turn occurred, but it cannot semantically prove that the user's words meant approval. It also cannot see hidden reasoning, prose-only plans, connector reads outside its matcher, design truth, or semantic implementation fidelity. If Hook enforcement is unavailable, preserve the same ordering at instruction level and disclose that fact.
 
 ## Communicate plainly
 

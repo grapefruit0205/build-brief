@@ -26,14 +26,16 @@ The Hook requires approved state, rejects shell interpreters, issues a one-use r
 
 ## Verification
 
-Submit one final batch with an explicit cost class for each argv check:
+Submit one final batch with a cost class for each argv check:
 
 ```text
 click-gate verify '{"version":1,"checks":[{"argv":["python3","-m","unittest","discover","-s","tests","-q"],"class":"broad"},{"argv":["git","diff","--check"],"class":"targeted"}]}'
 ```
 
-Classes are `targeted` (1 unit), `broad` (3), and `deep` (5). Approval of `quick`, `focused`, or `full` still provides ceilings of 1, 4, or 10 units. Legacy shell-string `commands` batches are rejected with a migration message.
+Classes are `targeted` (1 unit), `broad` (3), and `deep` (5). The Hook infers the minimum class supported by each recognized argv and automatically raises a lower submitted value before charging the batch. Approval of `quick`, `focused`, or `full` still provides ceilings of 1, 4, or 10 units. Legacy shell-string `commands` batches are rejected with a migration message.
+
+Python checks must use an explicit supported module runner: `python -m pytest`, `python -m unittest`, or `python -m coverage`. Python `-c` and direct Python scripts are not verification capabilities. In a Git worktree, the runner compares tracked and pre-existing untracked content before and after the batch. A protected-content change fails stale and increments the mutation revision; newly created untracked test artifacts are not protected. Outside Git, this content snapshot is unavailable.
 
 ## Enforcement boundary
 
-This protocol removes shell-string classification from accepted capability execution and makes supported argv behavior deterministic. It does not cover hosted tools, specialized paths that opt out of hooks, hidden reasoning, semantic boundary correctness, or arbitrary custom code executed by an allowed program. Click remains a workflow guardrail, not an operating-system sandbox.
+This protocol removes shell-string classification from accepted capability execution and makes supported argv behavior deterministic. Minimum-class inference closes simple cost underdeclaration but cannot measure work concealed inside an allowed program. It does not cover hosted tools, specialized paths that opt out of hooks, hidden reasoning, semantic boundary correctness, or arbitrary custom code executed by an allowed program. Click remains a workflow guardrail, not an operating-system sandbox.

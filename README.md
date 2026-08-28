@@ -61,13 +61,14 @@ flowchart TB
     B -->|Manual| D["Use @Click<br/>when wanted"]
     C --> E["Compact contract<br/>+ plain explanation"]
     D --> E
-    E --> F{"Approve once?"}
-    F -->|Revise or cancel| E
-    F -->|Approve| G["One-shot implementation"]
+    E --> F["Stage contract<br/>and wait"]
+    F --> I{"Later user turn:<br/>approve once?"}
+    I -->|Revise or cancel| E
+    I -->|Approve| G["One-shot implementation"]
     G --> H["One budgeted<br/>final verification"]
 ```
 
-The initial request is not approval of an unseen design. Click first shows both the developer contract and the easy explanation. You may revise or cancel that proposal. Once you approve it, Click keeps the semantic contract fixed and implements without asking you to approve another plan.
+The initial request is not approval of an unseen design. Click first stages and shows both the developer contract and the easy explanation, then stops. The Hook records `staged_turn_id`, rejects pass or a second stage in that same `UserPromptSubmit` turn, and accepts the exact contract only from a later user turn. You may revise or cancel the proposal there. Once you approve it, Click records `approved_turn_id`, keeps the semantic contract fixed, and implements without asking you to approve another plan. This proves that another user response occurred; the Skill still interprets whether that response actually means approval because the Hook does not classify natural-language consent.
 
 Only a real change to the approved result, boundary, must-hold behavior, or verification commitment requires stopping. Necessary files, libraries, tools, services, and implementation tactics inside the approved boundary do not require a replacement contract.
 
@@ -149,15 +150,16 @@ Simple recognized direct reads remain convenient. For ambiguous or tracked work,
 
 ## Implementation without loops
 
-After approval, the Hook enforces four observable rules:
+Across staging, review, implementation, and verification, the Hook enforces these observable rules:
 
 | Guard | What happens |
 | --- | --- |
 | Reuse evidence | An identical structured read or search that already succeeded is blocked until an in-scope mutation makes the evidence stale. |
-| No replanning | Matched `update_plan` calls and attempts to stage or pass a replacement contract are rejected. |
+| No parallel planning | Matched `update_plan` calls are rejected while the workflow is armed, staged, approved but incomplete, or in review—even from a later turn. Bypass or current-revision completion releases ordinary later planning. |
 | No full inventory reset | Root-level inventory such as `rg --files`, `find .`, recursive root listings, and equivalent Git inventory scans are rejected; path-scoped inspection remains available. |
 | Make command intent explicit | Ambiguous active Bash is rejected with guidance to use structured `inspect` for reading, `mutate` for implementation, or `verify` for final checks. |
 | Keep checks in budget | Final checks must run through the structured `click-gate verify` batch and fit the approved scale. |
+| Separate proposal from approval | Same-turn pass and same-turn replacement staging are rejected; the exact digest can pass only after a later `UserPromptSubmit`. |
 
 A failed observation or one whose output exceeds 48,000 bytes gets one unchanged retry. A source mutation resets successful observation evidence because the code may have changed. Hook state changes use a cross-platform lock so parallel result recording does not strand a false “running” observation. The Hook stores request digests and non-content metadata, not command bodies or output.
 
@@ -184,7 +186,7 @@ Click chooses the smallest sufficient scale from the current risk and repository
 | `focused` | Ordinary bounded feature or repair | 4 units |
 | `full` | Payments, auth, deletion, migrations, public contracts, or cross-boundary concurrency | 10 units |
 
-A `targeted` check costs 1 unit, a `broad` check costs 3, and a `deep` check costs 5. These values are ceilings, not targets.
+A `targeted` check costs 1 unit, a `broad` check costs 3, and a `deep` check costs 5. The submitted value is not trusted as the cost: the Hook infers a minimum class from each recognized argv and automatically raises an underdeclared check before calculating the total. These values are ceilings, not targets.
 
 Click submits one explicit argv check per entry to:
 
@@ -192,9 +194,11 @@ Click submits one explicit argv check per entry to:
 click-gate verify '{"version":1,"checks":[{"argv":["python3","-m","unittest","discover","-s","tests","-q"],"class":"broad"},{"argv":["git","diff","--check"],"class":"targeted"}]}'
 ```
 
-The Hook validates the declared classes, executes the accepted final batch without a shell, and records the real exit codes. Legacy shell-string `commands` batches are rejected with migration guidance. A failed batch may be retried once unchanged for a transient failure; after that, an in-scope mutation is required. A later mutation makes an earlier success stale and permits the same batch again.
+The Hook validates and normalizes the submitted classes, executes the accepted final batch without a shell, and records the real exit codes. For Python, only explicit `python -m pytest`, `python -m unittest`, and `python -m coverage` runners qualify; Python `-c` and direct Python scripts are rejected as verification. Legacy shell-string `commands` batches are rejected with migration guidance. A failed batch may be retried once unchanged for a transient failure; after that, an in-scope mutation is required. A later mutation makes an earlier success stale and permits the same batch again.
 
-The budget covers recognized visible commands. A custom wrapper can conceal expensive work, so this is not a security or resource sandbox and does not prove that the chosen tests are semantically sufficient.
+In a Git worktree, the runner snapshots tracked content and any pre-existing untracked content before the batch. If protected content changes, the batch fails stale and advances the mutation revision instead of recording false success. Newly created untracked test artifacts are not protected, which avoids treating ordinary caches and generated test output as source mutation. Outside Git this content-diff guard is unavailable; argv validation, shell-free execution, and revision state still apply.
+
+Minimum-class inference closes simple underdeclaration. An unknown verification-like wrapper name is charged conservatively as `deep`, and an unrecognized command is rejected, but an allowed program can still conceal expensive work internally. This is not a security or resource sandbox and does not prove that the chosen tests are semantically sufficient.
 
 ## Minimum design still protects the important parts
 
@@ -209,6 +213,8 @@ Minimum design removes ceremony, not necessary safeguards.
 | Compatibility | Existing API, data, statuses, and user-visible behavior |
 
 Material conditions belong in `must_hold`; concrete state or failure meaning belongs in optional `build.semantics`; observable proof belongs in `verification.done_when`. The Hook protects contract shape, approval order, digest equality, visible loops, and visible verification breadth. It does not prove that the implementation is architecturally correct or semantically faithful by itself.
+
+More precisely, Click does not semantically decide whether a new microservice, queue, or abstraction is overdesign. The Skill and semantic grader prefer the smallest evidence-backed design; the Hook blocks the repeated planning, whole-repository rediscovery, and repeated-verification loops that often produce design expansion. Product claims are limited to that observable enforcement boundary.
 
 ## Who Click is for
 
@@ -229,9 +235,11 @@ Manual mode or a per-turn bypass is usually better for tiny, obvious, reversible
 
 ## Evidence and honest limits
 
-The v0.14.0 source release has 89 deterministic tests covering persistent out-of-repository mode selection, per-prompt routing context, first-mutation setup, Manual fail-open behavior, Always ON mutation gating, code-review anti-loop behavior, compact-contract validation, approval equality and completed-contract rollover, versioned inspect/mutate/verify requests, shell-free argv execution, state locking and abandoned-runner recovery, verification ceilings, retry state, content-free Hook state, semantic-grader mechanics, evaluation routing cases, and repository policy. Cross-platform CI validates Linux, macOS, and Windows.
+The v0.15.0 source release passes 112 deterministic tests locally. They cover persistent out-of-repository mode selection, per-prompt routing context, Manual fail-open behavior, Always ON mutation gating, code-review anti-loop behavior, compact-contract validation, distinct-turn approval, completed-contract rollover, active-lifecycle plan blocking, minimum verification-class inference, Python verification restrictions, Git protected-content mutation detection, versioned inspect/mutate/verify requests, shell-free argv execution, state locking and abandoned-runner recovery, retry state, content-free Hook state, A/B metric mechanics, semantic-grader mechanics, and repository policy. Cross-platform CI is configured for Linux, macOS, and Windows.
 
-The repository also includes golden cases, a semantic grader, and an A/B runner. They are evaluation infrastructure, not evidence that Click already improves success rate, accuracy, time, or token use across real projects. That behavioral comparison still needs repeated trials and human calibration.
+The repository also includes version-14 golden cases, a semantic grader, and an A/B runner configured for six pinned self-hosted tasks, three conditions, five shuffled repetitions per condition, and `gpt-5.6-sol` at `max` reasoning effort. It reports correctness, tokens, elapsed time, completed tool items, duplicate successful commands, repeated root inventory, plan items, verification commands, distributions, and paired deltas against no-plugin baselines. Those 90 condition trials are intentionally **not run during installation or CI** because they consume paid model time.
+
+This is evaluation infrastructure, not a benchmark result. Until those trials are run, human-calibrated, and then repeated on several unrelated real repositories, Click does not claim that it improves success rate, accuracy, time, token use, or overdesign across projects. The checked-in v0.5.0 single-run pilot remains historical failure evidence, not evidence for v0.15.0.
 
 Click is not claimed to be the first or only workflow in this area. It overlaps with spec-driven, autonomous-loop, and approval-gated tools; its deliberately narrow emphasis is one persistent choice, one compact contract, one approval, one-shot implementation, observable anti-loop guards, and one final verification budget.
 
@@ -260,6 +268,12 @@ python3 /path/to/skill-creator/scripts/quick_validate.py skills/click
 python3 /path/to/skill-creator/scripts/quick_validate.py skills/fix
 python3 /path/to/plugin-creator/scripts/validate_plugin.py .
 python3 -m unittest discover -s tests -v
+```
+
+The A/B runner refuses to start model calls unless the operator adds the explicit paid-run acknowledgement:
+
+```bash
+python3 evals/run_ab.py --results /path/to/results --execute-paid-runs
 ```
 
 </details>

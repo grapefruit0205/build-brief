@@ -47,4 +47,4 @@ End with one compact question equivalent to:
 
 > Do you approve this execution contract and its verification scale? If approved, I will implement it in one shot and run the completion checks once.
 
-The original request is not approval of an unseen contract. Before approval, the user may replace the proposal. After approval, pass the exact staged JSON and keep the contract fixed while making any necessary in-scope technical choices.
+The original request is not approval of an unseen contract. Staging records `staged_turn_id`; the Hook rejects pass and a replacement stage in that same `UserPromptSubmit` turn. After a later user response, the user may revise the proposal and see it again, or approve it. Approval records `approved_turn_id`, passes the exact staged JSON, and authorizes one-shot implementation while necessary in-scope technical choices remain open. Turn separation proves that another user response occurred; the Skill still must interpret that response faithfully because the Hook does not semantically classify approval words.

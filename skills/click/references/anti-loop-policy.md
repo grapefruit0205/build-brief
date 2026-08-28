@@ -6,10 +6,11 @@ Apply the build guards after the exact staged Click contract has been approved a
 
 1. **Reuse successful evidence.** Approved read-only argv requests are executed with `shell=False` by the local observation runner. Compatible simple Bash reads are converted to the same request. The runner stores a normalized request digest, mutation revision, exit code, output size, and status—not argv or output. An identical successful read or search is blocked until an in-scope mutation clears the evidence ledger.
 2. **Retry bounded failures, not loops.** A failed command or output larger than 48,000 bytes may be retried unchanged once. If it still fails or remains incomplete, narrow or change the command. Do not repeat it again.
-3. **Do not replan after approval.** Matched `update_plan` tool calls and every attempt to restage or replace the approved contract are blocked. Implement directly from the compact contract. If the approved outcome or boundary must change, stop and ask the user.
+3. **Do not create a parallel plan.** Matched `update_plan` tool calls are blocked in armed, staged, approved/passed, and review turns, and in later turns while the session contract remains staged or approved but incomplete. A completed current-revision contract or explicit bypass releases ordinary later planning. Same-turn second staging, same-turn pass, and mid-run replacement are also blocked. Implement directly from the compact contract. If the approved outcome or boundary must change, stop and ask the user.
 4. **Do not reopen repository inventory.** After approval, repository-wide inventory argv such as root-level `rg --files`, `find .`, recursive root `ls`/`Get-ChildItem`, `tree`, `git ls-files`, or an unscoped recursive `git ls-tree` are blocked. Path-scoped inventory and concrete content searches remain available.
 5. **Make write intent explicit.** An ambiguous implementation command must use `click-gate mutate`; ordinary edit tools remain deterministic mutations. Direct active Bash is not guessed writable.
-6. **Keep broad verification in the budget.** Final checks use argv-based `click-gate verify` entries with explicit `targeted`, `broad`, or `deep` classes and must fit the approved scale.
+6. **Keep broad verification in the budget.** Final checks use argv-based `click-gate verify` entries with submitted `targeted`, `broad`, or `deep` classes. The Hook infers and applies each recognized command's minimum class before checking the approved scale.
+7. **Do not mutate through verification.** Python `-c` and direct Python scripts are rejected as checks. In Git worktrees, a final batch that changes tracked or pre-existing untracked content fails stale instead of becoming completion evidence.
 
 ## Read-only code review
 

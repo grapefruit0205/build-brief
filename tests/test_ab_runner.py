@@ -1,0 +1,125 @@
+from __future__ import annotations
+
+import json
+import unittest
+
+from evals.run_ab import (
+    _aggregate,
+    _build_schedule,
+    _condition_prompt,
+    _paired_deltas,
+    _runtime_trace,
+    _thread_id_from_jsonl,
+)
+
+
+class ABRunnerTests(unittest.TestCase):
+    def test_schedule_is_repeated_complete_and_seeded(self) -> None:
+        cases = [{"id": "a"}, {"id": "b"}]
+        conditions = ["no-plugin", "explicit-skill-and-hook"]
+        first = _build_schedule(cases, conditions, repetitions=3, seed=17)
+        second = _build_schedule(cases, conditions, repetitions=3, seed=17)
+        different = _build_schedule(cases, conditions, repetitions=3, seed=18)
+
+        identity = lambda item: (
+            item["case"]["id"],
+            item["condition"],
+            item["repetition"],
+        )
+        self.assertEqual([identity(item) for item in first], [identity(item) for item in second])
+        self.assertNotEqual(
+            [identity(item) for item in first], [identity(item) for item in different]
+        )
+        self.assertEqual(len(first), 12)
+        self.assertEqual(len({identity(item) for item in first}), 12)
+
+    def test_no_plugin_uses_a_prompt_without_the_skill_invocation(self) -> None:
+        case = {
+            "prompt": "$click Implement the change.",
+            "baseline_prompt": "Implement the change.",
+        }
+        self.assertEqual(_condition_prompt(case, "no-plugin"), "Implement the change.")
+        self.assertEqual(
+            _condition_prompt(case, "explicit-skill-and-hook"),
+            "$click Implement the change.",
+        )
+
+    def test_runtime_trace_counts_completed_observable_loops(self) -> None:
+        events = [
+            {
+                "type": "item.completed",
+                "item": {
+                    "type": "command_execution",
+                    "command": "rg --files",
+                    "exit_code": 0,
+                },
+            },
+            {
+                "type": "item.completed",
+                "item": {
+                    "type": "command_execution",
+                    "command": "rg --files",
+                    "exit_code": 0,
+                },
+            },
+            {
+                "type": "item.completed",
+                "item": {
+                    "type": "command_execution",
+                    "command": "python3 -m unittest discover -s tests",
+                    "exit_code": 0,
+                },
+            },
+            {
+                "type": "item.completed",
+                "item": {"type": "todo_list", "status": "completed"},
+            },
+        ]
+        trace = _runtime_trace("\n".join(json.dumps(event) for event in events))
+        self.assertEqual(trace["command_execution_count"], 3)
+        self.assertEqual(trace["duplicate_successful_command_count"], 1)
+        self.assertEqual(trace["root_inventory_count"], 2)
+        self.assertEqual(trace["repeated_root_inventory_count"], 1)
+        self.assertEqual(trace["verification_command_count"], 1)
+        self.assertEqual(trace["plan_item_count"], 1)
+
+    def test_thread_id_is_taken_from_the_candidate_jsonl(self) -> None:
+        events = "\n".join(
+            [
+                json.dumps({"type": "turn.started"}),
+                json.dumps(
+                    {"type": "thread.started", "thread_id": "thread-candidate-7"}
+                ),
+            ]
+        )
+        self.assertEqual(_thread_id_from_jsonl(events), "thread-candidate-7")
+
+    def test_aggregate_reports_distribution_and_paired_baseline_delta(self) -> None:
+        scores = [
+            {
+                "case_id": "case-a",
+                "condition": "no-plugin",
+                "repetition": 1,
+                "status": "pass",
+                "score": 80,
+                "metrics": {"input_tokens": 100, "elapsed_seconds": 10},
+            },
+            {
+                "case_id": "case-a",
+                "condition": "explicit-skill-and-hook",
+                "repetition": 1,
+                "status": "pass",
+                "score": 90,
+                "metrics": {"input_tokens": 70, "elapsed_seconds": 8},
+            },
+        ]
+        aggregate = _aggregate(scores)
+        self.assertEqual(aggregate["no-plugin"]["input_tokens"]["median"], 100)
+        deltas = _paired_deltas(scores)["explicit-skill-and-hook"]
+        self.assertEqual(deltas["paired_runs"], 1)
+        self.assertEqual(deltas["score_delta"]["median"], 10)
+        self.assertEqual(deltas["input_tokens_delta"]["median"], -30)
+
+
+if __name__ == "__main__":
+    unittest.main()

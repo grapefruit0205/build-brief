@@ -61,13 +61,14 @@ flowchart TB
     B -->|Manual| D["원할 때<br/>@Click 호출"]
     C --> E["축약 실행 계약<br/>+ 쉬운 설명"]
     D --> E
-    E --> F{"한 번 승인?"}
-    F -->|수정 또는 취소| E
-    F -->|승인| G["One-shot 구현"]
+    E --> F["계약 stage 후<br/>응답 대기"]
+    F --> I{"다음 사용자 turn:<br/>한 번 승인?"}
+    I -->|수정 또는 취소| E
+    I -->|승인| G["One-shot 구현"]
     G --> H["예산 안에서<br/>최종 검증 한 번"]
 ```
 
-처음 한 요청을 아직 보지 못한 설계에 대한 승인으로 간주하지 않습니다. Click이 먼저 개발자용 계약과 쉬운 설명을 함께 보여줍니다. 사용자는 제안을 수정하거나 취소할 수 있습니다. 승인한 뒤에는 의미 계약을 고정하고, 또 다른 계획을 승인해 달라고 묻지 않은 채 구현합니다.
+처음 한 요청을 아직 보지 못한 설계에 대한 승인으로 간주하지 않습니다. Click이 먼저 개발자용 계약과 쉬운 설명을 stage해서 보여주고 멈춥니다. Hook은 `staged_turn_id`를 기록하고 같은 `UserPromptSubmit` turn의 pass와 두 번째 stage를 거부하며, 다음 사용자 turn에서만 정확히 같은 계약을 받을 수 있습니다. 사용자는 그때 제안을 수정하거나 취소할 수 있습니다. 승인하면 `approved_turn_id`를 기록하고 의미 계약을 고정한 뒤, 또 다른 계획을 승인해 달라고 묻지 않은 채 구현합니다. 이 장치는 다른 사용자 응답이 있었다는 사실을 증명하지만, 그 자연어가 실제로 승인을 뜻하는지는 Skill이 충실하게 해석해야 합니다.
 
 승인한 결과·경계·반드시 지킬 동작·검증 약속이 실제로 바뀌는 경우에만 중단합니다. 승인 경계 안에서 필요한 파일·라이브러리·도구·서비스·구현 수단은 새 계약이 필요하지 않습니다.
 
@@ -149,15 +150,16 @@ Click은 코드를 건드리기 전에 다음과 같은 축약 계약을 제시�
 
 ## 실행 루프 없이 구현
 
-승인 뒤 Hook은 관찰 가능한 행동 네 가지를 제한합니다.
+계약 stage부터 리뷰·구현·검증까지 Hook은 다음 관찰 가능한 행동을 제한합니다.
 
 | 안전망 | 동작 |
 | --- | --- |
 | 이미 얻은 근거 재사용 | 한 번 성공한 동일 구조화 읽기·검색은 범위 안의 코드 수정으로 근거가 오래되기 전까지 차단합니다. |
-| 재계획 금지 | 일치하는 `update_plan` 호출과 대체 계약을 stage 또는 pass하려는 시도를 거부합니다. |
+| 병렬 계획 금지 | workflow가 armed·staged·승인 후 미완료·review 상태인 동안 이후 turn에서도 `update_plan`을 거부합니다. bypass하거나 현재 revision 검증을 완료하면 이후 일반 계획은 다시 허용합니다. |
 | 전체 목록 재탐색 금지 | 루트의 `rg --files`, `find .`, 루트 재귀 목록, 동등한 Git 목록 스캔을 거부하고 경로를 좁힌 확인은 허용합니다. |
 | 명령 의도를 명시 | 활성 상태에서 애매한 Bash는 거부하고 조회는 `inspect`, 구현 명령은 `mutate`, 최종 검사는 `verify`를 사용하도록 안내합니다. |
 | 검증을 예산 안에 유지 | 최종 검사는 구조화된 `click-gate verify` 묶음으로 실행하고 승인한 규모 안에 들어야 합니다. |
+| 제안과 승인 분리 | 같은 turn의 pass와 대체 stage를 거부하고, 정확한 digest는 다음 `UserPromptSubmit` 뒤에만 pass합니다. |
 
 실패한 관찰 또는 출력이 48,000바이트를 넘은 관찰은 변경 없이 한 번 재시도할 수 있습니다. 소스가 수정되면 이전 근거가 오래됐을 수 있으므로 성공 관찰 기록을 초기화합니다. Hook 상태 변경에는 크로스 플랫폼 잠금을 사용해 병렬 결과 기록이 잘못된 “실행 중” 상태를 남기지 않게 합니다. Hook은 요청 digest와 본문을 포함하지 않는 메타데이터만 저장하며 명령과 출력은 저장하지 않습니다.
 
@@ -184,7 +186,7 @@ Click은 현재 위험과 저장소 근거로 충분한 최소 규모를 고릅�
 | `focused` | 범위가 정해진 일반 기능 또는 수정 | 4단위 |
 | `full` | 결제·인증·삭제·마이그레이션·공개 계약·경계를 넘는 동시성 | 10단위 |
 
-`targeted` 검사는 1단위, `broad` 검사는 3단위, `deep` 검사는 5단위입니다. 상한일 뿐 반드시 모두 쓸 목표가 아닙니다.
+`targeted` 검사는 1단위, `broad` 검사는 3단위, `deep` 검사는 5단위입니다. 제출한 값을 그대로 비용으로 믿지 않습니다. Hook이 인식한 argv의 최소 class를 추론하고, 더 낮게 제출한 검사는 자동으로 올린 뒤 총비용을 계산합니다. 상한일 뿐 반드시 모두 쓸 목표가 아닙니다.
 
 Click은 항목마다 명시적인 argv 검사 하나를 다음 runner에 전달합니다.
 
@@ -192,9 +194,11 @@ Click은 항목마다 명시적인 argv 검사 하나를 다음 runner에 전달
 click-gate verify '{"version":1,"checks":[{"argv":["python3","-m","unittest","discover","-s","tests","-q"],"class":"broad"},{"argv":["git","diff","--check"],"class":"targeted"}]}'
 ```
 
-Hook이 선언한 class를 검증하고 승인된 최종 묶음을 shell 없이 실행해 실제 종료 코드를 기록합니다. 예전 shell 문자열 `commands` 형식은 이전 방법을 안내하며 거부합니다. 일시적인 실패라면 같은 묶음을 변경 없이 한 번 재시도할 수 있고, 그 뒤에는 범위 안의 수정이 필요합니다. 이후 소스를 수정하면 앞선 성공 결과가 오래된 것으로 간주되어 같은 묶음을 다시 실행할 수 있습니다.
+Hook이 제출한 class를 검증·정규화하고 승인된 최종 묶음을 shell 없이 실행해 실제 종료 코드를 기록합니다. Python 검증은 명시적인 `python -m pytest`, `python -m unittest`, `python -m coverage` runner만 받으며 Python `-c`와 직접 Python 스크립트는 검증으로 거부합니다. 예전 shell 문자열 `commands` 형식은 이전 방법을 안내하며 거부합니다. 일시적인 실패라면 같은 묶음을 변경 없이 한 번 재시도할 수 있고, 그 뒤에는 범위 안의 수정이 필요합니다. 이후 소스를 수정하면 앞선 성공 결과가 오래된 것으로 간주되어 같은 묶음을 다시 실행할 수 있습니다.
 
-예산은 화면에 보이고 인식 가능한 명령에 적용됩니다. 사용자 정의 래퍼는 비싼 작업을 숨길 수 있으므로 보안·자원 샌드박스가 아니며 선택한 테스트의 의미가 충분하다고 증명하지도 않습니다.
+Git worktree에서는 batch 전의 tracked content와 pre-existing untracked content를 snapshot합니다. 보호한 내용이 검증 도중 바뀌면 거짓 성공으로 기록하지 않고 batch를 stale 실패로 처리하며 mutation revision을 올립니다. 검증이 새로 만든 untracked 테스트 산출물은 보호 대상이 아니므로 일반 cache나 생성 결과 때문에 불필요하게 실패하지 않습니다. Git 밖에서는 이 content-diff 안전망을 사용할 수 없지만 argv 검증, shell 없는 실행, revision 상태 검사는 계속 적용됩니다.
+
+최소 class 추론은 단순한 비용 축소 제출을 막습니다. 알 수 없는 검증형 이름의 사용자 정의 래퍼는 보수적으로 `deep`으로 계산하고 인식하지 못한 명령은 거부하지만, 허용된 프로그램 내부에 비싼 작업을 숨길 가능성까지 측정하지는 못합니다. 따라서 보안·자원 샌드박스가 아니며 선택한 테스트의 의미가 충분하다고 증명하지도 않습니다.
 
 ## 최소설계가 중요한 것을 빼지는 않습니다
 
@@ -209,6 +213,8 @@ Hook이 선언한 class를 검증하고 승인된 최종 묶음을 shell 없이 
 | 호환성 | 기존 API, 데이터, 상태값, 사용자 동작 |
 
 중요한 조건은 `must_hold`에, 구체적인 상태·실패 의미는 필요할 때 `build.semantics`에, 관찰 가능한 완료 근거는 `verification.done_when`에 둡니다. Hook은 계약 형식·승인 순서·digest 동일성·보이는 반복·보이는 검증 범위를 지킵니다. 구현이 아키텍처적으로 옳고 의미까지 정확하다고 Hook 하나로 증명하는 것은 아닙니다.
+
+정확히 말하면 Click Hook은 새 마이크로서비스·queue·추상화가 과설계인지 의미적으로 판정하지 않습니다. Skill과 의미 grader가 근거 있는 최소설계를 선호하고, Hook은 설계를 계속 불리는 원인이 되기 쉬운 반복 계획·저장소 전체 재탐색·반복 검증 루프를 차단합니다. 제품 주장은 이 관찰 가능한 적용 경계로 제한합니다.
 
 ## 누구를 위한 플러그인인가요?
 
@@ -229,9 +235,11 @@ Click의 핵심 대상은 다음 두 그룹입니다.
 
 ## 근거와 솔직한 한계
 
-v0.14.0 소스 릴리스는 저장소 밖 영구 모드 선택, 요청마다 주입되는 라우팅 문맥, 첫 변경 설정, Manual fail-open, Always ON 변경 게이트, 코드 리뷰 anti-loop, 축약 계약 검증, 승인 동일성과 완료 계약 전환, 버전이 있는 inspect·mutate·verify 요청, shell 없는 argv 실행, 상태 잠금과 중단 runner 복구, 검증 상한, 재시도 상태, 본문을 저장하지 않는 Hook 상태, 의미 grader, 평가 라우팅 사례, 저장소 정책을 다루는 결정적 테스트 89개를 포함합니다. 크로스 플랫폼 CI가 Linux·macOS·Windows를 검증합니다.
+v0.15.0 소스 릴리스는 로컬에서 결정적 테스트 112개를 통과했습니다. 저장소 밖 영구 모드 선택, 요청마다 주입되는 라우팅 문맥, Manual fail-open, Always ON 변경 게이트, 코드 리뷰 anti-loop, 축약 계약 검증, 사용자 turn이 분리된 승인, 완료 계약 전환, active lifecycle 전체의 계획 차단, 검증 최소 class 추론, Python 검증 제한, Git 보호 content 변경 감지, 버전이 있는 inspect·mutate·verify 요청, shell 없는 argv 실행, 상태 잠금과 중단 runner 복구, 재시도 상태, 본문을 저장하지 않는 Hook 상태, A/B metric, 의미 grader, 저장소 정책을 다룹니다. 크로스 플랫폼 CI는 Linux·macOS·Windows용으로 설정되어 있습니다.
 
-저장소에는 golden case, 의미 grader, A/B runner도 포함되어 있습니다. 이는 평가 기반 시설이지 실제 프로젝트 전반에서 Click이 성공률·정확도·시간·토큰을 이미 개선했다는 증거가 아닙니다. 그런 행동 비교에는 반복 실행과 사람의 보정이 더 필요합니다.
+저장소에는 version 14 golden case, 의미 grader, A/B runner도 포함되어 있습니다. A/B suite는 고정된 self-hosted 작업 6개, 조건 3개, 조건별 무작위 순서 5회, `gpt-5.6-sol`의 `max` 추론으로 설정되어 있습니다. 정확성·토큰·경과 시간·완료 tool item·성공 명령 중복·root inventory 반복·plan item·검증 명령의 분포와 no-plugin baseline 대비 paired delta를 기록합니다. 총 90개 condition trial은 유료 모델 시간과 비용이 들기 때문에 설치나 CI에서 **자동 실행하지 않습니다**.
+
+이는 평가 기반 시설이지 benchmark 결과가 아닙니다. 실제로 실행하고 사람이 표본 보정한 뒤, 서로 관련 없는 여러 실제 저장소에서도 반복하기 전까지 Click이 프로젝트 전반의 성공률·정확도·시간·토큰·과설계를 개선한다고 주장하지 않습니다. 저장된 v0.5.0 단일 pilot은 과거 실패 근거일 뿐 v0.15.0의 효과 증거가 아닙니다.
 
 Click이 이 분야에서 최초이거나 유일하다고 주장하지 않습니다. spec-driven·autonomous loop·승인 게이트 도구와 겹치지만, 영구 선택 한 번·축약 계약 하나·승인 한 번·One-shot 구현·관찰 가능한 anti-loop 안전망·최종 검증 예산 하나에 의도적으로 좁게 집중합니다.
 
@@ -260,6 +268,12 @@ python3 /path/to/skill-creator/scripts/quick_validate.py skills/click
 python3 /path/to/skill-creator/scripts/quick_validate.py skills/fix
 python3 /path/to/plugin-creator/scripts/validate_plugin.py .
 python3 -m unittest discover -s tests -v
+```
+
+A/B runner는 실행자가 다음처럼 유료 실행을 명시적으로 확인하지 않으면 model call을 시작하지 않습니다.
+
+```bash
+python3 evals/run_ab.py --results /path/to/results --execute-paid-runs
 ```
 
 </details>

@@ -1,7 +1,7 @@
 {
   "name": "click",
-  "version": "0.14.0",
-  "description": "Choose Always ON or Manual once; Manual uses @Click. Approve one compact plain-language execution contract, then use structured inspect, mutate, and verify runners to reduce observable implementation loops and shell-intent misclassification.",
+  "version": "0.15.0",
+  "description": "Choose Always ON or Manual once; Manual uses @Click. Approve one compact plain-language execution contract in a later user turn, then use hardened structured inspect, mutate, and budget-inferred verify runners to reduce observable implementation loops.",
   "author": {
     "name": "Junseok Pak",
     "url": "https://github.com/grapefruit0205"
@@ -24,7 +24,7 @@
   "interface": {
     "displayName": "Click",
     "shortDescription": "Approve once, then implement the contract in one shot.",
-    "longDescription": "Click asks once whether software changes should use Always ON (recommended) or Manual mode. Always ON applies one compact contract and one approval before supported software mutations; Manual applies the same workflow only when @Click is selected. Questions, explanations, and simple read-only inspection remain normal. Code review needs no build contract. After approval Click implements in one shot. During an active review or approved build, versioned argv-based inspect, mutate, and verify runners make supported command intent explicit, execute without a shell, reuse evidence, and enforce the automatically selected verification budget. The Hook also blocks replacement contracts and matched replanning while necessary in-scope implementation details remain flexible. The bundled Fix skill provides the same compact repair flow for direct invocation.",
+    "longDescription": "Click asks once whether software changes should use Always ON (recommended) or Manual mode. Always ON applies one compact contract and one later-turn approval before supported software mutations; Manual applies the same workflow only when @Click is selected. Questions, explanations, and simple read-only inspection remain normal. Code review needs no build contract. After approval Click implements in one shot. During an active review or approved build, versioned argv-based inspect, mutate, and verify runners make supported command intent explicit, execute without a shell, reuse evidence, infer minimum verification cost, detect protected Git content changed by checks, and enforce the automatically selected verification budget. The Hook blocks parallel replanning and replacement contracts while necessary in-scope implementation details remain flexible. The bundled Fix skill provides the same compact repair flow for direct invocation.",
     "developerName": "Junseok Pak",
     "category": "Productivity",
     "capabilities": [
@@ -32,7 +32,7 @@
     ],
     "websiteURL": "https://github.com/grapefruit0205/click",
     "defaultPrompt": [
-      "Use Click to create one compact developer execution contract, choose and automatically budget a verification scale, explain it plainly, and ask once before implementation.",
+      "Use Click to stage one compact developer execution contract, choose and automatically budget a verification scale, explain it plainly, and wait for one later-turn approval before implementation.",
       "Use Click to design and implement this change in one approved shot, blocking observable tool loops and using one final verification batch.",
       "Set Click to Always ON for software changes while keeping questions and read-only inspection normal.",
       "Use Click's structured capability runners to inspect, implement, and verify this approved change without guessing whether shell text is read-only or writable.",

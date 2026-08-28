@@ -23,9 +23,9 @@ On first use, you choose **Always ON** or **Manual**.
 - Questions, explanations, and simple read-only inspection stay normal.
 - Code review needs no build contract, but a read-only guard blocks repeated successful reads and repeat repository-wide inventory.
 
-For a code change, Click turns the request and repository context into one compact contract: outcome, boundary, must-hold behavior, build approach, verification scale, and a plain-language explanation. You approve it once. After that, the Hook rejects replacement contracts, matched replanning, repeated successful observations, repository-wide rescans, and verification outside the approved budget.
+For a code change, Click turns the request and repository context into one compact contract: outcome, boundary, must-hold behavior, build approach, verification scale, and a plain-language explanation. It stages and shows that contract, then requires a later user turn for the one approval. After that, the Hook rejects replacement contracts, matched replanning, repeated successful observations, repository-wide rescans, and verification outside the approved budget.
 
-Version 0.14 also stops guessing whether an ambiguous shell string is read-only or writable during active work. It uses versioned argv-based `inspect`, `mutate`, and `verify` requests, validates their capability, and executes accepted commands without a shell. Simple supported lookups remain normal. This reduces a real source of false blocking and missed mutations, but it is a local workflow guard—not a security sandbox or a claim of perfect tool coverage.
+Version 0.15 closes four concrete holes: the Hook infers a recognized check's minimum verification class instead of trusting a cheap submitted label; Python `-c` and direct scripts no longer qualify as verification; Git-backed checks cannot silently change protected repository content and still pass; and staging, approval, and parallel-plan blocking now follow the full active lifecycle. The versioned argv-based `inspect`, `mutate`, and `verify` requests still execute accepted commands without a shell. This is a local workflow guard—not a security sandbox or a claim of perfect tool coverage.
 
 This is not a claim that Click invents better architecture than the model. The model already knows how to design software. Click's job is narrower: keep the agent inside one visible boundary and stop observable execution loops after approval.
 
@@ -34,7 +34,7 @@ I built it for:
 - users of high-capability models who are tired of planning and verification churn;
 - MVPs, internal tools, automations, and clearly bounded features where minimum design followed by continuous implementation matters more than a large spec process.
 
-What is verified: deterministic Hook behavior and the repository test suite. What is not yet proven: that Click improves accuracy, total time, or token use across real projects. The repo includes evaluation infrastructure, and real A/B trials are the next evidence step.
+What is verified: deterministic Hook behavior and the repository test suite. What is not yet proven: that Click improves accuracy, total time, or token use across real projects. The repo now contains a shuffled five-repeat Sol/max A/B harness with correctness, token, time, and observable-loop metrics, but the paid trials have not been run and the self-hosted cases still need unrelated real-project replication.
 
 Install:
 
@@ -84,9 +84,9 @@ Repository: https://github.com/grapefruit0205/click
 - 질문·설명·단순 조회는 평소처럼 처리합니다.
 - 코드 리뷰는 구현 계약 없이 진행하지만, 읽기 전용 안전망으로 성공한 동일 조회와 저장소 전체 재탐색 반복을 막습니다.
 
-코드 변경 요청에서는 저장소 맥락을 바탕으로 결과, 범위, 반드시 지킬 동작, 최소 구현 경로, 검증 규모, 쉬운 설명을 하나의 축약 계약으로 만듭니다. 사용자가 한 번 승인하면 Hook이 대체 계약, 일치하는 재계획, 성공한 동일 조회, 저장소 전체 재탐색, 검증 예산 밖의 광범위 테스트를 제한합니다.
+코드 변경 요청에서는 저장소 맥락을 바탕으로 결과, 범위, 반드시 지킬 동작, 최소 구현 경로, 검증 규모, 쉬운 설명을 하나의 축약 계약으로 만듭니다. 계약을 stage해 보여준 뒤 다음 사용자 turn의 승인 한 번을 기다립니다. 승인하면 Hook이 대체 계약, 일치하는 재계획, 성공한 동일 조회, 저장소 전체 재탐색, 검증 예산 밖의 광범위 테스트를 제한합니다.
 
-0.14 버전은 활성 작업 중 애매한 shell 문자열을 보고 읽기인지 쓰기인지 억지로 추측하지 않습니다. 버전이 있는 argv 기반 `inspect`·`mutate`·`verify` 요청으로 의도를 명시하고, 허용된 명령은 shell 없이 실행합니다. 지원되는 단순 조회는 그대로 편하게 쓸 수 있습니다. 오탐과 누락의 한 원인을 줄이는 장치이지, 모든 도구를 완벽히 막는 보안 샌드박스는 아닙니다.
+0.15 버전은 구체적인 구멍 네 가지를 닫습니다. Hook이 싼 class 제출을 그대로 믿지 않고 인식한 검증 명령의 최소 비용을 추론하며, Python `-c`와 직접 스크립트를 검증으로 받지 않습니다. Git 기반 검증이 보호한 저장소 내용을 바꾸고도 성공하는 것을 막고, 계약 stage·승인·병렬 plan 차단을 active lifecycle 전체에 적용합니다. argv 기반 `inspect`·`mutate`·`verify`는 계속 허용 명령을 shell 없이 실행합니다. 모든 도구를 완벽히 막는 보안 샌드박스는 아닙니다.
 
 Click이 모델보다 더 좋은 아키텍처를 발명한다고 주장하지는 않습니다. 모델은 이미 소프트웨어 설계를 할 수 있습니다. Click의 역할은 더 좁습니다. **승인한 경계를 눈에 보이게 고정하고, 승인 뒤 관찰 가능한 실행 루프를 줄이는 것**입니다.
 
@@ -95,7 +95,7 @@ Click이 모델보다 더 좋은 아키텍처를 발명한다고 주장하지는
 - 성능 좋은 모델의 재계획·반복 탐색·과도한 검증에 피로를 느끼는 사용자
 - 큰 명세 절차보다 최소설계 뒤 바로 구현하는 MVP·내부 도구·자동화·명확한 기능 추가가 중요한 사용자
 
-현재 결정적 Hook 동작과 저장소 테스트는 검증했습니다. 하지만 실제 프로젝트에서 정확도·전체 시간·토큰이 개선된다는 주장은 아직 하지 않습니다. 이 부분은 반복 A/B 평가로 확인할 예정입니다.
+현재 결정적 Hook 동작과 저장소 테스트는 검증했습니다. 저장소에는 Sol/max를 조건별 5회 무작위 반복하고 정확성·토큰·시간·관찰 가능한 loop metric을 비교하는 A/B runner도 들어 있습니다. 하지만 유료 trial은 아직 실행하지 않았고 self-hosted 사례를 다른 실제 프로젝트로 복제하지도 않았으므로, 정확도·전체 시간·토큰이 개선된다는 주장은 아직 하지 않습니다.
 
 설치:
 

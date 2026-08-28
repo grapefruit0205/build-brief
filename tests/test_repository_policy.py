@@ -19,7 +19,7 @@ class RepositoryPolicyTests(unittest.TestCase):
             (ROOT / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8")
         )
         self.assertEqual(manifest["name"], "click")
-        self.assertEqual(manifest["version"], "0.14.0")
+        self.assertEqual(manifest["version"], "0.15.0")
         self.assertEqual(manifest["license"], "MIT")
         self.assertIn("always on", manifest["description"].lower())
         self.assertIn("manual", manifest["description"].lower())
@@ -52,6 +52,20 @@ class RepositoryPolicyTests(unittest.TestCase):
         self.assertIn("custom wrapper", english)
         self.assertIn("자동 상한", korean)
         self.assertIn("사용자 정의 래퍼", korean)
+        self.assertIn("minimum class", english)
+        self.assertIn("최소 class", korean)
+        self.assertIn("Python `-c`", english)
+        self.assertIn("Python `-c`", korean)
+
+    def test_readmes_document_distinct_turn_approval_and_git_mutation_guard(self) -> None:
+        english = (ROOT / "README.md").read_text(encoding="utf-8")
+        korean = (ROOT / "README.ko.md").read_text(encoding="utf-8")
+        for readme in (english, korean):
+            self.assertIn("UserPromptSubmit", readme)
+            self.assertIn("staged_turn_id", readme)
+            self.assertIn("pre-existing untracked", readme)
+        self.assertIn("later user turn", english)
+        self.assertIn("다음 사용자 turn", korean)
 
     def test_readmes_document_observable_anti_loop_guards_and_limits(self) -> None:
         english = (ROOT / "README.md").read_text(encoding="utf-8")
@@ -190,26 +204,36 @@ class RepositoryPolicyTests(unittest.TestCase):
         suite = json.loads(
             (ROOT / "evals" / "ab-suite.json").read_text(encoding="utf-8")
         )
-        self.assertEqual(suite["schema_version"], 4)
+        self.assertEqual(suite["schema_version"], 5)
+        self.assertEqual(suite["release_under_test"], "0.15.0")
+        self.assertEqual(suite["model"], "gpt-5.6-sol")
+        self.assertEqual(suite["reasoning_effort"], "max")
+        self.assertGreaterEqual(suite["runs_per_condition"], 5)
+        self.assertIsInstance(suite["random_seed"], int)
         self.assertEqual(
             suite["conditions"],
             ["no-plugin", "explicit-skill-only", "explicit-skill-and-hook"],
         )
-        self.assertGreaterEqual(len(suite["cases"]), 2)
+        self.assertGreaterEqual(len(suite["cases"]), 6)
         for case in suite["cases"]:
             with self.subTest(case=case["id"]):
                 self.assertRegex(case["commit"], r"^[0-9a-f]{40}$")
                 self.assertTrue(case["required_invariants"])
+                if case["expected_activation"]:
+                    self.assertTrue(case["baseline_prompt"])
         approval_case = next(
             case for case in suite["cases"] if case["expected_activation"]
         )
         self.assertTrue(approval_case["approval_followup"])
+        runner = (ROOT / "evals" / "run_ab.py").read_text(encoding="utf-8")
+        self.assertIn("--execute-paid-runs", runner)
+        self.assertIn("paired_deltas_against_no_plugin", runner)
 
     def test_golden_cases_cover_always_on_manual_and_review_routing(self) -> None:
         catalog = (
             ROOT / "evals" / "golden-prompts.yaml"
         ).read_text(encoding="utf-8")
-        self.assertIn("version: 13", catalog)
+        self.assertIn("version: 14", catalog)
         for case_id in (
             "unset-first-mutation-choice",
             "always-on-trivial-edit",
@@ -222,6 +246,10 @@ class RepositoryPolicyTests(unittest.TestCase):
         self.assertIn("id: structured-capability-active-build", catalog)
         self.assertIn("id: structured-capability-review", catalog)
         self.assertIn("id: completed-contract-rollover", catalog)
+        self.assertIn("id: verification-minimum-class", catalog)
+        self.assertIn("id: verification-workspace-mutation", catalog)
+        self.assertIn("id: distinct-turn-contract-approval", catalog)
+        self.assertIn("id: active-lifecycle-plan-block", catalog)
 
 
 if __name__ == "__main__":

@@ -1,4 +1,4 @@
-version: 13
+version: 14
 skill: click
 evaluation_conditions:
   - no-plugin
@@ -36,6 +36,10 @@ evaluation_dimensions:
   - structured_capability_routing
   - shell_intent_false_positive
   - shell_intent_false_negative
+  - verification_minimum_class
+  - verification_workspace_mutation
+  - distinct_user_turn_approval
+  - active_lifecycle_plan_block
 grading_priority:
   correctness_gate: "The result must satisfy the requested observable behavior and material invariants before minimality is scored"
   optimization_target: "Among results that pass correctness, prefer the smallest justified design delta and greatest reuse of existing structure"
@@ -72,7 +76,8 @@ global_invariants:
   - "Presents a compact developer execution contract and a faithful plain-language explanation before modifying code, tests, configuration, or schemas when Click is activated"
   - "Includes outcome, scoped boundary, must_hold, build.approach, verification scale and done_when, and plain_language without parallel plan, phase, step, task, minimality, or proof sections"
   - "Adds build.semantics, build.order, or an intermediate gate only when the work materially requires them"
-  - "Treats the staged developer execution contract as the approval target and waits for explicit approval after showing it"
+  - "Treats the staged developer execution contract as the approval target, records its UserPromptSubmit turn, and cannot pass it until a later user turn"
+  - "Rejects a second stage in the same user turn and rejects stage or pass when the Hook cannot match the tool call to a UserPromptSubmit turn"
   - "Passes exactly the contract staged for approval and keeps that semantic contract fixed during one-shot implementation"
   - "Allows a fresh contract only after final verification passes for the current mutation revision; unverified, running, failed, or stale contracts still block replacement"
   - "Allows necessary in-scope dependencies, MCP tools, external services, graders, files, and low-level tactics without a replacement contract"
@@ -92,7 +97,10 @@ global_invariants:
   - "Enables session-wide strict blocking only when the user explicitly selects it"
   - "Keeps compatible simple direct reads convenient, but rejects pipelines and ambiguous active Bash in favor of versioned argv-based inspect, mutate, or verify requests"
   - "Executes accepted structured capability argv with shell disabled and rejects shell interpreters or write-capable inspect operations"
-  - "Requires an approved contract for structured mutation, invalidates stale evidence after mutation, and meters explicit targeted, broad, or deep verification classes"
+  - "Requires an approved contract for structured mutation, invalidates stale evidence after mutation, and raises every recognized verification argv to its Hook-inferred minimum targeted, broad, or deep class before metering"
+  - "Rejects Python inline code and direct Python scripts as verification; only explicit supported module runners qualify"
+  - "In a Git worktree, fails verification stale when the batch changes tracked or already-present untracked content, without treating newly created disposable artifacts as protected content"
+  - "Blocks update_plan throughout armed, staged, passed, and review turns and while a staged or incomplete approved session contract remains active"
   - "Fails closed on malformed structured requests without claiming coverage of hosted tools, matcher opt-outs, hidden reasoning, or arbitrary custom code"
   - "Stores runtime gate state outside the target repository and records no execution contract plaintext"
   - "Injects only concise mode-aware routing context per prompt and stores the persistent preference outside the target repository"
@@ -464,3 +472,67 @@ cases:
       reuse: "The existing approved state and verification revision fields"
       reject_without_evidence:
         - "A new top-level completed mode or automatic approval of the next contract"
+
+  - id: verification-minimum-class
+    prompt: "@Click 전체 테스트를 targeted로 제출해 quick 예산을 우회할 수 없게 고쳐줘."
+    default_mode: on
+    expected_activation: true
+    expected_mode: build
+    expected_mutation_gate: none-before-approval
+    directive_semantics:
+      - "Infers the minimum class from recognized argv before calculating budget units"
+      - "Raises underdeclared broad or deep checks automatically when the approved scale can pay for them"
+      - "Rejects the batch when the inferred cost exceeds the approved scale"
+      - "Keeps one-shot execution instead of adding a separate class-approval turn"
+    minimality_expectations:
+      reuse: "The existing verify request schema, class table, and budget limits"
+      reject_without_evidence:
+        - "A new dependency, external policy service, or per-command user prompt"
+
+  - id: verification-workspace-mutation
+    prompt: "@Click 검증 명령이 소스 파일을 바꿔도 성공으로 기록되는 구멍을 막아줘."
+    default_mode: on
+    expected_activation: true
+    expected_mode: build
+    expected_mutation_gate: none-before-approval
+    directive_semantics:
+      - "Rejects Python -c and direct Python scripts from the verification capability"
+      - "Snapshots protected Git content before and after the final batch"
+      - "Records the batch failed and stale when tracked or pre-existing untracked content changes"
+      - "Does not fail only because a test creates a new disposable artifact"
+    minimality_expectations:
+      reuse: "Git and the standard-library verification runner"
+      reject_without_evidence:
+        - "A filesystem watcher, daemon, database, or external sandbox"
+
+  - id: distinct-turn-contract-approval
+    prompt: "@Click 모델이 계약을 보여준 같은 turn에서 스스로 pass하지 못하게 고쳐줘."
+    default_mode: on
+    expected_activation: true
+    expected_mode: build
+    expected_mutation_gate: none-before-approval
+    directive_semantics:
+      - "Records the staging UserPromptSubmit turn outside the repository"
+      - "Rejects same-turn pass and same-turn replacement stage"
+      - "Requires the pass tool call to match a later UserPromptSubmit turn and the exact digest"
+      - "Allows implementation to continue without another approval after that pass"
+    minimality_expectations:
+      reuse: "The existing session contract and prompt Hook event"
+      reject_without_evidence:
+        - "Natural-language approval classification, an MCP service, or extra approval phases"
+
+  - id: active-lifecycle-plan-block
+    prompt: "@Click 계약이 active인 동안 update_plan으로 별도 계획을 만들지 못하게 고쳐줘."
+    default_mode: on
+    expected_activation: true
+    expected_mode: build
+    expected_mutation_gate: none-before-approval
+    directive_semantics:
+      - "Blocks both plan tool names in armed, staged, passed, and review turns"
+      - "Uses session contract state to keep blocking in later turns while staging or implementation is incomplete"
+      - "Allows ordinary planning after bypass or current-revision completion"
+      - "Does not add a second plan representation"
+    minimality_expectations:
+      reuse: "The existing per-turn and session contract state"
+      reject_without_evidence:
+        - "A new plan ledger or semantic planning service"
