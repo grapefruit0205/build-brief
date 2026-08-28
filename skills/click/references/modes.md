@@ -36,7 +36,7 @@ The review guard is intentionally narrower than the build gate. It observes stru
 
 ## Manual
 
-Ordinary work remains fail-open. Apply Click only when the user selects `@Click` or invokes `$click`; then run `click-gate arm` and use the normal compact-contract workflow.
+Ordinary work remains fail-open only while no Click contract is active. Apply Click when the user selects `@Click` or invokes `$click`; then run `click-gate arm` and use the normal compact-contract workflow. Once a proposal is staged, or approved but incomplete, that session contract blocks ordinary mutations and plan tools across later turns. On the approval or resume turn, arm and pass the exact same contract before editing. Current-revision completion or an explicit per-turn bypass releases unrelated later work.
 
 ## Per-turn bypass
 

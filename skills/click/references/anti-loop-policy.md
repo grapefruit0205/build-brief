@@ -10,7 +10,7 @@ Apply the build guards after the exact staged Click contract has been approved a
 4. **Do not reopen repository inventory.** After approval, repository-wide inventory argv such as root-level `rg --files`, `find .`, recursive root `ls`/`Get-ChildItem`, `tree`, `git ls-files`, or an unscoped recursive `git ls-tree` are blocked. Path-scoped inventory and concrete content searches remain available.
 5. **Make write intent explicit.** An ambiguous implementation command must use `click-gate mutate`; ordinary edit tools remain deterministic mutations. Direct active Bash is not guessed writable.
 6. **Keep broad verification in the budget.** Final checks use argv-based `click-gate verify` entries with submitted `targeted`, `broad`, or `deep` classes. The Hook infers and applies each recognized command's minimum class before checking the approved scale.
-7. **Do not mutate through verification.** Python `-c` and direct Python scripts are rejected as checks. In Git worktrees, a final batch that changes tracked or pre-existing untracked content fails stale instead of becoming completion evidence.
+7. **Do not mutate through verification.** Python `-c` and direct Python scripts are rejected as checks. In Git worktrees, a final batch that changes tracked or pre-existing non-ignored untracked content fails stale. New non-ignored paths are reported, and obvious new source, application, library, configuration, or migration paths also fail stale; ignored paths remain outside this snapshot.
 
 ## Read-only code review
 

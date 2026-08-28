@@ -130,6 +130,52 @@ VERIFICATION_NAME_MARKERS = (
     "verification",
     "verify",
 )
+TEST_TARGET_SUFFIXES = {
+    ".go",
+    ".js",
+    ".jsx",
+    ".php",
+    ".py",
+    ".rb",
+    ".rs",
+    ".ts",
+    ".tsx",
+}
+TEST_FILTER_OPTIONS = {
+    "-k",
+    "-m",
+    "-run",
+    "-t",
+    "--filter",
+    "--test-name-pattern",
+    "--tests-regex",
+}
+TEST_OPTIONS_WITH_VALUES = TEST_FILTER_OPTIONS | {
+    "-p",
+    "-r",
+    "-s",
+    "--basetemp",
+    "--confcutdir",
+    "--cov",
+    "--cov-report",
+    "--deselect",
+    "--ignore",
+    "--junitxml",
+    "--maxfail",
+    "--package",
+    "--project",
+    "--rootdir",
+    "--test",
+}
+NEW_SOURCE_PATH_SEGMENTS = {
+    "app",
+    "config",
+    "configs",
+    "lib",
+    "migration",
+    "migrations",
+    "src",
+}
 READ_ONLY_COMMANDS = {
     "basename",
     "cat",
@@ -573,6 +619,16 @@ def _contract_is_completed(state: dict[str, Any]) -> bool:
     )
 
 
+def _session_contract_is_active(state: dict[str, Any]) -> bool:
+    return bool(
+        state.get("status") == "staged"
+        or (
+            state.get("status") == "approved"
+            and not _contract_is_completed(state)
+        )
+    )
+
+
 def _mark_contract_mutated(event: dict[str, Any]) -> str:
     state = _read_contract_state(event)
     if state.get("status") != "approved":
@@ -838,7 +894,7 @@ def _validate_verification_batch(
         return (
             None,
             0,
-            "Click 0.15 verification uses `checks` with argv arrays and a submitted "
+            "Click 0.16 verification uses `checks` with argv arrays and a submitted "
             "`class`; legacy shell-string `commands` are no longer accepted.",
         )
     unknown = sorted(set(value) - VERIFICATION_BATCH_FIELDS)
@@ -1006,48 +1062,77 @@ def _contains_deep_verification_marker(values: list[str]) -> bool:
     return any(marker in joined for marker in DEEP_VERIFICATION_MARKERS)
 
 
-def _minimum_test_runner_class(runner: str, arguments: list[str]) -> str:
-    if _contains_deep_verification_marker([runner, *arguments]):
-        return "deep"
-    if runner == "unittest" and "discover" in arguments:
-        return "broad"
-    if any(
-        argument in {"-k", "-R", "--filter", "--test-name-pattern"}
-        or argument.startswith(("--filter=", "--test-name-pattern="))
+def _arguments_have_filter(arguments: list[str]) -> bool:
+    return any(
+        argument in TEST_FILTER_OPTIONS
+        or any(argument.startswith(f"{option}=") for option in TEST_FILTER_OPTIONS)
         for argument in arguments
-    ):
-        return "targeted"
+    )
+
+
+def _verification_targets(
+    arguments: list[str], *, skip_words: set[str] | None = None
+) -> list[str]:
+    skip_words = skip_words or set()
+    targets: list[str] = []
+    index = 0
+    while index < len(arguments):
+        argument = arguments[index]
+        if argument == "--":
+            targets.extend(
+                item for item in arguments[index + 1 :] if item not in skip_words
+            )
+            break
+        if argument in TEST_OPTIONS_WITH_VALUES:
+            index += 2
+            continue
+        if argument.startswith("-") or argument in skip_words:
+            index += 1
+            continue
+        targets.append(argument)
+        index += 1
+    return targets
+
+
+def _scope_with_kind_floor(scope: str, values: list[str]) -> str:
+    if not _contains_deep_verification_marker(values):
+        return scope
+    return "broad" if scope == "targeted" else "deep"
+
+
+def _minimum_test_runner_class(runner: str, arguments: list[str]) -> str:
+    if runner == "unittest" and "discover" in arguments:
+        return _scope_with_kind_floor("broad", [runner, *arguments])
+    if _arguments_have_filter(arguments):
+        return _scope_with_kind_floor("broad", [runner, *arguments])
     broad_targets = {".", "./", "...", "./...", "all", "test", "tests", "spec"}
-    for argument in arguments:
-        if argument.startswith("-") or argument in {"run", "exec", "x"}:
-            continue
-        normalized = argument.rstrip("/\\")
-        if normalized in broad_targets:
-            continue
-        if "::" in argument or Path(normalized).suffix.lower() in {
-            ".go",
-            ".js",
-            ".jsx",
-            ".php",
-            ".py",
-            ".rb",
-            ".rs",
-            ".ts",
-            ".tsx",
-        }:
-            return "targeted"
-        if runner == "unittest" and "." in normalized:
-            return "targeted"
-    return "broad"
+    targets = _verification_targets(arguments, skip_words={"run", "exec", "x"})
+    scope = "broad"
+    if len(targets) == 1:
+        target = targets[0]
+        normalized = target.rstrip("/\\")
+        if normalized not in broad_targets and (
+            "::" in target
+            or Path(normalized).suffix.lower() in TEST_TARGET_SUFFIXES
+            or (runner == "unittest" and "." in normalized)
+        ):
+            scope = "targeted"
+    return _scope_with_kind_floor(scope, [runner, *arguments])
 
 
-def _minimum_verification_class(tokens: list[str]) -> str | None:
+def _minimum_verification_class(
+    tokens: list[str], *, wrapper_depth: int = 0
+) -> str | None:
     executable, arguments = _command_parts(tokens)
     if not executable:
         return None
     if executable in DEEP_VERIFICATION_EXECUTABLES:
         return "deep"
     if executable in {"python", "python3", "py", "pypy", "pypy3"}:
+        if executable == "py" and arguments and re.fullmatch(
+            r"-\d+(?:\.\d+)?(?:-\d+)?", arguments[0]
+        ):
+            arguments = arguments[1:]
         if len(arguments) < 2 or arguments[0] != "-m":
             return None
         module = arguments[1]
@@ -1056,6 +1141,13 @@ def _minimum_verification_class(tokens: list[str]) -> str | None:
         if module == "coverage":
             return "deep"
         return _minimum_test_runner_class(module, arguments[2:])
+    if executable == "uv":
+        if wrapper_depth >= 2 or not arguments or arguments[0] != "run":
+            return None
+        nested = arguments[1:]
+        while nested and nested[0].startswith("-"):
+            nested = nested[1:]
+        return _minimum_verification_class(nested, wrapper_depth=wrapper_depth + 1)
     if executable in VERIFICATION_EXECUTABLES:
         if executable in {"bats", "jest", "phpunit", "pytest", "rspec", "vitest"}:
             return _minimum_test_runner_class(executable, arguments)
@@ -1063,7 +1155,10 @@ def _minimum_verification_class(tokens: list[str]) -> str | None:
     if executable in {"npm", "pnpm", "yarn", "bun"}:
         meaningful = [item for item in arguments if item not in {"run", "exec", "x"}]
         target = meaningful[0] if meaningful else ""
-        if not any(marker in target for marker in VERIFICATION_NAME_MARKERS):
+        if not (
+            any(marker in target for marker in VERIFICATION_NAME_MARKERS)
+            or target in {"build", "check", "lint", "typecheck", "type-check"}
+        ):
             return None
         return "deep" if _contains_deep_verification_marker(meaningful) else "broad"
     if executable in {"npx", "pnpx", "bunx"}:
@@ -1085,24 +1180,54 @@ def _minimum_verification_class(tokens: list[str]) -> str | None:
             return "deep"
         return None
     if executable == "cargo":
-        if not arguments or arguments[0] not in {"audit", "bench", "nextest", "test"}:
+        if not arguments or arguments[0] not in {
+            "audit",
+            "bench",
+            "check",
+            "clippy",
+            "nextest",
+            "test",
+        }:
             return None
         if arguments[0] in {"audit", "bench"}:
             return "deep"
-        if arguments[0] == "nextest":
+        if arguments[0] in {"check", "clippy", "nextest"}:
             return "broad"
         test_targets = [
             argument
             for argument in arguments[1:]
             if not argument.startswith("-") and argument not in {"all", "workspace"}
         ]
-        return "targeted" if test_targets else "broad"
+        return "targeted" if len(test_targets) == 1 else "broad"
     if executable == "go":
-        if not arguments or arguments[0] != "test":
+        if not arguments or arguments[0] not in {"test", "vet"}:
             return None
+        if arguments[0] == "vet":
+            return "broad"
+        if _arguments_have_filter(arguments[1:]):
+            return "broad"
         targets = [argument for argument in arguments[1:] if not argument.startswith("-")]
         recursive = any(target == "./..." or target.endswith("/...") for target in targets)
-        return "targeted" if targets and not recursive else "broad"
+        return "targeted" if len(targets) == 1 and not recursive else "broad"
+    if executable == "ruff":
+        if not arguments or arguments[0] != "check":
+            return None
+        targets = _verification_targets(arguments[1:])
+        return (
+            "targeted"
+            if len(targets) == 1
+            and Path(targets[0].rstrip("/\\")).suffix.lower() in TEST_TARGET_SUFFIXES
+            else "broad"
+        )
+    if executable == "mypy":
+        targets = _verification_targets(arguments)
+        return (
+            "targeted"
+            if len(targets) == 1 and Path(targets[0]).suffix.lower() == ".py"
+            else "broad"
+        )
+    if executable == "tsc":
+        return "broad" if "--noemit" in arguments else None
     if executable in {"dotnet", "gradle", "gradlew", "gradlew.bat", "mvn", "mvnw", "mvnw.cmd"}:
         if not any(
             any(marker in argument for marker in VERIFICATION_NAME_MARKERS)
@@ -1121,10 +1246,12 @@ def _minimum_verification_class(tokens: list[str]) -> str | None:
             return None
         if _contains_deep_verification_marker(arguments):
             return "deep"
-        if executable == "ctest" and any(item in {"-R", "--tests-regex"} for item in arguments):
-            return "targeted"
+        if executable == "ctest" and any(item in {"-r", "--tests-regex"} for item in arguments):
+            return _scope_with_kind_floor("broad", arguments)
         if executable == "pre-commit" and "--files" in arguments:
-            return "targeted"
+            file_index = arguments.index("--files") + 1
+            files = [item for item in arguments[file_index:] if not item.startswith("-")]
+            return "targeted" if len(files) == 1 else "broad"
         return "broad"
     stem = Path(executable).stem.lower()
     if any(marker in stem for marker in VERIFICATION_NAME_MARKERS):
@@ -1709,8 +1836,10 @@ def _handle_prompt_submit(event: dict[str, Any]) -> None:
         context = (
             "Click Manual mode is enabled. Apply the Click contract workflow only when "
             "the user explicitly selects @Click or $click. Ordinary software work and "
-            "code review remain fail-open unless explicitly activated. An activated contract "
-            "must be staged now and passed only after a later UserPromptSubmit turn."
+            "code review remain fail-open unless explicitly activated. Once activated, a "
+            "staged or incomplete approved session contract remains mutation-locked across "
+            "later turns. It must be staged now and passed only after a later "
+            "UserPromptSubmit turn."
         )
     else:
         context = (
@@ -1938,10 +2067,7 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
     status = _read_state(event).get("status")
     if _is_plan_tool(tool_name):
         contract_state = _read_contract_state(event)
-        session_contract_active = contract_state.get("status") == "staged" or (
-            contract_state.get("status") == "approved"
-            and not _contract_is_completed(contract_state)
-        )
+        session_contract_active = _session_contract_is_active(contract_state)
         if status in {"armed", "staged", "passed"} or session_contract_active:
             _deny(
                 "Click blocked a parallel plan while its compact contract workflow is active. "
@@ -2003,7 +2129,7 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
             return
         if _is_recognized_verification_command(str(command)):
             _deny(
-                "Click 0.15 final checks use `click-gate verify` with argv-based `checks` "
+                "Click 0.16 final checks use `click-gate verify` with argv-based `checks` "
                 "and an explicit targeted, broad, or deep class."
             )
             return
@@ -2043,6 +2169,9 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
         return
 
     default_mode = _read_default_mode()
+    session_contract_active = _session_contract_is_active(
+        _read_contract_state(event)
+    )
     if default_mode == "unset" and status == "idle":
         _deny(
             "Click needs its one-time default before the first software mutation. Ask the "
@@ -2053,7 +2182,8 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
         return
 
     if (
-        status in {"armed", "staged"}
+        session_contract_active
+        or status in {"armed", "staged"}
         or _read_mode(event) == "strict"
         or default_mode == "on"
     ):
@@ -2503,22 +2633,51 @@ def _git_workspace_snapshot(
         hasher.update(len(diff).to_bytes(8, "big"))
         hasher.update(diff)
 
+    untracked_output = _git_capture(
+        root, ["ls-files", "--others", "--exclude-standard", "-z"]
+    )
+    if untracked_output is None:
+        return None
+    current_untracked = [
+        os.fsdecode(item) for item in untracked_output.split(b"\0") if item
+    ]
     if protected_untracked is None:
-        untracked_output = _git_capture(
-            root, ["ls-files", "--others", "--exclude-standard", "-z"]
-        )
-        if untracked_output is None:
-            return None
-        protected_untracked = [
-            os.fsdecode(item) for item in untracked_output.split(b"\0") if item
-        ]
+        protected_untracked = [*current_untracked]
     for relative in sorted(protected_untracked):
         _hash_workspace_path(hasher, root, relative)
     return {
         "root": str(root),
         "digest": hasher.hexdigest(),
         "protected_untracked": protected_untracked,
+        "current_untracked": current_untracked,
     }
+
+
+def _new_untracked_requires_stale(relative: str) -> bool:
+    parts = [part.lower() for part in Path(relative).parts if part not in {"", "."}]
+    if not parts:
+        return False
+    if parts[0] in NEW_SOURCE_PATH_SEGMENTS:
+        return True
+    if any(
+        part in {"config", "configs", "migration", "migrations", "src"}
+        for part in parts
+    ):
+        return True
+    for index, part in enumerate(parts):
+        if part not in {"app", "lib"}:
+            continue
+        if index >= 2 and parts[index - 2] in {
+            "apps",
+            "modules",
+            "packages",
+            "services",
+        }:
+            return True
+    return any(
+        parts[index : index + 2] == ["db", "migrate"]
+        for index in range(max(0, len(parts) - 1))
+    )
 
 
 def _run_verification(arguments: list[str]) -> int:
@@ -2567,8 +2726,33 @@ def _run_verification(arguments: list[str]) -> int:
         after = _git_workspace_snapshot(
             Path.cwd(), list(before["protected_untracked"])
         )
-        workspace_changed = after is None or after["digest"] != before["digest"]
+        new_untracked: list[str] = []
+        if after is not None:
+            new_untracked = sorted(
+                set(after["current_untracked"]) - set(before["current_untracked"])
+            )
+            if new_untracked:
+                rendered_paths = ", ".join(new_untracked[:8])
+                if len(new_untracked) > 8:
+                    rendered_paths += f", and {len(new_untracked) - 8} more"
+                sys.stderr.write(
+                    "[Click] Verification created new non-ignored untracked path(s): "
+                    f"{rendered_paths}. Review them before keeping the result.\n"
+                )
+        suspicious_new = [
+            path for path in new_untracked if _new_untracked_requires_stale(path)
+        ]
+        workspace_changed = (
+            after is None
+            or after["digest"] != before["digest"]
+            or bool(suspicious_new)
+        )
         if workspace_changed:
+            if suspicious_new:
+                sys.stderr.write(
+                    "[Click] New source, configuration, or migration path appeared during "
+                    "verification; it is protected as an implementation mutation.\n"
+                )
             sys.stderr.write(
                 "[Click] Verification changed protected repository content. "
                 "The batch is stale; perform or restore that change through the approved "

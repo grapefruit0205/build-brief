@@ -4,15 +4,20 @@
 from __future__ import annotations
 
 import argparse
+import atexit
 from datetime import datetime, timezone
+import importlib.util
 import json
 import os
 from pathlib import Path
+import platform
 import random
+import shlex
 import shutil
 import statistics
 import subprocess
 import sys
+import tempfile
 import time
 from typing import Any
 
@@ -27,22 +32,19 @@ DEFAULT_SUITE = Path(__file__).with_name("ab-suite.json")
 JUDGE_SCHEMA = Path(__file__).with_name("semantic-judgment.schema.json")
 JUDGE_GUIDE = Path(__file__).with_name("SEMANTIC_GRADER.md")
 HOOK_TEST = ROOT / "tests" / "test_click_gate.py"
+HOOK_MODULE_PATH = ROOT / "hooks" / "click_gate.py"
+HOOK_SPEC = importlib.util.spec_from_file_location("click_gate_eval", HOOK_MODULE_PATH)
+if HOOK_SPEC is None or HOOK_SPEC.loader is None:
+    raise RuntimeError(f"could not load Click Hook classifier from {HOOK_MODULE_PATH}")
+HOOK_MODULE = importlib.util.module_from_spec(HOOK_SPEC)
+HOOK_SPEC.loader.exec_module(HOOK_MODULE)
 CONDITION_ARGS = {
-    "no-plugin": ["--disable", "plugins", "--disable", "hooks"],
-    "explicit-skill-only": [
-        "--disable",
-        "hooks",
-        "-c",
-        'plugins."ballast@ballast".enabled=false',
-    ],
-    "explicit-skill-and-hook": [
-        "--enable",
-        "hooks",
-        "--dangerously-bypass-hook-trust",
-        "-c",
-        'plugins."ballast@ballast".enabled=false',
-    ],
+    "no-plugin": (),
+    "explicit-skill-only": (),
+    "explicit-skill-and-hook": (),
 }
+ISOLATED_MARKETPLACE = "click-ab-isolated"
+ISOLATED_PLUGIN_SELECTOR = f"click@{ISOLATED_MARKETPLACE}"
 
 
 def _run(
@@ -63,9 +65,236 @@ def _run(
     )
 
 
+def _require_success(
+    result: subprocess.CompletedProcess[str], description: str
+) -> None:
+    if result.returncode == 0:
+        return
+    evidence = (result.stderr or result.stdout).strip()[-2_000:]
+    raise RuntimeError(f"{description} failed: {evidence or result.returncode}")
+
+
+def _cleanup_runtime(path: Path) -> None:
+    shutil.rmtree(path, ignore_errors=True)
+
+
+def _prepare_isolated_runtime(
+    *,
+    suite: dict[str, Any],
+    source_root: Path = ROOT,
+) -> dict[str, Any]:
+    source_root = source_root.resolve()
+    status = _run(
+        ["git", "status", "--porcelain", "--untracked-files=all"],
+        cwd=source_root,
+        timeout=60,
+    )
+    _require_success(status, "Click source status check")
+    if status.stdout.strip():
+        raise RuntimeError(
+            "A/B evaluation requires a clean Click source checkout so the plugin under "
+            "test can be pinned to one exact commit. Commit or stash local changes first."
+        )
+    commit_result = _run(
+        ["git", "rev-parse", "HEAD"], cwd=source_root, timeout=60
+    )
+    _require_success(commit_result, "Click source commit lookup")
+    commit_sha = commit_result.stdout.strip()
+    manifest = json.loads(
+        (source_root / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8")
+    )
+    manifest_version = str(manifest.get("version", ""))
+    release_under_test = str(suite.get("release_under_test", ""))
+    if not manifest_version or release_under_test != manifest_version:
+        raise RuntimeError(
+            "A/B suite release_under_test must exactly match the pinned Click manifest "
+            f"version ({manifest_version or 'missing'})."
+        )
+
+    runtime_root = Path(tempfile.mkdtemp(prefix="click-ab-runtime-")).resolve()
+    atexit.register(_cleanup_runtime, runtime_root)
+    marketplace_root = runtime_root / "marketplace"
+    plugin_snapshot = marketplace_root / "plugins" / "click"
+    plugin_snapshot.parent.mkdir(parents=True, exist_ok=True)
+    clone = _run(
+        [
+            "git",
+            "clone",
+            "--quiet",
+            "--no-hardlinks",
+            str(source_root),
+            str(plugin_snapshot),
+        ],
+        cwd=runtime_root,
+        timeout=180,
+    )
+    _require_success(clone, "isolated Click snapshot clone")
+    checkout = _run(
+        ["git", "checkout", "--quiet", "--detach", commit_sha],
+        cwd=plugin_snapshot,
+        timeout=60,
+    )
+    _require_success(checkout, "isolated Click snapshot checkout")
+    snapshot_commit = _run(
+        ["git", "rev-parse", "HEAD"], cwd=plugin_snapshot, timeout=60
+    )
+    _require_success(snapshot_commit, "isolated Click snapshot verification")
+    if snapshot_commit.stdout.strip() != commit_sha:
+        raise RuntimeError("isolated Click snapshot did not resolve to the requested commit")
+
+    marketplace = {
+        "name": ISOLATED_MARKETPLACE,
+        "interface": {"displayName": "Click A/B Isolated"},
+        "plugins": [
+            {
+                "name": "click",
+                "source": {"source": "local", "path": "./plugins/click"},
+                "policy": {
+                    "installation": "AVAILABLE",
+                    "authentication": "ON_INSTALL",
+                },
+                "category": "Productivity",
+            }
+        ],
+    }
+    _write(
+        marketplace_root / ".agents" / "plugins" / "marketplace.json",
+        json.dumps(marketplace, ensure_ascii=False, indent=2) + "\n",
+    )
+
+    codex_home = runtime_root / "codex-home"
+    codex_home.mkdir(parents=True, exist_ok=True)
+    source_codex_home = Path(
+        os.environ.get("CODEX_HOME", str(Path.home() / ".codex"))
+    )
+    auth_source = source_codex_home / "auth.json"
+    auth_mode = "environment-or-keychain"
+    if auth_source.is_file():
+        auth_target = codex_home / "auth.json"
+        shutil.copy2(auth_source, auth_target)
+        try:
+            auth_target.chmod(0o600)
+        except OSError:
+            pass
+        auth_mode = "isolated-auth-file-copy"
+
+    environment = os.environ.copy()
+    environment["CODEX_HOME"] = str(codex_home)
+    add_marketplace = _run(
+        ["codex", "plugin", "marketplace", "add", str(marketplace_root), "--json"],
+        cwd=runtime_root,
+        timeout=180,
+        environment=environment,
+    )
+    _require_success(add_marketplace, "isolated marketplace registration")
+    install_plugin = _run(
+        ["codex", "plugin", "add", ISOLATED_PLUGIN_SELECTOR, "--json"],
+        cwd=runtime_root,
+        timeout=180,
+        environment=environment,
+    )
+    _require_success(install_plugin, "isolated Click installation")
+    plugin_list = _run(
+        ["codex", "plugin", "list", "--json"],
+        cwd=runtime_root,
+        timeout=60,
+        environment=environment,
+    )
+    _require_success(plugin_list, "isolated plugin inventory")
+    plugin_payload = json.loads(plugin_list.stdout)
+    installed = plugin_payload.get("installed", [])
+    installed_plugins = [
+        {
+            "plugin_id": str(item.get("pluginId", "")),
+            "version": str(item.get("version", "")),
+            "enabled_in_saved_config": bool(item.get("enabled")),
+        }
+        for item in installed
+        if isinstance(item, dict) and item.get("pluginId")
+    ]
+    installed_plugin_ids = [item["plugin_id"] for item in installed_plugins]
+    click_entries = [
+        item
+        for item in installed_plugins
+        if item["plugin_id"] == ISOLATED_PLUGIN_SELECTOR
+    ]
+    if len(click_entries) != 1 or click_entries[0]["version"] != manifest_version:
+        raise RuntimeError(
+            "isolated plugin inventory did not contain the pinned Click manifest version"
+        )
+
+    codex_version = _run(
+        ["codex", "--version"],
+        cwd=runtime_root,
+        timeout=60,
+        environment=environment,
+    )
+    _require_success(codex_version, "Codex CLI version lookup")
+    active_by_condition = {
+        condition: (
+            [] if condition == "no-plugin" else [ISOLATED_PLUGIN_SELECTOR]
+        )
+        for condition in CONDITION_ARGS
+    }
+    provenance = {
+        "codex_version": codex_version.stdout.strip(),
+        "click_manifest_version": manifest_version,
+        "click_commit_sha": commit_sha,
+        "click_snapshot_commit_sha": snapshot_commit.stdout.strip(),
+        "isolated_config_path": str(codex_home / "config.toml"),
+        "isolated_runtime_removed_after_run": True,
+        "authentication_mode": auth_mode,
+        "os": platform.platform(),
+        "python_version": platform.python_version(),
+        "python_implementation": platform.python_implementation(),
+        "marketplace_name": ISOLATED_MARKETPLACE,
+        "installed_plugins": installed_plugins,
+        "active_plugins_by_condition": active_by_condition,
+        "candidate_cli_isolation": [
+            "temporary CODEX_HOME with pinned Click only",
+            "explicitly disabled non-candidate plugins",
+            "--ignore-rules",
+        ],
+    }
+    return {
+        "root": runtime_root,
+        "environment": environment,
+        "plugin_selector": ISOLATED_PLUGIN_SELECTOR,
+        "installed_plugin_ids": installed_plugin_ids,
+        "provenance": provenance,
+    }
+
+
 def _write(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
+
+
+def _condition_args(
+    condition: str,
+    *,
+    plugin_selector: str = ISOLATED_PLUGIN_SELECTOR,
+    installed_plugin_ids: list[str] | None = None,
+) -> list[str]:
+    if condition not in CONDITION_ARGS:
+        raise ValueError(f"unknown A/B condition: {condition}")
+    arguments: list[str] = []
+    if condition == "no-plugin":
+        return [*arguments, "--disable", "plugins", "--disable", "hooks"]
+
+    arguments.extend(["--enable", "plugins"])
+    if condition == "explicit-skill-only":
+        arguments.extend(["--disable", "hooks"])
+    else:
+        arguments.extend(
+            ["--enable", "hooks", "--dangerously-bypass-hook-trust"]
+        )
+    for installed in sorted(set(installed_plugin_ids or [])):
+        if installed == plugin_selector:
+            continue
+        arguments.extend(["-c", f'plugins."{installed}".enabled=false'])
+    arguments.extend(["-c", f'plugins."{plugin_selector}".enabled=true'])
+    return arguments
 
 
 def _usage_from_jsonl(text: str) -> dict[str, int]:
@@ -129,7 +358,7 @@ def _item_command(item: dict[str, Any]) -> str:
     if isinstance(command, str):
         return " ".join(command.split())
     if isinstance(command, list) and all(isinstance(part, str) for part in command):
-        return " ".join(str(part) for part in command)
+        return shlex.join(str(part) for part in command)
     return ""
 
 
@@ -140,37 +369,20 @@ def _successful_command(item: dict[str, Any]) -> bool:
 
 
 def _is_root_inventory(command: str) -> bool:
-    lowered = command.lower()
-    markers = (
-        "rg --files",
-        "git ls-files",
-        "find . ",
-        "find .\n",
-        "ls -r",
-        "tree",
-        "get-childitem -recurse -path .",
-    )
-    return any(marker in lowered for marker in markers)
+    return bool(HOOK_MODULE._is_broad_exploration_command(command))
 
 
 def _is_verification_command(command: str) -> bool:
-    lowered = command.lower()
-    markers = (
-        "click-gate verify",
-        " pytest",
-        "pytest ",
-        "python -m unittest",
-        "python3 -m unittest",
-        "python -m pytest",
-        "python3 -m pytest",
-        "npm test",
-        "pnpm test",
-        "yarn test",
-        "cargo test",
-        "go test",
-        "dotnet test",
+    if command.lower().startswith("click-gate verify "):
+        return True
+    segments = HOOK_MODULE._shell_segments(command)
+    return bool(
+        segments
+        and any(
+            HOOK_MODULE._minimum_verification_class(segment) is not None
+            for segment in segments
+        )
     )
-    return any(marker in f" {lowered}" for marker in markers)
 
 
 def _runtime_trace(text: str) -> dict[str, Any]:
@@ -318,7 +530,7 @@ def _candidate_checks(case: dict[str, Any], candidate: Path) -> list[dict[str, A
         )
         checks.append(
             _check(
-                "v0.15.0 hardened one-shot contract Hook",
+                "v0.16.0 hardened one-shot contract Hook",
                 _run(
                     [sys.executable, str(HOOK_TEST)],
                     cwd=ROOT,
@@ -372,6 +584,7 @@ def _judge(
     prompt: str,
     model: str,
     reasoning_effort: str,
+    environment: dict[str, str] | None = None,
 ) -> tuple[dict[str, Any], subprocess.CompletedProcess[str], float]:
     judgment_path = run_dir / "judgment.json"
     started = time.monotonic()
@@ -402,6 +615,7 @@ def _judge(
         ],
         cwd=run_dir,
         timeout=900,
+        environment=environment,
     )
     elapsed = time.monotonic() - started
     if result.returncode != 0 or not judgment_path.exists():
@@ -587,6 +801,7 @@ def main() -> int:
             )
 
     results_root = arguments.results.resolve()
+    isolated_runtime = _prepare_isolated_runtime(suite=suite)
     work_root = results_root / "worktrees"
     work_root.mkdir(parents=True, exist_ok=True)
     scores: list[dict[str, Any]] = []
@@ -619,6 +834,19 @@ def main() -> int:
             preview_path = run_dir / (
                 "preview-message.md" if needs_followup else "final-message.md"
             )
+            run_environment = isolated_runtime["environment"].copy()
+            run_state_root = isolated_runtime["root"] / "run-state" / masked_id
+            run_environment["PLUGIN_DATA"] = str(run_state_root / "plugin-data")
+            run_environment["CLICK_CONFIG_HOME"] = str(
+                run_state_root / "click-config"
+            )
+            condition_args = _condition_args(
+                condition,
+                plugin_selector=str(isolated_runtime["plugin_selector"]),
+                installed_plugin_ids=list(
+                    isolated_runtime["installed_plugin_ids"]
+                ),
+            )
             command = [
                 "codex",
                 "exec",
@@ -638,11 +866,16 @@ def main() -> int:
                 "--output-last-message",
                 str(preview_path),
                 "--json",
-                *CONDITION_ARGS[condition],
+                *condition_args,
                 _condition_prompt(case, condition),
             ])
             started = time.monotonic()
-            candidate_result = _run(command, cwd=candidate, timeout=1_800)
+            candidate_result = _run(
+                command,
+                cwd=candidate,
+                timeout=1_800,
+                environment=run_environment,
+            )
             preview_elapsed = time.monotonic() - started
             preview_message = (
                 preview_path.read_text(encoding="utf-8")
@@ -683,7 +916,7 @@ def main() -> int:
                     "--output-last-message",
                     str(final_path),
                     "--json",
-                    *CONDITION_ARGS[condition],
+                    *condition_args,
                     thread_id,
                     str(approval_followup),
                 ]
@@ -692,6 +925,7 @@ def main() -> int:
                     approval_command,
                     cwd=candidate,
                     timeout=1_800,
+                    environment=run_environment,
                 )
                 approval_elapsed = time.monotonic() - approval_started
                 _write(run_dir / "approval-events.jsonl", approval_result.stdout)
@@ -772,6 +1006,7 @@ def main() -> int:
                 ),
                 model=str(suite["judge_model"]),
                 reasoning_effort=str(suite["judge_reasoning_effort"]),
+                environment=isolated_runtime["environment"],
             )
             _write(run_dir / "judge-events.jsonl", judge_result.stdout)
             _write(run_dir / "judge-stderr.txt", judge_result.stderr)
@@ -849,7 +1084,7 @@ def main() -> int:
                 shutil.rmtree(candidate)
 
     summary = {
-        "schema_version": 2,
+        "schema_version": 3,
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "suite": str(arguments.suite.resolve()),
         "release_under_test": suite.get("release_under_test", "unknown"),
@@ -860,6 +1095,7 @@ def main() -> int:
         "runs_per_condition": repetitions,
         "random_seed": seed,
         "sample_size": len(scores),
+        "provenance": isolated_runtime["provenance"],
         "aggregate": _aggregate(scores),
         "paired_deltas_against_no_plugin": _paired_deltas(scores),
         "schedule": [
@@ -878,6 +1114,8 @@ def main() -> int:
     )
     if not arguments.keep_worktrees and work_root.exists():
         work_root.rmdir()
+    _cleanup_runtime(isolated_runtime["root"])
+    atexit.unregister(_cleanup_runtime)
     return 0
 
 

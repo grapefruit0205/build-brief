@@ -1,4 +1,4 @@
-version: 14
+version: 15
 skill: click
 evaluation_conditions:
   - no-plugin
@@ -38,8 +38,12 @@ evaluation_dimensions:
   - shell_intent_false_negative
   - verification_minimum_class
   - verification_workspace_mutation
+  - verification_new_path_mutation
+  - verification_scope_classification
   - distinct_user_turn_approval
   - active_lifecycle_plan_block
+  - manual_session_mutation_lock
+  - isolated_ab_provenance
 grading_priority:
   correctness_gate: "The result must satisfy the requested observable behavior and material invariants before minimality is scored"
   optimization_target: "Among results that pass correctness, prefer the smallest justified design delta and greatest reuse of existing structure"
@@ -92,14 +96,15 @@ global_invariants:
   - "Performs no implementation before the displayed developer execution contract is explicitly approved"
   - "Starts from the narrowest relevant repository evidence and widens only for unresolved consequential behavior"
   - "Leaves every uninvoked Manual task unblocked and blocks the first unset mutation only to obtain the one persistent mode choice"
+  - "Once Manual is invoked, keeps a staged or incomplete approved session contract mutation-locked across later turns until the exact contract is passed and completed or explicitly bypassed"
   - "Gates supported mutations automatically in Always ON and arms the mutation gate when Manual invocation activates Click"
   - "Honors an explicit user opt-out immediately, including after the gate was armed"
   - "Enables session-wide strict blocking only when the user explicitly selects it"
   - "Keeps compatible simple direct reads convenient, but rejects pipelines and ambiguous active Bash in favor of versioned argv-based inspect, mutate, or verify requests"
   - "Executes accepted structured capability argv with shell disabled and rejects shell interpreters or write-capable inspect operations"
-  - "Requires an approved contract for structured mutation, invalidates stale evidence after mutation, and raises every recognized verification argv to its Hook-inferred minimum targeted, broad, or deep class before metering"
+  - "Requires an approved contract for structured mutation, invalidates stale evidence after mutation, and raises every recognized verification argv to its Hook-inferred minimum targeted, broad, or deep class based on runner kind and actual scope before metering"
   - "Rejects Python inline code and direct Python scripts as verification; only explicit supported module runners qualify"
-  - "In a Git worktree, fails verification stale when the batch changes tracked or already-present untracked content, without treating newly created disposable artifacts as protected content"
+  - "In a Git worktree, fails verification stale when the batch changes tracked or pre-existing non-ignored untracked content, reports every new non-ignored path, fails obvious new source/configuration/migration paths stale, and leaves ignored paths outside the snapshot"
   - "Blocks update_plan throughout armed, staged, passed, and review turns and while a staged or incomplete approved session contract remains active"
   - "Fails closed on malformed structured requests without claiming coverage of hosted tools, matcher opt-outs, hidden reasoning, or arbitrary custom code"
   - "Stores runtime gate state outside the target repository and records no execution contract plaintext"
@@ -480,8 +485,9 @@ cases:
     expected_mode: build
     expected_mutation_gate: none-before-approval
     directive_semantics:
-      - "Infers the minimum class from recognized argv before calculating budget units"
+      - "Infers runner kind and actual target scope from recognized argv before calculating budget units"
       - "Raises underdeclared broad or deep checks automatically when the approved scale can pay for them"
+      - "Treats filters and multiple targets as at least broad while charging an exact integration or security node as broad rather than deep"
       - "Rejects the batch when the inferred cost exceeds the approved scale"
       - "Keeps one-shot execution instead of adding a separate class-approval turn"
     minimality_expectations:
@@ -498,8 +504,9 @@ cases:
     directive_semantics:
       - "Rejects Python -c and direct Python scripts from the verification capability"
       - "Snapshots protected Git content before and after the final batch"
-      - "Records the batch failed and stale when tracked or pre-existing untracked content changes"
-      - "Does not fail only because a test creates a new disposable artifact"
+      - "Records the batch failed and stale when tracked or pre-existing non-ignored untracked content changes"
+      - "Reports every new non-ignored path and fails obvious new source, configuration, or migration paths stale"
+      - "Warns without failing only because a test creates a generic disposable report, and documents that ignored paths are outside the snapshot"
     minimality_expectations:
       reuse: "Git and the standard-library verification runner"
       reject_without_evidence:
@@ -536,3 +543,51 @@ cases:
       reuse: "The existing per-turn and session contract state"
       reject_without_evidence:
         - "A new plan ledger or semantic planning service"
+
+  - id: manual-session-mutation-lock
+    prompt: "@Click Manual 모드에서 계약을 승인했어. pass하기 전에 다음 turn에서 코드를 먼저 바꾸지 못하게 해줘."
+    default_mode: manual
+    expected_activation: true
+    expected_mode: build
+    expected_mutation_gate: session-active-before-pass
+    directive_semantics:
+      - "Blocks apply_patch and write-capable Bash in a later turn while the Manual session contract is staged"
+      - "Keeps an approved but incomplete Manual contract locked until the exact contract is passed in the active turn"
+      - "Leaves ordinary Manual work fail-open when no Click contract is active"
+      - "Preserves per-turn bypass and one-shot implementation after pass"
+    minimality_expectations:
+      reuse: "The existing session contract completion predicate"
+      reject_without_evidence:
+        - "A new lifecycle state, extra approval round, or repository-local lock file"
+
+  - id: verification-scope-classification
+    prompt: "@Click pytest filter와 파일 여러 개로 전체 테스트 비용을 targeted처럼 속이지 못하게 하고, 정확한 integration test 하나는 deep으로 과차단하지 마."
+    default_mode: on
+    expected_activation: true
+    expected_mode: build
+    expected_mutation_gate: none-before-approval
+    directive_semantics:
+      - "Classifies filters, regexes, multiple targets, directories, and suites as at least broad"
+      - "Classifies one exact integration or security node as broad and the whole corresponding suite as deep"
+      - "Recognizes py -3 -m, uv, lint, build, typecheck, Cargo check/clippy, and Go vet forms"
+      - "Preserves one verification request and one-shot implementation"
+    minimality_expectations:
+      reuse: "The existing argv validator and verification class table"
+      reject_without_evidence:
+        - "A regex policy engine, external classifier, dependency, or user prompt per command"
+
+  - id: verification-new-source-path
+    prompt: "@Click 검증 중 src나 migration 아래 새 파일을 만들고도 성공하는 경우를 막되 일반 report 파일 때문에 실패시키지는 마."
+    default_mode: on
+    expected_activation: true
+    expected_mode: build
+    expected_mutation_gate: none-before-approval
+    directive_semantics:
+      - "Reports every new non-ignored untracked path after verification"
+      - "Fails stale for new source, application, library, configuration, or migration paths"
+      - "Only warns for a generic new report artifact"
+      - "States that Git-ignored paths are not protected by this snapshot"
+    minimality_expectations:
+      reuse: "Git's non-ignored untracked inventory and the existing before/after snapshot"
+      reject_without_evidence:
+        - "A filesystem watcher, artifact database, daemon, or large allowlist"

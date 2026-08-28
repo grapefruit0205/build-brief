@@ -6,7 +6,10 @@ import unittest
 from evals.run_ab import (
     _aggregate,
     _build_schedule,
+    _condition_args,
     _condition_prompt,
+    _is_root_inventory,
+    _is_verification_command,
     _paired_deltas,
     _runtime_trace,
     _thread_id_from_jsonl,
@@ -43,6 +46,39 @@ class ABRunnerTests(unittest.TestCase):
             _condition_prompt(case, "explicit-skill-and-hook"),
             "$click Implement the change.",
         )
+
+    def test_conditions_enable_only_the_pinned_plugin_in_isolated_home(self) -> None:
+        installed = ["click@click-ab-isolated", "other@bundled"]
+        baseline = _condition_args(
+            "no-plugin", installed_plugin_ids=installed
+        )
+        self.assertIn("--disable", baseline)
+        self.assertNotIn('plugins."click@click-ab-isolated".enabled=true', baseline)
+
+        skill_only = _condition_args(
+            "explicit-skill-only", installed_plugin_ids=installed
+        )
+        self.assertIn('plugins."click@click-ab-isolated".enabled=true', skill_only)
+        self.assertIn('plugins."other@bundled".enabled=false', skill_only)
+        self.assertNotIn("--dangerously-bypass-hook-trust", skill_only)
+
+        with_hook = _condition_args(
+            "explicit-skill-and-hook", installed_plugin_ids=installed
+        )
+        self.assertIn("--dangerously-bypass-hook-trust", with_hook)
+
+    def test_inventory_metric_reuses_hook_argv_semantics(self) -> None:
+        self.assertTrue(_is_root_inventory("rg --files"))
+        self.assertTrue(_is_root_inventory("git ls-files"))
+        self.assertFalse(_is_root_inventory("rg --files src"))
+        self.assertFalse(_is_root_inventory("git worktree list"))
+        self.assertFalse(_is_root_inventory("tree src"))
+
+    def test_verification_metric_recognizes_the_hook_command_set(self) -> None:
+        self.assertTrue(_is_verification_command("uv run pytest tests/test_one.py"))
+        self.assertTrue(_is_verification_command("npm run lint"))
+        self.assertTrue(_is_verification_command("click-gate verify '{}'"))
+        self.assertFalse(_is_verification_command("python -c 'print(1)'"))
 
     def test_runtime_trace_counts_completed_observable_loops(self) -> None:
         events = [

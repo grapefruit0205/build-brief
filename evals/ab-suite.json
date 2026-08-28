@@ -1,12 +1,12 @@
 {
-  "schema_version": 5,
-  "release_under_test": "0.15.0",
+  "schema_version": 6,
+  "release_under_test": "0.16.0",
   "model": "gpt-5.6-sol",
   "reasoning_effort": "max",
   "judge_model": "gpt-5.6-sol",
   "judge_reasoning_effort": "high",
   "runs_per_condition": 5,
-  "random_seed": 15015,
+  "random_seed": 16016,
   "conditions": [
     "no-plugin",
     "explicit-skill-only",
@@ -20,17 +20,18 @@
       "expected_activation": true,
       "opt_out_applicable": false,
       "external_hook_contract": true,
-      "prompt": "$click Prepare the next Click release in one approved implementation. Preserve the compact one-approval workflow while hardening five gaps: infer every recognized verification command's minimum budget class; reject arbitrary Python inline or script execution as verification; make a Git-backed final batch fail stale if it changes tracked or pre-existing untracked content; require a later UserPromptSubmit turn before passing or replacing a staged contract; and block update_plan throughout armed, staged, approved, and review workflows. Add deterministic regression tests, configure a repeated shuffled gpt-5.6-sol/max A/B suite with loop metrics, and tighten bilingual claims so the repository does not claim cross-project proof. Keep the standard-library-only Hook, MIT license, out-of-repository state, Manual fail-open behavior, per-turn bypass, and one-shot implementation after approval. Do not commit or push.",
-      "baseline_prompt": "Prepare the next Click release in one implementation. Preserve the compact one-approval workflow while hardening five gaps: infer every recognized verification command's minimum budget class; reject arbitrary Python inline or script execution as verification; make a Git-backed final batch fail stale if it changes tracked or pre-existing untracked content; require a later UserPromptSubmit turn before passing or replacing a staged contract; and block update_plan throughout armed, staged, approved, and review workflows. Add deterministic regression tests, configure a repeated shuffled gpt-5.6-sol/max A/B suite with loop metrics, and tighten bilingual claims so the repository does not claim cross-project proof. Keep the standard-library-only Hook, MIT license, out-of-repository state, Manual fail-open behavior, per-turn bypass, and one-shot implementation. Do not commit or push.",
+      "prompt": "$click Prepare the next Click release in one approved implementation. Preserve the compact one-approval workflow while hardening six gaps: keep a staged or incomplete approved Manual contract mutation-locked across later turns; classify verification by runner kind and actual scope so filters and many targets cannot look targeted while one exact integration node is not forced to deep; recognize common Windows, uv, lint, build, typecheck, Cargo, and Go check forms; warn for every new non-ignored untracked path and fail stale for obvious new source, configuration, or migration paths; align the Hook timeout with its internal lock timeout; and run A/B candidates from an exact clean Click commit in an isolated temporary Codex configuration while reusing the Hook argv semantics for loop metrics. Add deterministic regressions and exact bilingual limits. Keep the standard-library-only Hook, MIT license, out-of-repository state, uninvoked Manual fail-open behavior, per-turn bypass, and one-shot implementation after approval. Do not commit or push.",
+      "baseline_prompt": "Prepare the next Click release in one implementation. Preserve the compact one-approval workflow while hardening six gaps: keep a staged or incomplete approved Manual contract mutation-locked across later turns; classify verification by runner kind and actual scope so filters and many targets cannot look targeted while one exact integration node is not forced to deep; recognize common Windows, uv, lint, build, typecheck, Cargo, and Go check forms; warn for every new non-ignored untracked path and fail stale for obvious new source, configuration, or migration paths; align the Hook timeout with its internal lock timeout; and run A/B candidates from an exact clean Click commit in an isolated temporary Codex configuration while reusing the Hook argv semantics for loop metrics. Add deterministic regressions and exact bilingual limits. Keep the standard-library-only Hook, MIT license, out-of-repository state, uninvoked Manual fail-open behavior, per-turn bypass, and one-shot implementation. Do not commit or push.",
       "approval_followup": "I approve the exact staged contract and verification scale. Implement it in one shot, run the final completion batch once, and do not replace or expand the contract. Do not commit or push.",
       "required_invariants": [
-        "Recognized commands are charged at no less than the Hook-inferred verification class",
-        "Arbitrary Python inline code and direct scripts are not accepted as verification",
-        "Git-backed verification cannot pass after changing tracked or pre-existing untracked content",
-        "Staging and passing require distinct UserPromptSubmit turns and the identical contract digest",
-        "Parallel update_plan calls are blocked throughout every active Click workflow",
+        "A staged or incomplete approved Manual session contract blocks general mutations in later turns",
+        "Verification scope cannot become targeted merely through a filter or multiple explicit targets",
+        "An exact integration or security node is broad while a broad suite of that kind is deep",
+        "Common Windows, uv, lint, build, typecheck, Cargo, and Go verification forms are recognized",
+        "Git-backed verification warns for new non-ignored paths and fails stale for obvious new implementation paths",
+        "The external Hook timeout exceeds the internal state-lock timeout",
         "Approval still authorizes one uninterrupted in-scope implementation and one final verification batch",
-        "The A/B harness repeats and shuffles Sol/max conditions and reports token, time, tool-loop, and correctness metrics without claiming unrun results"
+        "The A/B harness pins a clean Click commit in an isolated configuration, records provenance, and uses argv-based loop metrics without claiming unrun results"
       ]
     },
     {
@@ -40,12 +41,14 @@
       "expected_activation": true,
       "opt_out_applicable": false,
       "external_hook_contract": false,
-      "prompt": "$click Harden Click's verification budget so a broad full-suite command declared as targeted cannot fit a quick budget, and a deep security, coverage, integration, load, or end-to-end command declared as broad cannot evade its real cost. Preserve the existing verify request shape by having the Hook infer and apply the minimum class automatically. Add focused tests and do not commit or push.",
-      "baseline_prompt": "Harden Click's verification budget so a broad full-suite command declared as targeted cannot fit a quick budget, and a deep security, coverage, integration, load, or end-to-end command declared as broad cannot evade its real cost. Preserve the existing verify request shape by having the Hook infer and apply the minimum class automatically. Add focused tests and do not commit or push.",
+      "prompt": "$click Harden Click's verification budget by separating runner kind from actual scope. Filters that nearly match everything, regex selection, multiple files or packages, directories, and full suites must not receive a targeted cost. One exact integration or security node should be broad, while the corresponding whole suite remains deep. Support py -3 -m, uv run pytest, npm lint/build, ruff, mypy, tsc, cargo check/clippy, and go vet without changing the verify request shape. Add focused tests and do not commit or push.",
+      "baseline_prompt": "Harden Click's verification budget by separating runner kind from actual scope. Filters that nearly match everything, regex selection, multiple files or packages, directories, and full suites must not receive a targeted cost. One exact integration or security node should be broad, while the corresponding whole suite remains deep. Support py -3 -m, uv run pytest, npm lint/build, ruff, mypy, tsc, cargo check/clippy, and go vet without changing the verify request shape. Add focused tests and do not commit or push.",
       "approval_followup": "I approve the exact staged contract and verification scale. Implement it in one shot and run the final checks once. Do not commit or push.",
       "required_invariants": [
-        "The Hook determines a minimum targeted, broad, or deep class from recognized argv",
+        "The Hook determines runner kind and target scope from recognized argv",
         "A lower submitted class is raised before budget units are calculated",
+        "Filters and multiple targets are at least broad, exact high-risk nodes are broad, and broad high-risk suites are deep",
+        "Common supported check and build forms work on Windows and Unix-like systems",
         "Unknown verification-like wrappers default conservatively rather than gaining a cheap class",
         "One-shot implementation remains possible when the inferred class fits the approved budget"
       ]
@@ -57,14 +60,15 @@
       "expected_activation": true,
       "opt_out_applicable": false,
       "external_hook_contract": false,
-      "prompt": "$click Close the verification-write hole. Do not accept Python -c or direct Python scripts as final verification; accept only explicit supported module runners. In a Git worktree, compare protected repository content before and after the final batch and fail it stale if tracked or already-present untracked content changed. Ignore newly created disposable test artifacts. Add deterministic tests and document the exact boundary. Do not commit or push.",
-      "baseline_prompt": "Close the verification-write hole. Do not accept Python -c or direct Python scripts as final verification; accept only explicit supported module runners. In a Git worktree, compare protected repository content before and after the final batch and fail it stale if tracked or already-present untracked content changed. Ignore newly created disposable test artifacts. Add deterministic tests and document the exact boundary. Do not commit or push.",
+      "prompt": "$click Close the verification-write hole. Do not accept Python -c or direct Python scripts as final verification. In a Git worktree, compare tracked and pre-existing non-ignored untracked content before and after the final batch. Warn for every new non-ignored path, fail stale when a new source, application, library, configuration, or migration path appears, allow a generic disposable report with a warning, and document that ignored paths are outside this snapshot. Add deterministic tests and do not commit or push.",
+      "baseline_prompt": "Close the verification-write hole. Do not accept Python -c or direct Python scripts as final verification. In a Git worktree, compare tracked and pre-existing non-ignored untracked content before and after the final batch. Warn for every new non-ignored path, fail stale when a new source, application, library, configuration, or migration path appears, allow a generic disposable report with a warning, and document that ignored paths are outside this snapshot. Add deterministic tests and do not commit or push.",
       "approval_followup": "I approve the exact staged contract and verification scale. Implement it in one shot and run the final checks once. Do not commit or push.",
       "required_invariants": [
         "Python inline code and direct scripts are rejected by verify validation",
         "Supported Python verification is limited to explicit pytest, unittest, or coverage module runners",
         "A protected Git content change prevents a successful verification record and advances the mutation revision",
-        "Ordinary newly generated ignored or untracked test artifacts do not create a false stale result"
+        "Every new non-ignored path is reported and obvious new implementation paths fail stale",
+        "A generic newly generated report only warns, while ignored paths are explicitly outside the snapshot"
       ]
     },
     {

@@ -19,7 +19,7 @@ class RepositoryPolicyTests(unittest.TestCase):
             (ROOT / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8")
         )
         self.assertEqual(manifest["name"], "click")
-        self.assertEqual(manifest["version"], "0.15.0")
+        self.assertEqual(manifest["version"], "0.16.0")
         self.assertEqual(manifest["license"], "MIT")
         self.assertIn("always on", manifest["description"].lower())
         self.assertIn("manual", manifest["description"].lower())
@@ -52,7 +52,7 @@ class RepositoryPolicyTests(unittest.TestCase):
         self.assertIn("custom wrapper", english)
         self.assertIn("자동 상한", korean)
         self.assertIn("사용자 정의 래퍼", korean)
-        self.assertIn("minimum class", english)
+        self.assertIn("minimum class", english.lower())
         self.assertIn("최소 class", korean)
         self.assertIn("Python `-c`", english)
         self.assertIn("Python `-c`", korean)
@@ -63,7 +63,7 @@ class RepositoryPolicyTests(unittest.TestCase):
         for readme in (english, korean):
             self.assertIn("UserPromptSubmit", readme)
             self.assertIn("staged_turn_id", readme)
-            self.assertIn("pre-existing untracked", readme)
+            self.assertIn("non-ignored untracked", readme)
         self.assertIn("later user turn", english)
         self.assertIn("다음 사용자 turn", korean)
 
@@ -204,8 +204,8 @@ class RepositoryPolicyTests(unittest.TestCase):
         suite = json.loads(
             (ROOT / "evals" / "ab-suite.json").read_text(encoding="utf-8")
         )
-        self.assertEqual(suite["schema_version"], 5)
-        self.assertEqual(suite["release_under_test"], "0.15.0")
+        self.assertEqual(suite["schema_version"], 6)
+        self.assertEqual(suite["release_under_test"], "0.16.0")
         self.assertEqual(suite["model"], "gpt-5.6-sol")
         self.assertEqual(suite["reasoning_effort"], "max")
         self.assertGreaterEqual(suite["runs_per_condition"], 5)
@@ -228,12 +228,16 @@ class RepositoryPolicyTests(unittest.TestCase):
         runner = (ROOT / "evals" / "run_ab.py").read_text(encoding="utf-8")
         self.assertIn("--execute-paid-runs", runner)
         self.assertIn("paired_deltas_against_no_plugin", runner)
+        self.assertIn("--ignore-user-config", runner)
+        self.assertIn("_prepare_isolated_runtime", runner)
+        self.assertIn("click_commit_sha", runner)
+        self.assertIn("_is_broad_exploration_command", runner)
 
     def test_golden_cases_cover_always_on_manual_and_review_routing(self) -> None:
         catalog = (
             ROOT / "evals" / "golden-prompts.yaml"
         ).read_text(encoding="utf-8")
-        self.assertIn("version: 14", catalog)
+        self.assertIn("version: 15", catalog)
         for case_id in (
             "unset-first-mutation-choice",
             "always-on-trivial-edit",

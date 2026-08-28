@@ -8,7 +8,7 @@
             "type": "command",
             "command": "python3 \"${PLUGIN_ROOT}/hooks/click_gate.py\" prompt-submit",
             "commandWindows": "py -3 \"%PLUGIN_ROOT%\\hooks\\click_gate.py\" prompt-submit",
-            "timeout": 2,
+            "timeout": 7,
             "additionalContextLimit": 1400
           }
         ]
@@ -22,7 +22,7 @@
             "type": "command",
             "command": "python3 \"${PLUGIN_ROOT}/hooks/click_gate.py\" pre-tool",
             "commandWindows": "py -3 \"%PLUGIN_ROOT%\\hooks\\click_gate.py\" pre-tool",
-            "timeout": 2
+            "timeout": 7
           }
         ]
       }

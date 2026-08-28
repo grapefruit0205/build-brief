@@ -32,9 +32,9 @@ Submit one final batch with a cost class for each argv check:
 click-gate verify '{"version":1,"checks":[{"argv":["python3","-m","unittest","discover","-s","tests","-q"],"class":"broad"},{"argv":["git","diff","--check"],"class":"targeted"}]}'
 ```
 
-Classes are `targeted` (1 unit), `broad` (3), and `deep` (5). The Hook infers the minimum class supported by each recognized argv and automatically raises a lower submitted value before charging the batch. Approval of `quick`, `focused`, or `full` still provides ceilings of 1, 4, or 10 units. Legacy shell-string `commands` batches are rejected with a migration message.
+Classes are `targeted` (1 unit), `broad` (3), and `deep` (5). The Hook infers runner kind and actual target scope from each recognized argv and automatically raises a lower submitted value before charging the batch. Filters, multiple targets, directories, and suites are not treated as one cheap target. Approval of `quick`, `focused`, or `full` still provides ceilings of 1, 4, or 10 units. Legacy shell-string `commands` batches are rejected with a migration message.
 
-Python checks must use an explicit supported module runner: `python -m pytest`, `python -m unittest`, or `python -m coverage`. Python `-c` and direct Python scripts are not verification capabilities. In a Git worktree, the runner compares tracked and pre-existing untracked content before and after the batch. A protected-content change fails stale and increments the mutation revision; newly created untracked test artifacts are not protected. Outside Git, this content snapshot is unavailable.
+Python checks must use an explicit supported pytest, unittest, or coverage module runner; Windows `py -3 -m ...` and `uv run pytest` are recognized. Python `-c` and direct Python scripts are not verification capabilities. In a Git worktree, the runner compares tracked and pre-existing non-ignored untracked content before and after the batch. A protected-content change fails stale and increments the mutation revision. Every new non-ignored path is reported; an obvious new source, application, library, configuration, or migration path also fails stale, while a generic report artifact only warns. Git-ignored paths and non-Git worktrees are outside this content snapshot.
 
 ## Enforcement boundary
 

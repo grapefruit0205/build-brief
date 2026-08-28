@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -22,6 +23,10 @@ HOOK_CONFIG = Path(
         Path(__file__).parents[1] / "hooks" / "hooks.json",
     )
 )
+CLICK_GATE_SPEC = importlib.util.spec_from_file_location("click_gate_under_test", SCRIPT)
+assert CLICK_GATE_SPEC is not None and CLICK_GATE_SPEC.loader is not None
+CLICK_GATE = importlib.util.module_from_spec(CLICK_GATE_SPEC)
+CLICK_GATE_SPEC.loader.exec_module(CLICK_GATE)
 
 
 class ClickGateTests(unittest.TestCase):
@@ -331,6 +336,8 @@ class ClickGateTests(unittest.TestCase):
         )
         pre_tool_handler = hooks["PreToolUse"][0]["hooks"][0]
         self.assertTrue(pre_tool_handler["command"].endswith('click_gate.py\" pre-tool'))
+        self.assertEqual(prompt_handler["timeout"], 7)
+        self.assertEqual(pre_tool_handler["timeout"], 7)
 
     def test_uninvoked_hook_starts_without_state(self) -> None:
         self.assertFalse((self.plugin_data / "gate-state").exists())
@@ -508,6 +515,36 @@ class ClickGateTests(unittest.TestCase):
         )
         self.assertIsNone(
             self.pre_tool("Bash", "python3 update_schema.py", turn_id="turn-2")
+        )
+
+    def test_manual_staged_contract_blocks_next_turn_mutation(self) -> None:
+        self.set_default("manual", "turn-0")
+        self.arm_gate("turn-1")
+        self.stage_gate(turn_id="turn-1")
+
+        payload = self.pre_tool(
+            "apply_patch", "*** Begin Patch\n*** End Patch", turn_id="turn-2"
+        )
+        self.assertEqual(payload["hookSpecificOutput"]["permissionDecision"], "deny")
+        self.assertIn(
+            "active execution contract",
+            payload["hookSpecificOutput"]["permissionDecisionReason"],
+        )
+
+    def test_manual_incomplete_approved_contract_blocks_later_turn_mutation(self) -> None:
+        self.set_default("manual", "turn-0")
+        self.arm_gate("turn-1")
+        self.stage_gate(turn_id="turn-1")
+        self.arm_gate("turn-2")
+        self.pass_gate(turn_id="turn-2")
+
+        payload = self.pre_tool(
+            "Bash", "python3 update_schema.py", turn_id="turn-3"
+        )
+        self.assertEqual(payload["hookSpecificOutput"]["permissionDecision"], "deny")
+        self.assertIn(
+            "active execution contract",
+            payload["hookSpecificOutput"]["permissionDecisionReason"],
         )
 
     def test_always_on_default_persists_and_gates_later_mutations(self) -> None:
@@ -829,6 +866,24 @@ class ClickGateTests(unittest.TestCase):
         self.assertIn("costs 3", output["permissionDecisionReason"])
         self.assertIn("minimum-class inference", output["permissionDecisionReason"])
 
+        for argv in (
+            ["pytest", "-k", "not definitely_missing", "tests"],
+            ["pytest", "tests/test_01.py", "tests/test_02.py"],
+            [
+                "pytest",
+                "tests/integration/test_cancel.py::test_duplicate_cancel",
+            ],
+        ):
+            with self.subTest(argv=argv):
+                denied = self.verify_checks(
+                    [{"argv": argv, "class": "targeted"}]
+                )
+                reason = denied["hookSpecificOutput"]["permissionDecisionReason"]
+                self.assertEqual(
+                    denied["hookSpecificOutput"]["permissionDecision"], "deny"
+                )
+                self.assertIn("costs 3", reason)
+
     def test_deep_verification_cannot_be_underdeclared_as_broad(self) -> None:
         self.approve_contract()
         payload = self.verify_checks(
@@ -842,6 +897,53 @@ class ClickGateTests(unittest.TestCase):
         output = payload["hookSpecificOutput"]
         self.assertEqual(output["permissionDecision"], "deny")
         self.assertIn("costs 5", output["permissionDecisionReason"])
+
+    def test_verification_classifier_uses_scope_before_kind_markers(self) -> None:
+        cases = {
+            ("pytest", "-k", "not definitely_missing", "tests"): "broad",
+            ("pytest", "-m", "not slow", "tests"): "broad",
+            ("pytest", "tests/test_01.py", "tests/test_02.py"): "broad",
+            (
+                "pytest",
+                "tests/integration/test_cancel.py::test_duplicate_cancel",
+            ): "broad",
+            (
+                "pytest",
+                "tests/test_security_utils.py::test_parse_header",
+            ): "broad",
+            ("pytest", "tests/integration"): "deep",
+            ("go", "test", "./pkg1", "./pkg2"): "broad",
+            ("go", "test", "-run", ".*", "./pkg1"): "broad",
+            ("ctest", "-R", ".*"): "broad",
+            ("pre-commit", "run", "--files", "a.py", "b.py"): "broad",
+            ("pre-commit", "run", "--files", "a.py"): "targeted",
+        }
+        for argv, expected in cases.items():
+            with self.subTest(argv=argv):
+                self.assertEqual(
+                    CLICK_GATE._minimum_verification_class(list(argv)), expected
+                )
+
+    def test_verification_classifier_supports_common_build_and_check_forms(self) -> None:
+        cases = {
+            ("py", "-3", "-m", "unittest", "pkg.Test.test_one"): "targeted",
+            ("uv", "run", "pytest", "tests/test_one.py"): "targeted",
+            ("npm", "run", "lint"): "broad",
+            ("npm", "run", "build"): "broad",
+            ("ruff", "check", "."): "broad",
+            ("ruff", "check", "src/one.py"): "targeted",
+            ("mypy", "src"): "broad",
+            ("mypy", "src/one.py"): "targeted",
+            ("tsc", "--noEmit"): "broad",
+            ("cargo", "check"): "broad",
+            ("cargo", "clippy"): "broad",
+            ("go", "vet", "./..."): "broad",
+        }
+        for argv, expected in cases.items():
+            with self.subTest(argv=argv):
+                self.assertEqual(
+                    CLICK_GATE._minimum_verification_class(list(argv)), expected
+                )
 
     def test_inline_and_direct_python_programs_are_not_verification(self) -> None:
         self.approve_contract()
@@ -1094,6 +1196,7 @@ class ClickGateTests(unittest.TestCase):
         )
         result = self.run_rewritten(payload)
         self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("new non-ignored untracked path", result.stderr)
         self.assertTrue((self.workspace / "new-report.tmp").exists())
         state_path = next(
             (self.plugin_data / "gate-state").glob("session-contract-*.json")
@@ -1101,6 +1204,53 @@ class ClickGateTests(unittest.TestCase):
         state = json.loads(state_path.read_text(encoding="utf-8"))
         self.assertEqual(state["verification"]["status"], "passed")
         self.assertFalse(state["verification"]["workspace_changed"])
+
+    def test_new_source_path_created_during_verification_fails_stale(self) -> None:
+        self.assertTrue(CLICK_GATE._new_untracked_requires_stale("src/new_feature.py"))
+        self.assertTrue(CLICK_GATE._new_untracked_requires_stale("config/policy.json"))
+        self.assertTrue(CLICK_GATE._new_untracked_requires_stale("migration/001.sql"))
+        self.assertTrue(
+            CLICK_GATE._new_untracked_requires_stale("packages/api/lib/new_rule.py")
+        )
+        self.assertFalse(CLICK_GATE._new_untracked_requires_stale("new-report.tmp"))
+        self.assertFalse(
+            CLICK_GATE._new_untracked_requires_stale("reports/app/output.txt")
+        )
+        (self.workspace / ".gitignore").write_text("__pycache__/\n", encoding="utf-8")
+        (self.workspace / "source_creating_test.py").write_text(
+            "import unittest\n"
+            "from pathlib import Path\n\n"
+            "class SourceCreatingTest(unittest.TestCase):\n"
+            "    def test_creates_source(self):\n"
+            "        Path('src').mkdir(exist_ok=True)\n"
+            "        Path('src/new_feature.py').write_text('VALUE = 1\\n', encoding='utf-8')\n",
+            encoding="utf-8",
+        )
+        self.initialize_git(".gitignore", "source_creating_test.py")
+        contract = self.contract()
+        contract["verification"]["scale"] = "quick"
+        self.arm_gate("turn-1")
+        self.stage_gate(contract, "turn-1")
+        self.arm_gate("turn-2")
+        self.pass_gate(contract, "turn-2")
+
+        payload = self.verify_checks(
+            [
+                {
+                    "argv": [
+                        sys.executable,
+                        "-m",
+                        "unittest",
+                        "source_creating_test.SourceCreatingTest.test_creates_source",
+                    ],
+                    "class": "targeted",
+                }
+            ]
+        )
+        result = self.run_rewritten(payload)
+        self.assertEqual(result.returncode, 3, result.stderr)
+        self.assertIn("new non-ignored untracked path", result.stderr)
+        self.assertIn("implementation mutation", result.stderr)
 
     def test_review_mode_needs_no_contract_and_blocks_repeated_successful_reads(self) -> None:
         self.set_default("on")
