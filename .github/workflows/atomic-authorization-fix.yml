@@ -1,0 +1,138 @@
+name: Make Authorization Consumption Atomic
+
+on:
+  push:
+    branches: [hardening-enforcement-boundaries]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out hardening branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: hardening-enforcement-boundaries
+          fetch-depth: 0
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.10"
+      - name: Patch atomic authorization and regression
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          hook = Path('hooks/click_gate.py')
+          text = hook.read_text(encoding='utf-8')
+          old = '''def _consume_user_authorization(event: dict[str, Any], expected: str) -> str:
+              turn_id = str(event.get("turn_id", ""))
+              if not turn_id:
+                  return f"Click {expected} requires a current Codex turn_id."
+              state = _read_user_prompt_state(event)
+              if str(state.get("turn_id", "")) != turn_id:
+                  return (
+                      f"Click {expected} requires an exact first-line `@Click {expected}` "
+                      "directive in this user turn."
+                  )
+              if state.get("authorization") != expected:
+                  return (
+                      f"Click {expected} requires an exact first-line `@Click {expected}` "
+                      "directive in this user turn."
+                  )
+              state["authorization"] = ""
+              state["updated_at"] = int(time.time())
+              _write_json(_prompt_path(event), state)
+              return ""
+          '''
+          old = '\n'.join(line[14:] if line.startswith('              ') else line for line in old.splitlines()) + '\n'
+          new = '''def _consume_user_authorization(event: dict[str, Any], expected: str) -> str:
+              turn_id = str(event.get("turn_id", ""))
+              if not turn_id:
+                  return f"Click {expected} requires a current Codex turn_id."
+              with _state_lock():
+                  state = _read_user_prompt_state(event)
+                  if str(state.get("turn_id", "")) != turn_id:
+                      return (
+                          f"Click {expected} requires an exact first-line `@Click {expected}` "
+                          "directive in this user turn."
+                      )
+                  if state.get("authorization") != expected:
+                      return (
+                          f"Click {expected} requires an exact first-line `@Click {expected}` "
+                          "directive in this user turn."
+                      )
+                  state["authorization"] = ""
+                  state["updated_at"] = int(time.time())
+                  _write_json(_prompt_path(event), state)
+              return ""
+          '''
+          new = '\n'.join(line[14:] if line.startswith('              ') else line for line in new.splitlines()) + '\n'
+          if text.count(old) != 1:
+              raise SystemExit(f'authorization function match count: {text.count(old)}')
+          hook.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          tests = Path('tests/test_click_gate.py')
+          text = tests.read_text(encoding='utf-8')
+          import_anchor = 'from __future__ import annotations\n\n'
+          imports = 'from __future__ import annotations\n\nfrom concurrent.futures import ThreadPoolExecutor\nimport threading\nfrom unittest import mock\n'
+          if text.count(import_anchor) != 1:
+              raise SystemExit('test import anchor changed')
+          text = text.replace(import_anchor, imports, 1)
+
+          anchor = '    def test_cancel_requires_authorization_and_clears_contract_once(self) -> None:\n'
+          regression = '''    def test_authorization_consumption_is_atomic_under_state_lock(self) -> None:
+              event = {
+                  **self.base_event,
+                  "turn_id": "turn-atomic",
+                  "prompt": "@Click bypass",
+              }
+              with mock.patch.dict(
+                  os.environ,
+                  {"PLUGIN_DATA": str(self.plugin_data)},
+              ):
+                  CLICK_GATE._record_user_prompt(event)
+                  started = threading.Event()
+
+                  def consume() -> str:
+                      started.set()
+                      return CLICK_GATE._consume_user_authorization(event, "bypass")
+
+                  with ThreadPoolExecutor(max_workers=1) as executor:
+                      with CLICK_GATE._state_lock():
+                          future = executor.submit(consume)
+                          self.assertTrue(started.wait(timeout=1.0))
+                          time.sleep(0.05)
+                          self.assertFalse(future.done())
+                      self.assertEqual(future.result(timeout=2.0), "")
+
+                  reused = CLICK_GATE._consume_user_authorization(event, "bypass")
+                  self.assertIn("requires an exact first-line", reused)
+
+'''
+          regression = '\n'.join(line[14:] if line.startswith('              ') else line for line in regression.splitlines()) + '\n'
+          if text.count(anchor) != 1:
+              raise SystemExit('cancel-test anchor changed')
+          tests.write_text(text.replace(anchor, regression + anchor, 1), encoding='utf-8')
+          PY
+      - name: Run deterministic suite
+        run: python -m unittest discover -s tests -q
+      - name: Validate Python and diff
+        shell: bash
+        run: |
+          python -m py_compile hooks/click_gate.py tests/test_click_gate.py
+          git diff --check
+      - name: Commit atomic hardening
+        shell: bash
+        run: |
+          git rm -f .github/workflows/atomic-authorization-fix.yml
+          git add -A
+          git diff --cached --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'Serialize bypass and cancel authorization consumption'
+          git push origin HEAD:hardening-enforcement-boundaries
