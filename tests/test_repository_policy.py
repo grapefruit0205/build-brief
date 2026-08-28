@@ -20,7 +20,7 @@ class RepositoryPolicyTests(unittest.TestCase):
             (ROOT / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8")
         )
         self.assertEqual(manifest["name"], "click")
-        self.assertEqual(manifest["version"], "0.17.0")
+        self.assertEqual(manifest["version"], "0.18.0")
         self.assertEqual(manifest["license"], "MIT")
         self.assertIn("always on", manifest["description"].lower())
         self.assertIn("manual", manifest["description"].lower())
@@ -119,6 +119,27 @@ class RepositoryPolicyTests(unittest.TestCase):
         )
         self.assertEqual(marketplace["name"], "click")
         self.assertEqual(marketplace["plugins"][0]["name"], "click")
+        self.assertEqual(
+            marketplace["plugins"][0]["source"]["ref"], "v0.18.0"
+        )
+
+    def test_ci_enforces_distribution_compilation_and_diff_validation(self) -> None:
+        workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("python scripts/validate_distribution.py", workflow)
+        self.assertIn("python -m compileall", workflow)
+        self.assertIn("git diff --check", workflow)
+        self.assertTrue((ROOT / "scripts" / "validate_distribution.py").is_file())
+
+    def test_release_documents_identify_v018_without_an_unreleased_heading(self) -> None:
+        for readme_name in README_NAMES:
+            with self.subTest(readme=readme_name):
+                readme = (ROOT / readme_name).read_text(encoding="utf-8")
+                self.assertIn("v0.18.0", readme)
+        notes = (ROOT / "RELEASE_NOTES.md").read_text(encoding="utf-8")
+        self.assertIn("## v0.18.0", notes)
+        self.assertNotIn("## Unreleased", notes)
 
     def test_click_supports_always_on_while_fix_remains_explicit(self) -> None:
         for skill_name in ("click", "fix"):
@@ -218,7 +239,7 @@ class RepositoryPolicyTests(unittest.TestCase):
             (ROOT / "evals" / "ab-suite.json").read_text(encoding="utf-8")
         )
         self.assertEqual(suite["schema_version"], 6)
-        self.assertEqual(suite["release_under_test"], "0.17.0")
+        self.assertEqual(suite["release_under_test"], "0.18.0")
         self.assertEqual(suite["model"], "gpt-5.6-sol")
         self.assertEqual(suite["reasoning_effort"], "max")
         self.assertGreaterEqual(suite["runs_per_condition"], 5)

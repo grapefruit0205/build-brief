@@ -177,7 +177,9 @@ click-gate inspect '{"version":1,"commands":[["git","status","--short"],["sed","
 click-gate mutate '{"version":1,"argv":["python3","scripts/generate.py","--target","src"]}'
 ```
 
-`inspect` accepts only the Hook's bounded read-only operations. Git reads use subcommand-specific positive option policies; `git grep` and `git cat-file` are temporarily excluded. Accepted Git inspection runs with inherited `GIT_*` variables sanitized, `--no-pager`, `--no-optional-locks`, fsmonitor disabled, and `--no-ext-diff` plus `--no-textconv` forced for supported diff-rendering commands. `mutate` requires the exact approved contract and marks prior evidence stale. Ordinary canonical edit tools such as `apply_patch`, `Edit`, and `Write` remain supported mutations without a shell envelope. Malformed requests and shell interpreters fail closed. See [the capability protocol](skills/click/references/capability-protocol.md) for the exact schemas and enforcement boundary.
+`inspect` accepts only the Hook's bounded read-only operations. Git reads use subcommand-specific positive option policies; `git grep`, `git cat-file`, arbitrary `--format`/`--pretty` output, signature-rendering options, and `git status -v/-vv` are excluded. Accepted Git inspection strips inherited `GIT_*` variables, ignores system/global Git config, forces safe log and diff settings, disables paging and optional locks, and adds `--no-ext-diff` plus `--no-textconv` to supported diff-rendering commands. `mutate` requires the exact approved contract and marks prior evidence stale. Ordinary canonical edit tools such as `apply_patch`, `Edit`, and `Write` remain supported mutations without a shell envelope. Malformed requests and shell interpreters fail closed. See [the capability protocol](skills/click/references/capability-protocol.md) for the exact schemas and enforcement boundary.
+
+SSH Git inspection is **Experimental and POSIX-remote-shell only**. It supports only bounded `git status`, `git rev-parse HEAD`, `git merge-base`, and `git remote get-url` reads, accepts no caller-provided SSH options, requires an already-known host key, disables interactive password flows, host-key updates, forwarding, local commands, and TTY allocation, and fails quickly with connection and keepalive limits. Unknown hosts, non-POSIX remote shells, and unreachable servers fail closed. This is a convenience guardrail, not a general remote executor or security sandbox.
 
 ## Automatic verification budget
 
@@ -238,11 +240,11 @@ Manual mode or a per-turn bypass is usually better for tiny, obvious, reversible
 
 ## Evidence and honest limits
 
-The current source candidate passes 139 deterministic tests locally. They cover persistent out-of-repository mode selection, per-prompt routing context, Manual fail-open behavior and session-active mutation blocking, Always ON mutation gating, code-review anti-loop behavior, compact-contract validation, distinct-turn approval and identical-restage rejection, completed-contract rollover, active-lifecycle plan blocking, cross-turn approved-contract observation reuse, scope-aware verification-class inference, common build and check runners, Python verification restrictions, Git protected-content and suspicious-new-path mutation detection, versioned inspect/mutate/verify requests, native shell-free argv alignment, state locking and abandoned-runner recovery, retry state, content-free Hook state, A/B isolation plus staged/untracked/committed candidate evidence, semantic-grader mechanics, and repository policy. Cross-platform CI is configured for Linux, macOS, and Windows.
+The v0.18.0 source is release-gated by the deterministic suite. It covers persistent out-of-repository mode selection, per-prompt routing context, Manual fail-open behavior and session-active mutation blocking, Always ON mutation gating, code-review anti-loop behavior, compact-contract validation, distinct-turn approval and identical-restage rejection, completed-contract rollover, active-lifecycle plan blocking, cross-turn approved-contract observation reuse, scope-aware verification-class inference, common build and check runners, Python verification restrictions, hardened local and Experimental SSH Git inspection, Git protected-content and new-path mutation detection, versioned inspect/mutate/verify requests, native shell-free argv alignment, state locking and abandoned-runner recovery, retry state, content-free Hook state, A/B isolation plus staged/untracked/committed candidate evidence, semantic-grader mechanics, distribution consistency, and repository policy. Required CI runs the suite on Linux, macOS, and Windows; Ubuntu also validates the plugin, marketplace, Click/Fix skills, Python compilation, and whitespace errors.
 
 The repository also includes version-15 golden cases, a semantic grader, and an A/B runner configured for six pinned self-hosted tasks, three conditions, five shuffled repetitions per condition, and `gpt-5.6-sol` at `max` reasoning effort. Before paid calls, the runner requires a clean source checkout, checks that the suite version matches the manifest, clones the exact Click commit into a temporary local marketplace, and installs it under a temporary `CODEX_HOME`. Candidates load only that isolated config—not the operator's real user config—and the runner explicitly disables every non-candidate plugin it finds. It isolates Click state per trial and records Codex version, Click version and commit, temporary config path, OS, Python, installed plugins, and the intended active plugin set. The judge still uses `--ignore-user-config` because it needs no plugin. The temporary runtime is removed afterward. Root-inventory metrics reuse the Hook's argv parser instead of substring matching. It reports correctness, tokens, elapsed time, completed tool items, duplicate successful commands, repeated root inventory, plan items, verification commands, distributions, and paired deltas against no-plugin baselines. Those 90 condition trials are intentionally **not run during installation or CI** because they consume paid model time.
 
-This is evaluation infrastructure, not a benchmark result. Until those trials are run, human-calibrated, and then repeated on several unrelated real repositories, Click does not claim that it improves success rate, accuracy, time, token use, or overdesign across projects. The checked-in v0.5.0 single-run pilot remains historical failure evidence, not evidence for v0.17.0.
+This is evaluation infrastructure, not a benchmark result. Until those trials are run, human-calibrated, and then repeated on several unrelated real repositories, Click does not claim that it improves success rate, accuracy, time, token use, or overdesign across projects. The checked-in v0.5.0 single-run pilot remains historical failure evidence, not evidence for v0.18.0.
 
 Click is not claimed to be the first or only workflow in this area. It overlaps with spec-driven, autonomous-loop, and approval-gated tools; its deliberately narrow emphasis is one persistent choice, one compact contract, one approval, one-shot implementation, observable anti-loop guards, and one final verification budget.
 
@@ -262,15 +264,16 @@ hooks/click_gate.py                   Contract, capability, anti-loop, and budge
 hooks/hooks.json                      Lifecycle Hook configuration
 evals/                                Golden cases, A/B runner, semantic grader
 tests/                                Deterministic Hook, grader, and policy tests
+scripts/validate_distribution.py     Repository-owned release validator
 COMMUNITY_POSTS.md                    Ready-to-edit English and Korean launch posts
 LICENSE                               MIT License
 ```
 
 ```bash
-python3 /path/to/skill-creator/scripts/quick_validate.py skills/click
-python3 /path/to/skill-creator/scripts/quick_validate.py skills/fix
-python3 /path/to/plugin-creator/scripts/validate_plugin.py .
+python3 scripts/validate_distribution.py
+python3 -m compileall -q hooks evals scripts tests
 python3 -m unittest discover -s tests -v
+git diff --check
 ```
 
 The A/B runner refuses to start model calls unless the operator adds the explicit paid-run acknowledgement:
