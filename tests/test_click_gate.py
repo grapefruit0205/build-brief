@@ -527,6 +527,7 @@ class ClickGateTests(unittest.TestCase):
         )
         denied = (
             ["ssh", "-o", "ProxyCommand=helper", "example-host", "git", "status"],
+            ["/tmp/ssh", "example-host", "git", "status"],
             ["ssh", "example-host", "git status"],
             ["ssh", "example-host", "hostname"],
             ["ssh", "example-host", "docker", "ps"],

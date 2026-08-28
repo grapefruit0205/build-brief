@@ -1957,7 +1957,7 @@ def _get_content_paths(tokens: list[str]) -> list[str] | None:
 
 
 def _structured_ssh_parts(tokens: list[str]) -> tuple[str, list[str]] | None:
-    if len(tokens) < 4 or Path(tokens[0]).name.lower() != "ssh":
+    if len(tokens) < 4 or tokens[0].lower() not in {"ssh", "ssh.exe"}:
         return None
     target = tokens[1]
     remote_argv = tokens[2:]
@@ -2662,7 +2662,7 @@ def _execution_argv(argv: list[str]) -> list[str]:
     if error or safe_git_argv is None:
         return argv
     return [
-        argv[0],
+        "ssh",
         "-F",
         "none",
         "-o",
