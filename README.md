@@ -34,7 +34,7 @@ Choose Always ON for the default experience. Choose Manual if you prefer explici
 @Click Add order cancellation. Prevent duplicate refunds and preserve the existing API.
 ```
 
-You can later say “Set Click to Always ON” or “Set Click to Manual.” Those preferences persist outside the target repository. To bypass Click for exactly one turn, make the first line of that user prompt `@Click bypass`; the Hook authorizes one same-turn `click-gate bypass` and keeps any active contract intact. To discard an active contract, use first-line `@Click cancel`, which authorizes one same-turn `click-gate cancel`. Neither authorization is reusable or carries across turns. Click does not place preference or contract files in your project.
+You can later say “Set Click to Always ON” or “Set Click to Manual.” Those preferences persist outside the target repository. To bypass Click for exactly one turn, make the first line of that user prompt either `@Click bypass` or the autocomplete form `[@Click](plugin://click@click) bypass`; the Hook authorizes one same-turn `click-gate bypass` and keeps any active contract intact. Use the corresponding `cancel` form to authorize one same-turn `click-gate cancel` and discard the active contract. The `@Click` label and action are case-insensitive, but the plugin URI must match exactly and the directive line cannot contain extra text. The task may continue on later lines. Neither authorization is reusable or carries across turns. Click does not place preference or contract files in your project.
 
 <details>
 <summary>Upgrading from Build Brief or an older Click installation</summary>
@@ -144,8 +144,8 @@ The contract locks the result and its boundaries. It does not lock every low-lev
 | Code review without fixes | No build contract or approval; use the read-only anti-loop guard |
 | Question or explanation | Answer normally |
 | Simple read-only lookup | Inspect normally without creating an observation ledger |
-| First line is `@Click bypass` | Authorize one bypass for that turn; keep any active contract |
-| First line is `@Click cancel` | Authorize one cancel that clears the active contract |
+| First line is plain or autocomplete `@Click bypass` | Authorize one bypass for that turn; keep any active contract |
+| First line is plain or autocomplete `@Click cancel` | Authorize one cancel that clears the active contract |
 
 During code review, Click permits one useful repository-wide inventory when needed. After a successful inventory it requires narrower inspection, blocks an identical successful read or search, rejects plan-tool churn, and prevents project mutation while the review guard is active. A later request to fix findings starts a separate compact build contract.
 

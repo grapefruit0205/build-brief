@@ -30,6 +30,13 @@ from urllib.parse import urlsplit, urlunsplit
 
 
 CONTROL_COMMAND = "click-gate"
+CLICK_AUTHORIZATION_PATTERNS = (
+    re.compile(r"(?i:@click)[ \t]+(?P<action>(?i:bypass|cancel))"),
+    re.compile(
+        r"\[(?i:@click)\]\(plugin://click@click\)[ \t]+"
+        r"(?P<action>(?i:bypass|cancel))"
+    ),
+)
 STRING_FIELDS = ("outcome", "plain_language")
 OBJECT_FIELDS = ("boundary", "build", "verification")
 CONTRACT_FIELDS = set(STRING_FIELDS) | set(OBJECT_FIELDS) | {"must_hold"}
@@ -665,11 +672,12 @@ def _save_contract_state(event: dict[str, Any], state: dict[str, Any]) -> None:
 def _prompt_authorization(prompt: Any) -> str:
     if not isinstance(prompt, str) or not prompt:
         return ""
-    first_line = prompt.splitlines()[0] if prompt.splitlines() else ""
-    return {
-        "@Click bypass": "bypass",
-        "@Click cancel": "cancel",
-    }.get(first_line, "")
+    first_line = prompt.splitlines()[0].strip() if prompt.splitlines() else ""
+    for pattern in CLICK_AUTHORIZATION_PATTERNS:
+        match = pattern.fullmatch(first_line)
+        if match:
+            return match.group("action").lower()
+    return ""
 
 
 def _record_user_prompt(event: dict[str, Any]) -> str:
@@ -707,13 +715,13 @@ def _consume_user_authorization(event: dict[str, Any], expected: str) -> str:
     state = _read_user_prompt_state(event)
     if str(state.get("turn_id", "")) != turn_id:
         return (
-            f"Click {expected} requires an exact first-line `@Click {expected}` "
-            "directive in this user turn."
+            f"Click {expected} requires a recognized first-line Click directive "
+            "or trusted `plugin://click@click` autocomplete mention in this user turn."
         )
     if state.get("authorization") != expected:
         return (
-            f"Click {expected} requires an exact first-line `@Click {expected}` "
-            "directive in this user turn."
+            f"Click {expected} requires a recognized first-line Click directive "
+            "or trusted `plugin://click@click` autocomplete mention in this user turn."
         )
     state["authorization"] = ""
     state["updated_at"] = int(time.time())
@@ -2530,9 +2538,10 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
             "then pass that same JSON. In Always ON mode, arm is optional because the "
             "persistent preference already activates the gate. If the user does not want "
             "Click for this turn, run "
-            "`click-gate bypass` only after the current user turn begins with the exact "
-            "first-line directive `@Click bypass`. Use `@Click cancel` plus `click-gate cancel` "
-            "to discard an active contract instead of bypassing it."
+            "`click-gate bypass` only after the current user turn begins with a recognized "
+            "first-line `@Click bypass` directive or trusted Click autocomplete mention. "
+            "Use the corresponding `@Click cancel` form plus `click-gate cancel` to discard "
+            "an active contract instead of bypassing it."
         )
 
 

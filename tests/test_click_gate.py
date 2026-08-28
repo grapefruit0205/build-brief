@@ -2477,7 +2477,10 @@ class ClickGateTests(unittest.TestCase):
         )
         self.assertEqual(malformed["hookSpecificOutput"]["permissionDecision"], "deny")
 
-        self.prompt_submit("@Click bypass\nDo this turn without Click.", "turn-3")
+        self.prompt_submit(
+            "[@Click](plugin://click@click) BYPASS\nDo this turn without Click.",
+            "turn-3",
+        )
         authorized = self.pre_tool(
             "Bash", "click-gate bypass", "turn-3", submit_prompt=False
         )
@@ -2505,7 +2508,7 @@ class ClickGateTests(unittest.TestCase):
         )
         self.assertTrue(contract_path.exists())
 
-        self.prompt_submit("@Click cancel", "turn-3")
+        self.prompt_submit("@click cancel", "turn-3")
         cancelled = self.pre_tool(
             "Bash", "click-gate cancel", "turn-3", submit_prompt=False
         )
@@ -2520,6 +2523,31 @@ class ClickGateTests(unittest.TestCase):
                 "apply_patch", "*** Begin Patch\n*** End Patch", turn_id="turn-4"
             )
         )
+
+    def test_prompt_authorization_accepts_only_allowlisted_first_line_forms(self) -> None:
+        accepted = {
+            "@Click bypass": "bypass",
+            "@click BYPASS": "bypass",
+            "  [@Click](plugin://click@click) bypass  \nContinue with the task.": "bypass",
+            "[@click](plugin://click@click) CANCEL\nContinue with the task.": "cancel",
+        }
+        for prompt, expected in accepted.items():
+            with self.subTest(prompt=prompt):
+                self.assertEqual(CLICK_GATE._prompt_authorization(prompt), expected)
+
+        rejected = (
+            "@Click bypass extra",
+            "[@Click](plugin://click@click) bypass,",
+            "[@Click](plugin://other@click) bypass",
+            "[@Other](plugin://click@click) bypass",
+            "[@Click](plugin://click@CLICK) bypass",
+            "Please use @Click bypass",
+            "`@Click bypass`",
+            "Continue with the task.\n@Click bypass",
+        )
+        for prompt in rejected:
+            with self.subTest(prompt=prompt):
+                self.assertEqual(CLICK_GATE._prompt_authorization(prompt), "")
 
     def test_manual_incomplete_contract_survives_eight_day_cleanup(self) -> None:
         self.set_default("manual", "turn-0")

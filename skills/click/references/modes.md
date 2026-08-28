@@ -40,18 +40,25 @@ Ordinary work remains fail-open only while no Click contract is active. Apply Cl
 
 ## User-authorized bypass and cancel
 
-A bypass is authorized only when the first line of the current user prompt is exactly:
+A bypass is authorized only when the first line of the current user prompt is either the plain directive:
 
 ```text
 @Click bypass
 ```
 
-Then run `click-gate bypass` once in that same turn. The authorization marker is one-use and cannot carry into another turn. Bypass leaves any staged or approved-incomplete contract intact; it only suspends Click enforcement for the authorized turn. The persistent Always ON or Manual preference is unchanged.
+or the trusted Click autocomplete form:
 
-To discard an active contract, the first line must instead be exactly:
+```text
+[@Click](plugin://click@click) bypass
+```
+
+The `@Click` label and `bypass` action are case-insensitive, but the plugin URI must be exactly `plugin://click@click`. The directive line must contain no other text; the task can continue on later lines. Then run `click-gate bypass` once in that same turn. The authorization marker is one-use and cannot carry into another turn. Bypass leaves any staged or approved-incomplete contract intact; it only suspends Click enforcement for the authorized turn. The persistent Always ON or Manual preference is unchanged.
+
+To discard an active contract, use the corresponding plain or trusted autocomplete `cancel` form:
 
 ```text
 @Click cancel
+[@Click](plugin://click@click) cancel
 ```
 
 Then run `click-gate cancel` once in that turn. Cancel clears the active contract and review state but does not change the persistent mode. A bare `click-gate bypass` or `click-gate cancel` without its matching user directive is denied.
