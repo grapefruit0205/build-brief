@@ -8,6 +8,7 @@ import shlex
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 
 
@@ -170,7 +171,18 @@ class ClickGateTests(unittest.TestCase):
         return payload
 
     def bypass_gate(self, turn_id: str = "turn-1") -> dict:
-        payload = self.pre_tool("Bash", "click-gate bypass", turn_id)
+        self.prompt_submit("@Click bypass", turn_id)
+        payload = self.pre_tool(
+            "Bash", "click-gate bypass", turn_id, submit_prompt=False
+        )
+        self.assertIsNotNone(payload)
+        return payload
+
+    def cancel_gate(self, turn_id: str = "turn-1") -> dict:
+        self.prompt_submit("@Click cancel", turn_id)
+        payload = self.pre_tool(
+            "Bash", "click-gate cancel", turn_id, submit_prompt=False
+        )
         self.assertIsNotNone(payload)
         return payload
 
@@ -319,6 +331,68 @@ class ClickGateTests(unittest.TestCase):
             text=True,
             check=False,
         )
+
+    def assert_verification_new_path_behavior(
+        self,
+        relative: str,
+        *,
+        ignored: bool = False,
+        suspicious: bool = False,
+    ) -> None:
+        ignore_lines = ["__pycache__/"]
+        if ignored:
+            ignore_lines.append(relative)
+        (self.workspace / ".gitignore").write_text(
+            "\n".join(ignore_lines) + "\n", encoding="utf-8"
+        )
+        escaped = repr(relative)
+        (self.workspace / "new_path_test.py").write_text(
+            "import unittest\n"
+            "from pathlib import Path\n\n"
+            "class NewPathTest(unittest.TestCase):\n"
+            "    def test_writes_path(self):\n"
+            f"        target = Path({escaped})\n"
+            "        target.parent.mkdir(parents=True, exist_ok=True)\n"
+            "        target.write_text('generated\\n', encoding='utf-8')\n",
+            encoding="utf-8",
+        )
+        self.initialize_git(".gitignore", "new_path_test.py")
+        contract = self.contract()
+        contract["verification"]["scale"] = "quick"
+        self.arm_gate("turn-1")
+        self.stage_gate(contract, "turn-1")
+        self.arm_gate("turn-2")
+        self.pass_gate(contract, "turn-2")
+        payload = self.verify_checks(
+            [
+                {
+                    "argv": [
+                        sys.executable,
+                        "-m",
+                        "unittest",
+                        "new_path_test.NewPathTest.test_writes_path",
+                    ],
+                    "class": "targeted",
+                }
+            ]
+        )
+        result = self.run_rewritten(payload)
+        if ignored:
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertNotIn("new non-ignored untracked path", result.stderr)
+            return
+        self.assertEqual(result.returncode, 3, result.stderr)
+        self.assertIn("new non-ignored untracked path", result.stderr)
+        self.assertIn("batch is stale", result.stderr)
+        if suspicious:
+            self.assertIn("classification is informational", result.stderr)
+        state_path = next(
+            (self.plugin_data / "gate-state").glob("session-contract-*.json")
+        )
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        self.assertEqual(state["verification"]["status"], "failed")
+        self.assertTrue(state["verification"]["workspace_changed"])
+        self.assertEqual(state["verification"]["mutation_revision"], 1)
 
     def test_hook_config_loads_mode_for_each_prompt(self) -> None:
         config = json.loads(HOOK_CONFIG.read_text(encoding="utf-8"))
@@ -923,14 +997,14 @@ class ClickGateTests(unittest.TestCase):
 
         full = self.contract()
         full["verification"]["scale"] = "full"
-        self.bypass_gate("turn-2")
-        self.arm_gate("turn-3")
-        self.stage_gate(full, "turn-3")
+        self.cancel_gate("turn-3")
         self.arm_gate("turn-4")
-        self.pass_gate(full, "turn-4")
+        self.stage_gate(full, "turn-4")
+        self.arm_gate("turn-5")
+        self.pass_gate(full, "turn-5")
         expensive = self.verify_gate(
             ["npx playwright test", "python3 -m unittest discover -s tests"],
-            "turn-4",
+            "turn-5",
         )
         self.assertEqual(
             expensive["hookSpecificOutput"]["permissionDecision"], "allow"
@@ -1254,7 +1328,7 @@ class ClickGateTests(unittest.TestCase):
         )
         self.assertEqual(clean_diff.returncode, 0)
 
-    def test_new_untracked_verification_artifact_is_not_a_false_mutation(self) -> None:
+    def test_new_untracked_verification_artifact_fails_stale(self) -> None:
         (self.workspace / ".gitignore").write_text("__pycache__/\n", encoding="utf-8")
         (self.workspace / "artifact_test.py").write_text(
             "import unittest\n"
@@ -1286,26 +1360,27 @@ class ClickGateTests(unittest.TestCase):
             ]
         )
         result = self.run_rewritten(payload)
-        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.returncode, 3, result.stderr)
         self.assertIn("new non-ignored untracked path", result.stderr)
         self.assertTrue((self.workspace / "new-report.tmp").exists())
         state_path = next(
             (self.plugin_data / "gate-state").glob("session-contract-*.json")
         )
         state = json.loads(state_path.read_text(encoding="utf-8"))
-        self.assertEqual(state["verification"]["status"], "passed")
-        self.assertFalse(state["verification"]["workspace_changed"])
+        self.assertEqual(state["verification"]["status"], "failed")
+        self.assertTrue(state["verification"]["workspace_changed"])
+        self.assertEqual(state["verification"]["mutation_revision"], 1)
 
     def test_new_source_path_created_during_verification_fails_stale(self) -> None:
-        self.assertTrue(CLICK_GATE._new_untracked_requires_stale("src/new_feature.py"))
-        self.assertTrue(CLICK_GATE._new_untracked_requires_stale("config/policy.json"))
-        self.assertTrue(CLICK_GATE._new_untracked_requires_stale("migration/001.sql"))
+        self.assertTrue(CLICK_GATE._new_untracked_is_suspicious("src/new_feature.py"))
+        self.assertTrue(CLICK_GATE._new_untracked_is_suspicious("config/policy.json"))
+        self.assertTrue(CLICK_GATE._new_untracked_is_suspicious("migration/001.sql"))
         self.assertTrue(
-            CLICK_GATE._new_untracked_requires_stale("packages/api/lib/new_rule.py")
+            CLICK_GATE._new_untracked_is_suspicious("packages/api/lib/new_rule.py")
         )
-        self.assertFalse(CLICK_GATE._new_untracked_requires_stale("new-report.tmp"))
+        self.assertFalse(CLICK_GATE._new_untracked_is_suspicious("new-report.tmp"))
         self.assertFalse(
-            CLICK_GATE._new_untracked_requires_stale("reports/app/output.txt")
+            CLICK_GATE._new_untracked_is_suspicious("reports/app/output.txt")
         )
         (self.workspace / ".gitignore").write_text("__pycache__/\n", encoding="utf-8")
         (self.workspace / "source_creating_test.py").write_text(
@@ -1341,7 +1416,7 @@ class ClickGateTests(unittest.TestCase):
         result = self.run_rewritten(payload)
         self.assertEqual(result.returncode, 3, result.stderr)
         self.assertIn("new non-ignored untracked path", result.stderr)
-        self.assertIn("implementation mutation", result.stderr)
+        self.assertIn("classification is informational", result.stderr)
 
     def test_review_mode_needs_no_contract_and_blocks_repeated_successful_reads(self) -> None:
         self.set_default("on")
@@ -2003,15 +2078,33 @@ class ClickGateTests(unittest.TestCase):
         self.assertEqual(output["permissionDecision"], "deny")
         self.assertIn("differs", output["permissionDecisionReason"])
 
-    def test_bypass_discards_the_staged_contract(self) -> None:
+    def test_bypass_preserves_the_staged_contract_for_later_turn(self) -> None:
+        self.set_default("manual", "turn-0")
         self.arm_gate("turn-1")
         self.stage_gate(turn_id="turn-1")
-        self.bypass_gate("turn-1")
+        bypassed = self.bypass_gate("turn-1")
+        self.assertEqual(
+            bypassed["hookSpecificOutput"]["permissionDecision"], "allow"
+        )
+        self.assertIsNone(
+            self.pre_tool(
+                "apply_patch",
+                "*** Begin Patch\n*** End Patch",
+                turn_id="turn-1",
+                submit_prompt=False,
+            )
+        )
+        blocked = self.pre_tool(
+            "apply_patch", "*** Begin Patch\n*** End Patch", turn_id="turn-2"
+        )
+        self.assertEqual(blocked["hookSpecificOutput"]["permissionDecision"], "deny")
+        self.assertIn(
+            "active execution contract",
+            blocked["hookSpecificOutput"]["permissionDecisionReason"],
+        )
         self.arm_gate("turn-2")
         payload = self.pass_gate(turn_id="turn-2")
-        output = payload["hookSpecificOutput"]
-        self.assertEqual(output["permissionDecision"], "deny")
-        self.assertIn("No staged", output["permissionDecisionReason"])
+        self.assertEqual(payload["hookSpecificOutput"]["permissionDecision"], "allow")
 
     def test_valid_contract_is_recorded_and_control_command_is_rewritten(self) -> None:
         self.arm_gate("turn-1")
@@ -2133,6 +2226,161 @@ class ClickGateTests(unittest.TestCase):
                 payload = self.pre_tool("Bash", command)
                 self.assertEqual(payload["hookSpecificOutput"]["permissionDecision"], "deny")
 
+
+    def test_git_read_only_policy_rejects_pager_config_and_removed_subcommands(self) -> None:
+        commands = (
+            ["git", "-p", "status"],
+            ["git", "--paginate", "status"],
+            ["git", "-c", "core.pager=cat", "status"],
+            ["git", "--config-env=core.pager=PAGER", "status"],
+            ["git", "grep", "-Oless", "needle", "."],
+            ["git", "grep", "--open-files-in-pager=less", "needle", "."],
+            ["git", "cat-file", "--filters", "HEAD:README.md"],
+            ["git", "cat-file", "--textconv", "HEAD:README.md"],
+            ["git", "show", "--textconv", "HEAD"],
+        )
+        for argv in commands:
+            with self.subTest(argv=argv):
+                denied = self.inspect_gate([argv])
+                self.assertEqual(
+                    denied["hookSpecificOutput"]["permissionDecision"], "deny"
+                )
+
+    def test_git_read_only_policy_uses_hardened_executor_shape(self) -> None:
+        for argv in (
+            ["git", "status", "--short"],
+            ["git", "diff", "--check"],
+            ["git", "log", "--oneline"],
+        ):
+            with self.subTest(argv=argv):
+                request, _, error = CLICK_GATE._validate_inspection_request(
+                    json.dumps({"version": 1, "commands": [argv]})
+                )
+                self.assertEqual(error, "")
+                self.assertIsNotNone(request)
+        safe, error = CLICK_GATE._build_read_only_git_argv(
+            ["git", "diff", "--check"]
+        )
+        self.assertEqual(error, "")
+        self.assertIsNotNone(safe)
+        assert safe is not None
+        self.assertIn("--no-pager", safe)
+        self.assertIn("--no-optional-locks", safe)
+        self.assertIn("core.fsmonitor=false", safe)
+        self.assertIn("--no-ext-diff", safe)
+        self.assertIn("--no-textconv", safe)
+
+        environment = CLICK_GATE._sanitized_git_environment(
+            {
+                "PATH": os.environ.get("PATH", ""),
+                "GIT_PAGER": "evil-pager",
+                "GIT_EXTERNAL_DIFF": "evil-diff",
+                "GIT_CONFIG_COUNT": "1",
+            }
+        )
+        self.assertNotIn("GIT_PAGER", environment)
+        self.assertNotIn("GIT_EXTERNAL_DIFF", environment)
+        self.assertNotIn("GIT_CONFIG_COUNT", environment)
+        self.assertEqual(environment["GIT_OPTIONAL_LOCKS"], "0")
+
+    def test_bypass_requires_exact_same_turn_one_use_authorization(self) -> None:
+        self.set_default("on", "turn-0")
+        denied = self.pre_tool("Bash", "click-gate bypass", "turn-1")
+        self.assertEqual(denied["hookSpecificOutput"]["permissionDecision"], "deny")
+
+        self.prompt_submit("@Click bypass extra", "turn-2")
+        malformed = self.pre_tool(
+            "Bash", "click-gate bypass", "turn-2", submit_prompt=False
+        )
+        self.assertEqual(malformed["hookSpecificOutput"]["permissionDecision"], "deny")
+
+        self.prompt_submit("@Click bypass\nDo this turn without Click.", "turn-3")
+        authorized = self.pre_tool(
+            "Bash", "click-gate bypass", "turn-3", submit_prompt=False
+        )
+        self.assertEqual(authorized["hookSpecificOutput"]["permissionDecision"], "allow")
+        reused = self.pre_tool(
+            "Bash", "click-gate bypass", "turn-3", submit_prompt=False
+        )
+        self.assertEqual(reused["hookSpecificOutput"]["permissionDecision"], "deny")
+
+        self.prompt_submit("@Click bypass", "turn-4")
+        later = self.pre_tool(
+            "Bash", "click-gate bypass", "turn-5", submit_prompt=False
+        )
+        self.assertEqual(later["hookSpecificOutput"]["permissionDecision"], "deny")
+
+    def test_cancel_requires_authorization_and_clears_contract_once(self) -> None:
+        self.set_default("manual", "turn-0")
+        self.arm_gate("turn-1")
+        self.stage_gate(turn_id="turn-1")
+
+        denied = self.pre_tool("Bash", "click-gate cancel", "turn-2")
+        self.assertEqual(denied["hookSpecificOutput"]["permissionDecision"], "deny")
+        contract_path = next(
+            (self.plugin_data / "gate-state").glob("session-contract-*.json")
+        )
+        self.assertTrue(contract_path.exists())
+
+        self.prompt_submit("@Click cancel", "turn-3")
+        cancelled = self.pre_tool(
+            "Bash", "click-gate cancel", "turn-3", submit_prompt=False
+        )
+        self.assertEqual(cancelled["hookSpecificOutput"]["permissionDecision"], "allow")
+        self.assertFalse(contract_path.exists())
+        reused = self.pre_tool(
+            "Bash", "click-gate cancel", "turn-3", submit_prompt=False
+        )
+        self.assertEqual(reused["hookSpecificOutput"]["permissionDecision"], "deny")
+        self.assertIsNone(
+            self.pre_tool(
+                "apply_patch", "*** Begin Patch\n*** End Patch", turn_id="turn-4"
+            )
+        )
+
+    def test_manual_incomplete_contract_survives_eight_day_cleanup(self) -> None:
+        self.set_default("manual", "turn-0")
+        self.arm_gate("turn-1")
+        self.stage_gate(turn_id="turn-1")
+        self.arm_gate("turn-2")
+        self.pass_gate(turn_id="turn-2")
+        contract_path = next(
+            (self.plugin_data / "gate-state").glob("session-contract-*.json")
+        )
+        old = time.time() - 8 * 24 * 60 * 60
+        os.utime(contract_path, (old, old))
+
+        self.prompt_submit("continue the approved work", "turn-3")
+        self.assertTrue(contract_path.exists())
+        blocked = self.pre_tool(
+            "Bash", "python3 update_schema.py", "turn-3", submit_prompt=False
+        )
+        self.assertEqual(blocked["hookSpecificOutput"]["permissionDecision"], "deny")
+        self.assertIn(
+            "active execution contract",
+            blocked["hookSpecificOutput"]["permissionDecisionReason"],
+        )
+
+    def test_verification_root_main_py_fails_stale(self) -> None:
+        self.assertTrue(CLICK_GATE._new_untracked_is_suspicious("main.py"))
+        self.assert_verification_new_path_behavior("main.py", suspicious=True)
+
+    def test_verification_root_package_json_fails_stale(self) -> None:
+        self.assertTrue(CLICK_GATE._new_untracked_is_suspicious("package.json"))
+        self.assert_verification_new_path_behavior("package.json", suspicious=True)
+
+    def test_verification_root_dockerfile_fails_stale(self) -> None:
+        self.assertTrue(CLICK_GATE._new_untracked_is_suspicious("Dockerfile"))
+        self.assert_verification_new_path_behavior("Dockerfile", suspicious=True)
+
+    def test_verification_generic_report_fails_stale(self) -> None:
+        self.assertFalse(CLICK_GATE._new_untracked_is_suspicious("generic-report.txt"))
+        self.assert_verification_new_path_behavior("generic-report.txt")
+
+    def test_verification_ignored_artifact_does_not_change_snapshot(self) -> None:
+        self.assert_verification_new_path_behavior(
+            "ignored-artifact.tmp", ignored=True
+        )
 
 if __name__ == "__main__":
     unittest.main()
