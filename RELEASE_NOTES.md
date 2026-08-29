@@ -10,6 +10,7 @@ Click v0.19.0 makes the cheapest-evidence policy observable at the Browser bound
 - One representative Browser session is capped at three serial tool calls and 90 seconds of measured tool time. Tool timeouts above 30 seconds and obvious waits above five seconds are rejected in favor of deterministic state or one representative interaction.
 - Browser evidence is reset by a later mutation, is required before a Browser-assigned contract can complete, and cannot be repeated after current-revision completion.
 - A/B runtime traces now report Browser call count, measured Browser seconds, and timed Browser calls, so the plugin-versus-baseline time cost is visible instead of being hidden inside generic MCP items.
+- CI runs feature-branch commits through `pull_request` only and reserves the `push` trigger for `main`, eliminating the duplicate three-OS matrix that previously ran when a pushed branch also had a PR.
 
 ### Faster local feedback
 

@@ -190,6 +190,9 @@ class RepositoryPolicyTests(unittest.TestCase):
         self.assertIn("python scripts/validate_distribution.py", workflow)
         self.assertIn("python -m compileall", workflow)
         self.assertIn("git diff --check", workflow)
+        self.assertIn("push:\n    branches: [main]", workflow)
+        self.assertIn("pull_request:", workflow)
+        self.assertIn("workflow_dispatch:", workflow)
         self.assertTrue((ROOT / "scripts" / "validate_distribution.py").is_file())
 
     def test_release_documents_identify_v019_without_an_unreleased_heading(self) -> None:
