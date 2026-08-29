@@ -713,6 +713,77 @@ class ClickGateTests(unittest.TestCase):
                 self.assertIsNone(normalized)
                 self.assertIn("NAME=value", error)
 
+    def test_structured_capabilities_reject_process_control_executables(self) -> None:
+        for argv in (
+            ["kill", "1234"],
+            ["/usr/bin/PKILL", "-f", "codex"],
+            ["killall", "node"],
+            ["pskill.exe", "codex.exe"],
+            [r"C:\Windows\System32\taskkill.exe", "/IM", "codex.exe"],
+            ["tskill.exe", "1234"],
+            ["Stop-Process", "-Id", "1234"],
+        ):
+            with self.subTest(argv=argv):
+                normalized, error = CLICK_GATE._validate_argv(argv, "Mutation")
+                self.assertIsNone(normalized)
+                self.assertIn("process-control executable", error)
+
+        normalized, error = CLICK_GATE._validate_argv(
+            ["kill-switch-check", "--help"], "Mutation"
+        )
+        self.assertEqual(normalized, ["kill-switch-check", "--help"])
+        self.assertEqual(error, "")
+
+    def test_subprocess_isolation_kwargs_are_platform_specific(self) -> None:
+        with mock.patch.object(CLICK_GATE.os, "name", "posix"):
+            self.assertEqual(
+                CLICK_GATE._isolated_subprocess_kwargs(),
+                {"start_new_session": True},
+            )
+        with (
+            mock.patch.object(CLICK_GATE.os, "name", "nt"),
+            mock.patch.object(
+                CLICK_GATE.subprocess,
+                "CREATE_NEW_PROCESS_GROUP",
+                512,
+                create=True,
+            ),
+        ):
+            self.assertEqual(
+                CLICK_GATE._isolated_subprocess_kwargs(),
+                {"creationflags": 512},
+            )
+
+    def test_all_click_subprocesses_use_isolated_process_groups(self) -> None:
+        isolated = {"start_new_session": True}
+        with (
+            mock.patch.object(
+                CLICK_GATE, "_isolated_subprocess_kwargs", return_value=isolated
+            ) as isolation,
+            mock.patch.object(CLICK_GATE.subprocess, "run") as run,
+        ):
+            run.return_value.returncode = 0
+            run.return_value.stdout = b"captured\n"
+            self.assertEqual(
+                CLICK_GATE._execute_argv_commands([["echo", "ok"]]), 0
+            )
+            self.assertEqual(
+                CLICK_GATE._execute_read_only_git(
+                    ["git", "status", "--short"], None, None
+                ),
+                0,
+            )
+            self.assertEqual(
+                CLICK_GATE._git_capture(self.workspace, ["status", "--short"]),
+                b"captured\n",
+            )
+
+        self.assertEqual(isolation.call_count, 3)
+        self.assertEqual(len(run.call_args_list), 3)
+        for call in run.call_args_list:
+            with self.subTest(argv=call.args[0]):
+                self.assertTrue(call.kwargs["start_new_session"])
+
     def test_direct_read_sequence_is_rewritten_as_shell_free_inspection(self) -> None:
         self.approve_contract()
         (self.workspace / "first.txt").write_text("first\n", encoding="utf-8")
@@ -742,6 +813,36 @@ class ClickGateTests(unittest.TestCase):
         self.approve_contract()
         shell = self.mutate_gate(["bash", "-c", "touch hidden.txt"])
         self.assertEqual(shell["hookSpecificOutput"]["permissionDecision"], "deny")
+
+    def test_structured_mutation_rejects_process_control_executable(self) -> None:
+        self.approve_contract()
+        process_control = self.mutate_gate(["pkill", "-f", "codex"])
+        self.assertEqual(
+            process_control["hookSpecificOutput"]["permissionDecision"], "deny"
+        )
+        self.assertIn(
+            "process-control executable",
+            process_control["hookSpecificOutput"]["permissionDecisionReason"],
+        )
+
+    @unittest.skipIf(os.name == "nt", "POSIX session IDs are not available on Windows")
+    def test_structured_mutation_runs_in_a_new_posix_session(self) -> None:
+        self.approve_contract()
+        payload = self.mutate_gate(
+            [
+                sys.executable,
+                "-c",
+                (
+                    "import os; "
+                    "print(os.getpid(), os.getsid(0), os.getsid(os.getppid()))"
+                ),
+            ]
+        )
+        result = self.run_rewritten(payload)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        child_pid, child_session, parent_session = map(int, result.stdout.split())
+        self.assertEqual(child_pid, child_session)
+        self.assertNotEqual(child_session, parent_session)
 
     def test_abandoned_structured_mutation_expires_instead_of_blocking_forever(self) -> None:
         self.approve_contract()

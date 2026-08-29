@@ -170,14 +170,14 @@ Click은 코드를 건드리기 전에 다음과 같은 축약 계약을 제시�
 
 ### 구조화 capability
 
-각 capability는 프로토콜 버전 `1`을 사용하고 실행 파일과 모든 인자를 분리합니다. 승인된 argv 배열은 `shell=False`로 실행되므로 요청 안에 pipeline, redirection, command substitution, shell wrapper를 숨길 수 없습니다.
+각 capability는 프로토콜 버전 `1`을 사용하고 실행 파일과 모든 인자를 분리합니다. 승인된 argv 배열은 새 POSIX session 또는 Windows process group에서 `shell=False`로 실행되므로 요청 안에 pipeline, redirection, command substitution, shell wrapper를 숨길 수 없고 자식의 group 대상 signal이 Codex 부모 group에 닿지 않습니다.
 
 ```text
 click-gate inspect '{"version":1,"commands":[["git","status","--short"],["sed","-n","1,160p","src/app.py"]]}'
 click-gate mutate '{"version":1,"argv":["python3","scripts/generate.py","--target","src"]}'
 ```
 
-`inspect`는 Hook이 허용한 제한된 읽기 전용 작업만 받습니다. Git 조회는 subcommand별 positive option policy를 사용하며 `git grep`, `git cat-file`, 임의의 `--format`/`--pretty` 출력, signature 출력 옵션, `git status -v/-vv`는 제외합니다. 허용된 Git 조회는 상속된 `GIT_*` 변수와 system/global Git config를 무시하고 안전한 log·diff 설정, pager·optional lock 비활성화, 지원되는 diff 출력의 `--no-ext-diff`·`--no-textconv`를 강제합니다. `mutate`는 정확한 계약 승인이 있어야 하고 이전 근거를 오래된 것으로 표시합니다. `apply_patch`, `Edit`, `Write` 같은 명확한 편집 도구는 shell envelope 없이 그대로 지원합니다. 잘못된 요청과 shell interpreter는 fail-closed로 거부합니다. 정확한 schema와 적용 경계는 [capability protocol](skills/click/references/capability-protocol.md)에 있습니다.
+`inspect`는 Hook이 허용한 제한된 읽기 전용 작업만 받습니다. Git 조회는 subcommand별 positive option policy를 사용하며 `git grep`, `git cat-file`, 임의의 `--format`/`--pretty` 출력, signature 출력 옵션, `git status -v/-vv`는 제외합니다. 허용된 Git 조회는 상속된 `GIT_*` 변수와 system/global Git config를 무시하고 안전한 log·diff 설정, pager·optional lock 비활성화, 지원되는 diff 출력의 `--no-ext-diff`·`--no-textconv`를 강제합니다. `mutate`는 정확한 계약 승인이 있어야 하고 이전 근거를 오래된 것으로 표시합니다. `apply_patch`, `Edit`, `Write` 같은 명확한 편집 도구는 shell envelope 없이 그대로 지원합니다. 잘못된 요청, shell interpreter, `kill`, `pkill`, `killall`, `taskkill`, `Stop-Process` 같은 직접 process-control 실행 파일은 fail-closed로 거부합니다. 허용된 사용자 정의 프로그램은 명시적인 process 작업을 내부에 숨길 수 있으므로 Click은 운영체제 sandbox가 아니라 workflow guardrail입니다. 정확한 schema와 적용 경계는 [capability protocol](skills/click/references/capability-protocol.md)에 있습니다.
 
 SSH Git 조회는 **Experimental이며 원격 POSIX shell만 지원**합니다. 제한된 `git status`, `git rev-parse HEAD`, `git merge-base`, `git remote get-url`만 허용하고 사용자가 SSH option을 넣을 수 없습니다. 이미 알려진 host key를 요구하며 대화형 password, host-key 갱신, forwarding, local command, TTY를 끄고 connection·keepalive 제한으로 빠르게 실패합니다. 모르는 host, POSIX가 아닌 원격 shell, 응답하지 않는 server는 fail-closed입니다. 일반 원격 실행기나 보안 sandbox가 아닙니다.
 

@@ -106,6 +106,22 @@ SHELL_EXECUTABLES = {
     "zsh",
 }
 
+PROCESS_CONTROL_EXECUTABLES = {
+    "kill",
+    "kill.exe",
+    "killall",
+    "pkill",
+    "pskill",
+    "pskill.exe",
+    "skill",
+    "stop-process",
+    "taskkill",
+    "taskkill.exe",
+    "tskill",
+    "tskill.exe",
+    "xkill",
+}
+
 VERIFICATION_EXECUTABLES = {
     "bandit",
     "bats",
@@ -977,12 +993,19 @@ def _validate_argv(value: Any, label: str) -> tuple[list[str] | None, str]:
             f"{label} cannot use a NAME=value environment prefix. Pass direct argv; "
             "a future protocol may add an explicit environment field.",
         )
-    executable = Path(argv[0]).name.lower()
+    executable = argv[0].replace("\\", "/").rsplit("/", 1)[-1].lower()
     if executable in SHELL_EXECUTABLES:
         return (
             None,
             f"{label} cannot invoke a shell interpreter. Pass the executable and each "
             "argument directly instead of using `-c` or `-Command`.",
+        )
+    if executable in PROCESS_CONTROL_EXECUTABLES:
+        return (
+            None,
+            f"{label} cannot invoke the process-control executable `{executable}`. "
+            "Use a target-specific lifecycle command that cannot terminate Codex or "
+            "unrelated processes.",
         )
     return argv, ""
 
@@ -2721,6 +2744,12 @@ def _execution_argv(argv: list[str]) -> list[str]:
     ]
 
 
+def _isolated_subprocess_kwargs() -> dict[str, Any]:
+    if os.name == "nt":
+        return {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+    return {"start_new_session": True}
+
+
 def _is_git_remote_output_request(argv: list[str]) -> bool:
     parts = _structured_ssh_parts(argv)
     git_argv = parts[1] if parts is not None else argv
@@ -2764,6 +2793,7 @@ def _execute_argv_commands(
                 stdout=subprocess.PIPE if redact else stdout_file,
                 stderr=subprocess.PIPE if redact else stderr_file,
                 check=False,
+                **_isolated_subprocess_kwargs(),
             )
             if redact:
                 _write_runner_stream(
@@ -2842,6 +2872,7 @@ def _execute_read_only_git(
             stderr=subprocess.PIPE if redact else stderr_file,
             env=_sanitized_git_environment(),
             check=False,
+            **_isolated_subprocess_kwargs(),
         )
         if redact:
             _write_runner_stream(
@@ -3050,6 +3081,7 @@ def _git_capture(cwd: Path, arguments: list[str]) -> bytes | None:
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
             check=False,
+            **_isolated_subprocess_kwargs(),
         )
     except OSError:
         return None

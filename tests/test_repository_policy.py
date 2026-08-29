@@ -35,6 +35,14 @@ class RepositoryPolicyTests(unittest.TestCase):
         )
         self.assertIn("automatically", manifest["interface"]["longDescription"].lower())
         self.assertIn("replanning", manifest["interface"]["longDescription"].lower())
+        self.assertIn(
+            "isolated child process groups",
+            manifest["interface"]["longDescription"].lower(),
+        )
+        self.assertIn(
+            "process-control executables",
+            manifest["interface"]["longDescription"].lower(),
+        )
         self.assertIn("anti-loop", manifest["keywords"])
         self.assertIn("@Click", manifest["description"])
         self.assertIn("structured", manifest["description"].lower())
@@ -154,6 +162,9 @@ class RepositoryPolicyTests(unittest.TestCase):
             self.assertIn("click-gate mutate", document)
             self.assertIn('"version":1', document)
             self.assertIn("shell=False", document)
+            self.assertIn("process group", document)
+            self.assertIn("process-control", document)
+            self.assertIn("pkill", document)
         self.assertIn('"checks"', english)
         self.assertIn('"checks"', korean)
         self.assertIn('"checks"', chinese)
