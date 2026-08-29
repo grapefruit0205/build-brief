@@ -552,7 +552,9 @@ class ClickGateTests(unittest.TestCase):
                 )
                 self.assertIn(
                     "run-inspection-once",
-                    payload["hookSpecificOutput"]["updatedInput"]["command"],
+                    split_runner_command(
+                        payload["hookSpecificOutput"]["updatedInput"]["command"]
+                    ),
                 )
 
         initialized = subprocess.run(
@@ -569,7 +571,9 @@ class ClickGateTests(unittest.TestCase):
         )
         self.assertIn(
             "run-inspection-once",
-            git_read["hookSpecificOutput"]["updatedInput"]["command"],
+            split_runner_command(
+                git_read["hookSpecificOutput"]["updatedInput"]["command"]
+            ),
         )
         self.assertEqual(self.run_rewritten(git_read).returncode, 0)
 
@@ -581,7 +585,9 @@ class ClickGateTests(unittest.TestCase):
         )
         self.assertIn(
             "run-inspection-once",
-            mixed_read["hookSpecificOutput"]["updatedInput"]["command"],
+            split_runner_command(
+                mixed_read["hookSpecificOutput"]["updatedInput"]["command"]
+            ),
         )
 
         piped = self.pre_tool("Bash", "rg --files | sort")
@@ -1082,7 +1088,7 @@ class ClickGateTests(unittest.TestCase):
         )
         payload = self.pre_tool("Bash", command, "turn-2")
         rewritten = payload["hookSpecificOutput"]["updatedInput"]["command"]
-        self.assertIn("run-observation", rewritten)
+        self.assertIn("run-observation", split_runner_command(rewritten))
 
         piped = self.pre_tool(
             "Bash",
@@ -1305,7 +1311,7 @@ class ClickGateTests(unittest.TestCase):
             command = "sed -n '1,5p' first.txt && sed -n '1,5p' second.txt"
         payload = self.pre_tool("Bash", command, "turn-2")
         rewritten = payload["hookSpecificOutput"]["updatedInput"]["command"]
-        self.assertIn("run-observation", rewritten)
+        self.assertIn("run-observation", split_runner_command(rewritten))
         result = self.run_rewritten(payload)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("first", result.stdout)
@@ -1454,33 +1460,15 @@ class ClickGateTests(unittest.TestCase):
         environment["PLUGIN_DATA"] = str(Path(self.temporary.name) / "wrong-root")
         environment["CLICK_CONFIG_HOME"] = environment["PLUGIN_DATA"]
         command = payload["hookSpecificOutput"]["updatedInput"]["command"]
-        if os.name == "nt":
-            result = subprocess.run(
-                [
-                    os.environ.get("COMSPEC", "cmd.exe"),
-                    "/d",
-                    "/v:on",
-                    "/s",
-                    "/c",
-                    command,
-                ],
-                shell=False,
-                cwd=self.workspace,
-                env=environment,
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-        else:
-            result = subprocess.run(
-                command,
-                shell=True,
-                cwd=self.workspace,
-                env=environment,
-                capture_output=True,
-                text=True,
-                check=False,
-            )
+        result = subprocess.run(
+            command,
+            shell=True,
+            cwd=self.workspace,
+            env=environment,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(
             (self.workspace / "bound-root.txt").read_text(encoding="utf-8"),
@@ -1832,7 +1820,9 @@ class ClickGateTests(unittest.TestCase):
         )
         self.assertIn(
             "run-inspection-once",
-            inspection["hookSpecificOutput"]["updatedInput"]["command"],
+            split_runner_command(
+                inspection["hookSpecificOutput"]["updatedInput"]["command"]
+            ),
         )
 
     def test_armed_gate_denies_apply_patch_before_contract(self) -> None:
@@ -2449,7 +2439,10 @@ class ClickGateTests(unittest.TestCase):
             allowed["hookSpecificOutput"]["permissionDecision"], "allow"
         )
         self.assertIn(
-            "run-verification", allowed["hookSpecificOutput"]["updatedInput"]["command"]
+            "run-verification",
+            split_runner_command(
+                allowed["hookSpecificOutput"]["updatedInput"]["command"]
+            ),
         )
 
     def test_broad_and_expensive_checks_consume_more_budget(self) -> None:
@@ -3270,7 +3263,9 @@ class ClickGateTests(unittest.TestCase):
             )
             self.assertIn(
                 "run-inspection-once",
-                payload["hookSpecificOutput"]["updatedInput"]["command"],
+                split_runner_command(
+                    payload["hookSpecificOutput"]["updatedInput"]["command"]
+                ),
             )
 
     def test_always_on_bypass_is_limited_to_the_current_turn(self) -> None:
@@ -4913,7 +4908,7 @@ class ClickGateTests(unittest.TestCase):
             "action": "start",
             "argv": [sys.executable, "-m", "http.server", "0"],
         }
-        runner_token = "service-runner-token"
+        runner_token = self.id()
         with (
             mock.patch.dict(
                 CLICK_GATE.os.environ,
@@ -5039,7 +5034,7 @@ class ClickGateTests(unittest.TestCase):
             "action": "start",
             "argv": [sys.executable, "-m", "http.server", "0"],
         }
-        runner_token = "service-supervisor-token"
+        runner_token = self.id()
         with (
             mock.patch.dict(
                 CLICK_GATE.os.environ,
@@ -5106,7 +5101,7 @@ class ClickGateTests(unittest.TestCase):
             "action": "start",
             "argv": [sys.executable, "-m", "http.server", "0"],
         }
-        runner_token = "stale-supervisor-token"
+        runner_token = self.id()
         with (
             mock.patch.dict(
                 CLICK_GATE.os.environ,
@@ -5173,7 +5168,7 @@ class ClickGateTests(unittest.TestCase):
             "action": "start",
             "argv": [sys.executable, "-m", "http.server", "0"],
         }
-        runner_token = "cancelled-service-token"
+        runner_token = self.id()
         with (
             mock.patch.dict(
                 CLICK_GATE.os.environ,
