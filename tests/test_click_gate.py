@@ -913,6 +913,50 @@ class ClickGateTests(unittest.TestCase):
             denied["hookSpecificOutput"]["permissionDecisionReason"],
         )
 
+    def test_state_lock_retries_windows_permission_contention(self) -> None:
+        with mock.patch.dict(
+            CLICK_GATE.os.environ,
+            {"PLUGIN_DATA": str(self.plugin_data)},
+        ):
+            lock_root = self.plugin_data / "gate-state"
+            lock_root.mkdir(parents=True)
+            lock_path = lock_root / ".state.lock"
+            lock_path.write_text("competing-process", encoding="utf-8")
+            real_open = CLICK_GATE.os.open
+            attempts = 0
+
+            def open_with_windows_contention(
+                path: str | bytes | os.PathLike[str] | os.PathLike[bytes],
+                flags: int,
+                mode: int = 0o777,
+            ) -> int:
+                nonlocal attempts
+                attempts += 1
+                if attempts == 1:
+                    raise PermissionError(13, "Permission denied", str(path))
+                return real_open(path, flags, mode)
+
+            def release_competing_lock(_: float) -> None:
+                lock_path.unlink()
+
+            with (
+                mock.patch.object(
+                    CLICK_GATE.os,
+                    "open",
+                    side_effect=open_with_windows_contention,
+                ),
+                mock.patch.object(
+                    CLICK_GATE.time,
+                    "sleep",
+                    side_effect=release_competing_lock,
+                ),
+            ):
+                with CLICK_GATE._state_lock():
+                    self.assertTrue(lock_path.exists())
+
+            self.assertEqual(attempts, 2)
+            self.assertFalse(lock_path.exists())
+
     def test_parallel_observation_results_do_not_leave_running_state(self) -> None:
         self.approve_contract()
         for name in ("a.txt", "b.txt"):

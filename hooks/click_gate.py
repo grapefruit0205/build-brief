@@ -539,7 +539,16 @@ def _state_lock() -> Any:
                 0o600,
             )
             os.write(descriptor, str(os.getpid()).encode())
-        except FileExistsError:
+        except (FileExistsError, PermissionError) as exc:
+            # Windows can report an O_EXCL collision as EACCES while another
+            # process still owns the lock file. Treat that specific shape as
+            # contention and retry instead of failing the observation runner.
+            if (
+                isinstance(exc, PermissionError)
+                and os.name != "nt"
+                and not lock_path.exists()
+            ):
+                raise
             try:
                 stale = time.time() - lock_path.stat().st_mtime > STATE_LOCK_STALE_SECONDS
             except OSError:
@@ -549,7 +558,8 @@ def _state_lock() -> Any:
                     lock_path.unlink()
                 except OSError:
                     pass
-                continue
+                else:
+                    continue
             if time.monotonic() >= deadline:
                 raise OSError("timed out waiting for Click state lock")
             time.sleep(0.025)
