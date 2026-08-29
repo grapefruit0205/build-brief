@@ -31,6 +31,45 @@ CLICK_GATE = importlib.util.module_from_spec(CLICK_GATE_SPEC)
 CLICK_GATE_SPEC.loader.exec_module(CLICK_GATE)
 
 
+def mark_git_boundary(root: Path) -> None:
+    marker = root / ".git"
+    marker.mkdir(parents=True)
+    (marker / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
+    (marker / "objects").mkdir()
+
+
+def split_runner_command(command: str) -> list[str]:
+    if os.name != "nt":
+        return shlex.split(command, posix=True)
+    import ctypes
+
+    argument_count = ctypes.c_int()
+    shell32 = ctypes.windll.shell32
+    shell32.CommandLineToArgvW.argtypes = [
+        ctypes.c_wchar_p,
+        ctypes.POINTER(ctypes.c_int),
+    ]
+    shell32.CommandLineToArgvW.restype = ctypes.POINTER(ctypes.c_wchar_p)
+    argv = shell32.CommandLineToArgvW(
+        command, ctypes.byref(argument_count)
+    )
+    if not argv:
+        raise OSError("CommandLineToArgvW failed")
+    try:
+        parsed = [argv[index] for index in range(argument_count.value)]
+    finally:
+        kernel32 = ctypes.windll.kernel32
+        kernel32.LocalFree.argtypes = [ctypes.c_void_p]
+        kernel32.LocalFree.restype = ctypes.c_void_p
+        kernel32.LocalFree(ctypes.cast(argv, ctypes.c_void_p))
+    if len(parsed) == 4 and parsed[2] == "--encoded-runner":
+        decoded, error = CLICK_GATE._decode_runner_transport(parsed[3])
+        if error or decoded is None:
+            raise ValueError(error or "invalid runner transport")
+        return [*parsed[:2], *decoded]
+    return parsed
+
+
 class ClickGateTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
@@ -500,10 +539,21 @@ class ClickGateTests(unittest.TestCase):
     def test_uninvoked_hook_starts_without_state(self) -> None:
         self.assertFalse((self.plugin_data / "gate-state").exists())
 
-    def test_read_only_bash_is_allowed_before_gate(self) -> None:
-        self.assertIsNone(self.pre_tool("Bash", "rg --files"))
-        self.assertIsNone(self.pre_tool("Bash", "Get-Content README.md"))
-        self.assertIsNone(self.pre_tool("Bash", "sed -n '1,240p' README.md"))
+    def test_read_only_bash_is_rewritten_before_gate(self) -> None:
+        for command in (
+            "rg --files",
+            "Get-Content README.md",
+            "sed -n '1,240p' README.md",
+        ):
+            with self.subTest(command=command):
+                payload = self.pre_tool("Bash", command)
+                self.assertEqual(
+                    payload["hookSpecificOutput"]["permissionDecision"], "allow"
+                )
+                self.assertIn(
+                    "run-inspection-once",
+                    payload["hookSpecificOutput"]["updatedInput"]["command"],
+                )
 
         initialized = subprocess.run(
             ["git", "init", "--quiet"],
@@ -593,9 +643,386 @@ class ClickGateTests(unittest.TestCase):
                     denied["hookSpecificOutput"]["permissionDecision"], "deny"
                 )
 
+    def test_read_only_capability_rejects_path_qualified_executables(self) -> None:
+        for executable in (
+            "./cat",
+            r".\cat",
+            r"C:cat.exe",
+            r"C:\tools\cat.exe",
+            "C:/tools/cat.exe",
+            r"\\server\share\cat.exe",
+        ):
+            with self.subTest(executable=executable):
+                self.assertTrue(
+                    CLICK_GATE._is_path_qualified_executable(executable)
+                )
+        for argv in (
+            ["./cat", "README.md"],
+            ["../cat", "README.md"],
+            ["/tmp/cat", "README.md"],
+            ["/usr/bin/cat", "README.md"],
+            [r".\cat", "README.md"],
+            [r"C:cat.exe", "README.md"],
+            [r"C:\tools\cat.exe", "README.md"],
+            ["C:/tools/cat.exe", "README.md"],
+            [r"\\server\share\cat.exe", "README.md"],
+            ["./git", "status", "--short"],
+        ):
+            with self.subTest(argv=argv):
+                self.assertFalse(CLICK_GATE._is_read_only_tokens(argv))
+
+    def test_windows_direct_command_tokenization_preserves_paths(self) -> None:
+        cases = {
+            r"Get-Content -LiteralPath C:\repo\README.md": [
+                "Get-Content",
+                "-LiteralPath",
+                r"C:\repo\README.md",
+            ],
+            r'Get-Content -LiteralPath "C:\Program Files\README.md"': [
+                "Get-Content",
+                "-LiteralPath",
+                r"C:\Program Files\README.md",
+            ],
+            r'Get-Content -LiteralPath "\\server\share\README.md"': [
+                "Get-Content",
+                "-LiteralPath",
+                r"\\server\share\README.md",
+            ],
+            r"Get-Content README.md && rg needle src": [
+                "Get-Content",
+                "README.md",
+                "&&",
+                "rg",
+                "needle",
+                "src",
+            ],
+            r"Get-Content README.md | rg needle": [
+                "Get-Content",
+                "README.md",
+                "|",
+                "rg",
+                "needle",
+            ],
+        }
+        for command, expected in cases.items():
+            with self.subTest(command=command):
+                tokens, error = CLICK_GATE._direct_command_tokens(
+                    command, windows=True
+                )
+                self.assertEqual(error, "")
+                self.assertEqual(tokens, expected)
+
+        request, broad, error = CLICK_GATE._inspection_request_from_bash(
+            r'Get-Content -LiteralPath "C:\Program Files\README.md"',
+            windows=True,
+        )
+        self.assertEqual(error, "")
+        self.assertFalse(broad)
+        self.assertEqual(
+            request["commands"][0],
+            ["Get-Content", "-LiteralPath", r"C:\Program Files\README.md"],
+        )
+        self.assertEqual(
+            CLICK_GATE._windows_shell_quote(r"C:\plugin&data\gate-state"),
+            r'"C:\plugin&data\gate-state"',
+        )
+
+    def test_windows_runner_transport_hides_shell_expansion_tokens(self) -> None:
+        arguments = [
+            r"C:\Program Files\Python\python.exe",
+            r"C:\Users\safe user\.codex\click_gate.py",
+            "--state-root",
+            r"C:\work\%PATH%!CLICK!\gate-state",
+            "run-mutation",
+            r"C:\work\%PATH%!CLICK!\gate-state\session-contract-1.json",
+            "digest",
+            "token",
+            "encoded-request",
+        ]
+        with mock.patch.object(CLICK_GATE.os, "name", "nt"):
+            command = CLICK_GATE._runner_shell_command(arguments)
+        self.assertIn('"--encoded-runner"', command)
+        self.assertNotIn("%PATH%", command)
+        self.assertNotIn("!CLICK!", command)
+        encoded = command.rsplit('"', 2)[1]
+        decoded, error = CLICK_GATE._decode_runner_transport(encoded)
+        self.assertEqual(error, "")
+        self.assertEqual(decoded, arguments[2:])
+
+    def test_windows_runner_refuses_expandable_launcher_paths(self) -> None:
+        with mock.patch.object(CLICK_GATE.os, "name", "nt"):
+            for launcher in (
+                r"C:\%PATH%\python.exe",
+                r"C:\!CLICK!\python.exe",
+                r"C:\$profile\python.exe",
+                r"C:\`profile\python.exe",
+            ):
+                with self.subTest(launcher=launcher):
+                    self.assertEqual(
+                        CLICK_GATE._runner_shell_command(
+                            [launcher, r"C:\click_gate.py", "run-inspection-once", "x"]
+                        ),
+                        "exit 2",
+                    )
+
+    def test_runner_transport_rejects_malformed_or_oversized_payloads(self) -> None:
+        for encoded in ("not-base64%", CLICK_GATE._encode_runner_transport([])):
+            with self.subTest(encoded=encoded):
+                decoded, error = CLICK_GATE._decode_runner_transport(encoded)
+                self.assertIsNone(decoded)
+                self.assertTrue(error)
+
+        bomb = CLICK_GATE.base64.urlsafe_b64encode(
+            CLICK_GATE.zlib.compress(b'"' + b"x" * 30_000 + b'"')
+        ).decode()
+        decoded, error = CLICK_GATE._decode_runner_transport(bomb)
+        self.assertIsNone(decoded)
+        self.assertIn("bounded payload", error)
+
+    def test_inspection_never_executes_a_path_qualified_read_only_name(self) -> None:
+        with mock.patch.object(CLICK_GATE.subprocess, "run") as run:
+            run.return_value.returncode = 0
+            exit_code = CLICK_GATE._execute_inspection_commands(
+                [["./cat", "README.md"]], workspace=self.workspace
+            )
+        self.assertEqual(exit_code, 2)
+        run.assert_not_called()
+
+    def test_inspection_rejects_a_workspace_path_shadow(self) -> None:
+        mark_git_boundary(self.workspace)
+        fake = self.workspace / ("cat.exe" if os.name == "nt" else "cat")
+        fake.write_text("not a real reader\n", encoding="utf-8")
+        with (
+            mock.patch("shutil.which", return_value=str(fake)),
+            mock.patch.object(CLICK_GATE.subprocess, "run") as run,
+        ):
+            run.return_value.returncode = 0
+            exit_code = CLICK_GATE._execute_inspection_commands(
+                [["cat", "README.md"]], workspace=self.workspace
+            )
+        self.assertEqual(exit_code, 2)
+        run.assert_not_called()
+
+    def test_inspection_rewrites_a_trusted_bare_executable(self) -> None:
+        mark_git_boundary(self.workspace)
+        trusted_root = Path(self.temporary.name) / "trusted-bin"
+        trusted_root.mkdir()
+        trusted = trusted_root / ("cat.exe" if os.name == "nt" else "cat")
+        trusted.write_text("trusted fixture\n", encoding="utf-8")
+        with (
+            mock.patch.dict(
+                CLICK_GATE.os.environ,
+                {
+                    "LD_PRELOAD": "/tmp/inject.so",
+                    "DYLD_INSERT_LIBRARIES": "/tmp/inject.dylib",
+                    "GCONV_PATH": "/tmp/gconv",
+                    "LOCPATH": "/tmp/locale",
+                },
+            ),
+            mock.patch("shutil.which", return_value=str(trusted)) as which,
+            mock.patch.object(CLICK_GATE.subprocess, "run") as run,
+        ):
+            run.return_value.returncode = 0
+            exit_code = CLICK_GATE._execute_inspection_commands(
+                [["cat", "README.md"]], workspace=self.workspace
+            )
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(run.call_args.args[0][0], str(trusted.resolve()))
+        self.assertEqual(which.call_count, 2)
+        sanitized_path = which.call_args_list[1].kwargs["path"]
+        self.assertNotIn(str(self.workspace), sanitized_path)
+        self.assertEqual(run.call_args.kwargs["env"]["PATH"], sanitized_path)
+        for key in (
+            "LD_PRELOAD",
+            "DYLD_INSERT_LIBRARIES",
+            "GCONV_PATH",
+            "LOCPATH",
+        ):
+            self.assertNotIn(key, run.call_args.kwargs["env"])
+
+    def test_inspection_rejects_a_symlink_into_the_workspace(self) -> None:
+        mark_git_boundary(self.workspace)
+        target = self.workspace / ("cat.exe" if os.name == "nt" else "cat")
+        target.write_text("workspace target\n", encoding="utf-8")
+        link_root = Path(self.temporary.name) / "linked-bin"
+        link_root.mkdir()
+        link = link_root / target.name
+        try:
+            link.symlink_to(target)
+        except OSError as exc:
+            self.skipTest(f"symlinks unavailable: {exc}")
+        with (
+            mock.patch("shutil.which", return_value=str(link)),
+            mock.patch.object(CLICK_GATE.subprocess, "run") as run,
+        ):
+            run.return_value.returncode = 0
+            exit_code = CLICK_GATE._execute_inspection_commands(
+                [["cat", "README.md"]], workspace=self.workspace
+            )
+        self.assertEqual(exit_code, 2)
+        run.assert_not_called()
+
+    def test_inspection_rejects_a_workspace_symlink_to_a_trusted_binary(self) -> None:
+        mark_git_boundary(self.workspace)
+        trusted_root = Path(self.temporary.name) / "trusted-target"
+        trusted_root.mkdir()
+        target = trusted_root / ("cat.exe" if os.name == "nt" else "cat")
+        target.write_text("trusted target\n", encoding="utf-8")
+        link = self.workspace / target.name
+        try:
+            link.symlink_to(target)
+        except OSError as exc:
+            self.skipTest(f"symlinks unavailable: {exc}")
+        with (
+            mock.patch("shutil.which", return_value=str(link)),
+            mock.patch.object(CLICK_GATE.subprocess, "run") as run,
+        ):
+            run.return_value.returncode = 0
+            exit_code = CLICK_GATE._execute_inspection_commands(
+                [["cat", "README.md"]], workspace=self.workspace
+            )
+        self.assertEqual(exit_code, 2)
+        run.assert_not_called()
+
+    def test_sanitized_path_drops_relative_and_workspace_entries(self) -> None:
+        mark_git_boundary(self.workspace)
+        outside = Path(self.temporary.name) / "outside-bin"
+        outside.mkdir()
+        workspace_bin = self.workspace / "bin"
+        workspace_bin.mkdir()
+        workspace_link = self.workspace / "linked-bin"
+        try:
+            workspace_link.symlink_to(outside, target_is_directory=True)
+        except OSError as exc:
+            self.skipTest(f"symlinks unavailable: {exc}")
+        source = os.pathsep.join(
+            ["", ".", "relative-bin", str(workspace_bin), str(workspace_link), str(outside)]
+        )
+        sanitized = CLICK_GATE._sanitized_executable_path(
+            source, workspace=self.workspace
+        ).split(os.pathsep)
+        self.assertEqual(sanitized, [str(outside.resolve())])
+
+    def test_read_only_resolution_excludes_the_containing_repository(self) -> None:
+        repository = self.workspace / "repository"
+        repository.mkdir()
+        mark_git_boundary(repository)
+        nested = repository / "packages" / "app"
+        nested.mkdir(parents=True)
+        sibling_bin = repository / "tools"
+        sibling_bin.mkdir()
+        fake = sibling_bin / ("cat.exe" if os.name == "nt" else "cat")
+        fake.write_text("repository-owned reader\n", encoding="utf-8")
+
+        with mock.patch("shutil.which", return_value=str(fake)):
+            executable, error = CLICK_GATE._resolve_read_only_executable(
+                "cat", workspace=nested
+            )
+
+        self.assertIsNone(executable)
+        self.assertIn("workspace", error)
+
+    def test_workspace_boundary_ignores_an_invalid_git_named_ancestor(self) -> None:
+        ancestor = Path(self.temporary.name) / "invalid-ancestor"
+        (ancestor / ".git").mkdir(parents=True)
+        nested = ancestor / "nested" / "workspace"
+        nested.mkdir(parents=True)
+        self.assertEqual(CLICK_GATE._workspace_boundary(nested), nested.resolve())
+        self.assertFalse(CLICK_GATE._git_metadata_present(nested))
+
+    def test_sanitized_path_fails_closed_on_a_symlink_loop(self) -> None:
+        mark_git_boundary(self.workspace)
+        first = Path(self.temporary.name) / "loop-a"
+        second = Path(self.temporary.name) / "loop-b"
+        try:
+            first.symlink_to(second)
+            second.symlink_to(first)
+        except OSError as exc:
+            self.skipTest(f"symlinks unavailable: {exc}")
+
+        sanitized = CLICK_GATE._sanitized_executable_path(
+            str(first), workspace=self.workspace
+        )
+        self.assertEqual(sanitized, "")
+
+    def test_workspace_containment_uses_filesystem_identity_for_aliases(self) -> None:
+        alias = Path(self.temporary.name) / "workspace-alias"
+        try:
+            alias.symlink_to(self.workspace, target_is_directory=True)
+        except OSError as exc:
+            self.skipTest(f"symlinks unavailable: {exc}")
+        self.assertTrue(CLICK_GATE._path_is_within(alias, self.workspace))
+
+    def test_read_only_child_environments_strip_loader_injection(self) -> None:
+        mark_git_boundary(self.workspace)
+        source = {
+            "PATH": os.pathsep.join([str(self.workspace), "/usr/bin"]),
+            "HOME": str(Path(self.temporary.name) / "home"),
+            "LD_PRELOAD": "/tmp/inject.so",
+            "DYLD_INSERT_LIBRARIES": "/tmp/inject.dylib",
+            "GCONV_PATH": "/tmp/gconv",
+            "LOCPATH": "/tmp/locale",
+            "GIT_EXTERNAL_DIFF": "/tmp/helper",
+        }
+        with mock.patch.dict(CLICK_GATE.os.environ, source, clear=True):
+            read_environment = CLICK_GATE._sanitized_read_only_environment(
+                workspace=self.workspace
+            )
+        git_environment = CLICK_GATE._sanitized_git_environment(
+            source, workspace=self.workspace
+        )
+
+        for environment in (read_environment, git_environment):
+            self.assertEqual(environment["HOME"], source["HOME"])
+            for key in (
+                "LD_PRELOAD",
+                "DYLD_INSERT_LIBRARIES",
+                "GCONV_PATH",
+                "LOCPATH",
+            ):
+                self.assertNotIn(key, environment)
+            self.assertNotIn(str(self.workspace), environment["PATH"])
+        self.assertNotIn("GIT_EXTERNAL_DIFF", git_environment)
+
+    def test_git_and_ssh_inspection_execute_verified_absolute_binaries(self) -> None:
+        mark_git_boundary(self.workspace)
+        trusted_root = Path(self.temporary.name) / "trusted-tools"
+        trusted_root.mkdir()
+        names = {
+            "git": trusted_root / ("git.exe" if os.name == "nt" else "git"),
+            "ssh": trusted_root / ("ssh.exe" if os.name == "nt" else "ssh"),
+        }
+        for path in names.values():
+            path.write_text("trusted fixture\n", encoding="utf-8")
+
+        def resolved(name: str, path: str | None = None) -> str | None:
+            return str(names[name.lower().removesuffix(".exe")])
+
+        with (
+            mock.patch("shutil.which", side_effect=resolved),
+            mock.patch.object(CLICK_GATE.subprocess, "run") as run,
+        ):
+            run.return_value.returncode = 0
+            self.assertEqual(
+                CLICK_GATE._execute_inspection_commands(
+                    [["git", "status", "--short"]], workspace=self.workspace
+                ),
+                0,
+            )
+            self.assertEqual(
+                CLICK_GATE._execute_inspection_commands(
+                    [["ssh", "example-host", "git", "status", "--short"]],
+                    workspace=self.workspace,
+                ),
+                0,
+            )
+        self.assertEqual(run.call_args_list[0].args[0][0], str(names["git"].resolve()))
+        self.assertEqual(run.call_args_list[1].args[0][0], str(names["ssh"].resolve()))
+
     def test_structured_ssh_inspection_reuses_bounded_git_policy(self) -> None:
         allowed = (
             ["ssh", "example-host", "git", "status", "--short"],
+            ["ssh.exe", "example-host", "git", "status", "--short"],
             ["ssh", "user@example-host", "git", "rev-parse", "HEAD"],
             ["ssh", "example-host", "git", "merge-base", "HEAD", "origin/main"],
             ["ssh", "example-host", "git", "remote", "get-url", "origin"],
@@ -909,6 +1336,22 @@ class ClickGateTests(unittest.TestCase):
             process_control["hookSpecificOutput"]["permissionDecisionReason"],
         )
 
+    def test_executable_policy_normalizes_windows_aliases(self) -> None:
+        cases = {
+            "bash.exe": "shell interpreter",
+            "SH.EXE.": "shell interpreter",
+            "pwsh.exe ": "shell interpreter",
+            r"C:\Windows\System32\taskkill.exe.": "process-control executable",
+            "pkill.exe": "process-control executable",
+        }
+        for executable, expected in cases.items():
+            with self.subTest(executable=executable):
+                argv, error = CLICK_GATE._validate_argv(
+                    [executable, "ignored"], "Mutation"
+                )
+                self.assertIsNone(argv)
+                self.assertIn(expected, error)
+
     @unittest.skipIf(os.name == "nt", "POSIX session IDs are not available on Windows")
     def test_structured_mutation_runs_in_a_new_posix_session(self) -> None:
         self.approve_contract()
@@ -950,6 +1393,181 @@ class ClickGateTests(unittest.TestCase):
         result = self.run_rewritten(recovered)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("second", result.stdout)
+
+    def test_claimed_mutation_never_auto_expires_while_result_is_unknown(self) -> None:
+        mutation = {
+            "status": "running",
+            "runner_claimed_at": 1,
+            "started_at": int(time.time()) - 10_000,
+        }
+        with mock.patch.object(CLICK_GATE.time, "time", return_value=20_000):
+            self.assertTrue(CLICK_GATE._mutation_is_running(mutation))
+
+    def test_mutation_runner_claims_authorization_before_execution(self) -> None:
+        self.approve_contract()
+        payload = self.mutate_gate([sys.executable, "-c", "print('claimed')"])
+        command = payload["hookSpecificOutput"]["updatedInput"]["command"]
+        tokens = split_runner_command(command)
+        self.assertEqual(tokens[2], "--state-root")
+        self.assertEqual(tokens[4], "run-mutation")
+        arguments = tokens[5:]
+
+        tampered = [arguments[0], arguments[1], "wrong-token", arguments[3]]
+        with (
+            mock.patch.dict(
+                CLICK_GATE.os.environ, {"PLUGIN_DATA": str(self.plugin_data)}
+            ),
+            mock.patch.object(CLICK_GATE, "_execute_argv_commands") as execute,
+        ):
+            self.assertEqual(CLICK_GATE._run_mutation(tampered), 2)
+        execute.assert_not_called()
+
+    def test_mutation_runner_blocks_replay_before_a_second_execution(self) -> None:
+        self.approve_contract()
+        payload = self.mutate_gate([sys.executable, "-c", "print('once')"])
+        command = payload["hookSpecificOutput"]["updatedInput"]["command"]
+        arguments = split_runner_command(command)[5:]
+
+        with (
+            mock.patch.dict(
+                CLICK_GATE.os.environ, {"PLUGIN_DATA": str(self.plugin_data)}
+            ),
+            mock.patch.object(
+                CLICK_GATE, "_execute_argv_commands", return_value=0
+            ) as execute,
+        ):
+            self.assertEqual(CLICK_GATE._run_mutation(arguments), 0)
+            self.assertEqual(CLICK_GATE._run_mutation(arguments), 2)
+        self.assertEqual(execute.call_count, 1)
+
+    def test_rewritten_mutation_uses_bound_root_not_ambient_plugin_data(self) -> None:
+        self.plugin_data = Path(self.temporary.name) / "plugin%PATH%!CLICK!&data"
+        self.approve_contract()
+        payload = self.mutate_gate(
+            [
+                sys.executable,
+                "-c",
+                "from pathlib import Path; Path('bound-root.txt').write_text('ok')",
+            ]
+        )
+        environment = os.environ.copy()
+        environment["PLUGIN_DATA"] = str(Path(self.temporary.name) / "wrong-root")
+        environment["CLICK_CONFIG_HOME"] = environment["PLUGIN_DATA"]
+        command = payload["hookSpecificOutput"]["updatedInput"]["command"]
+        if os.name == "nt":
+            result = subprocess.run(
+                [
+                    os.environ.get("COMSPEC", "cmd.exe"),
+                    "/d",
+                    "/v:on",
+                    "/s",
+                    "/c",
+                    command,
+                ],
+                shell=False,
+                cwd=self.workspace,
+                env=environment,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        else:
+            result = subprocess.run(
+                command,
+                shell=True,
+                cwd=self.workspace,
+                env=environment,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            (self.workspace / "bound-root.txt").read_text(encoding="utf-8"),
+            "ok",
+        )
+        state_path = next(
+            (self.plugin_data / "gate-state").glob("session-contract-*.json")
+        )
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        self.assertEqual(state["mutation"]["status"], "passed")
+
+    def test_mutation_runner_rejects_invalid_state_before_execution(self) -> None:
+        self.approve_contract()
+        payload = self.mutate_gate([sys.executable, "-c", "print('blocked')"])
+        command = payload["hookSpecificOutput"]["updatedInput"]["command"]
+        arguments = split_runner_command(command)[5:]
+        state_path = Path(arguments[0])
+        original = json.loads(state_path.read_text(encoding="utf-8"))
+
+        variants: list[tuple[str, dict]] = []
+        staged = json.loads(json.dumps(original))
+        staged["status"] = "staged"
+        variants.append(("top-level status", staged))
+        finished = json.loads(json.dumps(original))
+        finished["mutation"]["status"] = "passed"
+        variants.append(("mutation status", finished))
+        digest = json.loads(json.dumps(original))
+        digest["mutation"]["request_digest"] = "0" * 64
+        variants.append(("stored digest", digest))
+        claimed = json.loads(json.dumps(original))
+        claimed["mutation"]["runner_claimed_at"] = 1
+        variants.append(("replay claim", claimed))
+        malformed = json.loads(json.dumps(original))
+        malformed["mutation"]["runner_claimed_at"] = True
+        variants.append(("malformed claim", malformed))
+        expired = json.loads(json.dumps(original))
+        expired["mutation"]["started_at"] = int(time.time()) - 10_000
+        variants.append(("expired reservation", expired))
+        future = json.loads(json.dumps(original))
+        future["mutation"]["started_at"] = int(time.time()) + 60
+        variants.append(("future reservation", future))
+
+        with mock.patch.dict(
+            CLICK_GATE.os.environ, {"PLUGIN_DATA": str(self.plugin_data)}
+        ):
+            for label, state in variants:
+                with self.subTest(label=label):
+                    state_path.write_text(json.dumps(state), encoding="utf-8")
+                    with mock.patch.object(
+                        CLICK_GATE, "_execute_argv_commands"
+                    ) as execute:
+                        self.assertEqual(CLICK_GATE._run_mutation(arguments), 2)
+                    execute.assert_not_called()
+
+    def test_mutation_runner_rejects_unmanaged_state_before_execution(self) -> None:
+        self.approve_contract()
+        payload = self.mutate_gate([sys.executable, "-c", "print('blocked')"])
+        arguments = split_runner_command(
+            payload["hookSpecificOutput"]["updatedInput"]["command"]
+        )[5:]
+        managed = Path(arguments[0])
+        unmanaged = Path(self.temporary.name) / "copied-contract.json"
+        unmanaged.write_text(managed.read_text(encoding="utf-8"), encoding="utf-8")
+        arguments[0] = str(unmanaged)
+        with (
+            mock.patch.dict(
+                CLICK_GATE.os.environ, {"PLUGIN_DATA": str(self.plugin_data)}
+            ),
+            mock.patch.object(CLICK_GATE, "_execute_argv_commands") as execute,
+        ):
+            self.assertEqual(CLICK_GATE._run_mutation(arguments), 2)
+        execute.assert_not_called()
+
+    def test_mutation_result_requires_a_claim(self) -> None:
+        self.approve_contract()
+        payload = self.mutate_gate([sys.executable, "-c", "print('claimless')"])
+        arguments = split_runner_command(
+            payload["hookSpecificOutput"]["updatedInput"]["command"]
+        )[5:]
+        with mock.patch.dict(
+            CLICK_GATE.os.environ, {"PLUGIN_DATA": str(self.plugin_data)}
+        ):
+            self.assertFalse(
+                CLICK_GATE._record_mutation_result(
+                    Path(arguments[0]), arguments[1], arguments[2], 0
+                )
+            )
 
     def test_active_direct_bash_requires_a_structured_capability(self) -> None:
         self.approve_contract()
@@ -1038,6 +1656,23 @@ class ClickGateTests(unittest.TestCase):
         entries = states[0]["observations"]["entries"]
         self.assertEqual(len(entries), 2)
         self.assertEqual({entry["status"] for entry in entries.values()}, {"success"})
+
+    def test_observation_runner_rejects_unmanaged_state_before_execution(self) -> None:
+        unmanaged = Path(self.temporary.name) / "session-contract-copied.json"
+        unmanaged.write_text("{}", encoding="utf-8")
+        with (
+            mock.patch.dict(
+                CLICK_GATE.os.environ,
+                {"PLUGIN_DATA": str(self.plugin_data)},
+                clear=True,
+            ),
+            mock.patch.object(CLICK_GATE, "_run_inspection_request") as execute,
+        ):
+            result = CLICK_GATE._run_observation(
+                [str(unmanaged), "digest", "token", "encoded"]
+            )
+        self.assertEqual(result, 2)
+        execute.assert_not_called()
 
     def test_manual_default_persists_and_keeps_uninvoked_mutations_fail_open(self) -> None:
         setting = self.set_default("manual")
@@ -1191,7 +1826,14 @@ class ClickGateTests(unittest.TestCase):
 
     def test_uninvoked_plan_and_exploration_remain_fail_open(self) -> None:
         self.assertIsNone(self.pre_tool("update_plan", ""))
-        self.assertIsNone(self.pre_tool("Bash", "rg --files"))
+        inspection = self.pre_tool("Bash", "rg --files")
+        self.assertEqual(
+            inspection["hookSpecificOutput"]["permissionDecision"], "allow"
+        )
+        self.assertIn(
+            "run-inspection-once",
+            inspection["hookSpecificOutput"]["updatedInput"]["command"],
+        )
 
     def test_armed_gate_denies_apply_patch_before_contract(self) -> None:
         self.arm_gate()
@@ -2037,7 +2679,7 @@ class ClickGateTests(unittest.TestCase):
         self.approve_contract()
         payload = self.verify_gate([self.verification_argv()])
         command = payload["hookSpecificOutput"]["updatedInput"]["command"]
-        tokens = shlex.split(command, posix=os.name != "nt")
+        tokens = split_runner_command(command)
         self.assertEqual(tokens[2], "--state-root")
         self.assertEqual(
             Path(tokens[3]).resolve(),
@@ -2045,6 +2687,26 @@ class ClickGateTests(unittest.TestCase):
         )
         self.assertEqual(tokens[4], "run-verification")
 
+        environment = {
+            "PLUGIN_DATA": str(self.plugin_data),
+            "CLICK_CONFIG_HOME": str(self.plugin_data),
+        }
+        with (
+            mock.patch.dict(os.environ, environment),
+            mock.patch.object(CLICK_GATE, "_git_workspace_snapshot", return_value=None),
+            mock.patch.object(CLICK_GATE, "_git_metadata_present", return_value=False),
+            mock.patch.object(
+                CLICK_GATE, "_execute_argv_commands", return_value=0
+            ) as execute,
+        ):
+            self.assertEqual(CLICK_GATE._run_verification(tokens[5:]), 0)
+            self.assertEqual(CLICK_GATE._run_verification(tokens[5:]), 2)
+        self.assertEqual(execute.call_count, 1)
+
+    def test_rewritten_verification_uses_bound_root_not_ambient_plugin_data(self) -> None:
+        self.approve_contract()
+        payload = self.verify_gate([self.verification_argv()])
+        command = payload["hookSpecificOutput"]["updatedInput"]["command"]
         environment = os.environ.copy()
         environment.pop("PLUGIN_DATA", None)
         environment.pop("CLICK_CONFIG_HOME", None)
@@ -2070,12 +2732,182 @@ class ClickGateTests(unittest.TestCase):
         self.assertEqual(replay.returncode, 2)
         self.assertIn("no longer authorized", replay.stderr)
 
+    def test_verification_runner_rejects_stale_or_future_reservation_before_execution(self) -> None:
+        for label, started_at in (
+            (
+                "expired",
+                int(time.time()) - CLICK_GATE.VERIFY_RUNNING_TTL_SECONDS - 1,
+            ),
+            ("future", int(time.time()) + 60),
+        ):
+            with self.subTest(label=label):
+                self.plugin_data = Path(self.temporary.name) / f"plugin-{label}"
+                self.submitted_turns.clear()
+                self.approve_contract()
+                payload = self.verify_gate([self.verification_argv()])
+                tokens = split_runner_command(
+                    payload["hookSpecificOutput"]["updatedInput"]["command"]
+                )
+                state_path = Path(tokens[5])
+                state = json.loads(state_path.read_text(encoding="utf-8"))
+                state["verification"]["started_at"] = started_at
+                state_path.write_text(json.dumps(state), encoding="utf-8")
+                with (
+                    mock.patch.dict(
+                        CLICK_GATE.os.environ,
+                        {"PLUGIN_DATA": str(self.plugin_data)},
+                    ),
+                    mock.patch.object(
+                        CLICK_GATE, "_execute_argv_commands"
+                    ) as execute,
+                ):
+                    self.assertEqual(CLICK_GATE._run_verification(tokens[5:]), 2)
+                execute.assert_not_called()
+
+    def test_verification_fails_closed_when_git_snapshot_cannot_be_established(self) -> None:
+        self.approve_contract()
+        payload = self.verify_gate([self.verification_argv()])
+        tokens = split_runner_command(
+            payload["hookSpecificOutput"]["updatedInput"]["command"]
+        )
+        with (
+            mock.patch.dict(
+                CLICK_GATE.os.environ,
+                {"PLUGIN_DATA": str(self.plugin_data)},
+            ),
+            mock.patch.object(CLICK_GATE, "_git_workspace_snapshot", return_value=None),
+            mock.patch.object(CLICK_GATE, "_git_metadata_present", return_value=True),
+            mock.patch.object(CLICK_GATE, "_execute_argv_commands") as execute,
+        ):
+            self.assertEqual(CLICK_GATE._run_verification(tokens[5:]), 2)
+        execute.assert_not_called()
+
+    def test_claimed_verification_never_auto_expires_while_result_is_unknown(self) -> None:
+        self.approve_contract()
+        first = self.verify_gate([self.verification_argv()])
+        self.assertEqual(first["hookSpecificOutput"]["permissionDecision"], "allow")
+        state_path = next(
+            (self.plugin_data / "gate-state").glob("session-contract-*.json")
+        )
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        state["verification"]["runner_claimed_at"] = 1
+        state["verification"]["started_at"] = 1
+        state_path.write_text(json.dumps(state), encoding="utf-8")
+
+        repeated = self.verify_gate([self.verification_argv()])
+        self.assertEqual(
+            repeated["hookSpecificOutput"]["permissionDecision"], "deny"
+        )
+        self.assertIn(
+            "already running",
+            repeated["hookSpecificOutput"]["permissionDecisionReason"],
+        )
+        current = json.loads(state_path.read_text(encoding="utf-8"))
+        self.assertEqual(current["verification"]["status"], "running")
+        self.assertEqual(current["verification"]["runner_claimed_at"], 1)
+
     def test_stateful_runner_prefix_rejects_non_gate_state_root(self) -> None:
+        self.approve_contract()
+        state_path = next(
+            (self.plugin_data / "gate-state").glob("session-contract-*.json")
+        ).resolve()
         arguments, error = CLICK_GATE._runner_arguments(
-            ["--state-root", str(self.plugin_data), "run-verification"]
+            [
+                "--state-root",
+                str(self.plugin_data.resolve()),
+                "run-verification",
+                str(state_path),
+            ]
         )
         self.assertEqual(arguments, [])
         self.assertIn("invalid", error)
+
+    def test_stateful_runner_requires_one_canonical_bound_state_root(self) -> None:
+        self.approve_contract()
+        state_root = (self.plugin_data / "gate-state").resolve()
+        state_path = next(state_root.glob("session-contract-*.json")).resolve()
+
+        for action in CLICK_GATE.STATEFUL_RUNNER_ACTIONS:
+            with self.subTest(action=action):
+                with mock.patch.dict(
+                    CLICK_GATE.os.environ,
+                    {"PLUGIN_DATA": str(Path(self.temporary.name) / "wrong-root")},
+                ):
+                    arguments, error = CLICK_GATE._runner_arguments(
+                        ["--state-root", str(state_root), action, str(state_path)]
+                    )
+                    self.assertEqual(error, "")
+                    self.assertEqual(arguments[:2], [action, str(state_path)])
+                    self.assertEqual(
+                        CLICK_GATE.os.environ["PLUGIN_DATA"],
+                        str(state_root.parent),
+                    )
+
+        bare, error = CLICK_GATE._runner_arguments(
+            ["run-mutation", str(state_path)]
+        )
+        self.assertEqual(bare, [])
+        self.assertIn("requires", error)
+
+        relative, error = CLICK_GATE._runner_arguments(
+            ["--state-root", "gate-state", "run-mutation", str(state_path)]
+        )
+        self.assertEqual(relative, [])
+        self.assertIn("invalid", error)
+
+        missing_root = Path(self.temporary.name) / "missing" / "gate-state"
+        missing, error = CLICK_GATE._runner_arguments(
+            [
+                "--state-root",
+                str(missing_root),
+                "run-mutation",
+                str(state_path),
+            ]
+        )
+        self.assertEqual(missing, [])
+        self.assertIn("could not be resolved", error)
+
+        other_root = Path(self.temporary.name) / "other" / "gate-state"
+        other_root.mkdir(parents=True)
+        mismatched, error = CLICK_GATE._runner_arguments(
+            [
+                "--state-root",
+                str(other_root.resolve()),
+                "run-mutation",
+                str(state_path),
+            ]
+        )
+        self.assertEqual(mismatched, [])
+        self.assertIn("does not match", error)
+
+        alias = Path(self.temporary.name) / "gate-state-alias"
+        try:
+            alias.symlink_to(state_root, target_is_directory=True)
+        except OSError:
+            alias = None
+        if alias is not None:
+            symlinked, error = CLICK_GATE._runner_arguments(
+                ["--state-root", str(alias), "run-mutation", str(state_path)]
+            )
+            self.assertEqual(symlinked, [])
+            self.assertIn("invalid", error)
+
+        state_alias = Path(self.temporary.name) / "session-contract-alias.json"
+        try:
+            state_alias.symlink_to(state_path)
+        except OSError:
+            state_alias = None
+        if state_alias is not None:
+            aliased_state, error = CLICK_GATE._runner_arguments(
+                [
+                    "--state-root",
+                    str(state_root),
+                    "run-mutation",
+                    str(state_alias),
+                ]
+            )
+            self.assertEqual(aliased_state, [])
+            self.assertIn("does not match", error)
 
     def test_verification_that_changes_repository_content_cannot_pass(self) -> None:
         (self.workspace / ".gitignore").write_text("__pycache__/\n", encoding="utf-8")
@@ -2430,8 +3262,16 @@ class ClickGateTests(unittest.TestCase):
         self.set_default("on")
         (self.workspace / "readme.txt").write_text("hello\n", encoding="utf-8")
         command = self.read_file_command("readme.txt")
-        self.assertIsNone(self.pre_tool("Bash", command))
-        self.assertIsNone(self.pre_tool("Bash", command))
+        first = self.pre_tool("Bash", command)
+        second = self.pre_tool("Bash", command)
+        for payload in (first, second):
+            self.assertEqual(
+                payload["hookSpecificOutput"]["permissionDecision"], "allow"
+            )
+            self.assertIn(
+                "run-inspection-once",
+                payload["hookSpecificOutput"]["updatedInput"]["command"],
+            )
 
     def test_always_on_bypass_is_limited_to_the_current_turn(self) -> None:
         self.set_default("on")
@@ -4065,6 +4905,310 @@ class ClickGateTests(unittest.TestCase):
         )
         denied = self.complete_evidence("E-browser")
         self.assertEqual(denied["hookSpecificOutput"]["permissionDecision"], "deny")
+
+    def test_managed_service_start_runner_is_one_use_and_preclaimed(self) -> None:
+        self.approve_contract()
+        request = {
+            "version": 1,
+            "action": "start",
+            "argv": [sys.executable, "-m", "http.server", "0"],
+        }
+        runner_token = "service-runner-token"
+        with (
+            mock.patch.dict(
+                CLICK_GATE.os.environ,
+                {"PLUGIN_DATA": str(self.plugin_data)},
+            ),
+            mock.patch.object(
+                CLICK_GATE.secrets,
+                "token_urlsafe",
+                side_effect=["service-id", runner_token],
+            ),
+        ):
+            _, error = CLICK_GATE._prepare_service(
+                self.base_event, json.dumps(request)
+            )
+        self.assertEqual(error, "")
+        state_path = next(
+            (self.plugin_data / "gate-state").glob("session-contract-*.json")
+        ).resolve()
+        normalized, error = CLICK_GATE._validate_service_request(json.dumps(request))
+        self.assertEqual(error, "")
+        self.assertIsNotNone(normalized)
+        assert normalized is not None
+        arguments = [
+            str(state_path),
+            "service-id",
+            runner_token,
+            str(self.workspace.resolve()),
+            CLICK_GATE._encoded_request(normalized),
+        ]
+
+        def launch_supervisor(*_args: object, **_kwargs: object) -> mock.Mock:
+            with CLICK_GATE._state_lock():
+                self.assertTrue(
+                    CLICK_GATE._record_service_fields(
+                        state_path,
+                        "service-id",
+                        expected_statuses=("launching",),
+                        status="running",
+                    )
+                )
+            return mock.Mock()
+
+        with (
+            mock.patch.dict(
+                CLICK_GATE.os.environ,
+                {"PLUGIN_DATA": str(self.plugin_data)},
+            ),
+            mock.patch.object(
+                CLICK_GATE.subprocess,
+                "Popen",
+                side_effect=launch_supervisor,
+            ) as popen,
+        ):
+            tampered = [*arguments]
+            tampered[2] = "wrong-token"
+            self.assertEqual(CLICK_GATE._run_service_start(tampered), 2)
+            self.assertEqual(CLICK_GATE._run_service_start(arguments), 0)
+            self.assertEqual(CLICK_GATE._run_service_start(arguments), 2)
+        self.assertEqual(popen.call_count, 1)
+
+    def test_managed_service_rejects_stale_or_future_start_before_launch(self) -> None:
+        for label, started_at in (
+            (
+                "expired",
+                int(time.time()) - CLICK_GATE.SERVICE_START_TIMEOUT_SECONDS * 2 - 1,
+            ),
+            ("future", int(time.time()) + 60),
+        ):
+            with self.subTest(label=label):
+                self.plugin_data = Path(self.temporary.name) / f"service-{label}"
+                self.submitted_turns.clear()
+                self.approve_contract()
+                request = {
+                    "version": 1,
+                    "action": "start",
+                    "argv": [sys.executable, "-m", "http.server", "0"],
+                }
+                runner_token = f"service-{label}-token"
+                with (
+                    mock.patch.dict(
+                        CLICK_GATE.os.environ,
+                        {"PLUGIN_DATA": str(self.plugin_data)},
+                    ),
+                    mock.patch.object(
+                        CLICK_GATE.secrets,
+                        "token_urlsafe",
+                        side_effect=[f"service-{label}-id", runner_token],
+                    ),
+                ):
+                    CLICK_GATE._prepare_service(self.base_event, json.dumps(request))
+                state_path = next(
+                    (self.plugin_data / "gate-state").glob("session-contract-*.json")
+                ).resolve()
+                state = json.loads(state_path.read_text(encoding="utf-8"))
+                state["service"]["started_at"] = started_at
+                state_path.write_text(json.dumps(state), encoding="utf-8")
+                normalized, error = CLICK_GATE._validate_service_request(
+                    json.dumps(request)
+                )
+                self.assertEqual(error, "")
+                assert normalized is not None
+                arguments = [
+                    str(state_path),
+                    f"service-{label}-id",
+                    runner_token,
+                    str(self.workspace.resolve()),
+                    CLICK_GATE._encoded_request(normalized),
+                ]
+                with (
+                    mock.patch.dict(
+                        CLICK_GATE.os.environ,
+                        {"PLUGIN_DATA": str(self.plugin_data)},
+                    ),
+                    mock.patch.object(CLICK_GATE.subprocess, "Popen") as popen,
+                ):
+                    self.assertEqual(CLICK_GATE._run_service_start(arguments), 2)
+                popen.assert_not_called()
+
+    def test_managed_service_supervisor_launch_is_one_use(self) -> None:
+        self.approve_contract()
+        request = {
+            "version": 1,
+            "action": "start",
+            "argv": [sys.executable, "-m", "http.server", "0"],
+        }
+        runner_token = "service-supervisor-token"
+        with (
+            mock.patch.dict(
+                CLICK_GATE.os.environ,
+                {"PLUGIN_DATA": str(self.plugin_data)},
+            ),
+            mock.patch.object(
+                CLICK_GATE.secrets,
+                "token_urlsafe",
+                side_effect=["service-id", runner_token],
+            ),
+        ):
+            CLICK_GATE._prepare_service(self.base_event, json.dumps(request))
+        state_path = next(
+            (self.plugin_data / "gate-state").glob("session-contract-*.json")
+        ).resolve()
+        normalized, error = CLICK_GATE._validate_service_request(json.dumps(request))
+        self.assertEqual(error, "")
+        assert normalized is not None
+        cwd_raw = str(self.workspace.resolve())
+        arguments = [
+            str(state_path),
+            "service-id",
+            runner_token,
+            cwd_raw,
+            CLICK_GATE._encoded_request(normalized),
+        ]
+        child = mock.Mock()
+        child.pid = 12345
+        child.poll.return_value = 0
+        with (
+            mock.patch.dict(
+                CLICK_GATE.os.environ,
+                {"PLUGIN_DATA": str(self.plugin_data)},
+            ),
+            CLICK_GATE._state_lock(),
+        ):
+            self.assertEqual(
+                CLICK_GATE._claim_service_runner(
+                    state_path,
+                    "service-id",
+                    normalized,
+                    cwd_raw,
+                    runner_token,
+                    supervisor=False,
+                ),
+                "",
+            )
+        with (
+            mock.patch.dict(
+                CLICK_GATE.os.environ,
+                {"PLUGIN_DATA": str(self.plugin_data)},
+            ),
+            mock.patch.object(CLICK_GATE.subprocess, "Popen", return_value=child) as popen,
+            mock.patch.object(CLICK_GATE.time, "sleep"),
+        ):
+            self.assertEqual(CLICK_GATE._run_service_supervisor(arguments), 2)
+            self.assertEqual(CLICK_GATE._run_service_supervisor(arguments), 2)
+        self.assertEqual(popen.call_count, 1)
+
+    def test_managed_service_rejects_stale_supervisor_before_launch(self) -> None:
+        self.approve_contract()
+        request = {
+            "version": 1,
+            "action": "start",
+            "argv": [sys.executable, "-m", "http.server", "0"],
+        }
+        runner_token = "stale-supervisor-token"
+        with (
+            mock.patch.dict(
+                CLICK_GATE.os.environ,
+                {"PLUGIN_DATA": str(self.plugin_data)},
+            ),
+            mock.patch.object(
+                CLICK_GATE.secrets,
+                "token_urlsafe",
+                side_effect=["stale-supervisor-id", runner_token],
+            ),
+        ):
+            CLICK_GATE._prepare_service(self.base_event, json.dumps(request))
+        state_path = next(
+            (self.plugin_data / "gate-state").glob("session-contract-*.json")
+        ).resolve()
+        normalized, error = CLICK_GATE._validate_service_request(json.dumps(request))
+        self.assertEqual(error, "")
+        assert normalized is not None
+        cwd_raw = str(self.workspace.resolve())
+        with (
+            mock.patch.dict(
+                CLICK_GATE.os.environ,
+                {"PLUGIN_DATA": str(self.plugin_data)},
+            ),
+            CLICK_GATE._state_lock(),
+        ):
+            self.assertEqual(
+                CLICK_GATE._claim_service_runner(
+                    state_path,
+                    "stale-supervisor-id",
+                    normalized,
+                    cwd_raw,
+                    runner_token,
+                    supervisor=False,
+                ),
+                "",
+            )
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        state["service"]["runner_claimed_at"] = (
+            int(time.time()) - CLICK_GATE.SERVICE_START_TIMEOUT_SECONDS * 2 - 1
+        )
+        state_path.write_text(json.dumps(state), encoding="utf-8")
+        arguments = [
+            str(state_path),
+            "stale-supervisor-id",
+            runner_token,
+            cwd_raw,
+            CLICK_GATE._encoded_request(normalized),
+        ]
+        with (
+            mock.patch.dict(
+                CLICK_GATE.os.environ,
+                {"PLUGIN_DATA": str(self.plugin_data)},
+            ),
+            mock.patch.object(CLICK_GATE.subprocess, "Popen") as popen,
+        ):
+            self.assertEqual(CLICK_GATE._run_service_supervisor(arguments), 2)
+        popen.assert_not_called()
+
+    def test_managed_service_cancellation_before_claim_prevents_launch(self) -> None:
+        self.approve_contract()
+        request = {
+            "version": 1,
+            "action": "start",
+            "argv": [sys.executable, "-m", "http.server", "0"],
+        }
+        runner_token = "cancelled-service-token"
+        with (
+            mock.patch.dict(
+                CLICK_GATE.os.environ,
+                {"PLUGIN_DATA": str(self.plugin_data)},
+            ),
+            mock.patch.object(
+                CLICK_GATE.secrets,
+                "token_urlsafe",
+                side_effect=["service-id", runner_token],
+            ),
+        ):
+            CLICK_GATE._prepare_service(self.base_event, json.dumps(request))
+        state_path = next(
+            (self.plugin_data / "gate-state").glob("session-contract-*.json")
+        ).resolve()
+        normalized, error = CLICK_GATE._validate_service_request(json.dumps(request))
+        self.assertEqual(error, "")
+        assert normalized is not None
+        arguments = [
+            str(state_path),
+            "service-id",
+            runner_token,
+            str(self.workspace.resolve()),
+            CLICK_GATE._encoded_request(normalized),
+        ]
+        state_path.unlink()
+        with (
+            mock.patch.dict(
+                CLICK_GATE.os.environ,
+                {"PLUGIN_DATA": str(self.plugin_data)},
+            ),
+            mock.patch.object(CLICK_GATE.subprocess, "Popen") as popen,
+        ):
+            self.assertEqual(CLICK_GATE._run_service_start(arguments), 2)
+        popen.assert_not_called()
 
     def test_long_running_local_server_uses_managed_service_lifecycle(self) -> None:
         self.approve_contract()
