@@ -58,7 +58,7 @@ Antigravity native read 的重复阻止，也不支持 Browser evidence。请查
 [`platforms/antigravity/README.md`](platforms/antigravity/README.md)了解准确
 限制，不要假设宿主功能完全等价。
 
-## 更新到 v0.21.0
+## 更新到 v0.21.1
 
 如果已经安装 Click，需要明确刷新 Git marketplace 快照并重新安装插件，才能加载本版本。
 
@@ -67,7 +67,7 @@ codex plugin marketplace upgrade click
 codex plugin add click@click
 ```
 
-重新启动 ChatGPT 桌面应用，检查并信任更新后的 Click Hook，然后开始一个新任务。现有模式偏好仍保存在目标仓库之外。直接调用 `click-gate` 时，必须使用 verify 协议版本 `2`，为每项检查提供已批准的 argv `evidence_id`，让 `pass` 只传递已签发的 `contract_id`，并使用结构化 `done_when` 证据引用。v0.20 中已经 staged 或 approved 但尚未完成的契约没有可恢复的逐来源 ledger；请在升级前完成它，或在升级后通过准确的 `@Click cancel` 流程取消，再重新 stage 并批准新契约。
+重新启动 ChatGPT 桌面应用，检查并信任更新后的 Click Hook，然后开始一个新任务。现有模式偏好仍保存在目标仓库之外。v0.21.1 不改变契约或证据 schema。直接调用 `click-gate` 时，继续使用 verify 协议版本 `2`，为每项检查提供已批准的 argv `evidence_id`，让 `pass` 只传递已签发的 `contract_id`，并使用结构化 `done_when` 证据引用。不要重复使用旧安装留下的待执行 runner 命令；应让更新后的 Hook 签发一条新命令。
 
 之后你可以说“Set Click to Always ON”或“Set Click to Manual”，这些偏好会持久保存在目标仓库之外。若只想绕过一个 turn，请把用户提示的第一行写成 `@Click bypass`，或使用自动补全形式 `[@Click](plugin://click@click) bypass`；Hook 只授权同一 turn 的一次 `click-gate bypass`，并保留活动契约。要丢弃活动契约，请使用对应的 `cancel` 形式来授权一次 `click-gate cancel`。`@Click` 标签和动作不区分大小写，但 plugin URI 必须完全匹配，指令行不能包含其他文字；实际任务可以从第二行继续。两种授权都不能重复使用或带到下一个 turn。Click 不会把偏好或契约文件放进你的项目。
 
@@ -241,7 +241,7 @@ click-gate service '{"version":1,"action":"stop"}'
 click-gate evidence '{"version":1,"evidence_id":"E-browser"}'
 ```
 
-`inspect` 只接受 Hook 限定的只读操作。Git 读取采用按 subcommand 划分的 positive option policy；`git grep`、`git cat-file`、任意 `--format`/`--pretty` 输出、signature 输出选项以及 `git status -v/-vv` 都被排除。允许的 Git 读取会忽略继承的 `GIT_*` 变量和 system/global Git config，强制安全的 log·diff 设置，关闭 pager 与 optional lock，并为支持的 diff 输出加入 `--no-ext-diff` 和 `--no-textconv`。`mutate` 要求在当前 turn 中 pass 与已批准 digest 绑定的已签发 id，并把先前证据标记为 stale。可识别的长时开发服务器会在 `mutate` 中被拒绝，改由 `service` 启动；Click supervisor 持有准确的子进程和 process group，并在显式 stop、`SessionEnd` 或两小时上限时清理。普通 `apply_patch`、`Edit` 和 `Write` 仍可直接作为 mutation 使用。格式错误的请求、shell interpreter，以及 `kill`、`pkill`、`killall`、`taskkill`、`Stop-Process` 等直接 process-control 可执行程序都会 fail closed。获准的自定义程序仍可能在内部隐藏明确的进程操作，因此 Click 是 workflow guardrail，而不是操作系统 sandbox。精确 schema 和执行边界请参阅[能力协议](skills/click/references/capability-protocol.md)。
+`inspect` 只接受 Hook 限定的只读操作。只读可执行程序必须使用 bare name；带分隔符的名称、Windows drive-prefix 名称、仓库内的 PATH shadow，以及解析到仓库的 symlink 都会 fail closed。边界是最近的上级 Git 仓库；不在 Git 中时则是当前工作目录。识别出的直接读取会改写到无 shell 的 runner，删除 PATH 中的空项、相对路径和仓库项，再执行解析后的绝对程序；读取子进程还会删除 `LD_*`、`DYLD_*`、`GCONV_PATH`、`LOCPATH` 等 loader 注入变量，Git 读取另外忽略 `GIT_*` 与 system/global Git config。`mutate` 在执行前原子 claim 已批准状态、准确 digest、一次性 token、重放状态和启动前过期状态。claim 之后，它会保持 active，直到记录结果或用户取消，不会只因时间经过就允许并行 runner。所有有状态 runner 都携带 canonical `gate-state` root 和 state path，而不信任环境中的 `PLUGIN_DATA`。长时服务器使用 `service`；start runner 与 detached supervisor 在 spawn 前分别完成 digest-bound one-use claim，然后只管理准确的子进程组。格式错误的请求、shell interpreter 和 `pkill` 等直接 process-control 名称仍会 fail closed。Click 是 workflow guardrail，而不是操作系统 sandbox；它不保护 secret、network、外部路径、仓库外已接受程序被同一用户并发替换，或获准程序内部隐藏的行为。精确 schema 和执行边界请参阅[能力协议](skills/click/references/capability-protocol.md)。
 
 SSH Git 读取是 **Experimental，并且只支持远端 POSIX shell**。它只允许受限的 `git status`、`git rev-parse HEAD`、`git merge-base` 和 `git remote get-url`，不接受用户提供的 SSH option。它要求 host key 已知，关闭交互式 password、host-key 更新、forwarding、local command 和 TTY，并通过 connection 与 keepalive 限制快速失败。未知 host、非 POSIX 远端 shell 和无响应 server 都会 fail closed。这不是通用远程执行器或安全 sandbox。
 
@@ -277,7 +277,7 @@ click-gate evidence '{"version":1,"evidence_id":"E-browser"}'
 
 `hosted`、`manual` 和 `existing` 来源也使用同一命令记录完成，但这是显式 attestation，不是 Hook 对外部事实的独立验证。Hook 只能确认声明的 id、kind、当前 revision 和调用顺序，无法检查 hosted 系统的真实状态、人工是否真的完成步骤，或 existing 证据在语义上是否仍然充分。`kind: "argv"` 绝不允许通过 attestation 完成；它必须由 `click-gate verify` 实际执行并记录结果。
 
-在 Git worktree 中，runner 会在 batch 前快照 tracked 内容以及既有的 **non-ignored untracked** 内容。如果受保护内容发生变化，batch 会以 stale 失败，并推进 mutation revision，而不是记录错误的成功结果。它还会报告每一个新出现的 non-ignored untracked 路径；任何这类新路径都会作为 workspace 变更使验证 stale 失败并推进 mutation revision。source、application、library、configuration 或 migration 分类只用于让警告更明确。预期生成的产物应被 Git ignore，或在已批准的 mutation 阶段生成。该快照无法看到被 Git ignore 的路径。在 Git 之外，这一内容差异守卫不可用；argv 验证、无 shell 执行和 revision 状态仍然有效。
+只有尚未 claim 的 verification 预约可以在过期后重试；已经 claim 的 batch 会保持 running，直到记录结果或用户取消。在 Git worktree 中，runner 会在 batch 前快照 tracked 内容以及既有的 **non-ignored untracked** 内容；如果无法建立初始快照，则不会执行任何 check。受保护内容变化或出现新的 non-ignored untracked 路径时，batch 会 stale 失败并推进 mutation revision，而不是记录错误成功。预期产物应被 Git ignore，或在已批准的 mutation 阶段生成。在 Git 之外，这一内容差异守卫不可用；argv 验证、无 shell 执行和 revision 状态仍然有效。
 
 最低 class 推断可以防住简单的低报。未知但看起来用于验证的 wrapper 名称会被保守地计为 `deep`，无法识别的命令会被拒绝，但一个获准程序仍可能在内部隐藏昂贵工作。这里不是安全或资源 sandbox，也不能证明所选测试在语义上足够。
 
@@ -316,7 +316,7 @@ Click 面向两类用户：
 
 ## 证据与诚实边界
 
-当前公开版本 v0.21.0 使用确定性 suite 作为 release gate，验证持久模式、跨 turn 批准、active-contract 锁、读取与 plan 防循环、verify v2 的 evidence-id 绑定、逐来源 completion ledger、无 argv 契约的完成、Browser observe-then-finalize、非 argv attestation 边界、哈希 evidence id、旧版未完成契约迁移、受管服务器、加固的 Git 读取、process 隔离和验证期间 workspace mutation 检测。
+当前公开版本 v0.21.1 使用确定性 suite 作为 release gate，验证持久模式、跨 turn 批准、active-contract 锁、读取与 plan 防循环、verify v2 的 evidence-id 绑定、逐来源 completion ledger、Browser observe-then-finalize、非 argv attestation 边界、受管服务器的一次性 launch claim 与清理、排除仓库路径的可执行程序解析、state-root binding、runner 执行前 claim、加固的 Git 读取、Git snapshot fail-closed、process 隔离和验证期间 workspace mutation 检测。
 
 仓库还包含用于确定性 fixture 策略审查的 version-18 golden cases 和 semantic grader。这些资料检查契约结构与预期行为，并不测量 runtime 生产力。
 
