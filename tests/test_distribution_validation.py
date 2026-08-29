@@ -14,15 +14,17 @@ class DistributionValidationTests(unittest.TestCase):
         self.assertEqual(validate(ROOT), [])
 
     def test_release_notes_allow_only_the_explicit_next_minor_candidate(self) -> None:
-        current = "## Unreleased v0.21 candidate — evidence\n\n## v0.20.0\n"
-        self.assertEqual(_release_notes_error(current, "0.20.0"), "")
+        stable = "## v0.21.0 — 2026-08-29\n"
+        self.assertEqual(_release_notes_error(stable, "0.21.0"), "")
+        current = "## Unreleased v0.22 candidate — evidence\n\n## v0.21.0\n"
+        self.assertEqual(_release_notes_error(current, "0.21.0"), "")
         for invalid in (
-            "## Unreleased — evidence\n\n## v0.20.0\n",
-            "## Unreleased v0.22 candidate\n\n## v0.20.0\n",
-            "## Unreleased v0.21 candidate\n## Unreleased v0.21 candidate — two\n## v0.20.0\n",
+            "## Unreleased — evidence\n\n## v0.21.0\n",
+            "## Unreleased v0.23 candidate\n\n## v0.21.0\n",
+            "## Unreleased v0.22 candidate\n## Unreleased v0.22 candidate — two\n## v0.21.0\n",
         ):
             with self.subTest(invalid=invalid):
-                self.assertIn("next-minor candidate", _release_notes_error(invalid, "0.20.0"))
+                self.assertIn("next-minor candidate", _release_notes_error(invalid, "0.21.0"))
 
 
 if __name__ == "__main__":

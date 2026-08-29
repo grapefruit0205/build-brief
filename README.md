@@ -36,7 +36,7 @@ Choose Always ON for the default experience. Choose Manual if you prefer explici
 @Click Add order cancellation. Prevent duplicate refunds and preserve the existing API.
 ```
 
-## Update to v0.20.0
+## Update to v0.21.0
 
 If Click is already installed, explicitly refresh its Git marketplace snapshot and reinstall the plugin to load this release:
 
@@ -45,7 +45,7 @@ codex plugin marketplace upgrade click
 codex plugin add click@click
 ```
 
-Restart the ChatGPT desktop app, review and trust the updated Click Hook, and start a new task. Existing mode preferences remain outside the target repository. If you call `click-gate` directly, update `pass` to use the emitted `contract_id` instead of contract JSON and migrate inline `done_when` strings to structured evidence references.
+Restart the ChatGPT desktop app, review and trust the updated Click Hook, and start a new task. Existing mode preferences remain outside the target repository. Direct `click-gate` callers must use verification protocol version `2`, include an approved argv `evidence_id` on every check, pass only the emitted `contract_id`, and use structured `done_when` evidence references. A v0.20 contract that was staged or approved but not completed has no reconstructable per-source ledger; complete it before upgrading, or use the exact `@Click cancel` flow after upgrading and then stage and approve a fresh contract.
 
 You can later say “Set Click to Always ON” or “Set Click to Manual.” Those preferences persist outside the target repository. To bypass Click for exactly one turn, make the first line of that user prompt either `@Click bypass` or the autocomplete form `[@Click](plugin://click@click) bypass`; the Hook authorizes one same-turn `click-gate bypass` and keeps any active contract intact. Use the corresponding `cancel` form to authorize one same-turn `click-gate cancel` and discard the active contract. The `@Click` label and action are case-insensitive, but the plugin URI must match exactly and the directive line cannot contain extra text. The task may continue on later lines. Neither authorization is reusable or carries across turns. Click does not place preference or contract files in your project.
 
@@ -65,9 +65,9 @@ For Build Brief 0.8, replace the first command with `codex plugin remove build-b
 
 </details>
 
-## Unreleased v0.21 candidate
+## Evidence-bound completion in v0.21.0
 
-The unreleased v0.21 candidate links every completion source to Hook state for the current mutation revision. Direct `click-gate` callers must use verification protocol version `2` and include an `evidence_id` on every check. A staged or approved-but-incomplete contract created before the per-evidence ledger exists cannot recover its source IDs from the stored digest; cancel and restage that contract after upgrading instead of treating missing ledger state as completion. The technical sections below describe this candidate source, while the manifest, install command, and published CI evidence remain v0.20.0 until a separate release is made; no candidate CI claim is implied.
+Version 0.21 links every declared completion source to Hook state for the current mutation revision. Every local argv check names the approved evidence ID it proves; successful Browser work is observed and then explicitly finalized; hosted, manual, and existing sources remain honest attestations rather than independently observed external proof. A contract completes as soon as every declared source is current and no managed service remains active, so a contract with no argv source does not need an unrelated local verification command.
 
 ## How it works
 
@@ -285,7 +285,7 @@ Manual mode or a per-turn bypass is usually better for tiny, obvious, reversible
 
 ## Evidence and honest limits
 
-The v0.20.0 source is release-gated by the deterministic suite. It covers persistent modes, distinct-turn approval, active-contract locking, read and plan anti-loops, scope-aware local verification, structured evidence references, Browser primary-source assignment and budgets, managed server start/stop cleanup, Node file checks, hardened Git inspection, process isolation, verification-time workspace mutation detection, distribution consistency, and repository policy. Required CI runs the suite on Linux, macOS, and Windows; Ubuntu also validates the plugin, marketplace, Click/Fix skills, Python compilation, and whitespace errors.
+The v0.21.0 source is release-gated by the deterministic suite. It covers persistent modes, distinct-turn approval, active-contract locking, read and plan anti-loops, evidence-bound argv verification, per-source current-revision completion, Browser observe-then-finalize behavior, explicit non-argv attestation limits, managed server cleanup, hardened Git inspection, process isolation, verification-time workspace mutation detection, distribution consistency, and repository policy. Required CI runs the suite on Linux, macOS, and Windows; Ubuntu also validates the plugin, marketplace, Click/Fix skills, Python compilation, and whitespace errors.
 
 The repository also includes version-18 golden cases and a semantic grader for deterministic fixture-based policy review. These artifacts check contract shape and expected behavior; they are not runtime productivity measurements.
 

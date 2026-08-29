@@ -1,6 +1,19 @@
 # Release notes
 
-## Unreleased v0.21 candidate — evidence-bound completion
+## v0.21.0 — 2026-08-29
+
+Click v0.21.0 connects every declared completion source to current-revision Hook state. It removes the ceremonial local verification batch from contracts whose sufficient evidence is Browser, hosted, manual, or existing, while binding every local argv check to the exact approved evidence ID it proves.
+
+### Upgrade required
+
+Existing Click users must refresh the marketplace snapshot and reinstall the plugin:
+
+```bash
+codex plugin marketplace upgrade click
+codex plugin add click@click
+```
+
+Direct `click-gate` callers must send verification protocol version `2` and include an approved argv `evidence_id` on every check. A v0.20 contract that was staged or approved but not completed has no reconstructable per-source ledger; complete it before upgrading, or use the exact `@Click cancel` flow after upgrading and then stage and approve a fresh contract.
 
 ### Per-source execution state
 
@@ -14,7 +27,7 @@
 ### Smaller entrypoint, honest cumulative cost
 
 - `plain_language` remains canonical and digest-bound, but presentation now renders its exact value once instead of duplicating the easy explanation outside and inside the displayed contract.
-- Measured from v0.18 to this candidate, the always-loaded Click entry skill shrank from 12,996 to 6,029 bytes (53.6%), while the root plus all six references grew from 38,358 to 44,774 bytes (16.7%). The usual pre-stage bundle (root, modes, directive format, and verification profiles) moved from 25,047 to 24,669 bytes (-1.5%). Relative to released v0.20, the cumulative root-plus-reference source grew 10.9% to document the evidence protocol. This is progressive disclosure and a smaller entrypoint, not a claim that every full-workflow prompt became half as large.
+- Measured from v0.18 to v0.21, the always-loaded Click entry skill shrank from 12,996 to 6,029 bytes (53.6%), while the root plus all six references grew from 38,358 to 44,774 bytes (16.7%). The usual pre-stage bundle (root, modes, directive format, and verification profiles) moved from 25,047 to 24,669 bytes (-1.5%). Relative to v0.20, the cumulative root-plus-reference source grew 10.9% to document the evidence protocol. This is progressive disclosure and a smaller entrypoint, not a claim that every full-workflow prompt became half as large.
 
 ## v0.20.0 — 2026-08-29
 
