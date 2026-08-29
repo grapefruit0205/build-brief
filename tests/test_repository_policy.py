@@ -43,6 +43,11 @@ class RepositoryPolicyTests(unittest.TestCase):
             "process-control executables",
             manifest["interface"]["longDescription"].lower(),
         )
+        self.assertIn("contract_id", manifest["interface"]["longDescription"])
+        self.assertIn(
+            "never the json again",
+            manifest["interface"]["longDescription"].lower(),
+        )
         self.assertIn("anti-loop", manifest["keywords"])
         self.assertIn("@Click", manifest["description"])
         self.assertIn("structured", manifest["description"].lower())
@@ -99,17 +104,24 @@ class RepositoryPolicyTests(unittest.TestCase):
             encoding="utf-8"
         )
 
-        for document in (
-            click_skill,
-            fix_skill,
-            verification,
-            anti_loop,
-            directive,
-            grader,
-        ):
+        for document in (verification, anti_loop, directive, grader):
             with self.subTest(document=document[:40]):
                 self.assertIn("primary_evidence", document)
                 self.assertIn("evidence", document)
+
+        for skill in (click_skill, fix_skill):
+            with self.subTest(skill=skill[:40]):
+                self.assertIn("verification-profiles.md", skill)
+                self.assertIn("directive-format.md", skill)
+                self.assertIn("anti-loop-policy.md", skill)
+                self.assertIn("capability-protocol.md", skill)
+                self.assertIn("CLICK_CONTRACT_ID", skill)
+                self.assertIn("contract_id", skill)
+                self.assertNotIn("Python `-c`", skill)
+                self.assertNotIn("three serial calls", skill)
+
+        self.assertLessEqual(len(click_skill.split()), 900)
+        self.assertLessEqual(len(fix_skill.split()), 350)
 
         english = (ROOT / "README.md").read_text(encoding="utf-8")
         korean = (ROOT / "README.ko.md").read_text(encoding="utf-8")
@@ -131,8 +143,11 @@ class RepositoryPolicyTests(unittest.TestCase):
         for readme in (english, korean, chinese):
             self.assertIn("UserPromptSubmit", readme)
             self.assertIn("staged_turn_id", readme)
+            self.assertIn("approved_turn_id", readme)
+            self.assertIn("contract_id", readme)
+            self.assertIn("CLICK_CONTRACT_ID=ctr_", readme)
             self.assertIn("non-ignored untracked", readme)
-        self.assertIn("later user turn", english)
+        self.assertIn("later user turn", english.lower())
         self.assertIn("다음 사용자 turn", korean)
         self.assertIn("后续用户 turn", chinese)
 
@@ -220,7 +235,6 @@ class RepositoryPolicyTests(unittest.TestCase):
                 self.assertIn(f"name: {skill_name}", skill_text)
                 self.assertIn(f"${skill_name}", metadata)
                 self.assertNotIn("[TODO:", skill_text)
-                self.assertIn("click-gate verify", skill_text)
         click_metadata = (
             ROOT / "skills" / "click" / "agents" / "openai.yaml"
         ).read_text(encoding="utf-8")
@@ -229,6 +243,31 @@ class RepositoryPolicyTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
         self.assertIn("allow_implicit_invocation: true", click_metadata)
         self.assertIn("allow_implicit_invocation: false", fix_metadata)
+
+    def test_contract_id_is_the_canonical_approval_handoff(self) -> None:
+        hook = (ROOT / "hooks" / "click_gate.py").read_text(encoding="utf-8")
+        directive = (
+            ROOT / "skills" / "click" / "references" / "directive-format.md"
+        ).read_text(encoding="utf-8")
+        grader = (ROOT / "evals" / "SEMANTIC_GRADER.md").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("CONTRACT_ID_PATTERN", hook)
+        self.assertIn("secrets.token_hex(16)", hook)
+        self.assertIn('"contract_id": contract_id', hook)
+        self.assertIn("not the Execution ", hook)
+        self.assertIn("Contract JSON", hook)
+        self.assertNotIn("pass '<Execution Contract JSON>'", hook)
+
+        for document in (directive, grader):
+            with self.subTest(document=document[:40]):
+                self.assertIn("contract_id", document)
+                self.assertIn("later user turn", document)
+                self.assertIn("JSON", document)
+        self.assertIn("CLICK_CONTRACT_ID=ctr_", directive)
+        self.assertIn("click-gate pass ctr_<32hex>", directive)
+        self.assertIn("never resend", directive)
 
     def test_persistent_modes_and_read_only_review_are_documented(self) -> None:
         modes = (

@@ -48,6 +48,7 @@ EVIDENCE_SOURCE_FIELDS = {"id", "kind", "description"}
 DONE_WHEN_FIELDS = {"condition", "primary_evidence"}
 EVIDENCE_KINDS = ("argv", "browser", "hosted", "manual", "existing")
 EVIDENCE_ID_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9_-]{0,31}$")
+CONTRACT_ID_PATTERN = re.compile(r"^ctr_[0-9a-f]{32}$")
 VERIFICATION_SCALES = ("quick", "focused", "full")
 VERIFICATION_UNIT_LIMITS = {"quick": 1, "focused": 4, "full": 10}
 CAPABILITY_PROTOCOL_VERSION = 1
@@ -749,12 +750,14 @@ def _clear_review_state(event: dict[str, Any]) -> None:
 
 def _write_contract_state(
     event: dict[str, Any], status: str, digest: str, contract: dict[str, Any]
-) -> None:
+) -> str:
+    contract_id = f"ctr_{secrets.token_hex(16)}"
     _write_json(
         _contract_path(event),
         {
             "status": status,
             "contract_digest": digest,
+            "contract_id": contract_id,
             "staged_turn_id": str(event.get("turn_id", "")),
             "approved_turn_id": "",
             "verification": _fresh_verification_state(contract),
@@ -765,6 +768,23 @@ def _write_contract_state(
             "updated_at": int(time.time()),
         },
     )
+    return contract_id
+
+
+def _contract_id_from_state(state: dict[str, Any]) -> str:
+    digest = state.get("contract_digest")
+    if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
+        return ""
+    contract_id = state.get("contract_id")
+    if "contract_id" in state:
+        return (
+            contract_id
+            if isinstance(contract_id, str)
+            and CONTRACT_ID_PATTERN.fullmatch(contract_id)
+            else ""
+        )
+    # Compatibility only for a staged or incomplete state created before ids existed.
+    return f"ctr_{digest[:32]}"
 
 
 def _read_contract_state(event: dict[str, Any]) -> dict[str, Any]:
@@ -1447,7 +1467,7 @@ def _control_request(command: str) -> tuple[str | None, str, str]:
         "",
         "",
         f"Use `{CONTROL_COMMAND} arm`, `{CONTROL_COMMAND} stage '<Execution Contract "
-        f"JSON>'`, `{CONTROL_COMMAND} pass '<Execution Contract JSON>'`, "
+        f"JSON>'`, `{CONTROL_COMMAND} pass <contract_id>`, "
         f"`{CONTROL_COMMAND} inspect '<Inspection JSON>'`, "
         f"`{CONTROL_COMMAND} mutate '<Mutation JSON>'`, "
         f"`{CONTROL_COMMAND} service '<Managed Service JSON>'`, "
@@ -2639,7 +2659,7 @@ def _handle_prompt_submit(event: dict[str, Any]) -> None:
             "Click Always ON is enabled. For software creation, modification, deletion, "
             "or repair, compile the compact Click contract, explain it plainly, ask once, "
             "and do not pass or mutate until a later UserPromptSubmit turn approves the "
-            "exact staged contract. Questions, "
+            "staged contract_id. Questions, "
             "explanations, and simple read-only inspection do not need a contract. For a "
             "read-only code review, run `click-gate review` before shell reads/searches; "
             "do not stage a build contract, and reuse successful evidence instead of "
@@ -2657,8 +2677,9 @@ def _handle_prompt_submit(event: dict[str, Any]) -> None:
             "the user explicitly selects @Click or $click. Ordinary software work and "
             "code review remain fail-open unless explicitly activated. Once activated, a "
             "staged or incomplete approved session contract remains mutation-locked across "
-            "later turns. It must be staged now and passed only after a later "
-            "UserPromptSubmit turn. Approved Browser evidence is metered and long-running "
+            "later turns. Stage the contract JSON once, then pass only its emitted "
+            "contract_id after a later UserPromptSubmit turn. Approved Browser evidence is "
+            "metered and long-running "
             "local servers use `click-gate service` start/stop."
         )
     else:
@@ -2669,6 +2690,21 @@ def _handle_prompt_submit(event: dict[str, Any]) -> None:
             "Always ON (recommended) or Manual. After the answer, run `click-gate default "
             "on` or `click-gate default manual`. Always ON gates later mutations behind one "
             "compact approval; Manual applies Click only when explicitly selected."
+        )
+    contract_state = _read_contract_state(event)
+    contract_id = _contract_id_from_state(contract_state)
+    if contract_state.get("status") == "staged" and contract_id:
+        context += (
+            f" The active staged contract_id is `{contract_id}`. Treat that id as the "
+            "approval target. If and only if this user response explicitly approves the "
+            f"shown proposal, pass it with `click-gate pass {contract_id}`; never resend "
+            "the contract JSON."
+        )
+    elif _approved_contract_is_active(contract_state) and contract_id:
+        context += (
+            f" The incomplete approved contract_id is `{contract_id}`. To resume its "
+            f"implementation in this turn, use `click-gate pass {contract_id}` after "
+            "arming when Manual mode requires it; do not restage or resend the JSON."
         )
     if authorization:
         context += (
@@ -2843,13 +2879,31 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
                 _allow_rewritten(rewritten)
                 return
             if action in {"stage", "pass"}:
-                contract, validation_error = _validate_contract(value)
-                if validation_error:
-                    _deny(validation_error)
+                contract: dict[str, Any] | None = None
+                digest = ""
+                if action == "stage":
+                    contract, validation_error = _validate_contract(value)
+                    if validation_error:
+                        _deny(validation_error)
+                        return
+                    assert contract is not None
+                    canonical = json.dumps(
+                        contract, sort_keys=True, separators=(",", ":")
+                    )
+                    digest = hashlib.sha256(canonical.encode()).hexdigest()
+                elif not CONTRACT_ID_PATTERN.fullmatch(value):
+                    if value.lstrip().startswith("{"):
+                        _deny(
+                            "Click pass accepts the staged `contract_id`, not the Execution "
+                            "Contract JSON. Use `click-gate pass ctr_<32 hex characters>` "
+                            "after the later approval response."
+                        )
+                    else:
+                        _deny(
+                            "Click `contract_id` must use `ctr_` followed by exactly 32 "
+                            "lowercase hexadecimal characters."
+                        )
                     return
-                assert contract is not None
-                canonical = json.dumps(contract, sort_keys=True, separators=(",", ":"))
-                digest = hashlib.sha256(canonical.encode()).hexdigest()
                 _prune_state()
 
                 current_status = _read_state(event).get("status")
@@ -2875,9 +2929,11 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
                         existing_contract.get("status") == "staged"
                         and existing_contract.get("contract_digest") == digest
                     ):
+                        existing_id = _contract_id_from_state(existing_contract)
                         _deny(
                             "The identical Click execution contract is already staged. "
-                            "Pass it after the user's approval instead of staging it again."
+                            f"Its contract_id is `{existing_id}`; pass that id after the "
+                            "user's approval instead of staging it again."
                         )
                         return
                     if (
@@ -2902,9 +2958,11 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
                             "report the blocker."
                         )
                         return
-                    _write_contract_state(event, "staged", digest, contract)
+                    contract_id = _write_contract_state(
+                        event, "staged", digest, contract
+                    )
                     _write_state(event, "staged", digest)
-                    _allow_rewritten("echo Click execution contract staged")
+                    _allow_rewritten(f"echo CLICK_CONTRACT_ID={contract_id}")
                     return
 
                 if current_status != "armed" and not strict and not always_on:
@@ -2934,17 +2992,34 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
                         "fresh contract and obtain a new user response before another mutation."
                     )
                     return
-                if staged.get("contract_digest") != digest:
+                staged_digest = staged.get("contract_digest")
+                if not isinstance(staged_digest, str) or not re.fullmatch(
+                    r"[0-9a-f]{64}", staged_digest
+                ):
                     _deny(
-                        "The execution contract differs from the version staged for user "
-                        "approval. Pass the exact staged contract, or replace it before "
-                        "approval and show the complete contract again."
+                        "The staged Click contract digest is unavailable or invalid. Cancel "
+                        "it explicitly, then stage and show the contract again."
+                    )
+                    return
+                expected_id = _contract_id_from_state(staged)
+                if not expected_id:
+                    _deny(
+                        "The staged Click contract has no recoverable contract_id. Cancel "
+                        "it explicitly, then stage and show the contract again."
+                    )
+                    return
+                if value != expected_id:
+                    _deny(
+                        "The contract_id differs from the proposal staged for user approval. "
+                        "Pass the exact id emitted by stage, or replace the proposal before "
+                        "approval and show both contract views again."
                     )
                     return
                 if staged.get("status") == "staged":
                     staged["approved_turn_id"] = current_turn_id
                 staged["status"] = "approved"
-                staged["contract_digest"] = digest
+                staged["contract_id"] = expected_id
+                digest = staged_digest
                 _save_contract_state(event, staged)
                 _write_state(event, "passed", digest)
                 _allow_rewritten("echo Click mutation gate passed")
@@ -3091,8 +3166,9 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
             "verification.done_when, and plain_language; add build.semantics, build.order, "
             "or an intermediate gate only "
             "when the work materially requires them; "
-            "stage the exact JSON shown to the user, obtain approval, arm the approval turn, "
-            "then pass that same JSON. In Always ON mode, arm is optional because the "
+            "stage the JSON once, show the emitted contract_id with both contract views, "
+            "obtain approval, arm the later approval turn, then pass only that exact id. "
+            "Do not resend the JSON. In Always ON mode, arm is optional because the "
             "persistent preference already activates the gate. If the user does not want "
             "Click for this turn, run "
             "`click-gate bypass` only after the current user turn begins with a recognized "

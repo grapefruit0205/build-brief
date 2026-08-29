@@ -5,92 +5,43 @@ description: Compile repository-aware software intent into one approval-bound ex
 
 # Click
 
-Translate the user's natural-language intent and actual repository context into the software-design and execution language the situation needs. Click is a semantic compiler and one-shot approval boundary, not a chooser over fixed architecture labels.
+Translate the user's intent and current repository evidence into one compact semantic execution contract. Click is an approval boundary for the result, scope, invariants, and verification commitment—not a fixed architecture catalog or a second planning system.
 
-## Respect the selected operating mode
+## Route by the active mode
 
-- When Hook context reports `Always ON`, use the complete-contract workflow for software creation, modification, deletion, refactoring, or repair. Do not require `@Click`.
-- When Hook context reports `Manual`, activate only when the user selects or mentions `@Click`, or directly invokes `$click`.
-- When the mode is unset, do not interrupt questions, explanations, code review, or simple read-only inspection. Before the first software mutation, ask once whether to use **Always ON (recommended)** or **Manual**, then run `click-gate default on` or `click-gate default manual` after the answer.
-- Treat “설계해줘”, “구현해줘”, “해줘”, “design it”, “build it”, and equivalent wording in any language as the same complete-contract workflow when Click is active.
-- A question about Click is not a mutation request. A bypass is valid only when the current user prompt's first line is the plain directive `@Click bypass` or the trusted autocomplete form `[@Click](plugin://click@click) bypass`; then run `click-gate bypass` once for that turn. The `@Click` label and action are case-insensitive, the plugin URI is exact, and the directive line cannot contain other text. The task may continue on later lines. Bypass never clears an active contract. The corresponding `cancel` forms authorize one `click-gate cancel` that discards the active contract.
+Follow [operating modes](references/modes.md) whenever selecting, activating, applying, reviewing, resuming, bypassing, or cancelling Click.
 
-For a code-review-only request in Always ON mode, run `click-gate review`, inspect without a build contract or approval, reuse successful evidence, and report findings without changing files. Do not activate review mode for a simple lookup or explanation. If the user requests fixes as part of the same request, use the complete contract instead of review mode.
+- In **Always ON**, use the contract workflow for software creation, modification, deletion, refactoring, and repair without requiring a mention.
+- In **Manual**, activate only when the user selects `@Click` or invokes `$click`, then run `click-gate arm` before staging.
+- When unset, leave questions, explanations, review, and simple inspection alone. Before the first software mutation, ask once for Always ON or Manual and record the answer with the documented default command.
+- For code-review-only work in Always ON, run `click-gate review`, remain read-only, reuse evidence, and report findings without a build contract. A request that also asks for fixes uses the contract workflow.
 
-Read [references/modes.md](references/modes.md) whenever choosing, changing, bypassing, or applying a mode. In Manual mode, run `click-gate arm` before staging. Always ON is already armed persistently. Read-only inspection remains available before the contract in either mode.
+Do not treat a question about Click as a mutation. Bypass and cancel require the exact user-authorized first-line forms in the modes reference; never infer them from ordinary prose.
 
-## Preserve intent without conducting a questionnaire
+## Compile the smallest faithful contract
 
-Treat the requested outcome, user-visible behavior, scope, constraints, and authorization as authoritative. Inspect the repository from the narrowest relevant entry point and widen only while a consequential behavior remains unresolved.
+Treat the user's requested result, visible behavior, scope, constraints, and authority as primary. A contract-only or handoff request does not authorize implementation. Inspect from the narrowest relevant repository entry point and widen only while consequential behavior is unresolved. Do not treat an existing system as a blank slate or include unrelated cleanup. Resolve ordinary technical choices from repository evidence instead of asking serial preference questions; ask before staging only when missing authority makes every safe faithful contract impossible. Expose other consequential assumptions or product choices in the one contract review.
 
-Do not ask a series of technical preference questions before producing the contract. Infer implementation choices from the repository and current requirement. Put consequential assumptions or proposed product choices visibly into the contract so the user can accept or change them in the single approval review. Ask before the contract only when even proposing a safe contract requires missing authority, such as choosing another person's account or committing an irreversible external action.
+For broad or cross-boundary work, read the [translation guide](references/translation-guide.md). Before every stage, read the canonical [contract format and approval lifecycle](references/directive-format.md) and [verification profiles](references/verification-profiles.md). Those references own the exact schema, optional-field rules, verification scale, structured evidence registry, and Browser limits; do not restate them as parallel sections.
 
-Do not treat an existing system as blank or infer permission for unrelated cleanup, migration, or product expansion. If the user asks only for a contract or handoff, produce the same contract without implementation.
+Keep the contract proportional. Prefer an existing capable structure and add no speculative component. The contract fixes the approved semantic boundary while leaving necessary in-scope libraries, files, tools, dependencies, and low-level tactics open. Give every completion condition one cheapest sufficient primary evidence source, allow one source to cover several conditions, and avoid duplicate proof.
 
-For broad cross-boundary work, read [references/translation-guide.md](references/translation-guide.md). Whenever a contract will be shown or staged, read [references/directive-format.md](references/directive-format.md) and [references/verification-profiles.md](references/verification-profiles.md). Before post-approval implementation, read [references/anti-loop-policy.md](references/anti-loop-policy.md) and [references/capability-protocol.md](references/capability-protocol.md).
+## Stage once and approve by id
 
-## Compile one compact contract
+1. Run `click-gate stage '<Execution Contract JSON>'` once and capture the emitted `CLICK_CONTRACT_ID=ctr_<32hex>`.
+2. Show the compact developer contract, its faithful plain-language view in the user's language, the verification scale, and that exact `contract_id`.
+3. Ask one compact approval/change/cancel question, then stop without mutating project files.
 
-Generate one developer execution contract with six top-level areas:
+The original request is not approval of an unseen proposal. A revision after another user response must be staged and shown again and receives a new id.
 
-- `outcome`: the concrete result and user-visible behavior;
-- `boundary`: `in_scope` work and explicit `out_of_scope` limits;
-- `must_hold`: observable behavior, compatibility, safety, and other conditions that cannot change;
-- `build`: a repository-aware `approach`, plus `semantics` or `order` only when they materially constrain the result;
-- `verification`: one `quick`, `focused`, or `full` scale, a structured `evidence` registry, and observable `done_when` conditions that each reference one cheapest sufficient primary evidence id, plus `intermediate_gate` only for a real irreversible boundary;
-- `plain_language`: a faithful easy explanation of the same contract.
+Only in a later turn whose user response explicitly approves the shown proposal, arm if Manual mode requires it and run `click-gate pass ctr_<32hex>` with the emitted id. Never resend or reconstruct the contract JSON in the approval turn. The Hook proves turn separation and binds the id to the staged digest; the Skill remains responsible for interpreting whether the user's words actually grant approval.
 
-Do not recreate `plan`, `implementation`, `phases`, `steps`, `tasks`, `execution_order`, `minimality`, or `proof` as separate fields or prose sections. Put the smallest sufficient implementation route in `build.approach`, material state or failure meaning in optional `build.semantics`, real sequencing constraints in optional `build.order`, each evidence source once in `verification.evidence`, and acceptance conditions plus their source references in `verification.done_when`.
+## Execute the approved boundary once
 
-The contract is semantic rather than literal: it fixes the approved result, boundary, must-hold conditions, material system behavior, and verification commitment. It deliberately grants freedom to choose necessary in-scope libraries, dependencies, MCP tools, external services, graders, file edits, and low-level tactics during implementation.
+Before implementation, read the [anti-loop policy](references/anti-loop-policy.md) and [structured capability protocol](references/capability-protocol.md). Implement continuously without a replacement plan, contract, or repository-wide rediscovery. Use their canonical inspect, mutate, managed-service, and verify forms rather than duplicating command details here.
 
-## Recommend verification once
+Collect each assigned source once after the last mutation that can invalidate it. Reuse current successful evidence, keep Browser or hosted work out of a shadow verification suite, and stop verification when every completion condition has current evidence. A failed or stale source may be repaired or replaced under the documented retry rules; it is not a reason to accumulate another proof path.
 
-Choose `quick`, `focused`, or `full` from present risk and repository evidence. Contract approval also approves that scale; do not ask a second verification question.
+Do not request reapproval for an in-scope technical choice. Stop only when completion needs missing authority, an uncovered irreversible or paid external action, or a change to the approved outcome, visible behavior, boundary, invariant, or verification commitment. Otherwise finish in one shot and report the result and completion evidence.
 
-The Hook derives the executable ceiling automatically: `quick` has 1 unit, `focused` 4, and `full` 10. Submit each argv check as `targeted` (1 unit), `broad` (3), or `deep` (5) according to its real reach. The Hook independently infers a minimum class for recognized commands and raises any lower submission before charging the batch. These are ceilings, not targets. Select the smallest final batch that proves `done_when`.
-
-Before staging, declare each primary source once in `verification.evidence` with a unique `id`, a `kind` of `argv`, `browser`, `hosted`, `manual`, or `existing`, and a short `description`. Each `done_when` object contains one observable `condition` and one `primary_evidence` id. Every source must be referenced; one source may cover several conditions. Prefer current evidence that remains valid for the final revision, then the narrowest adequate automated or static check; use browser, manual, hosted, or long-running evidence only for behavior cheaper sources cannot prove. Use at most one `browser` source and reference it from every condition covered by that representative session. Do not assign both automated and interactive proof to the same condition, enumerate equivalent permutations, or wait through a timed end-to-end flow when a deterministic state transition or representative scenario proves it.
-
-Collect each assigned source once after the last mutation that can invalidate it. Put argv-based sources in the one final budgeted batch. An assigned Browser source gets one serial representative session: at most three calls and 90 measured seconds, with tool timeouts capped at 30 seconds and explicit waits capped at five seconds. Use deterministic state instead of natural timed progression. Collect other unmatched interactive or hosted evidence once, keep it out of a duplicate shadow suite, and reuse it at handoff. Stop verification as soon as every condition has current evidence. Repeat a source only when it failed, became stale, or proved insufficient; replace it rather than adding a second proof path for the same condition. Routine builds, app runs, and narrow feedback needed to implement may occur, but they are not additional completion evidence unless the contract assigned them. Use `intermediate_gate` only when a later action depends on an irreversible migration, destructive operation, deployment, paid external call, or similarly unrecoverable boundary. Omit it for routine edits, builds, and reversible implementation choices.
-
-## Show both views and ask once
-
-1. Stage the exact JSON with `click-gate stage '<Execution Contract JSON>'`.
-2. Show the compact developer contract.
-3. Show its faithful plain-language explanation in the user's language, including the verification scale.
-4. Ask one compact question: approve, change the proposed contract, simplify the explanation, or cancel.
-5. Stop without mutating project files.
-
-The original request is not approval of an unseen contract. The Hook records the `UserPromptSubmit` turn that stages the proposal and will not pass it or accept a second stage in that same turn. Before approval, a requested change may replace the proposal only after another user response, and both views are shown again. The easy explanation must not add or hide material meaning.
-
-## Implement the approved contract in one shot
-
-After explicit approval:
-
-1. In Manual mode, run `click-gate arm` in the approval turn. In Always ON mode this is optional.
-2. Run `click-gate pass '<Execution Contract JSON>'` with the exact staged JSON.
-3. Implement continuously inside the approved semantic boundary without creating a new plan, restaging the contract, or reopening repository-wide inventory exploration. Use ordinary edit tools for file edits and `click-gate mutate '{"version":1,"argv":[...]}'` for a bounded implementation command that may write. Start a recognizable long-running development server with `click-gate service '{"version":1,"action":"start","argv":[...]}'` and stop it with `click-gate service '{"version":1,"action":"stop"}'`; never leave it inside a foreground mutation. Do not use `kill`, `pkill`, `killall`, `taskkill`, `Stop-Process`, or another direct process-control executable; the Hook rejects them and runs accepted child commands in an isolated process group.
-4. Use `click-gate inspect '{"version":1,"commands":[[...]]}'` when a read is ambiguous or when explicit tracked argv evidence is clearer than compatible direct read syntax.
-5. Submit only sources declared with `kind: "argv"` in the smallest sufficient final batch as `click-gate verify '{"version":1,"checks":[{"argv":[...],"class":"targeted"}]}'`. Use `targeted`, `broad`, or `deep` honestly; the Hook raises underdeclared checks to their inferred minimum. Do not use Python `-c`, a direct Python script, a shell, or a renamed wrapper as verification.
-6. Report results and material implementation choices.
-
-The Hook executes the accepted batch and records its real exit code. It recognizes runner type and actual scope separately: filters, multiple targets, directories, and suites are not cheap merely because the argv looks specific, while one exact integration or security node is broad rather than automatically deep. In a Git worktree it compares tracked and pre-existing non-ignored untracked content before and after the batch. A protected-content change fails stale, and every new non-ignored untracked path created by verification also fails stale and advances the mutation revision. Source, application, library, configuration, or migration classification is used only to make the warning clearer. Expected generated artifacts should be ignored or produced during the approved mutation phase. Git-ignored paths are outside this snapshot. After success, do not run another verification batch unless a later in-scope mutation makes the result stale; then re-run the same batch. After failure, fix the in-scope cause and retry. One unchanged retry is available for a transient failure, after which a code mutation is required. Do not bypass the budget with a renamed wrapper or a direct broad-suite command.
-
-Do not create a replacement contract or request reapproval for an in-scope technical choice. MCP tools, external services, dependencies, graders, architecture tactics, files, and implementation order may change when necessary to deliver the approved result while preserving its boundary and must-hold conditions. The approved contract remains unchanged because it already grants that implementation freedom.
-
-After approval, reuse successful read/search evidence. If more evidence is needed, issue a narrower or materially different structured query. The Hook converts compatible simple direct reads into argv requests, blocks an identical successful observation until an in-scope mutation makes it stale, allows one unchanged retry after a failed or oversized observation, rejects repository-wide inventory rescans, and rejects matched plan-tool calls throughout armed, staged, approved, and review workflows. Do not evade those guards with renamed wrappers or prose-only duplicate plans.
-
-In Manual mode, once a contract is staged or approved but incomplete, its session state also blocks ordinary mutations in later turns. On an approval or resume turn, arm and pass the exact same contract before editing; Manual fail-open applies only when no Click contract is active.
-
-Stop only when completion needs authority the user has not granted, an irreversible or paid external action not covered by approval, or a change to the approved outcome, user-visible behavior, boundary, must-hold condition, or verification commitment. Report the blocker; do not silently widen the work or substitute a new mid-run contract.
-
-## Prevent overdesign by evidence, not bans
-
-Choose the smallest design that satisfies every invariant. No component category is forbidden. A new dependency, service, queue, store, MCP, grader, abstraction, or operational component is valid when it is a proportionate way to complete the approved work. Prefer existing structure when it is equally capable; do not add speculative architecture for hypothetical scale, teams, or reuse.
-
-The Hook validates contract shape, distinct staging and approval turns, mutation ordering, exact staged-versus-passed equality, structured argv observations and commands, and the inferred visible verification budget. Its review guard covers supported local Hook paths, not every connector read. It can prove that another user turn occurred, but it cannot semantically prove that the user's words meant approval. It also cannot see hidden reasoning, prose-only plans, connector reads outside its matcher, design truth, or semantic implementation fidelity. If Hook enforcement is unavailable, preserve the same ordering at instruction level and disclose that fact.
-
-## Communicate plainly
-
-Use the user's language. Lead with the resulting behavior, explain important safeguards and the verification cost, then ask the single approval question. Avoid architecture slogans and serial option menus.
+The Hook enforces observable contract shape, id/digest binding, turn order, supported tool paths, and verification budgets. It cannot prove semantic approval, hidden reasoning, unmatched connector behavior, architecture truth, or implementation fidelity. If Hook enforcement is unavailable, preserve the same ordering and disclose that limitation.

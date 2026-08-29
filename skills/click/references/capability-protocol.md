@@ -18,7 +18,7 @@ Recognized simple Bash reads remain compatible: the Hook converts safe direct sy
 
 ## Mutation
 
-After the exact contract is approved, use this for an implementation command that may write files or generated state:
+After a later approval turn passes the emitted `contract_id` for its digest-bound contract, use this for an implementation command that may write files or generated state:
 
 ```text
 click-gate mutate '{"version":1,"argv":["python3","scripts/generate.py","--target","src"]}'

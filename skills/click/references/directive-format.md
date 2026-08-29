@@ -4,7 +4,7 @@ Use this format whenever an active Click contract is staged, shown, approved, im
 
 ## Canonical contract object
 
-Stage and pass one JSON object with exactly these fields:
+Stage one JSON object with exactly these fields:
 
 ```json
 {
@@ -59,8 +59,16 @@ After the developer contract, show `plain_language` in the user's language. Expl
 
 ## Single approval
 
-End with one compact question equivalent to:
+Run `click-gate stage '<Execution Contract JSON>'` once. The Hook validates and binds the canonical contract digest, creates a fresh opaque lifecycle handle, and returns:
 
-> Do you approve this execution contract and its verification scale? If approved, I will implement it in one shot and run the completion checks once.
+```text
+CLICK_CONTRACT_ID=ctr_<32 lowercase hex characters>
+```
 
-The original request is not approval of an unseen contract. Staging records `staged_turn_id`; the Hook rejects pass and a replacement stage in that same `UserPromptSubmit` turn. After a later user response, the user may revise the proposal and see it again, or approve it. Approval records `approved_turn_id`, passes the exact staged JSON, and authorizes one-shot implementation while necessary in-scope technical choices remain open. Turn separation proves that another user response occurred; the Skill still must interpret that response faithfully because the Hook does not semantically classify approval words.
+`contract_id` is not a contract field and does not replace the stored digest. Show the emitted id with the developer contract and its plain-language view, then end with one compact question equivalent to:
+
+> Do you approve contract `ctr_...` and its verification scale? If approved, I will implement it in one shot and run the completion checks once.
+
+Stop without mutation. The original request is not approval of an unseen contract. Staging records `staged_turn_id`; the Hook rejects pass and a replacement stage in that same `UserPromptSubmit` turn. A revised proposal staged after another user response receives a new id, invalidating the old handle.
+
+Only after a later user turn explicitly approves the shown proposal, run `click-gate pass ctr_<32hex>`. Pass only the exact emitted id—never resend or reconstruct the contract JSON. The Hook matches the id to the staged digest, records `approved_turn_id`, and preserves the derived verification state. An approved but incomplete contract reuses the same id when implementation resumes in a later turn. Turn separation proves that another user response occurred; the Skill still must interpret that response faithfully because the Hook does not semantically classify approval words.

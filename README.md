@@ -63,18 +63,18 @@ flowchart TB
     B -->|Manual| D["Use @Click<br/>when wanted"]
     C --> E["Compact contract<br/>+ plain explanation"]
     D --> E
-    E --> F["Stage contract<br/>and wait"]
+    E --> F["Stage JSON once<br/>receive contract_id"]
     F --> I{"Later user turn:<br/>approve once?"}
     I -->|Revise or cancel| E
     I -->|Approve| G["One-shot implementation"]
     G --> H["One budgeted<br/>final verification"]
 ```
 
-The initial request is not approval of an unseen design. Click first stages and shows both the developer contract and the easy explanation, then stops. The Hook records `staged_turn_id`, rejects pass or a second stage in that same `UserPromptSubmit` turn, and accepts the exact contract only from a later user turn. You may revise or cancel the proposal there. Once you approve it, Click records `approved_turn_id`, keeps the semantic contract fixed, and implements without asking you to approve another plan. This proves that another user response occurred; the Skill still interprets whether that response actually means approval because the Hook does not classify natural-language consent.
+The initial request is not approval of an unseen design. Click stages the contract JSON once, receives an opaque `contract_id`, shows that id with both contract views, then stops. The Hook records `staged_turn_id` and rejects pass or replacement staging in the same `UserPromptSubmit` turn. A later explicit approval passes only the emitted id—never the JSON again—and the Hook matches it to the staged digest before recording `approved_turn_id`. Revising the proposal issues a new id and invalidates the old handle. This proves that another user response occurred; the Skill still interprets whether that response actually means approval because the Hook does not classify natural-language consent.
 
 Only a real change to the approved result, boundary, must-hold behavior, or verification commitment requires stopping. Necessary files, libraries, tools, services, and implementation tactics inside the approved boundary do not require a replacement contract.
 
-In Manual mode, fail-open behavior applies only when no Click contract is active. Once a contract is staged, or approved but not yet verified for its current revision, that session state keeps ordinary mutations blocked across later turns. This prevents an approval turn from editing before the exact contract is passed. If an approved implementation is interrupted and resumed in another turn, Click must arm and pass the same contract again before continuing; it does not invent a replacement contract.
+In Manual mode, fail-open behavior applies only when no Click contract is active. Once a contract is staged, or approved but not yet verified for its current revision, that session state keeps ordinary mutations blocked across later turns. This prevents an approval turn from editing before the bound `contract_id` is passed. If an approved implementation is interrupted and resumed in another turn, Click arms and passes the same id before continuing; it does not resend the JSON or invent a replacement contract.
 
 When final verification passes for the current code revision, the next change request can stage a fresh contract normally. Verification that has not run, is running, failed, or became stale after another mutation does not unlock replacement. The new contract starts with clean inspection, mutation, and verification state and needs its own approval; no `bypass` or manual state deletion is required.
 
@@ -137,7 +137,7 @@ Click may present a compact contract like this before touching code:
 }
 ```
 
-Click then asks one question: approve this contract and its verification scale, revise it, or cancel? Approval authorizes the developer meaning in the contract—not merely the easy summary—and starts implementation.
+Staging returns `CLICK_CONTRACT_ID=ctr_0123456789abcdef0123456789abcdef`. Click shows that id and asks one question: approve this contract and its verification scale, revise it, or cancel? Approval authorizes the developer meaning in the contract—not merely the easy summary—and the later turn passes only this id to start implementation.
 
 The exact design is repository-dependent. The example shows the contract shape, not a universal refund architecture.
 
@@ -184,7 +184,7 @@ Across staging, review, implementation, and verification, the Hook enforces thes
 | Keep checks in budget | Final checks must run through the structured `click-gate verify` batch and fit the approved scale. |
 | Bound Browser evidence | Browser MCP calls require an explicitly assigned Browser primary source, then receive one three-call, 90-second representative-session budget; long timed progression and post-completion replay are rejected. |
 | Own local servers | Recognized development servers use `click-gate service`; Click supervises and stops the exact isolated child instead of leaving a foreground mutation open. |
-| Separate proposal from approval | Same-turn pass and same-turn replacement staging are rejected; the exact digest can pass only after a later `UserPromptSubmit`. |
+| Separate proposal from approval | Stage emits an opaque id bound to the digest. Same-turn pass and replacement staging are rejected; a later approval passes only that exact id. |
 
 A failed observation or one whose output exceeds 48,000 bytes gets one unchanged retry. A source mutation resets successful observation evidence because the code may have changed. Hook state changes use a cross-platform lock so parallel result recording does not strand a false “running” observation. The Hook stores request digests and non-content metadata, not command bodies or output.
 
@@ -201,7 +201,7 @@ click-gate service '{"version":1,"action":"start","argv":["python3","-m","http.s
 click-gate service '{"version":1,"action":"stop"}'
 ```
 
-`inspect` accepts only the Hook's bounded read-only operations. Git reads use subcommand-specific positive option policies; `git grep`, `git cat-file`, arbitrary `--format`/`--pretty` output, signature-rendering options, and `git status -v/-vv` are excluded. Accepted Git inspection strips inherited `GIT_*` variables, ignores system/global Git config, forces safe log and diff settings, disables paging and optional locks, and adds `--no-ext-diff` plus `--no-textconv` to supported diff-rendering commands. `mutate` requires the exact approved contract and marks prior evidence stale. Recognized long-running server forms are rejected there and instead use `service`, whose supervisor owns the exact child, isolates its process group, stops it explicitly or on `SessionEnd`, and applies a two-hour lifetime ceiling. Ordinary canonical edit tools such as `apply_patch`, `Edit`, and `Write` remain supported mutations without a shell envelope. Malformed requests, shell interpreters, and direct process-control executables such as `kill`, `pkill`, `killall`, `taskkill`, and `Stop-Process` fail closed. An allowed custom program can still conceal explicit process operations, so Click remains a workflow guardrail rather than an operating-system sandbox. See [the capability protocol](skills/click/references/capability-protocol.md) for the exact schemas and enforcement boundary.
+`inspect` accepts only the Hook's bounded read-only operations. Git reads use subcommand-specific positive option policies; `git grep`, `git cat-file`, arbitrary `--format`/`--pretty` output, signature-rendering options, and `git status -v/-vv` are excluded. Accepted Git inspection strips inherited `GIT_*` variables, ignores system/global Git config, forces safe log and diff settings, disables paging and optional locks, and adds `--no-ext-diff` plus `--no-textconv` to supported diff-rendering commands. `mutate` requires the current turn to have passed the emitted id for the approved digest-bound contract and marks prior evidence stale. Recognized long-running server forms are rejected there and instead use `service`, whose supervisor owns the exact child, isolates its process group, stops it explicitly or on `SessionEnd`, and applies a two-hour lifetime ceiling. Ordinary canonical edit tools such as `apply_patch`, `Edit`, and `Write` remain supported mutations without a shell envelope. Malformed requests, shell interpreters, and direct process-control executables such as `kill`, `pkill`, `killall`, `taskkill`, and `Stop-Process` fail closed. An allowed custom program can still conceal explicit process operations, so Click remains a workflow guardrail rather than an operating-system sandbox. See [the capability protocol](skills/click/references/capability-protocol.md) for the exact schemas and enforcement boundary.
 
 SSH Git inspection is **Experimental and POSIX-remote-shell only**. It supports only bounded `git status`, `git rev-parse HEAD`, `git merge-base`, and `git remote get-url` reads, accepts no caller-provided SSH options, requires an already-known host key, disables interactive password flows, host-key updates, forwarding, local commands, and TTY allocation, and fails quickly with connection and keepalive limits. Unknown hosts, non-POSIX remote shells, and unreachable servers fail closed. This is a convenience guardrail, not a general remote executor or security sandbox.
 
@@ -310,7 +310,7 @@ git diff --check
 | Project | Overlap | Click's narrower emphasis |
 | --- | --- | --- |
 | [GitHub Spec Kit](https://github.com/github/spec-kit) | Specification, planning, tasks, implementation | One compact contract and one approval instead of a persistent multi-command specification process |
-| [OpenSpec](https://github.com/Fission-AI/OpenSpec) | Agreement before AI-assisted coding | No project-local specification store; the Hook keeps only a digest outside the target repository |
+| [OpenSpec](https://github.com/Fission-AI/OpenSpec) | Agreement before AI-assisted coding | No project-local specification store; the Hook keeps only content-free lifecycle metadata and a digest outside the target repository |
 | [Kiro Specs](https://kiro.dev/docs/cli/v3/specs/) | Requirements, design, tasks, verified execution | One complete contract review followed by one-shot implementation |
 | [Agentic SDLC Codex Plugin](https://github.com/aantenore/agentic-sdlc-codex-plugin) | Hash-bound proposals and approval | A smaller pre-code boundary rather than broader SDLC governance |
 

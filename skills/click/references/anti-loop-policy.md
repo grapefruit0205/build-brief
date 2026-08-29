@@ -1,6 +1,6 @@
 # Anti-loop Policy
 
-Apply the build guards after the exact staged Click contract has been approved and passed. In Always ON code-review mode, apply only the read-only observation guards without requiring a build contract. Manual work where Click was not explicitly invoked remains fail-open.
+Apply the build guards after the id bound to the staged Click contract has been approved and passed. In Always ON code-review mode, apply only the read-only observation guards without requiring a build contract. Manual work where Click was not explicitly invoked remains fail-open.
 
 ## Hard observable guards
 
