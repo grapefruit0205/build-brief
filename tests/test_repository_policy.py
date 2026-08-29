@@ -138,11 +138,54 @@ class RepositoryPolicyTests(unittest.TestCase):
             self.assertIn('"evidence": [', readme)
             self.assertIn('"primary_evidence":', readme)
             self.assertIn('"kind": "argv"', readme)
+            self.assertIn('"evidence_id":', readme)
+            self.assertIn('"version":2', readme)
+            self.assertIn("click-gate evidence", readme)
 
         hook = (ROOT / "hooks" / "click_gate.py").read_text(encoding="utf-8")
         self.assertNotIn("BROWSER_SOURCE_MARKERS", hook)
         self.assertNotIn("BROWSER_SOURCE_TERMS", hook)
         self.assertIn('source.get("kind") == "browser"', hook)
+
+    def test_plain_language_stays_digest_bound_and_is_rendered_once(self) -> None:
+        hook = (ROOT / "hooks" / "click_gate.py").read_text(encoding="utf-8")
+        documents = (
+            (ROOT / "skills" / "click" / "SKILL.md").read_text(encoding="utf-8"),
+            (ROOT / "skills" / "fix" / "SKILL.md").read_text(encoding="utf-8"),
+            (
+                ROOT
+                / "skills"
+                / "click"
+                / "references"
+                / "translation-guide.md"
+            ).read_text(encoding="utf-8"),
+            (
+                ROOT
+                / "skills"
+                / "click"
+                / "references"
+                / "directive-format.md"
+            ).read_text(encoding="utf-8"),
+            (ROOT / "evals" / "SEMANTIC_GRADER.md").read_text(encoding="utf-8"),
+            (ROOT / "evals" / "golden-prompts.yaml").read_text(encoding="utf-8"),
+        )
+
+        self.assertIn('STRING_FIELDS = ("outcome", "plain_language")', hook)
+        for document in documents:
+            with self.subTest(document=document[:40]):
+                self.assertIn("digest-bound", document)
+                self.assertIn("plain_language", document)
+                self.assertIn("once", document)
+
+        grader = documents[-2]
+        self.assertIn("duplicate rendering as a missed invariant", grader)
+
+        english = (ROOT / "README.md").read_text(encoding="utf-8")
+        korean = (ROOT / "README.ko.md").read_text(encoding="utf-8")
+        chinese = (ROOT / "README.zh-CN.md").read_text(encoding="utf-8")
+        self.assertIn("renders that exact value once", english)
+        self.assertIn("같은 뜻을 별도의 두 번째 요약으로 다시 쓰지 않습니다", korean)
+        self.assertIn("不会把同一说明输出两遍", chinese)
 
     def test_readmes_document_distinct_turn_approval_and_git_mutation_guard(self) -> None:
         english = (ROOT / "README.md").read_text(encoding="utf-8")
@@ -223,14 +266,48 @@ class RepositoryPolicyTests(unittest.TestCase):
         self.assertIn("workflow_dispatch:", workflow)
         self.assertTrue((ROOT / "scripts" / "validate_distribution.py").is_file())
 
-    def test_release_documents_identify_v020_without_an_unreleased_heading(self) -> None:
+    def test_release_documents_identify_v020_and_the_unreleased_candidate(self) -> None:
         for readme_name in README_NAMES:
             with self.subTest(readme=readme_name):
                 readme = (ROOT / readme_name).read_text(encoding="utf-8")
                 self.assertIn("v0.20.0", readme)
+                self.assertIn("version-18", readme)
         notes = (ROOT / "RELEASE_NOTES.md").read_text(encoding="utf-8")
         self.assertIn("## v0.20.0", notes)
-        self.assertNotIn("## Unreleased", notes)
+        self.assertIn("## Unreleased v0.21 candidate", notes)
+        self.assertIn("## Unreleased v0.21 candidate", (ROOT / "README.md").read_text())
+        self.assertIn("## 미출시 v0.21 후보", (ROOT / "README.ko.md").read_text())
+        self.assertIn(
+            "## 未发布的 v0.21 candidate", (ROOT / "README.zh-CN.md").read_text()
+        )
+
+    def test_completion_docs_match_per_source_and_service_state(self) -> None:
+        modes = (
+            ROOT / "skills" / "click" / "references" / "modes.md"
+        ).read_text(encoding="utf-8")
+        profiles = (
+            ROOT
+            / "skills"
+            / "click"
+            / "references"
+            / "verification-profiles.md"
+        ).read_text(encoding="utf-8")
+        self.assertIn("every declared evidence source", modes)
+        self.assertIn("no managed service remains active", modes)
+        self.assertIn("no argv source", modes)
+        self.assertIn("Typical argv evidence, when declared", profiles)
+        self.assertIn("no argv source", profiles)
+
+        localized_requirements = {
+            "README.md": "no managed service remains active",
+            "README.ko.md": "관리 서비스가 활성 상태가 아니",
+            "README.zh-CN.md": "没有受管服务仍处于活动状态",
+        }
+        for name, phrase in localized_requirements.items():
+            with self.subTest(readme=name):
+                self.assertIn(
+                    phrase, (ROOT / name).read_text(encoding="utf-8")
+                )
 
     def test_readmes_explain_the_core_purpose_and_v020_update(self) -> None:
         english = (ROOT / "README.md").read_text(encoding="utf-8")
@@ -364,7 +441,7 @@ class RepositoryPolicyTests(unittest.TestCase):
         catalog = (
             ROOT / "evals" / "golden-prompts.yaml"
         ).read_text(encoding="utf-8")
-        self.assertIn("version: 17", catalog)
+        self.assertIn("version: 18", catalog)
         for case_id in (
             "unset-first-mutation-choice",
             "always-on-trivial-edit",

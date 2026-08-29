@@ -47,16 +47,20 @@ VERIFICATION_FIELDS = {"scale", "evidence", "done_when", "intermediate_gate"}
 EVIDENCE_SOURCE_FIELDS = {"id", "kind", "description"}
 DONE_WHEN_FIELDS = {"condition", "primary_evidence"}
 EVIDENCE_KINDS = ("argv", "browser", "hosted", "manual", "existing")
+EVIDENCE_STATUSES = {"ready", "running", "observed", "passed", "failed", "stale"}
 EVIDENCE_ID_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9_-]{0,31}$")
 CONTRACT_ID_PATTERN = re.compile(r"^ctr_[0-9a-f]{32}$")
 VERIFICATION_SCALES = ("quick", "focused", "full")
 VERIFICATION_UNIT_LIMITS = {"quick": 1, "focused": 4, "full": 10}
 CAPABILITY_PROTOCOL_VERSION = 1
+VERIFICATION_PROTOCOL_VERSION = 2
+CONTRACT_STATE_SCHEMA_VERSION = 2
 INSPECTION_REQUEST_FIELDS = {"version", "commands"}
 MUTATION_REQUEST_FIELDS = {"version", "argv"}
 SERVICE_REQUEST_FIELDS = {"version", "action", "argv"}
 VERIFICATION_BATCH_FIELDS = {"version", "checks"}
-VERIFICATION_CHECK_FIELDS = {"argv", "class"}
+VERIFICATION_CHECK_FIELDS = {"evidence_id", "argv", "class"}
+EVIDENCE_RESULT_FIELDS = {"version", "evidence_id"}
 VERIFICATION_CLASSES = {"targeted": 1, "broad": 3, "deep": 5}
 PYTHON_VERIFICATION_MODULES = {"coverage", "pytest", "unittest"}
 DEEP_VERIFICATION_EXECUTABLES = {
@@ -95,6 +99,7 @@ MAX_BROWSER_EVIDENCE_CALLS = 3
 MAX_BROWSER_EVIDENCE_SECONDS = 90
 MAX_BROWSER_TOOL_TIMEOUT_MS = 30_000
 MAX_BROWSER_WAIT_MS = 5_000
+BROWSER_RUNNING_TTL_SECONDS = 40
 OBSERVATION_RUNNING_TTL_SECONDS = 10 * 60
 MUTATION_RUNNING_TTL_SECONDS = 10 * 60
 VERIFY_RUNNING_TTL_SECONDS = 60 * 60
@@ -635,8 +640,129 @@ def _fresh_verification_state(contract: dict[str, Any]) -> dict[str, Any]:
         "last_batch_digest": "",
         "locked_batch_digest": "",
         "runner_token_digest": "",
+        "runner_claimed_at": 0,
+        "running_evidence_keys": [],
         "workspace_changed": False,
         "started_at": 0,
+    }
+
+
+def _evidence_key(evidence_id: str) -> str:
+    return hashlib.sha256(evidence_id.encode()).hexdigest()
+
+
+def _evidence_registry_digest(sources: dict[str, Any]) -> str:
+    registry = sorted(
+        (key, str(source.get("kind", "")))
+        for key, source in sources.items()
+        if isinstance(key, str) and isinstance(source, dict)
+    )
+    payload = json.dumps(registry, separators=(",", ":"))
+    return hashlib.sha256(payload.encode()).hexdigest()
+
+
+def _fresh_evidence_state(contract: dict[str, Any]) -> dict[str, Any]:
+    verification = contract.get("verification")
+    declared = verification.get("evidence") if isinstance(verification, dict) else []
+    sources: dict[str, Any] = {}
+    if isinstance(declared, list):
+        for source in declared:
+            if not isinstance(source, dict):
+                continue
+            source_id = source.get("id")
+            kind = source.get("kind")
+            if not isinstance(source_id, str) or kind not in EVIDENCE_KINDS:
+                continue
+            sources[_evidence_key(source_id)] = {
+                "kind": kind,
+                "status": "ready",
+                "verified_revision": -1,
+                "attempts": 0,
+                "unchanged_failure_retries": 0,
+                "last_exit_code": None,
+                "last_check_digest": "",
+                "locked_check_digest": "",
+            }
+    return {
+        "version": 1,
+        "source_count": len(sources),
+        "registry_digest": _evidence_registry_digest(sources),
+        "sources": sources,
+    }
+
+
+def _evidence_sources(state: dict[str, Any]) -> dict[str, Any] | None:
+    """Return the v1 content-free evidence ledger, or None for legacy state."""
+    if (
+        "state_schema_version" in state
+        and state.get("state_schema_version") != CONTRACT_STATE_SCHEMA_VERSION
+    ):
+        return {}
+    if "evidence_state" not in state:
+        if "state_schema_version" in state:
+            return {}
+        return None
+    evidence_state = state.get("evidence_state")
+    if not isinstance(evidence_state, dict) or evidence_state.get("version") != 1:
+        return {}
+    sources = evidence_state.get("sources")
+    if not isinstance(sources, dict):
+        return {}
+    for key, source in sources.items():
+        if (
+            not isinstance(key, str)
+            or not re.fullmatch(r"[0-9a-f]{64}", key)
+            or not isinstance(source, dict)
+            or source.get("kind") not in EVIDENCE_KINDS
+            or source.get("status") not in EVIDENCE_STATUSES
+            or not isinstance(source.get("verified_revision"), int)
+            or isinstance(source.get("verified_revision"), bool)
+            or not isinstance(source.get("attempts"), int)
+            or isinstance(source.get("attempts"), bool)
+            or not isinstance(source.get("unchanged_failure_retries"), int)
+            or isinstance(source.get("unchanged_failure_retries"), bool)
+            or source.get("attempts", -1) < 0
+            or source.get("unchanged_failure_retries", -1) < 0
+            or source.get("last_exit_code") is not None
+            and (
+                not isinstance(source.get("last_exit_code"), int)
+                or isinstance(source.get("last_exit_code"), bool)
+            )
+            or not isinstance(source.get("last_check_digest"), str)
+            or not isinstance(source.get("locked_check_digest"), str)
+        ):
+            return {}
+    source_count = evidence_state.get("source_count")
+    registry_digest = evidence_state.get("registry_digest")
+    if (
+        not isinstance(source_count, int)
+        or isinstance(source_count, bool)
+        or source_count != len(sources)
+        or not isinstance(registry_digest, str)
+        or not re.fullmatch(r"[0-9a-f]{64}", registry_digest)
+        or not secrets.compare_digest(
+            registry_digest, _evidence_registry_digest(sources)
+        )
+    ):
+        return {}
+    return sources
+
+
+def _evidence_is_current(source: Any, revision: int) -> bool:
+    return bool(
+        isinstance(source, dict)
+        and source.get("status") == "passed"
+        and int(source.get("verified_revision", -1)) == revision
+    )
+
+
+def _evidence_keys_for_kind(
+    sources: dict[str, Any], kind: str
+) -> set[str]:
+    return {
+        key
+        for key, source in sources.items()
+        if isinstance(source, dict) and source.get("kind") == kind
     }
 
 
@@ -660,19 +786,20 @@ def _fresh_external_evidence_state(
     contract: dict[str, Any] | None = None,
     *,
     required: bool | None = None,
-    source_id: str | None = None,
+    source_key: str | None = None,
 ) -> dict[str, Any]:
-    browser_source_id = (
-        _browser_evidence_source_id(contract or {})
-        if source_id is None
-        else source_id
+    browser_source_id = _browser_evidence_source_id(contract or {})
+    browser_source_key = (
+        _evidence_key(browser_source_id)
+        if source_key is None and browser_source_id
+        else (source_key or "")
     )
     browser_required = (
-        bool(browser_source_id) if required is None else required
+        bool(browser_source_key) if required is None else required
     )
     return {
         "browser_required": browser_required,
-        "browser_source_id": browser_source_id,
+        "browser_source_key": browser_source_key,
         "browser_status": "ready" if browser_required else "not-required",
         "browser_calls": 0,
         "browser_seconds": 0.0,
@@ -755,12 +882,14 @@ def _write_contract_state(
     _write_json(
         _contract_path(event),
         {
+            "state_schema_version": CONTRACT_STATE_SCHEMA_VERSION,
             "status": status,
             "contract_digest": digest,
             "contract_id": contract_id,
             "staged_turn_id": str(event.get("turn_id", "")),
             "approved_turn_id": "",
             "verification": _fresh_verification_state(contract),
+            "evidence_state": _fresh_evidence_state(contract),
             "external_evidence": _fresh_external_evidence_state(contract),
             "observations": _fresh_observation_state(),
             "mutation": _fresh_mutation_state(),
@@ -885,16 +1014,25 @@ def _contract_is_completed(state: dict[str, Any]) -> bool:
     verification = state.get("verification")
     if not isinstance(verification, dict):
         return False
-    local_verification_passed = bool(
-        verification.get("status") == "passed"
-        and int(verification.get("verified_revision", -1))
-        == int(verification.get("mutation_revision", 0))
-    )
-    if not local_verification_passed:
-        return False
-    external = state.get("external_evidence")
-    if isinstance(external, dict) and external.get("browser_required") is True:
-        if external.get("browser_status") != "passed":
+    revision = int(verification.get("mutation_revision", 0))
+    sources = _evidence_sources(state)
+    if sources is None:
+        # Compatibility for an active contract staged before the evidence ledger existed.
+        local_verification_passed = bool(
+            verification.get("status") == "passed"
+            and int(verification.get("verified_revision", -1)) == revision
+        )
+        if not local_verification_passed:
+            return False
+        external = state.get("external_evidence")
+        if isinstance(external, dict) and external.get("browser_required") is True:
+            if external.get("browser_status") != "passed":
+                return False
+    else:
+        if not sources or any(
+            not _evidence_is_current(source, revision)
+            for source in sources.values()
+        ):
             return False
     service = state.get("service")
     if isinstance(service, dict) and service.get("status") in {
@@ -934,6 +1072,17 @@ def _mark_contract_mutated(event: dict[str, Any]) -> str:
         return "Click verification state is unavailable; stage and approve the contract again."
     if verification.get("status") == "running":
         return "Click blocked this mutation while the final verification batch is running."
+    sources = _evidence_sources(state)
+    if sources is None:
+        return (
+            "This active contract predates evidence-id completion tracking. Cancel it, "
+            "stage the proposal again, and obtain fresh approval before mutation."
+        )
+    if not sources:
+        return (
+            "Click evidence state is unavailable or malformed; cancel and stage the "
+            "contract again before changing the implementation."
+        )
 
     observations = state.get("observations")
     if isinstance(observations, dict):
@@ -961,18 +1110,30 @@ def _mark_contract_mutated(event: dict[str, Any]) -> str:
         verification["unchanged_failure_retries"] = 0
         verification["workspace_changed"] = False
     state["verification"] = verification
+    for source in sources.values():
+        if not isinstance(source, dict):
+            continue
+        was_passed = source.get("status") == "passed"
+        source["status"] = "stale" if was_passed else "ready"
+        source["unchanged_failure_retries"] = 0
+        source["last_exit_code"] = None
+        if not source.get("locked_check_digest"):
+            source["last_check_digest"] = ""
     external = state.get("external_evidence")
     browser_required = bool(
         isinstance(external, dict) and external.get("browser_required") is True
     )
-    browser_source_id = (
-        str(external.get("browser_source_id", ""))
+    browser_source_key = (
+        str(external.get("browser_source_key", ""))
         if isinstance(external, dict)
         else ""
     )
+    if not browser_source_key and isinstance(external, dict):
+        legacy_source_id = str(external.get("browser_source_id", ""))
+        browser_source_key = _evidence_key(legacy_source_id) if legacy_source_id else ""
     state["external_evidence"] = _fresh_external_evidence_state(
         required=browser_required,
-        source_id=browser_source_id,
+        source_key=browser_source_key,
     )
     state["observations"] = _fresh_observation_state()
     _save_contract_state(event, state)
@@ -1100,6 +1261,7 @@ def _validate_contract(raw: str) -> tuple[dict[str, Any] | None, str]:
         return None, "Verification `evidence` must be a non-empty list."
     evidence_ids: set[str] = set()
     browser_source_ids: list[str] = []
+    argv_source_count = 0
     for index, source in enumerate(evidence):
         label = f"Verification evidence item {index + 1}"
         if not isinstance(source, dict):
@@ -1131,11 +1293,26 @@ def _validate_contract(raw: str) -> tuple[dict[str, Any] | None, str]:
             return None, f"Evidence `{source_id}` description must be non-empty."
         if kind == "browser":
             browser_source_ids.append(source_id)
+        elif kind == "argv":
+            argv_source_count += 1
     if len(browser_source_ids) > 1:
         return (
             None,
             "Verification may assign at most one Browser evidence source; reuse its id "
             "across every condition covered by the representative session.",
+        )
+    minimum_argv_units = argv_source_count * VERIFICATION_CLASSES["targeted"]
+    maximum_argv_sources = min(
+        VERIFICATION_UNIT_LIMITS[str(scale)], MAX_CAPABILITY_COMMANDS
+    )
+    if minimum_argv_units > VERIFICATION_UNIT_LIMITS[str(scale)] or (
+        argv_source_count > maximum_argv_sources
+    ):
+        return (
+            None,
+            f"Verification scale `{scale}` cannot fit {argv_source_count} argv evidence "
+            "sources in the required single batch within its unit and check-count limits; "
+            "deduplicate the sources or choose a sufficient scale before approval.",
         )
 
     done_when = verification.get("done_when")
@@ -1185,7 +1362,11 @@ def _validate_contract(raw: str) -> tuple[dict[str, Any] | None, str]:
 
 
 def _decode_capability_request(
-    raw: str, label: str, *, limit: int = MAX_CAPABILITY_REQUEST_CHARS
+    raw: str,
+    label: str,
+    *,
+    limit: int = MAX_CAPABILITY_REQUEST_CHARS,
+    version: int = CAPABILITY_PROTOCOL_VERSION,
 ) -> tuple[dict[str, Any] | None, str]:
     if len(raw) > limit:
         return None, f"{label} request must stay under {limit:,} characters."
@@ -1195,10 +1376,10 @@ def _decode_capability_request(
         return None, f"{label} request must be valid JSON."
     if not isinstance(value, dict):
         return None, f"{label} request must be a JSON object."
-    if value.get("version") != CAPABILITY_PROTOCOL_VERSION:
+    if value.get("version") != version:
         return (
             None,
-            f"{label} request `version` must be {CAPABILITY_PROTOCOL_VERSION}.",
+            f"{label} request `version` must be {version}.",
         )
     return value, ""
 
@@ -1363,10 +1544,15 @@ def _validate_service_request(raw: str) -> tuple[dict[str, Any] | None, str]:
 
 
 def _validate_verification_batch(
-    raw: str, scale: str
+    raw: str,
+    scale: str,
+    evidence_sources: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any] | None, int, str]:
     value, error = _decode_capability_request(
-        raw, "Verification batch", limit=MAX_VERIFICATION_BATCH_CHARS
+        raw,
+        "Verification batch",
+        limit=MAX_VERIFICATION_BATCH_CHARS,
+        version=VERIFICATION_PROTOCOL_VERSION,
     )
     if error:
         return None, 0, error
@@ -1396,6 +1582,37 @@ def _validate_verification_batch(
         if unknown_check:
             rendered = ", ".join(f"`{field}`" for field in unknown_check)
             return None, 0, f"Verification check {index} has unsupported field(s): {rendered}."
+        evidence_id = check.get("evidence_id")
+        if evidence_sources is not None:
+            if not isinstance(evidence_id, str) or not EVIDENCE_ID_PATTERN.fullmatch(
+                evidence_id
+            ):
+                return (
+                    None,
+                    0,
+                    f"Verification check {index} `evidence_id` must name one declared "
+                    "argv evidence source.",
+                )
+            source = evidence_sources.get(_evidence_key(evidence_id))
+            if not isinstance(source, dict):
+                return (
+                    None,
+                    0,
+                    f"Verification check {index} references unknown evidence id "
+                    f"`{evidence_id}`.",
+                )
+            if source.get("kind") != "argv":
+                return (
+                    None,
+                    0,
+                    f"Verification check {index} evidence `{evidence_id}` has kind "
+                    f"`{source.get('kind')}`, not `argv`.",
+                )
+        elif evidence_id is not None and (
+            not isinstance(evidence_id, str)
+            or not EVIDENCE_ID_PATTERN.fullmatch(evidence_id)
+        ):
+            return None, 0, f"Verification check {index} `evidence_id` is invalid."
         argv, argv_error = _validate_argv(check.get("argv"), f"Verification check {index}")
         if argv_error:
             return None, 0, argv_error
@@ -1418,7 +1635,13 @@ def _validate_verification_batch(
         if VERIFICATION_CLASSES[effective_class] < VERIFICATION_CLASSES[minimum_class]:
             effective_class = minimum_class
         units += VERIFICATION_CLASSES[effective_class]
-        normalized.append({"argv": argv, "class": effective_class})
+        normalized_check: dict[str, Any] = {
+            "argv": argv,
+            "class": effective_class,
+        }
+        if isinstance(evidence_id, str):
+            normalized_check["evidence_id"] = evidence_id
+        normalized.append(normalized_check)
     limit = VERIFICATION_UNIT_LIMITS[scale]
     if units > limit:
         return (
@@ -1429,9 +1652,26 @@ def _validate_verification_batch(
             "checks instead of expanding verification.",
         )
     return {
-        "version": CAPABILITY_PROTOCOL_VERSION,
+        "version": VERIFICATION_PROTOCOL_VERSION,
         "checks": normalized,
     }, units, ""
+
+
+def _validate_evidence_result(raw: str) -> tuple[str, str]:
+    value, error = _decode_capability_request(raw, "Evidence completion")
+    if error:
+        return "", error
+    assert value is not None
+    unknown = sorted(set(value) - EVIDENCE_RESULT_FIELDS)
+    if unknown:
+        rendered = ", ".join(f"`{field}`" for field in unknown)
+        return "", f"Evidence completion contains unsupported field(s): {rendered}."
+    evidence_id = value.get("evidence_id")
+    if not isinstance(evidence_id, str) or not EVIDENCE_ID_PATTERN.fullmatch(
+        evidence_id
+    ):
+        return "", "Evidence completion `evidence_id` must name one declared source."
+    return evidence_id, ""
 
 
 def _control_request(command: str) -> tuple[str | None, str, str]:
@@ -1455,6 +1695,7 @@ def _control_request(command: str) -> tuple[str | None, str, str]:
     }:
         return "mode", tokens[2], ""
     if len(tokens) == 3 and tokens[1] in {
+        "evidence",
         "inspect",
         "mutate",
         "service",
@@ -1471,6 +1712,7 @@ def _control_request(command: str) -> tuple[str | None, str, str]:
         f"`{CONTROL_COMMAND} inspect '<Inspection JSON>'`, "
         f"`{CONTROL_COMMAND} mutate '<Mutation JSON>'`, "
         f"`{CONTROL_COMMAND} service '<Managed Service JSON>'`, "
+        f"`{CONTROL_COMMAND} evidence '<Evidence Completion JSON>'`, "
         f"`{CONTROL_COMMAND} verify '<Verification Batch JSON>'`, "
         f"`{CONTROL_COMMAND} review`, `{CONTROL_COMMAND} bypass`, "
         f"`{CONTROL_COMMAND} cancel`, "
@@ -2251,6 +2493,77 @@ def _verification_runner_command(
     return subprocess.list2cmdline(arguments) if os.name == "nt" else shlex.join(arguments)
 
 
+def _record_evidence_completion(event: dict[str, Any], raw: str) -> tuple[str, str]:
+    evidence_id, error = _validate_evidence_result(raw)
+    if error:
+        return "", error
+    state = _read_contract_state(event)
+    if state.get("status") != "approved":
+        return "", "Approve the staged Click execution contract before recording evidence."
+    verification = state.get("verification")
+    if not isinstance(verification, dict):
+        return "", "Click verification state is unavailable; stage and approve again."
+    if verification.get("status") == "running":
+        return "", "Wait for the final argv verification batch before recording evidence."
+    mutation = state.get("mutation")
+    if _mutation_is_running(mutation):
+        return "", "Wait for the structured Click mutation before recording evidence."
+
+    sources = _evidence_sources(state)
+    if sources is None:
+        return (
+            "",
+            "This active contract predates evidence-id completion tracking. Cancel it, "
+            "stage the proposal again, and obtain fresh approval.",
+        )
+    if not sources:
+        return "", "Click evidence state is unavailable or malformed; cancel and restage."
+    source_key = _evidence_key(evidence_id)
+    source = sources.get(source_key)
+    if not isinstance(source, dict):
+        return "", f"Evidence completion references unknown id `{evidence_id}`."
+    kind = str(source.get("kind", ""))
+    if kind == "argv":
+        return (
+            "",
+            f"Evidence `{evidence_id}` has kind `argv`; execute it through "
+            "`click-gate verify` instead of attesting it.",
+        )
+
+    revision = int(verification.get("mutation_revision", 0))
+    if _evidence_is_current(source, revision):
+        return (
+            "",
+            f"Evidence `{evidence_id}` already completed for the current revision; "
+            "reuse it instead of recording it twice.",
+        )
+    if kind == "browser":
+        external = state.get("external_evidence")
+        if (
+            not isinstance(external, dict)
+            or external.get("browser_source_key") != source_key
+            or external.get("browser_status") != "observed"
+            or source.get("status") != "observed"
+            or int(source.get("verified_revision", -1)) != revision
+        ):
+            return (
+                "",
+                f"Browser evidence `{evidence_id}` can complete only after a successful "
+                "current-revision Browser call in its metered session.",
+            )
+        external["browser_status"] = "passed"
+        state["external_evidence"] = external
+    elif kind not in {"hosted", "manual", "existing"}:
+        return "", f"Evidence `{evidence_id}` has unsupported completion kind `{kind}`."
+
+    source["status"] = "passed"
+    source["verified_revision"] = revision
+    source["attempts"] = int(source.get("attempts", 0)) + 1
+    source["last_exit_code"] = 0
+    _save_contract_state(event, state)
+    return f"echo Click evidence {evidence_id} completed for revision {revision}", ""
+
+
 def _prepare_verification(
     event: dict[str, Any], raw: str
 ) -> tuple[str, str]:
@@ -2268,6 +2581,15 @@ def _prepare_verification(
     scale = str(verification.get("scale", ""))
     if scale not in VERIFICATION_UNIT_LIMITS:
         return "", "Approved Click verification scale is invalid; stage and approve again."
+    sources = _evidence_sources(state)
+    if sources is None:
+        return (
+            "",
+            "This active contract predates evidence-id completion tracking. Cancel it, "
+            "stage the proposal again, and obtain fresh approval.",
+        )
+    if not sources:
+        return "", "Click evidence state is unavailable or malformed; cancel and restage."
 
     observations = state.get("observations")
     if isinstance(observations, dict):
@@ -2285,46 +2607,119 @@ def _prepare_verification(
                         "the final verification batch.",
                     )
 
-    batch, units, error = _validate_verification_batch(raw, scale)
+    batch, units, error = _validate_verification_batch(raw, scale, sources)
     if error:
         return "", error
     assert batch is not None
-    canonical = json.dumps(batch, sort_keys=True, separators=(",", ":"))
-    batch_digest = hashlib.sha256(canonical.encode()).hexdigest()
-
     status = str(verification.get("status", "ready"))
     if status == "running":
         started_at = int(verification.get("started_at", 0))
         if started_at and time.time() - started_at <= VERIFY_RUNNING_TTL_SECONDS:
             return "", "The approved Click verification batch is already running."
+        claimed_at = verification.get("runner_claimed_at", 0)
+        was_claimed = bool(
+            isinstance(claimed_at, int)
+            and not isinstance(claimed_at, bool)
+            and claimed_at > 0
+        )
         status = "failed"
         verification["status"] = status
         verification["last_exit_code"] = 124
+        for source_key in verification.get("running_evidence_keys", []):
+            source = sources.get(source_key)
+            if isinstance(source, dict) and source.get("status") == "running":
+                if was_claimed:
+                    source["status"] = "failed"
+                    source["attempts"] = int(source.get("attempts", 0)) + 1
+                    source["last_exit_code"] = 124
+                else:
+                    source["status"] = "ready"
+                    source["last_exit_code"] = None
+        verification["running_evidence_keys"] = []
+        verification["runner_claimed_at"] = 0
 
     revision = int(verification.get("mutation_revision", 0))
-    if status == "passed" and int(verification.get("verified_revision", -1)) == revision:
+    argv_keys = _evidence_keys_for_kind(sources, "argv")
+    unresolved_keys = {
+        key for key in argv_keys if not _evidence_is_current(sources.get(key), revision)
+    }
+    if not unresolved_keys:
         return (
             "",
-            "The approved final verification batch already passed for the current code. "
+            "Every declared argv evidence source already passed for the current code. "
             "Click blocks needless successful repetition.",
         )
-    locked_digest = str(verification.get("locked_batch_digest", ""))
-    if locked_digest and locked_digest != batch_digest:
+
+    grouped_checks: dict[str, list[dict[str, Any]]] = {}
+    completed_groups: set[str] = set()
+    active_group = ""
+    for check in batch["checks"]:
+        source_key = _evidence_key(str(check["evidence_id"]))
+        if source_key != active_group:
+            if source_key in completed_groups:
+                return (
+                    "",
+                    "Checks for one argv evidence id must be adjacent in the final "
+                    "batch so partial failure can be recorded deterministically.",
+                )
+            if active_group:
+                completed_groups.add(active_group)
+            active_group = source_key
+        grouped_checks.setdefault(source_key, []).append(check)
+    requested_keys = set(grouped_checks)
+    if requested_keys != unresolved_keys:
+        missing_count = len(unresolved_keys - requested_keys)
+        repeated_count = len(requested_keys - unresolved_keys)
+        details: list[str] = []
+        if missing_count:
+            details.append(f"{missing_count} unresolved argv source(s) are missing")
+        if repeated_count:
+            details.append(f"{repeated_count} current or unassigned source(s) were repeated")
         return (
             "",
-            "The successful Click verification batch is locked. Re-run the same batch only "
-            "when a later in-scope mutation makes its result stale.",
+            "The one final verification batch must cover every unresolved declared argv "
+            "evidence source and no current source; " + "; ".join(details) + ".",
         )
-    if status == "failed" and int(verification.get("failed_revision", -1)) == revision:
-        last_digest = str(verification.get("last_batch_digest", ""))
-        retries = int(verification.get("unchanged_failure_retries", 0))
-        if last_digest != batch_digest or retries >= 1:
+
+    group_digests: dict[str, str] = {}
+    for source_key, checks in grouped_checks.items():
+        digest_payload = [
+            {"argv": check["argv"], "class": check["class"]} for check in checks
+        ]
+        group_digest = _capability_digest({"checks": digest_payload})
+        group_digests[source_key] = group_digest
+        source = sources[source_key]
+        locked_digest = str(source.get("locked_check_digest", ""))
+        if locked_digest and locked_digest != group_digest:
             return (
                 "",
-                "The final verification batch failed without a subsequent code mutation. "
-                "Fix the in-scope cause before retrying; one unchanged transient retry is allowed.",
+                "A previously successful argv evidence source is locked to its exact "
+                "check set. Re-run that set after the relevant mutation.",
             )
-        verification["unchanged_failure_retries"] = retries + 1
+        last_digest = str(source.get("last_check_digest", ""))
+        source_status = str(source.get("status", "ready"))
+        if last_digest and last_digest != group_digest:
+            return (
+                "",
+                "An argv evidence source changed its check set without an intervening "
+                "mutation. Fix the implementation or reuse the original check set.",
+            )
+        if source_status == "failed":
+            retries = int(source.get("unchanged_failure_retries", 0))
+            if retries >= 1:
+                return (
+                    "",
+                    "An argv evidence source failed twice without a subsequent code "
+                    "mutation. Fix the in-scope cause before retrying.",
+                )
+            source["unchanged_failure_retries"] = retries + 1
+
+    canonical = json.dumps(batch, sort_keys=True, separators=(",", ":"))
+    batch_digest = hashlib.sha256(canonical.encode()).hexdigest()
+    for source_key, group_digest in group_digests.items():
+        source = sources[source_key]
+        source["status"] = "running"
+        source["last_check_digest"] = group_digest
 
     runner_token = secrets.token_urlsafe(24)
     verification.update(
@@ -2334,6 +2729,8 @@ def _prepare_verification(
             "last_units": units,
             "last_batch_digest": batch_digest,
             "runner_token_digest": hashlib.sha256(runner_token.encode()).hexdigest(),
+            "runner_claimed_at": 0,
+            "running_evidence_keys": sorted(requested_keys),
             "started_at": int(time.time()),
         }
     )
@@ -2558,10 +2955,50 @@ def _browser_input_error(tool_input: Any) -> str:
 
 def _tool_response_failed(response: Any) -> bool:
     if not isinstance(response, dict):
-        return False
+        return True
     if response.get("isError") is True or response.get("is_error") is True:
         return True
-    return str(response.get("status", "")).lower() in {"error", "failed", "failure"}
+    if "status" in response:
+        status = str(response.get("status", "")).lower()
+        return status not in {
+            "complete",
+            "completed",
+            "ok",
+            "pass",
+            "passed",
+            "success",
+            "succeeded",
+        }
+    # MCP responses may omit a status while still returning structured content.
+    # Empty containers, empty strings, and null acknowledgements prove nothing.
+    def meaningful(value: Any) -> bool:
+        if value is None:
+            return False
+        if isinstance(value, str):
+            return bool(value.strip())
+        if isinstance(value, (bytes, bytearray)):
+            return bool(value)
+        if isinstance(value, dict):
+            metadata_keys = {
+                "_meta",
+                "annotations",
+                "mimeType",
+                "mime_type",
+                "role",
+                "type",
+            }
+            return any(
+                meaningful(item)
+                for key, item in value.items()
+                if key not in metadata_keys
+            )
+        if isinstance(value, (list, tuple, set)):
+            return any(meaningful(item) for item in value)
+        return True
+
+    return not any(
+        meaningful(response.get(key)) for key in {"content", "output", "result"}
+    )
 
 
 def _prepare_browser_evidence(event: dict[str, Any]) -> tuple[bool, str]:
@@ -2586,15 +3023,52 @@ def _prepare_browser_evidence(event: dict[str, Any]) -> tuple[bool, str]:
             "`browser` in this contract. Use the cheaper assigned source instead of "
             "adding shadow verification.",
         )
+    sources = _evidence_sources(state)
+    if sources is None:
+        return (
+            True,
+            "This active contract predates evidence-id completion tracking. Cancel it, "
+            "stage the proposal again, and obtain fresh approval.",
+        )
+    source_key = str(external.get("browser_source_key", ""))
+    source = sources.get(source_key) if sources else None
+    if not isinstance(source, dict) or source.get("kind") != "browser":
+        return True, "Click Browser evidence state is unavailable or malformed."
     mutation = state.get("mutation")
     if _mutation_is_running(mutation):
         return True, "Wait for the structured mutation to finish before browser evidence."
     verification = state.get("verification")
     if isinstance(verification, dict) and verification.get("status") == "running":
-        return True, "Wait for the final local verification batch before browser evidence."
+        return True, "Wait for the final argv verification batch before browser evidence."
+    revision = (
+        int(verification.get("mutation_revision", 0))
+        if isinstance(verification, dict)
+        else 0
+    )
+    if _evidence_is_current(source, revision):
+        return (
+            True,
+            "The assigned Browser evidence already completed for the current revision. "
+            "Reuse it instead of replaying the session.",
+        )
     running = external.get("browser_running")
     if isinstance(running, dict) and running:
-        return True, "One browser evidence call is already running; keep the session serial."
+        started_values = [
+            float(value)
+            for value in running.values()
+            if isinstance(value, (int, float)) and not isinstance(value, bool)
+        ]
+        started_at = min(started_values) if started_values else 0.0
+        if started_at and time.time() - started_at <= BROWSER_RUNNING_TTL_SECONDS:
+            return True, "One browser evidence call is already running; keep the session serial."
+        external["browser_running"] = {}
+        external["browser_status"] = "failed"
+        external["last_browser_error"] = "post-tool-timeout"
+        source["status"] = "failed"
+        source["verified_revision"] = -1
+        source["last_exit_code"] = 124
+        state["external_evidence"] = external
+        _save_contract_state(event, state)
     calls = int(external.get("browser_calls", 0))
     seconds = float(external.get("browser_seconds", 0.0))
     if calls >= MAX_BROWSER_EVIDENCE_CALLS or seconds >= MAX_BROWSER_EVIDENCE_SECONDS:
@@ -2614,6 +3088,7 @@ def _prepare_browser_evidence(event: dict[str, Any]) -> tuple[bool, str]:
     external["browser_status"] = "running"
     external["browser_running"] = {tool_use_id: time.time()}
     external["last_browser_error"] = ""
+    source["status"] = "running"
     state["external_evidence"] = external
     _save_contract_state(event, state)
     return True, ""
@@ -2637,15 +3112,36 @@ def _handle_post_tool(event: dict[str, Any]) -> None:
     total = float(external.get("browser_seconds", 0.0)) + duration
     external["browser_seconds"] = round(total, 3)
     external["browser_running"] = running
+    sources = _evidence_sources(state)
+    source_key = str(external.get("browser_source_key", ""))
+    source = sources.get(source_key) if sources else None
+    verification = state.get("verification")
+    revision = (
+        int(verification.get("mutation_revision", 0))
+        if isinstance(verification, dict)
+        else 0
+    )
     if total > MAX_BROWSER_EVIDENCE_SECONDS:
         external["browser_status"] = "failed"
         external["last_browser_error"] = "time-budget-exceeded"
+        if isinstance(source, dict):
+            source["status"] = "failed"
+            source["verified_revision"] = -1
+            source["last_exit_code"] = 124
     elif _tool_response_failed(event.get("tool_response")):
         external["browser_status"] = "failed"
         external["last_browser_error"] = "tool-error"
+        if isinstance(source, dict):
+            source["status"] = "failed"
+            source["verified_revision"] = -1
+            source["last_exit_code"] = 1
     else:
-        external["browser_status"] = "passed"
+        external["browser_status"] = "observed"
         external["last_browser_error"] = ""
+        if isinstance(source, dict):
+            source["status"] = "observed"
+            source["verified_revision"] = revision
+            source["last_exit_code"] = 0
     state["external_evidence"] = external
     _save_contract_state(event, state)
 
@@ -2665,7 +3161,9 @@ def _handle_prompt_submit(event: dict[str, Any]) -> None:
             "do not stage a build contract, and reuse successful evidence instead of "
             "repeating reads or repository-wide inventory. During review or approved "
             "implementation use versioned `click-gate inspect`, `click-gate mutate`, and "
-            "`click-gate verify` argv requests when direct Bash intent is ambiguous; use "
+            "`click-gate verify` version-2 evidence-bound argv requests when direct Bash "
+            "intent is ambiguous; use `click-gate evidence` to finalize an observed "
+            "Browser source or attest a collected hosted, manual, or existing source; use "
             "`click-gate service` start/stop for a recognizable long-running local server. "
             "Browser MCP work requires one referenced verification evidence source with "
             "kind `browser` and must fit its representative-session budget. Use "
@@ -2693,7 +3191,35 @@ def _handle_prompt_submit(event: dict[str, Any]) -> None:
         )
     contract_state = _read_contract_state(event)
     contract_id = _contract_id_from_state(contract_state)
-    if contract_state.get("status") == "staged" and contract_id:
+    contract_status = contract_state.get("status")
+    contract_completed = _contract_is_completed(contract_state)
+    contract_sources = (
+        _evidence_sources(contract_state)
+        if contract_status in {"staged", "approved"}
+        else {}
+    )
+    if (
+        contract_status in {"staged", "approved"}
+        and not contract_completed
+        and contract_sources is None
+    ):
+        context += (
+            " The active contract predates evidence-id completion tracking and cannot "
+            "be resumed safely. Do not pass it. Ask the user to start a turn with "
+            "`@Click cancel`, run `click-gate cancel`, then stage and approve a fresh "
+            "contract."
+        )
+    elif (
+        contract_status in {"staged", "approved"}
+        and not contract_completed
+        and not contract_sources
+    ):
+        context += (
+            " The active contract evidence state is unavailable or malformed. Do not "
+            "pass it. Ask the user to start a turn with `@Click cancel`, run "
+            "`click-gate cancel`, then stage and approve a fresh contract."
+        )
+    elif contract_status == "staged" and contract_id:
         context += (
             f" The active staged contract_id is `{contract_id}`. Treat that id as the "
             "approval target. If and only if this user response explicitly approves the "
@@ -2800,6 +3326,20 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
                 if value == "adaptive":
                     _write_state(event, "idle")
                 _allow_rewritten(f"echo Click mode set to {value}")
+                return
+            if action == "evidence":
+                current_status = _read_state(event).get("status")
+                if current_status != "passed" and _read_mode(event) != "strict":
+                    _deny(
+                        "Pass the approved Click execution contract before recording "
+                        "its declared completion evidence."
+                    )
+                    return
+                rewritten, evidence_error = _record_evidence_completion(event, value)
+                if evidence_error:
+                    _deny(evidence_error)
+                    return
+                _allow_rewritten(rewritten)
                 return
             if action == "inspect":
                 request, broad_inventory, inspection_error = (
@@ -2952,8 +3492,8 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
                     ):
                         _deny(
                             "Click is already executing one approved contract. Do not restage, "
-                            "replan, or replace it mid-run. Finish its current revision and "
-                            "final verification before staging the next contract. If the "
+                            "replan, or replace it mid-run. Finish every declared source for "
+                            "its current revision before staging the next contract. If the "
                             "approved outcome or authority is no longer sufficient, stop and "
                             "report the blocker."
                         )
@@ -2988,8 +3528,22 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
                         return
                 elif _contract_is_completed(staged):
                     _deny(
-                        "This Click contract already completed final verification. Stage a "
+                        "This Click contract already completed its current-revision evidence. Stage a "
                         "fresh contract and obtain a new user response before another mutation."
+                    )
+                    return
+                staged_sources = _evidence_sources(staged)
+                if staged_sources is None:
+                    _deny(
+                        "This staged Click contract predates evidence-id completion "
+                        "tracking. Cancel it, stage the proposal again, and obtain fresh "
+                        "approval instead of passing an unrecoverable contract."
+                    )
+                    return
+                if not staged_sources:
+                    _deny(
+                        "The staged Click evidence state is unavailable or malformed. "
+                        "Cancel it, stage the proposal again, and obtain fresh approval."
                     )
                     return
                 staged_digest = staged.get("contract_digest")
@@ -3100,8 +3654,8 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
             return
         if _is_recognized_verification_command(str(command)):
             _deny(
-                "Click final checks use `click-gate verify` with argv-based `checks` "
-                "and an explicit targeted, broad, or deep class."
+                "Click final checks use protocol-v2 `click-gate verify` with evidence-bound "
+                "argv `checks` and an explicit targeted, broad, or deep class."
             )
             return
         _deny(
@@ -3180,9 +3734,11 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
 
 def _record_verification_result(
     path: Path,
+    batch: dict[str, Any],
     batch_digest: str,
     runner_token: str,
     exit_code: int,
+    succeeded_count: int,
     workspace_changed: bool = False,
 ) -> bool:
     try:
@@ -3201,28 +3757,130 @@ def _record_verification_result(
         str(verification.get("runner_token_digest", "")), token_digest
     ):
         return False
+    claimed_at = verification.get("runner_claimed_at", 0)
+    if (
+        not isinstance(claimed_at, int)
+        or isinstance(claimed_at, bool)
+        or claimed_at <= 0
+    ):
+        return False
 
     revision = int(verification.get("mutation_revision", 0))
     verification["runner_token_digest"] = ""
+    verification["runner_claimed_at"] = 0
     verification["started_at"] = 0
     verification["last_exit_code"] = exit_code
     verification["workspace_changed"] = workspace_changed
+    sources = _evidence_sources(state)
+    if sources is None or not sources:
+        return False
+    running_keys = {
+        key
+        for key in verification.get("running_evidence_keys", [])
+        if isinstance(key, str)
+    }
+    checks = batch.get("checks")
+    if not isinstance(checks, list):
+        return False
+    positions: dict[str, list[int]] = {}
+    for index, check in enumerate(checks):
+        if not isinstance(check, dict) or not isinstance(check.get("evidence_id"), str):
+            return False
+        source_key = _evidence_key(str(check["evidence_id"]))
+        positions.setdefault(source_key, []).append(index)
+    if set(positions) != running_keys:
+        return False
+    verification["running_evidence_keys"] = []
     if workspace_changed:
+        previous_revision = revision
         revision += 1
         verification["mutation_revision"] = revision
         verification["status"] = "failed"
         verification["failed_revision"] = revision
         verification["unchanged_failure_retries"] = 1
         state["observations"] = _fresh_observation_state()
-    elif exit_code == 0:
-        verification["status"] = "passed"
-        verification["verified_revision"] = revision
-        verification["failed_revision"] = -1
-        verification["unchanged_failure_retries"] = 0
-        verification["locked_batch_digest"] = batch_digest
+        for source_key, source in sources.items():
+            if not isinstance(source, dict):
+                continue
+            check_positions = positions.get(source_key)
+            source_ran = bool(
+                check_positions
+                and (
+                    min(check_positions) < succeeded_count
+                    or (exit_code != 0 and min(check_positions) == succeeded_count)
+                )
+            )
+            was_current = _evidence_is_current(source, previous_revision)
+            if check_positions and source_ran:
+                source["status"] = "failed"
+                source["attempts"] = int(source.get("attempts", 0)) + 1
+                source["unchanged_failure_retries"] = 1
+                source["last_exit_code"] = exit_code
+            elif check_positions:
+                # A preceding check stopped the batch before this source executed.
+                source["status"] = "ready"
+                source["unchanged_failure_retries"] = 0
+                source["last_exit_code"] = None
+            else:
+                source["status"] = "stale" if was_current else "ready"
+                source["unchanged_failure_retries"] = 0
+                source["last_exit_code"] = None
+            source["verified_revision"] = -1
+        external = state.get("external_evidence")
+        browser_required = bool(
+            isinstance(external, dict) and external.get("browser_required") is True
+        )
+        browser_source_key = (
+            str(external.get("browser_source_key", ""))
+            if isinstance(external, dict)
+            else ""
+        )
+        state["external_evidence"] = _fresh_external_evidence_state(
+            required=browser_required,
+            source_key=browser_source_key,
+        )
     else:
-        verification["status"] = "failed"
-        verification["failed_revision"] = revision
+        for source_key, check_positions in positions.items():
+            source = sources.get(source_key)
+            if not isinstance(source, dict):
+                return False
+            first_position = min(check_positions)
+            source_ran = first_position < succeeded_count or (
+                exit_code != 0 and first_position == succeeded_count
+            )
+            if source_ran:
+                source["attempts"] = int(source.get("attempts", 0)) + 1
+            if all(position < succeeded_count for position in check_positions):
+                source["status"] = "passed"
+                source["verified_revision"] = revision
+                source["last_exit_code"] = 0
+                source["unchanged_failure_retries"] = 0
+                source["locked_check_digest"] = str(
+                    source.get("last_check_digest", "")
+                )
+            elif source_ran:
+                source["status"] = "failed"
+                source["verified_revision"] = -1
+                source["last_exit_code"] = exit_code
+            else:
+                source["status"] = "ready"
+                source["verified_revision"] = -1
+                source["last_exit_code"] = None
+
+        argv_keys = _evidence_keys_for_kind(sources, "argv")
+        if argv_keys and all(
+            _evidence_is_current(sources.get(source_key), revision)
+            for source_key in argv_keys
+        ):
+            verification["status"] = "passed"
+            verification["verified_revision"] = revision
+            verification["failed_revision"] = -1
+            verification["unchanged_failure_retries"] = 0
+            verification["locked_batch_digest"] = batch_digest
+        else:
+            verification["status"] = "failed"
+            verification["verified_revision"] = -1
+            verification["failed_revision"] = revision
     state["verification"] = verification
     state["updated_at"] = int(time.time())
     _write_json(path, state)
@@ -4040,6 +4698,67 @@ def _new_untracked_is_suspicious(relative: str) -> bool:
     return False
 
 
+def _claim_verification_run(
+    state_path: Path,
+    raw: str,
+    batch_digest: str,
+    runner_token: str,
+) -> tuple[dict[str, Any] | None, str]:
+    """Atomically bind one runner invocation before any check can execute."""
+    if not _managed_contract_path(state_path):
+        return None, "Click verification runner received an unmanaged state path."
+    try:
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return None, "Click verification runner could not read its contract state."
+    verification = state.get("verification") if isinstance(state, dict) else None
+    if not isinstance(verification, dict):
+        return None, "Click verification runner could not read its approved scale."
+    if verification.get("status") != "running":
+        return None, "Click verification runner is no longer authorized to execute."
+    if verification.get("last_batch_digest") != batch_digest:
+        return None, "Click verification runner batch digest did not match active state."
+    token_digest = hashlib.sha256(runner_token.encode()).hexdigest()
+    if not secrets.compare_digest(
+        str(verification.get("runner_token_digest", "")), token_digest
+    ):
+        return None, "Click verification runner token did not match active state."
+    claimed_at = verification.get("runner_claimed_at", 0)
+    if not isinstance(claimed_at, int) or isinstance(claimed_at, bool):
+        return None, "Click verification runner claim state is malformed."
+    if claimed_at:
+        return None, "Click verification runner was already claimed; replay is blocked."
+
+    scale = str(verification.get("scale", ""))
+    if scale not in VERIFICATION_UNIT_LIMITS:
+        return None, "Click verification runner could not read its approved scale."
+    sources = _evidence_sources(state)
+    if sources is None or not sources:
+        return None, "Click verification runner could not read its evidence ledger."
+    batch, _, error = _validate_verification_batch(raw, scale, sources)
+    if error:
+        return None, error
+    assert batch is not None
+    if _capability_digest(batch) != batch_digest:
+        return None, "Click verification runner batch digest did not match."
+    running_keys = {
+        key
+        for key in verification.get("running_evidence_keys", [])
+        if isinstance(key, str)
+    }
+    batch_keys = {
+        _evidence_key(str(check["evidence_id"])) for check in batch["checks"]
+    }
+    if not running_keys or batch_keys != running_keys:
+        return None, "Click verification runner evidence binding did not match active state."
+
+    verification["runner_claimed_at"] = int(time.time()) or 1
+    state["verification"] = verification
+    state["updated_at"] = int(time.time())
+    _write_json(state_path, state)
+    return batch, ""
+
+
 def _run_verification(arguments: list[str]) -> int:
     if len(arguments) != 4:
         sys.stderr.write(
@@ -4052,34 +4771,31 @@ def _run_verification(arguments: list[str]) -> int:
     if error:
         sys.stderr.write(f"{error}\n")
         return 2
-    try:
-        state = json.loads(state_path.read_text(encoding="utf-8"))
-        scale = str(state["verification"]["scale"])
-    except (FileNotFoundError, KeyError, TypeError, json.JSONDecodeError, OSError):
-        sys.stderr.write("Click verification runner could not read its approved scale.\n")
-        return 2
-    batch, _, error = _validate_verification_batch(raw, scale)
+    with _state_lock():
+        batch, error = _claim_verification_run(
+            state_path, raw, batch_digest, runner_token
+        )
     if error:
         sys.stderr.write(f"{error}\n")
         return 2
     assert batch is not None
-    if _capability_digest(batch) != batch_digest:
-        sys.stderr.write("Click verification runner batch digest did not match.\n")
-        return 2
     checks = batch["checks"]
     before = _git_workspace_snapshot(Path.cwd())
 
     exit_code = 0
+    succeeded_count = 0
     for index, check in enumerate(checks, start=1):
         argv = check["argv"]
         rendered = subprocess.list2cmdline(argv) if os.name == "nt" else shlex.join(argv)
         print(
-            f"[Click verification {index}/{len(checks)}:{check['class']}] {rendered}",
+            f"[Click verification {index}/{len(checks)}:{check['evidence_id']}:"
+            f"{check['class']}] {rendered}",
             flush=True,
         )
         exit_code = _execute_argv_commands([argv])
         if exit_code != 0:
             break
+        succeeded_count += 1
 
     workspace_changed = False
     if before is not None:
@@ -4125,9 +4841,11 @@ def _run_verification(arguments: list[str]) -> int:
     with _state_lock():
         recorded = _record_verification_result(
             state_path,
+            batch,
             batch_digest,
             runner_token,
             exit_code,
+            succeeded_count,
             workspace_changed=workspace_changed,
         )
     if not recorded:

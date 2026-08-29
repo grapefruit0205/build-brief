@@ -330,10 +330,13 @@ class ClickGateTests(unittest.TestCase):
         return "targeted"
 
     def verify_gate(
-        self, commands: list[str | list[str]], turn_id: str = "turn-2"
+        self,
+        commands: list[str | list[str]],
+        turn_id: str = "turn-2",
+        evidence_ids: list[str] | None = None,
     ) -> dict:
         checks = []
-        for value in commands:
+        for index, value in enumerate(commands):
             if isinstance(value, list):
                 argv = value
                 rendered = " ".join(value)
@@ -341,25 +344,46 @@ class ClickGateTests(unittest.TestCase):
                 argv = shlex.split(value, posix=True)
                 rendered = value
             checks.append(
-                {"argv": argv, "class": self.verification_class(rendered)}
+                {
+                    "evidence_id": evidence_ids[index] if evidence_ids else "E1",
+                    "argv": argv,
+                    "class": self.verification_class(rendered),
+                }
             )
-        batch = {"version": 1, "checks": checks}
+        batch = {"version": 2, "checks": checks}
         command = f"click-gate verify {shlex.quote(json.dumps(batch))}"
         payload = self.pre_tool("Bash", command, turn_id)
         self.assertIsNotNone(payload)
         return payload
 
     def verify_checks(
-        self, checks: list[dict[str, object]], turn_id: str = "turn-2"
+        self,
+        checks: list[dict[str, object]],
+        turn_id: str = "turn-2",
+        *,
+        bind_default: bool = True,
     ) -> dict:
-        batch = {"version": 1, "checks": checks}
+        normalized = [
+            ({"evidence_id": "E1", **check} if bind_default else dict(check))
+            for check in checks
+        ]
+        batch = {"version": 2, "checks": normalized}
         command = f"click-gate verify {shlex.quote(json.dumps(batch))}"
         payload = self.pre_tool("Bash", command, turn_id)
         self.assertIsNotNone(payload)
         return payload
 
+    def complete_evidence(
+        self, evidence_id: str, turn_id: str = "turn-2"
+    ) -> dict:
+        request = {"version": 1, "evidence_id": evidence_id}
+        command = f"click-gate evidence {shlex.quote(json.dumps(request))}"
+        payload = self.pre_tool("Bash", command, turn_id)
+        self.assertIsNotNone(payload)
+        return payload
+
     def legacy_verify_gate(self, commands: list[str], turn_id: str = "turn-2") -> dict:
-        batch = {"version": 1, "commands": commands}
+        batch = {"version": 2, "commands": commands}
         command = f"click-gate verify {shlex.quote(json.dumps(batch))}"
         payload = self.pre_tool("Bash", command, turn_id)
         self.assertIsNotNone(payload)
@@ -1280,6 +1304,332 @@ class ClickGateTests(unittest.TestCase):
         self.assertEqual(error, "")
         self.assertEqual(value, contract)
 
+    def test_contract_rejects_more_argv_sources_than_scale_can_execute(self) -> None:
+        contract = self.contract()
+        contract["verification"]["scale"] = "quick"
+        contract["verification"]["evidence"].append(
+            {"id": "E2", "kind": "argv", "description": "second local check"}
+        )
+        contract["verification"]["done_when"].append(
+            {"condition": "compatibility remains", "primary_evidence": "E2"}
+        )
+        value, error = CLICK_GATE._validate_contract(json.dumps(contract))
+        self.assertIsNone(value)
+        self.assertIn("cannot fit 2 argv evidence sources", error)
+
+        full = self.contract()
+        full["verification"]["scale"] = "full"
+        for index in range(2, 10):
+            evidence_id = f"E{index}"
+            full["verification"]["evidence"].append(
+                {"id": evidence_id, "kind": "argv", "description": f"check {index}"}
+            )
+            full["verification"]["done_when"].append(
+                {"condition": f"condition {index}", "primary_evidence": evidence_id}
+            )
+        value, error = CLICK_GATE._validate_contract(json.dumps(full))
+        self.assertIsNone(value)
+        self.assertIn("cannot fit 9 argv evidence sources", error)
+
+    def test_verification_check_requires_a_declared_argv_evidence_id(self) -> None:
+        self.approve_contract()
+        check = {"argv": self.verification_argv(), "class": "targeted"}
+
+        missing = self.verify_checks([check], bind_default=False)
+        self.assertEqual(
+            missing["hookSpecificOutput"]["permissionDecision"], "deny"
+        )
+        self.assertIn(
+            "evidence_id",
+            missing["hookSpecificOutput"]["permissionDecisionReason"],
+        )
+
+        old_batch = {
+            "version": 1,
+            "checks": [{"evidence_id": "E1", **check}],
+        }
+        old_request = self.pre_tool(
+            "Bash",
+            f"click-gate verify {shlex.quote(json.dumps(old_batch))}",
+            "turn-2",
+        )
+        self.assertEqual(
+            old_request["hookSpecificOutput"]["permissionDecision"], "deny"
+        )
+        self.assertIn(
+            "version` must be 2",
+            old_request["hookSpecificOutput"]["permissionDecisionReason"],
+        )
+
+        unknown = self.verify_checks(
+            [{"evidence_id": "E9", **check}], bind_default=False
+        )
+        self.assertEqual(
+            unknown["hookSpecificOutput"]["permissionDecision"], "deny"
+        )
+        self.assertIn(
+            "unknown evidence id",
+            unknown["hookSpecificOutput"]["permissionDecisionReason"],
+        )
+
+        browser_contract = self.contract()
+        browser_contract["verification"]["evidence"] = [
+            {"id": "E-browser", "kind": "browser", "description": "one session"}
+        ]
+        browser_contract["verification"]["done_when"] = [
+            {"condition": "the page works", "primary_evidence": "E-browser"}
+        ]
+        sources = CLICK_GATE._fresh_evidence_state(browser_contract)["sources"]
+        raw = json.dumps(
+            {
+                "version": 2,
+                "checks": [
+                    {
+                        "evidence_id": "E-browser",
+                        "argv": self.verification_argv(),
+                        "class": "targeted",
+                    }
+                ],
+            }
+        )
+        value, _, error = CLICK_GATE._validate_verification_batch(
+            raw, "focused", sources
+        )
+        self.assertIsNone(value)
+        self.assertIn("not `argv`", error)
+
+    def test_one_batch_covers_every_unresolved_argv_evidence_source(self) -> None:
+        contract = self.contract()
+        contract["verification"]["evidence"].append(
+            {"id": "E2", "kind": "argv", "description": "compatibility check"}
+        )
+        contract["verification"]["done_when"].append(
+            {"condition": "compatibility remains", "primary_evidence": "E2"}
+        )
+        self.arm_gate("turn-1")
+        self.stage_gate(contract, "turn-1")
+        self.arm_gate("turn-2")
+        self.pass_gate(turn_id="turn-2")
+
+        missing = self.verify_gate([self.verification_argv()])
+        self.assertEqual(
+            missing["hookSpecificOutput"]["permissionDecision"], "deny"
+        )
+        self.assertIn(
+            "unresolved argv source",
+            missing["hookSpecificOutput"]["permissionDecisionReason"],
+        )
+
+        non_adjacent = self.verify_gate(
+            [
+                self.verification_argv(),
+                self.verification_argv(),
+                self.verification_argv(),
+            ],
+            evidence_ids=["E1", "E2", "E1"],
+        )
+        self.assertEqual(
+            non_adjacent["hookSpecificOutput"]["permissionDecision"], "deny"
+        )
+        self.assertIn(
+            "must be adjacent",
+            non_adjacent["hookSpecificOutput"]["permissionDecisionReason"],
+        )
+
+        batch = self.verify_gate(
+            [
+                self.verification_argv(),
+                self.verification_argv(),
+                self.verification_argv(),
+            ],
+            evidence_ids=["E1", "E1", "E2"],
+        )
+        self.assertEqual(self.run_rewritten(batch).returncode, 0)
+        state_path = next(
+            (self.plugin_data / "gate-state").glob("session-contract-*.json")
+        )
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        revision = state["verification"]["mutation_revision"]
+        sources = state["evidence_state"]["sources"]
+        for evidence_id in ("E1", "E2"):
+            source = sources[CLICK_GATE._evidence_key(evidence_id)]
+            self.assertEqual(source["status"], "passed")
+            self.assertEqual(source["verified_revision"], revision)
+        self.assertTrue(CLICK_GATE._contract_is_completed(state))
+
+    def test_partial_argv_batch_records_each_evidence_source(self) -> None:
+        contract = self.contract()
+        contract["verification"]["evidence"].append(
+            {"id": "E2", "kind": "argv", "description": "failing regression"}
+        )
+        contract["verification"]["done_when"].append(
+            {"condition": "regression passes", "primary_evidence": "E2"}
+        )
+        self.arm_gate("turn-1")
+        self.stage_gate(contract, "turn-1")
+        self.arm_gate("turn-2")
+        self.pass_gate(turn_id="turn-2")
+
+        batch = self.verify_gate(
+            [self.verification_argv(), self.verification_argv(1)],
+            evidence_ids=["E1", "E2"],
+        )
+        self.assertEqual(self.run_rewritten(batch).returncode, 1)
+        state_path = next(
+            (self.plugin_data / "gate-state").glob("session-contract-*.json")
+        )
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        sources = state["evidence_state"]["sources"]
+        self.assertEqual(
+            sources[CLICK_GATE._evidence_key("E1")]["status"], "passed"
+        )
+        self.assertEqual(
+            sources[CLICK_GATE._evidence_key("E2")]["status"], "failed"
+        )
+        self.assertFalse(CLICK_GATE._contract_is_completed(state))
+
+        retry = self.verify_gate(
+            [self.verification_argv(1)], evidence_ids=["E2"]
+        )
+        self.assertEqual(self.run_rewritten(retry).returncode, 1)
+        blocked = self.verify_gate(
+            [self.verification_argv(1)], evidence_ids=["E2"]
+        )
+        self.assertEqual(
+            blocked["hookSpecificOutput"]["permissionDecision"], "deny"
+        )
+        self.assertIn(
+            "failed twice",
+            blocked["hookSpecificOutput"]["permissionDecisionReason"],
+        )
+
+    def test_partial_batch_retries_only_unresolved_source_to_completion(self) -> None:
+        (self.workspace / ".gitignore").write_text(
+            "__pycache__/\n.transient-marker\n", encoding="utf-8"
+        )
+        (self.workspace / "transient_test.py").write_text(
+            "import unittest\n"
+            "from pathlib import Path\n\n"
+            "class TransientTest(unittest.TestCase):\n"
+            "    def test_passes_on_retry(self):\n"
+            "        marker = Path('.transient-marker')\n"
+            "        if not marker.exists():\n"
+            "            marker.write_text('retry\\n', encoding='utf-8')\n"
+            "            self.fail('transient failure')\n",
+            encoding="utf-8",
+        )
+        self.initialize_git(".gitignore", "transient_test.py")
+        transient_argv = [
+            sys.executable,
+            "-m",
+            "unittest",
+            "transient_test.TransientTest.test_passes_on_retry",
+        ]
+        contract = self.contract()
+        contract["verification"]["evidence"].append(
+            {"id": "E2", "kind": "argv", "description": "transient regression"}
+        )
+        contract["verification"]["done_when"].append(
+            {"condition": "transient regression passes", "primary_evidence": "E2"}
+        )
+        self.arm_gate("turn-1")
+        self.stage_gate(contract, "turn-1")
+        self.arm_gate("turn-2")
+        self.pass_gate(turn_id="turn-2")
+
+        first = self.verify_gate(
+            [self.verification_argv(), transient_argv],
+            evidence_ids=["E1", "E2"],
+        )
+        self.assertEqual(self.run_rewritten(first).returncode, 1)
+        retry = self.verify_gate([transient_argv], evidence_ids=["E2"])
+        self.assertEqual(self.run_rewritten(retry).returncode, 0)
+
+        state_path = next(
+            (self.plugin_data / "gate-state").glob("session-contract-*.json")
+        )
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        revision = state["verification"]["mutation_revision"]
+        for evidence_id in ("E1", "E2"):
+            source = state["evidence_state"]["sources"][
+                CLICK_GATE._evidence_key(evidence_id)
+            ]
+            self.assertEqual(source["status"], "passed")
+            self.assertEqual(source["verified_revision"], revision)
+        self.assertTrue(CLICK_GATE._contract_is_completed(state))
+
+    def test_non_argv_evidence_can_complete_without_a_local_batch(self) -> None:
+        contract = self.contract()
+        contract["verification"]["evidence"] = [
+            {"id": "E-hosted", "kind": "hosted", "description": "host status"},
+            {"id": "E-manual", "kind": "manual", "description": "manual check"},
+            {"id": "E-existing", "kind": "existing", "description": "current proof"},
+        ]
+        contract["verification"]["done_when"] = [
+            {"condition": "host is ready", "primary_evidence": "E-hosted"},
+            {"condition": "operator checked it", "primary_evidence": "E-manual"},
+            {"condition": "current proof remains valid", "primary_evidence": "E-existing"},
+        ]
+        self.arm_gate("turn-1")
+        self.stage_gate(contract, "turn-1")
+        self.arm_gate("turn-2")
+        self.pass_gate(turn_id="turn-2")
+
+        for evidence_id in ("E-hosted", "E-manual"):
+            completed = self.complete_evidence(evidence_id)
+            self.assertEqual(
+                completed["hookSpecificOutput"]["permissionDecision"], "allow"
+            )
+            state_path = next(
+                (self.plugin_data / "gate-state").glob("session-contract-*.json")
+            )
+            state = json.loads(state_path.read_text(encoding="utf-8"))
+            self.assertFalse(CLICK_GATE._contract_is_completed(state))
+
+        completed = self.complete_evidence("E-existing")
+        self.assertEqual(completed["hookSpecificOutput"]["permissionDecision"], "allow")
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        self.assertTrue(CLICK_GATE._contract_is_completed(state))
+
+    def test_argv_evidence_cannot_be_completed_by_attestation(self) -> None:
+        self.approve_contract()
+        denied = self.complete_evidence("E1")
+        self.assertEqual(denied["hookSpecificOutput"]["permissionDecision"], "deny")
+        self.assertIn("click-gate verify", denied["hookSpecificOutput"]["permissionDecisionReason"])
+
+    def test_mixed_evidence_requires_every_source_and_mutation_stales_all(self) -> None:
+        contract = self.contract()
+        contract["verification"]["evidence"].append(
+            {"id": "E-manual", "kind": "manual", "description": "operator check"}
+        )
+        contract["verification"]["done_when"].append(
+            {"condition": "operator view is correct", "primary_evidence": "E-manual"}
+        )
+        self.arm_gate("turn-1")
+        self.stage_gate(contract, "turn-1")
+        self.arm_gate("turn-2")
+        self.pass_gate(turn_id="turn-2")
+
+        verification = self.verify_gate([self.verification_argv()])
+        self.assertEqual(self.run_rewritten(verification).returncode, 0)
+        state_path = next(
+            (self.plugin_data / "gate-state").glob("session-contract-*.json")
+        )
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        self.assertFalse(CLICK_GATE._contract_is_completed(state))
+
+        self.complete_evidence("E-manual")
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        self.assertTrue(CLICK_GATE._contract_is_completed(state))
+
+        self.assertIsNone(
+            self.pre_tool("apply_patch", "*** Begin Patch\n*** End Patch", "turn-2")
+        )
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        self.assertFalse(CLICK_GATE._contract_is_completed(state))
+        for source in state["evidence_state"]["sources"].values():
+            self.assertIn(source["status"], {"stale", "ready"})
+
     def test_contract_allows_only_one_browser_evidence_source(self) -> None:
         contract = self.contract()
         contract["verification"]["evidence"] = [
@@ -1683,6 +2033,28 @@ class ClickGateTests(unittest.TestCase):
             stale_retry["hookSpecificOutput"]["permissionDecision"], "allow"
         )
 
+    def test_rewritten_verification_runner_is_claimed_before_execution(self) -> None:
+        self.approve_contract()
+        payload = self.verify_gate([self.verification_argv()])
+        command = payload["hookSpecificOutput"]["updatedInput"]["command"]
+        tokens = shlex.split(command, posix=os.name != "nt")
+        self.assertEqual(tokens[2], "run-verification")
+
+        environment = {
+            "PLUGIN_DATA": str(self.plugin_data),
+            "CLICK_CONFIG_HOME": str(self.plugin_data),
+        }
+        with (
+            mock.patch.dict(os.environ, environment),
+            mock.patch.object(CLICK_GATE, "_git_workspace_snapshot", return_value=None),
+            mock.patch.object(
+                CLICK_GATE, "_execute_argv_commands", return_value=0
+            ) as execute,
+        ):
+            self.assertEqual(CLICK_GATE._run_verification(tokens[3:]), 0)
+            self.assertEqual(CLICK_GATE._run_verification(tokens[3:]), 2)
+        self.assertEqual(execute.call_count, 1)
+
     def test_verification_that_changes_repository_content_cannot_pass(self) -> None:
         (self.workspace / ".gitignore").write_text("__pycache__/\n", encoding="utf-8")
         (self.workspace / "app.py").write_text("VALUE = 1\n", encoding="utf-8")
@@ -1746,6 +2118,57 @@ class ClickGateTests(unittest.TestCase):
         )
         self.assertEqual(retry["hookSpecificOutput"]["permissionDecision"], "deny")
         self.assertIn("code mutation", retry["hookSpecificOutput"]["permissionDecisionReason"])
+
+    def test_workspace_changing_failure_does_not_mark_unrun_evidence_executed(self) -> None:
+        (self.workspace / ".gitignore").write_text("__pycache__/\n", encoding="utf-8")
+        (self.workspace / "app.py").write_text("VALUE = 1\n", encoding="utf-8")
+        (self.workspace / "mutating_failure_test.py").write_text(
+            "import unittest\n"
+            "from pathlib import Path\n\n"
+            "class MutatingFailureTest(unittest.TestCase):\n"
+            "    def test_mutates_then_fails(self):\n"
+            "        Path('app.py').write_text('VALUE = 2\\n', encoding='utf-8')\n"
+            "        self.fail('expected failure after mutation')\n",
+            encoding="utf-8",
+        )
+        self.initialize_git(".gitignore", "app.py", "mutating_failure_test.py")
+
+        contract = self.contract()
+        contract["verification"]["evidence"].append(
+            {"id": "E2", "kind": "argv", "description": "unrun compatibility check"}
+        )
+        contract["verification"]["done_when"].append(
+            {"condition": "compatibility remains", "primary_evidence": "E2"}
+        )
+        self.arm_gate("turn-1")
+        self.stage_gate(contract, "turn-1")
+        self.arm_gate("turn-2")
+        self.pass_gate(turn_id="turn-2")
+
+        payload = self.verify_gate(
+            [
+                [
+                    sys.executable,
+                    "-m",
+                    "unittest",
+                    "mutating_failure_test.MutatingFailureTest.test_mutates_then_fails",
+                ],
+                self.verification_argv(),
+            ],
+            evidence_ids=["E1", "E2"],
+        )
+        result = self.run_rewritten(payload)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        state_path = next(
+            (self.plugin_data / "gate-state").glob("session-contract-*.json")
+        )
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        sources = state["evidence_state"]["sources"]
+        executed = sources[CLICK_GATE._evidence_key("E1")]
+        unrun = sources[CLICK_GATE._evidence_key("E2")]
+        self.assertEqual((executed["status"], executed["attempts"]), ("failed", 1))
+        self.assertEqual((unrun["status"], unrun["attempts"]), ("ready", 0))
+        self.assertEqual(unrun["unchanged_failure_retries"], 0)
 
     def test_verification_protects_preexisting_untracked_content(self) -> None:
         (self.workspace / ".gitignore").write_text("__pycache__/\n", encoding="utf-8")
@@ -2249,6 +2672,27 @@ class ClickGateTests(unittest.TestCase):
                     payload["hookSpecificOutput"]["permissionDecisionReason"],
                 )
 
+    def test_unclaimed_expired_verification_does_not_consume_source_attempt(self) -> None:
+        self.approve_contract()
+        self.verify_gate([self.verification_argv()])
+        state_path = next(
+            (self.plugin_data / "gate-state").glob("session-contract-*.json")
+        )
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        state["verification"]["started_at"] = (
+            int(time.time()) - CLICK_GATE.VERIFY_RUNNING_TTL_SECONDS - 1
+        )
+        self.assertEqual(state["verification"]["runner_claimed_at"], 0)
+        state_path.write_text(json.dumps(state), encoding="utf-8")
+
+        retry = self.verify_gate([self.verification_argv()])
+        self.assertEqual(retry["hookSpecificOutput"]["permissionDecision"], "allow")
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        source = state["evidence_state"]["sources"][CLICK_GATE._evidence_key("E1")]
+        self.assertEqual(source["status"], "running")
+        self.assertEqual(source["attempts"], 0)
+        self.assertEqual(source["unchanged_failure_retries"], 0)
+
     def test_failed_batch_allows_one_unchanged_retry_then_requires_mutation(self) -> None:
         contract = self.contract()
         contract["verification"]["scale"] = "quick"
@@ -2392,6 +2836,41 @@ class ClickGateTests(unittest.TestCase):
         self.assertIn("never resend the contract JSON", context)
         self.assertNotIn("inventory", context)
 
+    def test_prompt_context_migrates_pre_ledger_staged_contract(self) -> None:
+        self.arm_gate("turn-1")
+        self.stage_gate(turn_id="turn-1")
+        state_path = next(
+            (self.plugin_data / "gate-state").glob("session-contract-*.json")
+        )
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        del state["evidence_state"]
+        del state["state_schema_version"]
+        state_path.write_text(json.dumps(state), encoding="utf-8")
+
+        context = self.prompt_submit("승인합니다", "turn-2")["hookSpecificOutput"][
+            "additionalContext"
+        ]
+        self.assertIn("predates evidence-id completion tracking", context)
+        self.assertIn("click-gate cancel", context)
+        self.assertNotIn("click-gate pass", context)
+
+    def test_prompt_context_migrates_pre_ledger_approved_contract(self) -> None:
+        self.approve_contract()
+        state_path = next(
+            (self.plugin_data / "gate-state").glob("session-contract-*.json")
+        )
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        del state["evidence_state"]
+        del state["state_schema_version"]
+        state_path.write_text(json.dumps(state), encoding="utf-8")
+
+        context = self.prompt_submit("계속해줘", "turn-3")["hookSpecificOutput"][
+            "additionalContext"
+        ]
+        self.assertIn("predates evidence-id completion tracking", context)
+        self.assertIn("click-gate cancel", context)
+        self.assertNotIn("click-gate pass", context)
+
     def test_pre_id_staged_state_gets_a_digest_derived_compatibility_id(self) -> None:
         self.arm_gate("turn-1")
         self.stage_gate(turn_id="turn-1")
@@ -2410,6 +2889,186 @@ class ClickGateTests(unittest.TestCase):
         self.arm_gate("turn-2")
         passed = self.pass_gate(compatibility_id, "turn-2")
         self.assertEqual(passed["hookSpecificOutput"]["permissionDecision"], "allow")
+
+    def test_incomplete_pre_ledger_contract_requires_cancel_and_restage(self) -> None:
+        self.approve_contract()
+        state_path = next(
+            (self.plugin_data / "gate-state").glob("session-contract-*.json")
+        )
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        del state["evidence_state"]
+        del state["state_schema_version"]
+        state_path.write_text(json.dumps(state), encoding="utf-8")
+
+        verification = self.verify_gate([self.verification_argv()])
+        self.assertEqual(
+            verification["hookSpecificOutput"]["permissionDecision"], "deny"
+        )
+        self.assertIn(
+            "predates evidence-id completion tracking",
+            verification["hookSpecificOutput"]["permissionDecisionReason"],
+        )
+        mutation = self.pre_tool(
+            "apply_patch", "*** Begin Patch\n*** End Patch", "turn-2"
+        )
+        self.assertEqual(
+            mutation["hookSpecificOutput"]["permissionDecision"], "deny"
+        )
+
+    def test_pre_ledger_staged_contract_is_rejected_at_pass(self) -> None:
+        self.arm_gate("turn-1")
+        self.stage_gate(turn_id="turn-1")
+        contract_id = self.active_contract_id()
+        state_path = next(
+            (self.plugin_data / "gate-state").glob("session-contract-*.json")
+        )
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        del state["evidence_state"]
+        del state["state_schema_version"]
+        state_path.write_text(json.dumps(state), encoding="utf-8")
+
+        self.arm_gate("turn-2")
+        denied = self.pass_gate(contract_id, "turn-2")
+        self.assertEqual(denied["hookSpecificOutput"]["permissionDecision"], "deny")
+        self.assertIn(
+            "predates evidence-id completion tracking",
+            denied["hookSpecificOutput"]["permissionDecisionReason"],
+        )
+
+    def test_current_staged_contract_missing_ledger_is_rejected_at_pass(self) -> None:
+        self.arm_gate("turn-1")
+        self.stage_gate(turn_id="turn-1")
+        contract_id = self.active_contract_id()
+        state_path = next(
+            (self.plugin_data / "gate-state").glob("session-contract-*.json")
+        )
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        del state["evidence_state"]
+        state_path.write_text(json.dumps(state), encoding="utf-8")
+
+        self.arm_gate("turn-2")
+        denied = self.pass_gate(contract_id, "turn-2")
+        self.assertEqual(denied["hookSpecificOutput"]["permissionDecision"], "deny")
+        self.assertIn(
+            "unavailable or malformed",
+            denied["hookSpecificOutput"]["permissionDecisionReason"],
+        )
+
+    def test_completed_pre_ledger_contract_keeps_rollover_compatibility(self) -> None:
+        self.approve_contract()
+        state_path = next(
+            (self.plugin_data / "gate-state").glob("session-contract-*.json")
+        )
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        del state["evidence_state"]
+        del state["state_schema_version"]
+        state["verification"]["status"] = "passed"
+        state["verification"]["verified_revision"] = state["verification"][
+            "mutation_revision"
+        ]
+        state_path.write_text(json.dumps(state), encoding="utf-8")
+        self.assertTrue(CLICK_GATE._contract_is_completed(state))
+
+        replacement = self.contract()
+        replacement["outcome"] = "send a purchasing summary"
+        self.arm_gate("turn-3")
+        staged = self.stage_gate(replacement, "turn-3")
+        self.assertEqual(staged["hookSpecificOutput"]["permissionDecision"], "allow")
+
+    def test_current_schema_missing_ledger_fails_closed_even_if_global_passed(self) -> None:
+        self.approve_contract()
+        state_path = next(
+            (self.plugin_data / "gate-state").glob("session-contract-*.json")
+        )
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        self.assertEqual(
+            state["state_schema_version"], CLICK_GATE.CONTRACT_STATE_SCHEMA_VERSION
+        )
+        del state["evidence_state"]
+        state["verification"]["status"] = "passed"
+        state["verification"]["verified_revision"] = state["verification"][
+            "mutation_revision"
+        ]
+        state_path.write_text(json.dumps(state), encoding="utf-8")
+
+        self.assertFalse(CLICK_GATE._contract_is_completed(state))
+        replacement = self.contract()
+        replacement["outcome"] = "send a purchasing summary"
+        self.arm_gate("turn-3")
+        staged = self.stage_gate(replacement, "turn-3")
+        self.assertEqual(staged["hookSpecificOutput"]["permissionDecision"], "deny")
+
+    def test_unknown_state_schema_fails_closed_with_valid_ledger(self) -> None:
+        self.approve_contract()
+        state_path = next(
+            (self.plugin_data / "gate-state").glob("session-contract-*.json")
+        )
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        source = state["evidence_state"]["sources"][CLICK_GATE._evidence_key("E1")]
+        source["status"] = "passed"
+        source["verified_revision"] = state["verification"]["mutation_revision"]
+        state["state_schema_version"] = 999
+        state_path.write_text(json.dumps(state), encoding="utf-8")
+
+        self.assertFalse(CLICK_GATE._contract_is_completed(state))
+        replacement = self.contract()
+        replacement["outcome"] = "send a purchasing summary"
+        self.arm_gate("turn-3")
+        staged = self.stage_gate(replacement, "turn-3")
+        self.assertEqual(staged["hookSpecificOutput"]["permissionDecision"], "deny")
+
+    def test_malformed_current_evidence_ledger_fails_closed(self) -> None:
+        self.approve_contract()
+        state_path = next(
+            (self.plugin_data / "gate-state").glob("session-contract-*.json")
+        )
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        state["evidence_state"] = {"version": 1, "sources": {}}
+        state_path.write_text(json.dumps(state), encoding="utf-8")
+        self.assertFalse(CLICK_GATE._contract_is_completed(state))
+
+        mutation = self.pre_tool(
+            "apply_patch", "*** Begin Patch\n*** End Patch", "turn-2"
+        )
+        self.assertEqual(
+            mutation["hookSpecificOutput"]["permissionDecision"], "deny"
+        )
+        self.assertIn(
+            "malformed", mutation["hookSpecificOutput"]["permissionDecisionReason"]
+        )
+
+    def test_partial_evidence_ledger_entry_loss_fails_closed(self) -> None:
+        contract = self.contract()
+        contract["verification"]["evidence"].append(
+            {"id": "E-manual", "kind": "manual", "description": "operator check"}
+        )
+        contract["verification"]["done_when"].append(
+            {"condition": "operator view is correct", "primary_evidence": "E-manual"}
+        )
+        self.arm_gate("turn-1")
+        self.stage_gate(contract, "turn-1")
+        self.arm_gate("turn-2")
+        self.pass_gate(turn_id="turn-2")
+        state_path = next(
+            (self.plugin_data / "gate-state").glob("session-contract-*.json")
+        )
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        del state["evidence_state"]["sources"][
+            CLICK_GATE._evidence_key("E-manual")
+        ]
+        remaining = state["evidence_state"]["sources"][CLICK_GATE._evidence_key("E1")]
+        remaining["status"] = "passed"
+        remaining["verified_revision"] = state["verification"]["mutation_revision"]
+        state_path.write_text(json.dumps(state), encoding="utf-8")
+
+        self.assertFalse(CLICK_GATE._contract_is_completed(state))
+        verification = self.verify_gate([self.verification_argv()])
+        self.assertEqual(
+            verification["hookSpecificOutput"]["permissionDecision"], "deny"
+        )
+        self.assertIn(
+            "malformed", verification["hookSpecificOutput"]["permissionDecisionReason"]
+        )
 
     def test_malformed_stored_id_does_not_fall_back_to_the_digest(self) -> None:
         self.arm_gate("turn-1")
@@ -2644,7 +3303,7 @@ class ClickGateTests(unittest.TestCase):
             payload["hookSpecificOutput"]["permissionDecision"], "deny"
         )
         self.assertIn(
-            "final verification",
+            "every declared source",
             payload["hookSpecificOutput"]["permissionDecisionReason"],
         )
 
@@ -2804,6 +3463,8 @@ class ClickGateTests(unittest.TestCase):
         self.assertNotIn("threshold crossing", state_text)
         self.assertNotIn("existing notification mechanism", state_text)
         self.assertNotIn("재고가 임계값", state_text)
+        self.assertNotIn('"E1"', state_text)
+        self.assertIn(CLICK_GATE._evidence_key("E1"), state_text)
         self.assertNotIn("private-marker.txt", state_text)
         self.assertNotIn("private marker", state_text)
 
@@ -3073,6 +3734,82 @@ class ClickGateTests(unittest.TestCase):
             denied["hookSpecificOutput"]["permissionDecisionReason"],
         )
 
+    def test_browser_response_classifier_requires_meaningful_success(self) -> None:
+        for response in (
+            {},
+            {"content": []},
+            {"content": [{"type": "text", "text": ""}]},
+            {"output": None},
+            {"result": ""},
+            {"status": "cancelled", "content": ["diagnostic"]},
+        ):
+            with self.subTest(response=response):
+                self.assertTrue(CLICK_GATE._tool_response_failed(response))
+        for response in (
+            {"status": "success"},
+            {"status": "completed"},
+            {"content": [{"type": "text", "text": "ready"}]},
+            {"result": False},
+        ):
+            with self.subTest(response=response):
+                self.assertFalse(CLICK_GATE._tool_response_failed(response))
+
+    def test_lost_browser_post_event_expires_and_allows_bounded_retry(self) -> None:
+        contract = self.contract()
+        contract["verification"]["evidence"] = [
+            {"id": "E-browser", "kind": "browser", "description": "one session"}
+        ]
+        contract["verification"]["done_when"] = [
+            {"condition": "the page works", "primary_evidence": "E-browser"}
+        ]
+        self.arm_gate("turn-1")
+        self.stage_gate(contract, "turn-1")
+        self.arm_gate("turn-2")
+        self.pass_gate(turn_id="turn-2")
+        self.assertIsNone(
+            self.tool_hook(
+                "pre-tool",
+                "mcp__node_repl__js",
+                {"code": "await page.title()", "timeout_ms": 5000},
+                tool_use_id="lost-browser-post",
+            )
+        )
+        state_path = next(
+            (self.plugin_data / "gate-state").glob("session-contract-*.json")
+        )
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        state["external_evidence"]["browser_running"]["lost-browser-post"] = (
+            time.time() - CLICK_GATE.BROWSER_RUNNING_TTL_SECONDS - 1
+        )
+        state_path.write_text(json.dumps(state), encoding="utf-8")
+
+        invalid_retry = self.tool_hook(
+            "pre-tool",
+            "mcp__node_repl__js",
+            {"code": "await page.title()", "timeout_ms": 60000},
+            tool_use_id="invalid-browser-retry",
+        )
+        self.assertEqual(
+            invalid_retry["hookSpecificOutput"]["permissionDecision"], "deny"
+        )
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        self.assertEqual(state["external_evidence"]["browser_running"], {})
+        self.assertEqual(state["external_evidence"]["browser_status"], "failed")
+
+        self.assertIsNone(
+            self.tool_hook(
+                "pre-tool",
+                "mcp__node_repl__js",
+                {"code": "await page.title()", "timeout_ms": 5000},
+                tool_use_id="browser-retry",
+            )
+        )
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        self.assertEqual(state["external_evidence"]["browser_calls"], 2)
+        self.assertIn(
+            "browser-retry", state["external_evidence"]["browser_running"]
+        )
+
     def test_browser_primary_source_uses_structured_kind_not_localized_text(self) -> None:
         conditions = (
             "layout works",
@@ -3186,16 +3923,23 @@ class ClickGateTests(unittest.TestCase):
         self.arm_gate("turn-2")
         self.pass_gate(turn_id="turn-2")
 
-        verification = self.verify_gate([self.verification_argv()])
-        self.assertEqual(self.run_rewritten(verification).returncode, 0)
         state_path = next(
             (self.plugin_data / "gate-state").glob("session-contract-*.json")
         )
         state = json.loads(state_path.read_text(encoding="utf-8"))
         self.assertEqual(
-            state["external_evidence"]["browser_source_id"], "E-browser"
+            state["external_evidence"]["browser_source_key"],
+            CLICK_GATE._evidence_key("E-browser"),
         )
         self.assertFalse(CLICK_GATE._contract_is_completed(state))
+        premature = self.complete_evidence("E-browser")
+        self.assertEqual(
+            premature["hookSpecificOutput"]["permissionDecision"], "deny"
+        )
+        self.assertIn(
+            "successful current-revision Browser call",
+            premature["hookSpecificOutput"]["permissionDecisionReason"],
+        )
 
         self.assertIsNone(
             self.tool_hook(
@@ -3211,6 +3955,12 @@ class ClickGateTests(unittest.TestCase):
             {"code": "await page.title()", "timeout_ms": 5000},
             tool_use_id="completion-browser",
             tool_response={"status": "success"},
+        )
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        self.assertFalse(CLICK_GATE._contract_is_completed(state))
+        completed = self.complete_evidence("E-browser")
+        self.assertEqual(
+            completed["hookSpecificOutput"]["permissionDecision"], "allow"
         )
         state = json.loads(state_path.read_text(encoding="utf-8"))
         self.assertTrue(CLICK_GATE._contract_is_completed(state))
@@ -3237,6 +3987,62 @@ class ClickGateTests(unittest.TestCase):
                 tool_use_id="unrelated-browser",
             )
         )
+
+    def test_empty_browser_tool_response_is_not_completion_evidence(self) -> None:
+        contract = self.contract()
+        contract["verification"]["evidence"] = [
+            {"id": "E-browser", "kind": "browser", "description": "one session"}
+        ]
+        contract["verification"]["done_when"] = [
+            {"condition": "the page works", "primary_evidence": "E-browser"}
+        ]
+        self.arm_gate("turn-1")
+        self.stage_gate(contract, "turn-1")
+        self.arm_gate("turn-2")
+        self.pass_gate(turn_id="turn-2")
+
+        self.assertIsNone(
+            self.tool_hook(
+                "pre-tool",
+                "mcp__node_repl__js",
+                {"code": "await page.title()", "timeout_ms": 5000},
+                tool_use_id="empty-browser-response",
+            )
+        )
+        self.assertIsNone(
+            self.tool_hook(
+                "post-tool",
+                "mcp__node_repl__js",
+                {"code": "await page.title()", "timeout_ms": 5000},
+                tool_use_id="empty-browser-response",
+                tool_response={},
+            )
+        )
+        denied = self.complete_evidence("E-browser")
+        self.assertEqual(denied["hookSpecificOutput"]["permissionDecision"], "deny")
+        self.assertIn(
+            "successful current-revision Browser call",
+            denied["hookSpecificOutput"]["permissionDecisionReason"],
+        )
+        self.assertIsNone(
+            self.tool_hook(
+                "pre-tool",
+                "mcp__node_repl__js",
+                {"code": "await page.title()", "timeout_ms": 5000},
+                tool_use_id="cancelled-browser-response",
+            )
+        )
+        self.assertIsNone(
+            self.tool_hook(
+                "post-tool",
+                "mcp__node_repl__js",
+                {"code": "await page.title()", "timeout_ms": 5000},
+                tool_use_id="cancelled-browser-response",
+                tool_response={"status": "cancelled", "content": ["diagnostic"]},
+            )
+        )
+        denied = self.complete_evidence("E-browser")
+        self.assertEqual(denied["hookSpecificOutput"]["permissionDecision"], "deny")
 
     def test_long_running_local_server_uses_managed_service_lifecycle(self) -> None:
         self.approve_contract()

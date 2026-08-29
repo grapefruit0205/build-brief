@@ -1,4 +1,4 @@
-version: 17
+version: 18
 skill: click
 evaluation_conditions:
   - no-plugin
@@ -78,28 +78,30 @@ global_invariants:
   - "Treats equivalent build, design, implement, and do-it wording in any language as the same full workflow whenever Click is active"
   - "Routes code-review-only work in Always ON into a read-only anti-loop guard without a build contract or approval"
   - "Leaves questions, explanations, and simple read-only lookups outside both the build contract and review observation ledger"
-  - "Presents a compact developer execution contract and a faithful plain-language explanation before modifying code, tests, configuration, or schemas when Click is activated"
+  - "Presents the compact developer fields and renders the exact digest-bound plain_language value once as a separate faithful easy-language view before modifying code, tests, configuration, or schemas when Click is activated"
   - "Includes outcome, scoped boundary, must_hold, build.approach, verification scale, structured evidence registry and referenced done_when conditions, and plain_language without parallel plan, phase, step, task, minimality, or proof sections"
   - "Adds build.semantics, build.order, or an intermediate gate only when the work materially requires them"
-  - "Stages the developer execution contract JSON once, exposes the emitted opaque contract_id as the approval handle with both contract views, records its UserPromptSubmit turn, and cannot pass that id until a later user turn"
+  - "Stages the developer execution contract JSON once with plain_language still digest-bound, exposes the emitted opaque contract_id as the approval handle with both nonduplicative contract views, records its UserPromptSubmit turn, and cannot pass that id until a later user turn"
   - "Rejects a second stage in the same user turn and rejects stage or pass when the Hook cannot match the tool call to a UserPromptSubmit turn"
   - "Passes only the exact contract_id emitted for the staged digest, never resends the JSON, and keeps that semantic contract fixed during one-shot implementation"
-  - "Allows a fresh contract only after final verification passes for the current mutation revision; unverified, running, failed, or stale contracts still block replacement"
+  - "Allows a fresh contract only after every declared evidence source passes for the current mutation revision and managed services stop; ready, observed, running, failed, or stale sources still block replacement"
   - "Allows necessary in-scope dependencies, MCP tools, external services, graders, files, and low-level tactics without a replacement contract"
   - "Does not change the approved outcome, user-visible behavior, boundary, must-hold conditions, or verification commitment"
   - "Keeps the execution contract proportional instead of freezing the architecture of the entire system"
   - "Treats required behavior as a hard gate, then selects the smallest justified design delta among passing candidates"
   - "Reuses existing boundaries and mechanisms unless current evidence proves they cannot preserve an invariant"
   - "Rejects material additions only when they are out of scope, speculative, or disproportionate; it does not ban a technology category"
-  - "Includes verification with one quick, focused, or full scale, structured evidence sources, and observable done_when checks for one final batch"
+  - "Includes verification with one quick, focused, or full scale, structured evidence sources, and observable done_when conditions; only declared argv sources require one final local batch"
   - "Declares each evidence source once with a unique id and supported kind, assigns every done_when condition one primary_evidence id, allows one id to cover several conditions, and does not duplicate proof through another tool or surface"
+  - "Binds every final argv check to a declared argv source through evidence_id, requires the declared argv set and inferred costs to fit the chosen scale and batch limit, records completion per id and mutation revision, and does not require an unrelated local batch when no argv source exists"
+  - "Finalizes observed Browser evidence explicitly and treats hosted, manual, and existing completion as attestations rather than claiming independently observed execution"
   - "Uses browser, manual, hosted, broad-suite, or timed end-to-end evidence only when cheaper evidence cannot prove the condition, then stops when all conditions have current evidence"
   - "Does not create parallel verification ceremonies or include an intermediate gate without an irreversible boundary"
   - "Avoids serial technical preference questions by exposing consequential assumptions in the single contract review"
   - "Performs no implementation before the displayed developer execution contract is explicitly approved"
   - "Starts from the narrowest relevant repository evidence and widens only for unresolved consequential behavior"
   - "Leaves every uninvoked Manual task unblocked and blocks the first unset mutation only to obtain the one persistent mode choice"
-  - "Once Manual is invoked, keeps a staged or incomplete approved session contract mutation-locked across later turns until its emitted contract_id is passed and the contract is completed or explicitly bypassed"
+  - "Once Manual is invoked, keeps a staged or incomplete approved session contract mutation-locked across later turns until its emitted contract_id is passed and the contract is completed; an explicitly authorized bypass releases only its own turn"
   - "Gates supported mutations automatically in Always ON and arms the mutation gate when Manual invocation activates Click"
   - "Honors an explicit user opt-out immediately, including after the gate was armed"
   - "Enables session-wide strict blocking only when the user explicitly selects it"
@@ -294,7 +296,7 @@ cases:
     directive_semantics:
       - "Does not ask separate platform, generation-mode, storage, or scheduling preference questions before producing the contract"
       - "Makes YouTube authorization, Gemini generation, filtering, duplicate-reply prevention, rate limiting, failure handling, and a stop control explicit"
-      - "Includes a proportional verification recommendation and one final check batch"
+      - "Includes one proportional evidence set and a final argv batch only if argv sources are declared"
       - "Explains the same result in easy Korean and asks once for approval"
     minimality_expectations:
       reuse: "Repository-supported runtime, scheduler, storage, and configuration when present"
@@ -441,7 +443,7 @@ cases:
     expected_mutation_gate: structured-after-approval
     directive_semantics:
       - "Uses a versioned mutate argv request for the write-capable generator after a later approval passes the emitted contract_id bound to the staged semantic contract"
-      - "Uses one versioned verify batch with explicit targeted, broad, or deep classes for final checks"
+      - "Uses one protocol-v2 verify batch with every check bound to a declared argv evidence_id and an explicit targeted, broad, or deep class"
       - "Does not guess command intent from an ambiguous active shell string or hide a shell interpreter inside argv"
       - "Keeps the approved outcome and boundary fixed while the structured mutation invalidates stale evidence"
     minimality_expectations:
@@ -472,12 +474,12 @@ cases:
     expected_mode: build
     expected_mutation_gate: fresh-contract-after-completion
     directive_semantics:
-      - "Stages a fresh contract only when the prior verification passed at the current mutation revision"
+      - "Stages a fresh contract only when every prior evidence source passed at the current mutation revision and managed services stopped"
       - "Does not require bypass or manual state deletion after successful completion"
       - "Keeps replacement blocked when the prior contract is unverified, running, failed, or stale"
-      - "Initializes clean observation, mutation, and verification state and requires fresh approval"
+      - "Initializes clean observation, mutation, verification, and evidence state and requires fresh approval"
     minimality_expectations:
-      reuse: "The existing approved state and verification revision fields"
+      reuse: "The existing approved state, evidence ledger, mutation revision, and service state"
       reject_without_evidence:
         - "A new top-level completed mode or automatic approval of the next contract"
 
@@ -607,7 +609,7 @@ cases:
       - "Uses one representative browser session only for integration, input, responsive layout, and visual behavior that logic tests cannot prove"
       - "Declares one referenced evidence source with kind browser and stays within three serial calls, 90 measured seconds, and five-second explicit waits"
       - "Does not duplicate the same rule through both automated and browser evidence or add a shadow verification suite"
-      - "Stops verification as soon as every condition has current evidence"
+      - "Stops verification as soon as every declared primary source has current evidence"
     minimality_expectations:
       reuse: "The game core's deterministic state and one continuous browser session"
       reject_without_evidence:

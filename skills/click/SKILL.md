@@ -1,6 +1,6 @@
 ---
 name: click
-description: Compile repository-aware software intent into one approval-bound execution contract, explain it plainly, then implement it in one shot with anti-loop guards and an automatically enforced verification budget. Use when the user explicitly selects Click, or when Hook context says Click Always ON is enabled and the request will change software; use its read-only review guard for code review in Always ON mode. Do not use for questions, explanations, or simple inspection.
+description: Compile repository-aware software intent into one approval-bound execution contract, explain it plainly, then implement it in one shot with anti-loop guards and an automatically enforced budget for observable local and Browser verification. Use when the user explicitly selects Click, or when Hook context says Click Always ON is enabled and the request will change software; use its read-only review guard for code review in Always ON mode. Do not use for questions, explanations, or simple inspection.
 ---
 
 # Click
@@ -29,7 +29,7 @@ Keep the contract proportional. Prefer an existing capable structure and add no 
 ## Stage once and approve by id
 
 1. Run `click-gate stage '<Execution Contract JSON>'` once and capture the emitted `CLICK_CONTRACT_ID=ctr_<32hex>`.
-2. Show the compact developer contract, its faithful plain-language view in the user's language, the verification scale, and that exact `contract_id`.
+2. Show the compact developer fields (`outcome` through `verification`), then render the exact digest-bound `plain_language` value once as the separate easy-language view in the user's language; show the verification scale and that exact `contract_id` with them.
 3. Ask one compact approval/change/cancel question, then stop without mutating project files.
 
 The original request is not approval of an unseen proposal. A revision after another user response must be staged and shown again and receives a new id.
@@ -40,7 +40,7 @@ Only in a later turn whose user response explicitly approves the shown proposal,
 
 Before implementation, read the [anti-loop policy](references/anti-loop-policy.md) and [structured capability protocol](references/capability-protocol.md). Implement continuously without a replacement plan, contract, or repository-wide rediscovery. Use their canonical inspect, mutate, managed-service, and verify forms rather than duplicating command details here.
 
-Collect each assigned source once after the last mutation that can invalidate it. Reuse current successful evidence, keep Browser or hosted work out of a shadow verification suite, and stop verification when every completion condition has current evidence. A failed or stale source may be repaired or replaced under the documented retry rules; it is not a reason to accumulate another proof path.
+Collect each assigned source once after the last mutation that can invalidate it. Reuse current successful evidence, keep Browser or hosted work out of a shadow verification suite, and stop verification when every completion condition has current evidence. Stop any managed service before declaring completion. A failed or stale source may be repaired or replaced under the documented retry rules; it is not a reason to accumulate another proof path.
 
 Do not request reapproval for an in-scope technical choice. Stop only when completion needs missing authority, an uncovered irreversible or paid external action, or a change to the approved outcome, visible behavior, boundary, invariant, or verification commitment. Otherwise finish in one shot and report the result and completion evidence.
 

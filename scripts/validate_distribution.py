@@ -16,6 +16,25 @@ SKILL_NAME = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 README_NAMES = ("README.md", "README.ko.md", "README.zh-CN.md")
 
 
+def _release_notes_error(release_notes: str, version: str) -> str:
+    if f"## v{version}" not in release_notes:
+        return "release notes must identify the current version"
+    try:
+        major, minor, _ = (int(part) for part in version.split("."))
+    except (TypeError, ValueError):
+        return "release notes cannot derive a candidate version from invalid semver"
+    headings = re.findall(r"(?m)^## Unreleased[^\r\n]*$", release_notes)
+    if not headings:
+        return ""
+    expected = f"## Unreleased v{major}.{minor + 1} candidate"
+    if len(headings) != 1 or not headings[0].startswith(expected):
+        return (
+            "release notes may contain only one explicit next-minor candidate heading "
+            f"starting with `{expected}`"
+        )
+    return ""
+
+
 def _json(path: Path, errors: list[str], root: Path) -> Any:
     try:
         return json.loads(path.read_text(encoding="utf-8"))
@@ -143,8 +162,9 @@ def validate(root: Path = ROOT) -> list[str]:
         errors.append("hooks/hooks.json must meter the canonical Browser MCP tool")
 
     release_notes = (root / "RELEASE_NOTES.md").read_text(encoding="utf-8")
-    if f"## v{version}" not in release_notes or "## Unreleased" in release_notes:
-        errors.append("release notes must identify the current version and contain no Unreleased heading")
+    release_error = _release_notes_error(release_notes, str(version))
+    if release_error:
+        errors.append(release_error)
     for readme_name in README_NAMES:
         readme = (root / readme_name).read_text(encoding="utf-8")
         if f"v{version}" not in readme:
