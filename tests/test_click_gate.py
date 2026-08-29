@@ -2038,22 +2038,41 @@ class ClickGateTests(unittest.TestCase):
         payload = self.verify_gate([self.verification_argv()])
         command = payload["hookSpecificOutput"]["updatedInput"]["command"]
         tokens = shlex.split(command, posix=os.name != "nt")
-        self.assertEqual(tokens[2], "run-verification")
+        self.assertEqual(tokens[2], "--state-root")
+        self.assertEqual(Path(tokens[3]), self.plugin_data / "gate-state")
+        self.assertEqual(tokens[4], "run-verification")
 
-        environment = {
-            "PLUGIN_DATA": str(self.plugin_data),
-            "CLICK_CONFIG_HOME": str(self.plugin_data),
-        }
-        with (
-            mock.patch.dict(os.environ, environment),
-            mock.patch.object(CLICK_GATE, "_git_workspace_snapshot", return_value=None),
-            mock.patch.object(
-                CLICK_GATE, "_execute_argv_commands", return_value=0
-            ) as execute,
-        ):
-            self.assertEqual(CLICK_GATE._run_verification(tokens[3:]), 0)
-            self.assertEqual(CLICK_GATE._run_verification(tokens[3:]), 2)
-        self.assertEqual(execute.call_count, 1)
+        environment = os.environ.copy()
+        environment.pop("PLUGIN_DATA", None)
+        environment.pop("CLICK_CONFIG_HOME", None)
+        first = subprocess.run(
+            command,
+            shell=True,
+            cwd=self.workspace,
+            env=environment,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(first.returncode, 0, first.stderr)
+        replay = subprocess.run(
+            command,
+            shell=True,
+            cwd=self.workspace,
+            env=environment,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(replay.returncode, 2)
+        self.assertIn("no longer authorized", replay.stderr)
+
+    def test_stateful_runner_prefix_rejects_non_gate_state_root(self) -> None:
+        arguments, error = CLICK_GATE._runner_arguments(
+            ["--state-root", str(self.plugin_data), "run-verification"]
+        )
+        self.assertEqual(arguments, [])
+        self.assertIn("invalid", error)
 
     def test_verification_that_changes_repository_content_cannot_pass(self) -> None:
         (self.workspace / ".gitignore").write_text("__pycache__/\n", encoding="utf-8")

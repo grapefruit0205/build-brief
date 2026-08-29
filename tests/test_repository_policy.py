@@ -468,6 +468,26 @@ class RepositoryPolicyTests(unittest.TestCase):
         self.assertIn("id: active-lifecycle-plan-block", catalog)
         self.assertIn("id: cheapest-evidence-browser-game", catalog)
 
+    def test_multiplatform_adapter_is_documented_without_false_parity(self) -> None:
+        english = (ROOT / "README.md").read_text(encoding="utf-8")
+        korean = (ROOT / "README.ko.md").read_text(encoding="utf-8")
+        chinese = (ROOT / "README.zh-CN.md").read_text(encoding="utf-8")
+        for value, heading, limitation in (
+            (english, "Google Antigravity adapter", "not currently supported"),
+            (korean, "Google Antigravity 어댑터", "아직 지원하지 않습니다"),
+            (chinese, "Google Antigravity 适配器", "目前还不支持"),
+        ):
+            with self.subTest(heading=heading):
+                self.assertIn(heading, value)
+                self.assertIn("dist/antigravity", value)
+                self.assertIn(limitation, value)
+        platform = (
+            ROOT / "platforms" / "antigravity" / "README.md"
+        ).read_text(encoding="utf-8")
+        self.assertIn("model_stop", platform)
+        self.assertIn("cannot rewrite tool arguments", platform)
+        self.assertIn("not claimed", platform)
+
 
 if __name__ == "__main__":
     unittest.main()

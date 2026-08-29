@@ -9,6 +9,19 @@ import sys
 from pathlib import Path
 from typing import Any
 
+try:
+    from build_antigravity_distribution import (
+        CLICK_REFERENCE_FILES,
+        HOOK_FILES,
+        rendered_skill,
+    )
+except ModuleNotFoundError:
+    from scripts.build_antigravity_distribution import (
+        CLICK_REFERENCE_FILES,
+        HOOK_FILES,
+        rendered_skill,
+    )
+
 
 ROOT = Path(__file__).resolve().parents[1]
 SEMVER = re.compile(r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$")
@@ -109,6 +122,82 @@ def _validate_skill(root: Path, skill_name: str, errors: list[str]) -> None:
             errors.append(f"{metadata_path.relative_to(root)} is missing `{marker}`")
 
 
+def _same_file(
+    expected: Path, actual: Path, label: str, errors: list[str]
+) -> None:
+    try:
+        expected_bytes = expected.read_bytes()
+        actual_bytes = actual.read_bytes()
+    except OSError as exc:
+        errors.append(f"cannot compare Antigravity distribution {label}: {exc}")
+        return
+    if expected_bytes != actual_bytes:
+        errors.append(f"Antigravity distribution is stale: {label}")
+
+
+def _validate_antigravity(root: Path, errors: list[str]) -> None:
+    platform = root / "platforms" / "antigravity"
+    distribution = root / "dist" / "antigravity"
+    manifest = _json(platform / "plugin.json", errors, root)
+    if not isinstance(manifest, dict):
+        return
+    if set(manifest) - {"$schema", "name", "description"}:
+        errors.append("Antigravity plugin.json has unsupported manifest fields")
+    if manifest.get("name") != "click":
+        errors.append("Antigravity plugin name must be `click`")
+    if manifest.get("$schema") != "https://antigravity.google/schemas/v1/plugin.json":
+        errors.append("Antigravity plugin.json must use the official v1 schema")
+
+    hook_config = _json(platform / "hooks.json", errors, root)
+    if not isinstance(hook_config, dict):
+        return
+    serialized = json.dumps(hook_config, sort_keys=True)
+    for marker in (
+        "PreInvocation",
+        "PreToolUse",
+        "PostToolUse",
+        "Stop",
+        "antigravity_gate.py",
+        "run_command",
+        "write_to_file",
+        "replace_file_content",
+        "multi_replace_file_content",
+    ):
+        if marker not in serialized:
+            errors.append(f"Antigravity hooks.json is missing `{marker}`")
+
+    for name in ("plugin.json", "hooks.json", "README.md"):
+        _same_file(platform / name, distribution / name, name, errors)
+    for name in HOOK_FILES:
+        _same_file(
+            root / "hooks" / name,
+            distribution / "hooks" / name,
+            f"hooks/{name}",
+            errors,
+        )
+    for skill_name in ("click", "fix"):
+        path = distribution / "skills" / skill_name / "SKILL.md"
+        try:
+            actual = path.read_text(encoding="utf-8")
+        except OSError as exc:
+            errors.append(f"cannot read Antigravity Skill {skill_name}: {exc}")
+            continue
+        if actual != rendered_skill(skill_name):
+            errors.append(
+                f"Antigravity distribution is stale: skills/{skill_name}/SKILL.md"
+            )
+        fields = _frontmatter(path, errors, root)
+        if fields is not None and fields.get("name") != skill_name:
+            errors.append(f"Antigravity Skill name must be `{skill_name}`")
+    for name in CLICK_REFERENCE_FILES:
+        _same_file(
+            root / "skills" / "click" / "references" / name,
+            distribution / "skills" / "click" / "references" / name,
+            f"skills/click/references/{name}",
+            errors,
+        )
+
+
 def validate(root: Path = ROOT) -> list[str]:
     errors: list[str] = []
     manifest = _json(root / ".codex-plugin" / "plugin.json", errors, root)
@@ -149,6 +238,8 @@ def validate(root: Path = ROOT) -> list[str]:
 
     for skill_name in ("click", "fix"):
         _validate_skill(root, skill_name, errors)
+
+    _validate_antigravity(root, errors)
 
     hook_config = _json(root / "hooks" / "hooks.json", errors, root)
     hooks = hook_config.get("hooks", {}) if isinstance(hook_config, dict) else {}
@@ -193,8 +284,8 @@ def main() -> int:
             print(f"- {error}")
         return 1
     print(
-        "Click distribution validation passed: plugin, marketplace, Click/Fix "
-        "skills, metadata, and Python sources"
+        "Click distribution validation passed: Codex and Antigravity plugins, "
+        "marketplace, Click/Fix skills, metadata, and Python sources"
     )
     return 0
 

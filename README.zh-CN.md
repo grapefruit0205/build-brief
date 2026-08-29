@@ -34,6 +34,30 @@ Use Always ON for future software changes (recommended), or Manual only when I m
 @Click 添加订单取消功能。防止重复退款，并保持现有 API 兼容。
 ```
 
+## Google Antigravity 适配器（实验性源码构建）
+
+此仓库还可以生成一个独立的 Google Antigravity 插件。它与 Codex 插件
+共享 Click 的契约状态机、evidence ledger、验证预算和 shell-free runner。
+
+```bash
+python3 scripts/build_antigravity_distribution.py
+agy plugin install ./dist/antigravity
+```
+
+Antigravity IDE 用户也可以把 `dist/antigravity` 复制到工作区的
+`.agents/plugins/click`，或复制到全局的
+`~/.gemini/config/plugins/click`。Codex 仍继续使用现有的
+`.codex-plugin/plugin.json` 和 Codex Hook 适配器；支持一个平台不会替换
+另一个平台。
+
+Antigravity 的 Hook 契约与 Codex 不同。因此，结构化命令通过随附的
+launcher 运行，并要求依次出现完全 idle 的 `model_stop`、新的可读取
+用户 transcript 条目和下一次 `PreInvocation`，以此作为提案与批准之间
+的执行边界。目前还不支持跨
+Antigravity native read 的重复阻止，也不支持 Browser evidence。请查看
+[`platforms/antigravity/README.md`](platforms/antigravity/README.md)了解准确
+限制，不要假设宿主功能完全等价。
+
 ## 更新到 v0.21.0
 
 如果已经安装 Click，需要明确刷新 Git marketplace 快照并重新安装插件，才能加载本版本。

@@ -34,6 +34,29 @@ ChatGPT 데스크톱 앱을 다시 시작하고 포함된 Click Hook을 검토�
 @Click 주문 취소 기능을 추가해줘. 중복 환불을 방지하고 기존 API 호환성을 유지해야 해.
 ```
 
+## Google Antigravity 어댑터(실험적 소스 빌드)
+
+이 저장소는 Codex 플러그인과 계약 상태 머신·evidence ledger·검증 예산·
+shell-free runner를 공유하는 독립형 Google Antigravity 플러그인도 생성합니다.
+
+```bash
+python3 scripts/build_antigravity_distribution.py
+agy plugin install ./dist/antigravity
+```
+
+Antigravity IDE에서는 `dist/antigravity`를 워크스페이스의
+`.agents/plugins/click` 또는 전역 `~/.gemini/config/plugins/click`에 복사할
+수도 있습니다. Codex는 기존 `.codex-plugin/plugin.json`과 Codex Hook
+어댑터를 계속 사용하므로 한 플랫폼 지원이 다른 플랫폼을 대체하지 않습니다.
+
+Antigravity의 Hook 계약은 Codex와 다릅니다. 따라서 구조화 명령은 번들
+launcher를 사용하고, 완전히 idle인 `model_stop`, 새로 읽을 수 있는 사용자
+transcript 항목, 다음 `PreInvocation`을 제안과 승인 사이의 실행 경계로
+취급합니다. Antigravity native read 사이의
+중복 차단과 Browser evidence는 아직 지원하지 않습니다. 완전 동등성을
+가정하지 말고 정확한 제한은
+[`platforms/antigravity/README.md`](platforms/antigravity/README.md)를 확인하세요.
+
 ## v0.21.0으로 업데이트
 
 Click을 이미 설치했다면 Git 마켓플레이스 스냅샷을 명시적으로 갱신하고 플러그인을 다시 설치해야 이번 버전이 적용됩니다.
