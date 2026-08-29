@@ -26,13 +26,13 @@ Build top-down:
 2. Map those obligations onto the smallest concrete approach that fits the current system.
 3. Add `build.semantics` only for material state, failure, security, compatibility, concurrency, migration, or operational meaning.
 4. Add `build.order` only where sequence affects safe completion.
-5. Choose a verification scale and place observable completion checks in one final batch.
+5. Choose a verification scale, assign each completion condition one typed primary source, and place only declared argv checks in one final batch when argv evidence exists.
 
 An implementation agent may change low-level tactics, dependencies, tools, files, or internal sequencing without reapproval when the result remains inside the contract's outcome, boundary, must-hold behavior, material semantics, and verification commitment.
 
 ## Mirror the complete contract plainly
 
-Create the easy explanation after the developer contract. Explain what the user gets, what remains unchanged, the important safeguards, the broad route, and the verification cost. It is a faithful projection, not a second design.
+Keep the easy explanation in the required canonical `plain_language` field so it remains bound to the staged contract digest. At presentation time, show the developer fields without echoing that value, then render the exact digest-bound `plain_language` value once as the separate easy-language view. Explain what the user gets, what remains unchanged, the important safeguards, the broad route, and the verification cost. Together the two views expose the complete staged contract; the easy view is a faithful projection, not a second design.
 
 ## Execute one shot
 
@@ -40,4 +40,4 @@ After approval, keep the staged contract unchanged and finish within its semanti
 
 Stop only for new authority, an uncovered irreversible or paid external action, or a necessary change to the approved outcome, user-visible behavior, boundary, must-hold condition, or verification commitment. A blocker is not permission to widen the contract silently.
 
-Implementation is complete when the final completion checks pass, or failures are reported without claiming success.
+Implementation is complete when every declared source is current for the final mutation revision and no managed service remains active, or failures are reported without claiming success.

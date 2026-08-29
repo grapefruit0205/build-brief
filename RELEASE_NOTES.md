@@ -1,5 +1,21 @@
 # Release notes
 
+## Unreleased v0.21 candidate — evidence-bound completion
+
+### Per-source execution state
+
+- Final argv verification now uses protocol version `2`; every check carries an `evidence_id` that must resolve to a declared source with `kind: "argv"`.
+- The Hook stores a content-free, hashed per-id ledger whose source count and typed registry digest detect partial entry loss, and completes a contract only when every declared source passed at the current mutation revision and no managed service remains active. A contract whose evidence is entirely Browser, hosted, manual, or existing no longer needs an unrelated local verification command.
+- One final argv batch must cover every unresolved argv source. Staging rejects an argv registry whose minimum one-check-per-source cost or check count cannot fit the selected scale. Several adjacent checks may share one id, and all must pass. If an earlier source succeeds before a later source fails, its result remains current while the unresolved source receives the bounded retry. The rewritten runner is atomically claimed before checks execute, so replay cannot rerun them.
+- Successful Browser work is observed first and explicitly finalized with `click-gate evidence`. The same command records hosted, manual, or existing completion as an explicit attestation; it cannot complete argv evidence and does not claim to independently prove unmatched external events.
+- A mutation, including protected workspace content created by verification, invalidates every source. Evidence IDs are hashed in persistent state; descriptions, conditions, argv, and output remain absent. The deterministic hashes avoid plaintext storage but do not make predictable IDs confidential.
+- Incomplete contracts staged before the evidence ledger cannot be reconstructed from a digest. They fail closed with cancel-and-restage guidance. A legacy contract that had already completed under its prior current-revision rule still permits normal rollover.
+
+### Smaller entrypoint, honest cumulative cost
+
+- `plain_language` remains canonical and digest-bound, but presentation now renders its exact value once instead of duplicating the easy explanation outside and inside the displayed contract.
+- Measured from v0.18 to this candidate, the always-loaded Click entry skill shrank from 12,996 to 6,029 bytes (53.6%), while the root plus all six references grew from 38,358 to 44,774 bytes (16.7%). The usual pre-stage bundle (root, modes, directive format, and verification profiles) moved from 25,047 to 24,669 bytes (-1.5%). Relative to released v0.20, the cumulative root-plus-reference source grew 10.9% to document the evidence protocol. This is progressive disclosure and a smaller entrypoint, not a claim that every full-workflow prompt became half as large.
+
 ## v0.20.0 — 2026-08-29
 
 Click v0.20.0 keeps the one-contract, one-approval workflow while making its purpose clearer: agree once on what will change, what must stay true, and what evidence will count, then keep implementation and necessary verification inside that boundary without observable replanning, repository-wide rescans, or duplicate proof.

@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 import unittest
 
-from scripts.validate_distribution import validate
+from scripts.validate_distribution import _release_notes_error, validate
 
 
 ROOT = Path(__file__).parents[1]
@@ -12,6 +12,17 @@ ROOT = Path(__file__).parents[1]
 class DistributionValidationTests(unittest.TestCase):
     def test_public_distribution_is_self_consistent(self) -> None:
         self.assertEqual(validate(ROOT), [])
+
+    def test_release_notes_allow_only_the_explicit_next_minor_candidate(self) -> None:
+        current = "## Unreleased v0.21 candidate — evidence\n\n## v0.20.0\n"
+        self.assertEqual(_release_notes_error(current, "0.20.0"), "")
+        for invalid in (
+            "## Unreleased — evidence\n\n## v0.20.0\n",
+            "## Unreleased v0.22 candidate\n\n## v0.20.0\n",
+            "## Unreleased v0.21 candidate\n## Unreleased v0.21 candidate — two\n## v0.20.0\n",
+        ):
+            with self.subTest(invalid=invalid):
+                self.assertIn("next-minor candidate", _release_notes_error(invalid, "0.20.0"))
 
 
 if __name__ == "__main__":

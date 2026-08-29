@@ -21,7 +21,7 @@ Do not choose on the user's behalf. `click-gate default status` reports the stor
 
 Apply the compact contract to software creation, modification, deletion, refactoring, and repair. Questions, explanations, and simple read-only inspection do not need a contract. The Hook blocks matched mutations until the id emitted for the staged contract has been passed from a later approving `UserPromptSubmit` turn. It also blocks matched plan tools while the staged or incomplete approved session contract remains active.
 
-After final verification passes for the current mutation revision, a later software-change request may stage a fresh contract without `bypass`. An approved contract that is unverified, running, failed, or stale still blocks replacement. Staging the next contract resets its observation, mutation, and verification state and requires a new user approval.
+After every declared evidence source is current for the final mutation revision and no managed service remains active, a later software-change request may stage a fresh contract without `bypass`. An approved contract with missing, running, failed, or stale evidence—or an active managed service—still blocks replacement. A contract with no argv source needs no ceremonial local batch. Staging the next contract resets its observation, mutation, and evidence state and requires a new user approval.
 
 For a read-only code review:
 
