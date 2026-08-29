@@ -133,8 +133,14 @@ def validate(root: Path = ROOT) -> list[str]:
 
     hook_config = _json(root / "hooks" / "hooks.json", errors, root)
     hooks = hook_config.get("hooks", {}) if isinstance(hook_config, dict) else {}
-    if not isinstance(hooks, dict) or not {"UserPromptSubmit", "PreToolUse"}.issubset(hooks):
-        errors.append("hooks/hooks.json must register UserPromptSubmit and PreToolUse")
+    required_hooks = {"UserPromptSubmit", "PreToolUse", "PostToolUse", "SessionEnd"}
+    if not isinstance(hooks, dict) or not required_hooks.issubset(hooks):
+        errors.append(
+            "hooks/hooks.json must register UserPromptSubmit, PreToolUse, "
+            "PostToolUse, and SessionEnd"
+        )
+    elif "mcp__node_repl__js" not in json.dumps(hooks, sort_keys=True):
+        errors.append("hooks/hooks.json must meter the canonical Browser MCP tool")
 
     suite = _json(root / "evals" / "ab-suite.json", errors, root)
     if not isinstance(suite, dict) or suite.get("release_under_test") != version:

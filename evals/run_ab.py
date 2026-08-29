@@ -370,6 +370,47 @@ def _successful_command(item: dict[str, Any]) -> bool:
     return exit_code == 0 or (exit_code is None and status in {"completed", "success"})
 
 
+def _is_browser_tool_item(item: dict[str, Any]) -> bool:
+    tool_name = str(item.get("tool_name") or item.get("name") or "").lower()
+    server = str(item.get("server") or item.get("server_name") or "").lower()
+    tool = str(item.get("tool") or item.get("tool_name") or "").lower()
+    return bool(
+        tool_name == "mcp__node_repl__js"
+        or (server in {"node_repl", "node-repl"} and tool == "js")
+    )
+
+
+def _browser_item_seconds(item: dict[str, Any]) -> float:
+    for field, divisor in (("duration_ms", 1000.0), ("elapsed_ms", 1000.0)):
+        value = item.get(field)
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            return max(0.0, float(value) / divisor)
+    for field in ("duration_seconds", "elapsed_seconds"):
+        value = item.get(field)
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            return max(0.0, float(value))
+    return 0.0
+
+
+def _browser_item_input(item: dict[str, Any]) -> str:
+    for field in ("arguments", "input", "tool_input"):
+        value = item.get(field)
+        if isinstance(value, str):
+            return value
+        if isinstance(value, dict):
+            return json.dumps(value, ensure_ascii=False, sort_keys=True)
+    return ""
+
+
+def _is_timed_browser_item(item: dict[str, Any]) -> bool:
+    value = _browser_item_input(item)
+    return any(
+        int(match.group(1)) > HOOK_MODULE.MAX_BROWSER_WAIT_MS
+        for pattern in HOOK_MODULE.BROWSER_WAIT_PATTERNS
+        for match in pattern.finditer(value)
+    )
+
+
 def _is_root_inventory(command: str) -> bool:
     return bool(HOOK_MODULE._is_broad_exploration_command(command))
 
@@ -389,6 +430,7 @@ def _is_verification_command(command: str) -> bool:
 
 def _runtime_trace(text: str) -> dict[str, Any]:
     items = _completed_items(text)
+    browser_items = [item for item in items if _is_browser_tool_item(item)]
     commands = [_item_command(item) for item in items]
     commands = [command for command in commands if command]
     successful_commands = [
@@ -423,6 +465,13 @@ def _runtime_trace(text: str) -> dict[str, Any]:
         "repeated_root_inventory_count": max(0, len(inventories) - 1),
         "verification_command_count": sum(
             _is_verification_command(command) for command in commands
+        ),
+        "browser_tool_call_count": len(browser_items),
+        "browser_tool_seconds": round(
+            sum(_browser_item_seconds(item) for item in browser_items), 3
+        ),
+        "timed_browser_call_count": sum(
+            _is_timed_browser_item(item) for item in browser_items
         ),
         "plan_item_count": sum(
             item_type in {"plan", "todo_list", "update_plan"}
@@ -655,7 +704,7 @@ def _candidate_checks(
         )
         checks.append(
             _check(
-                "v0.18.0 hardened one-shot contract Hook",
+                "v0.19.0 bounded-evidence contract Hook",
                 _run(
                     [sys.executable, str(HOOK_TEST)],
                     cwd=ROOT,
@@ -819,6 +868,13 @@ def _aggregate(scores: list[dict[str, Any]]) -> dict[str, Any]:
             "verification_command_count": _metric_summary(
                 items, "verification_command_count"
             ),
+            "browser_tool_call_count": _metric_summary(
+                items, "browser_tool_call_count"
+            ),
+            "browser_tool_seconds": _metric_summary(items, "browser_tool_seconds"),
+            "timed_browser_call_count": _metric_summary(
+                items, "timed_browser_call_count"
+            ),
             "plan_item_count": _metric_summary(items, "plan_item_count"),
         }
         for condition, items in by_condition.items()
@@ -839,6 +895,9 @@ def _paired_deltas(scores: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
         "duplicate_successful_command_count",
         "repeated_root_inventory_count",
         "verification_command_count",
+        "browser_tool_call_count",
+        "browser_tool_seconds",
+        "timed_browser_call_count",
         "plan_item_count",
     )
     conditions = sorted(
@@ -1212,6 +1271,13 @@ def main() -> int:
                     ],
                     "verification_command_count": runtime_trace[
                         "verification_command_count"
+                    ],
+                    "browser_tool_call_count": runtime_trace[
+                        "browser_tool_call_count"
+                    ],
+                    "browser_tool_seconds": runtime_trace["browser_tool_seconds"],
+                    "timed_browser_call_count": runtime_trace[
+                        "timed_browser_call_count"
                     ],
                     "plan_item_count": runtime_trace["plan_item_count"],
                     "file_change_item_count": runtime_trace[

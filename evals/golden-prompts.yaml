@@ -1,4 +1,4 @@
-version: 16
+version: 17
 skill: click
 evaluation_conditions:
   - no-plugin
@@ -508,8 +508,8 @@ cases:
       - "Rejects Python -c and direct Python scripts from the verification capability"
       - "Snapshots protected Git content before and after the final batch"
       - "Records the batch failed and stale when tracked or pre-existing non-ignored untracked content changes"
-      - "Reports every new non-ignored path and fails obvious new source, configuration, or migration paths stale"
-      - "Warns without failing only because a test creates a generic disposable report, and documents that ignored paths are outside the snapshot"
+      - "Reports and fails stale for every new non-ignored path, using source or configuration classification only to clarify the warning"
+      - "Documents that Git-ignored paths are outside the protected snapshot"
     minimality_expectations:
       reuse: "Git and the standard-library verification runner"
       reject_without_evidence:
@@ -588,7 +588,7 @@ cases:
     directive_semantics:
       - "Reports every new non-ignored untracked path after verification"
       - "Fails stale for new source, application, library, configuration, or migration paths"
-      - "Only warns for a generic new report artifact"
+      - "Fails stale for every new non-ignored path while using source/configuration classification only to clarify the warning"
       - "States that Git-ignored paths are not protected by this snapshot"
     minimality_expectations:
       reuse: "Git's non-ignored untracked inventory and the existing before/after snapshot"
@@ -605,6 +605,7 @@ cases:
       - "Assigns every done_when condition one cheapest sufficient primary evidence source and allows one source to cover several conditions"
       - "Uses deterministic game-logic tests for waves, rewards, damage, victory, and defeat instead of replaying the whole timed campaign"
       - "Uses one representative browser session only for integration, input, responsive layout, and visual behavior that logic tests cannot prove"
+      - "Names Browser explicitly as the primary evidence source and stays within three serial calls, 90 measured seconds, and five-second explicit waits"
       - "Does not duplicate the same rule through both automated and browser evidence or add a shadow verification suite"
       - "Stops verification as soon as every condition has current evidence"
     minimality_expectations:
@@ -612,3 +613,4 @@ cases:
       reject_without_evidence:
         - "A natural ten-wave victory playthrough followed by a separate full defeat playthrough"
         - "Repeated desktop and mobile checks of rules already proven by automated tests"
+        - "More than three Browser calls, a Browser timeout above 30 seconds, or a timed wait above five seconds"

@@ -1,6 +1,6 @@
 {
   "schema_version": 6,
-  "release_under_test": "0.18.0",
+  "release_under_test": "0.19.0",
   "model": "gpt-5.6-sol",
   "reasoning_effort": "max",
   "judge_model": "gpt-5.6-sol",
@@ -60,15 +60,15 @@
       "expected_activation": true,
       "opt_out_applicable": false,
       "external_hook_contract": false,
-      "prompt": "$click Close the verification-write hole. Do not accept Python -c or direct Python scripts as final verification. In a Git worktree, compare tracked and pre-existing non-ignored untracked content before and after the final batch. Warn for every new non-ignored path, fail stale when a new source, application, library, configuration, or migration path appears, allow a generic disposable report with a warning, and document that ignored paths are outside this snapshot. Add deterministic tests and do not commit or push.",
-      "baseline_prompt": "Close the verification-write hole. Do not accept Python -c or direct Python scripts as final verification. In a Git worktree, compare tracked and pre-existing non-ignored untracked content before and after the final batch. Warn for every new non-ignored path, fail stale when a new source, application, library, configuration, or migration path appears, allow a generic disposable report with a warning, and document that ignored paths are outside this snapshot. Add deterministic tests and do not commit or push.",
+      "prompt": "$click Close the verification-write hole. Do not accept Python -c or direct Python scripts as final verification. In a Git worktree, compare tracked and pre-existing non-ignored untracked content before and after the final batch. Report and fail stale for every new non-ignored path, use source or configuration classification only to clarify the warning, and document that ignored paths are outside this snapshot. Add deterministic tests and do not commit or push.",
+      "baseline_prompt": "Close the verification-write hole. Do not accept Python -c or direct Python scripts as final verification. In a Git worktree, compare tracked and pre-existing non-ignored untracked content before and after the final batch. Report and fail stale for every new non-ignored path, use source or configuration classification only to clarify the warning, and document that ignored paths are outside this snapshot. Add deterministic tests and do not commit or push.",
       "approval_followup": "I approve the exact staged contract and verification scale. Implement it in one shot and run the final checks once. Do not commit or push.",
       "required_invariants": [
         "Python inline code and direct scripts are rejected by verify validation",
         "Supported Python verification is limited to explicit pytest, unittest, or coverage module runners",
         "A protected Git content change prevents a successful verification record and advances the mutation revision",
         "Every new non-ignored path is reported and obvious new implementation paths fail stale",
-        "A generic newly generated report only warns, while ignored paths are explicitly outside the snapshot"
+        "Every new non-ignored path fails stale, while ignored paths are explicitly outside the snapshot"
       ]
     },
     {

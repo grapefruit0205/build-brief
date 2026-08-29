@@ -143,6 +143,17 @@ class ABRunnerTests(unittest.TestCase):
                 "type": "item.completed",
                 "item": {"type": "todo_list", "status": "completed"},
             },
+            {
+                "type": "item.completed",
+                "item": {
+                    "type": "mcp_tool_call",
+                    "server": "node_repl",
+                    "tool": "js",
+                    "arguments": {"code": "await page.waitForTimeout(12000)"},
+                    "duration_ms": 12500,
+                    "status": "completed",
+                },
+            },
         ]
         trace = _runtime_trace("\n".join(json.dumps(event) for event in events))
         self.assertEqual(trace["command_execution_count"], 3)
@@ -151,6 +162,9 @@ class ABRunnerTests(unittest.TestCase):
         self.assertEqual(trace["repeated_root_inventory_count"], 1)
         self.assertEqual(trace["verification_command_count"], 1)
         self.assertEqual(trace["plan_item_count"], 1)
+        self.assertEqual(trace["browser_tool_call_count"], 1)
+        self.assertEqual(trace["browser_tool_seconds"], 12.5)
+        self.assertEqual(trace["timed_browser_call_count"], 1)
 
     def test_thread_id_is_taken_from_the_candidate_jsonl(self) -> None:
         events = "\n".join(
