@@ -1,6 +1,6 @@
 # Structured Capability Protocol
 
-Use protocol version `1` whenever Click routes inspection, implementation commands, or final verification through Bash. Every executable and argument is a separate JSON string. The Hook executes accepted argv arrays with `shell=False`; never hide a shell, pipeline, redirect, command substitution, or background job inside an entry.
+Use protocol version `1` whenever Click routes inspection, implementation commands, or final verification through Bash. Every executable and argument is a separate JSON string. The Hook executes accepted argv arrays with `shell=False` in a new POSIX session or Windows process group; never hide a shell, pipeline, redirect, command substitution, or background job inside an entry.
 
 ## Inspection
 
@@ -24,7 +24,7 @@ After the exact contract is approved, use this for an implementation command tha
 click-gate mutate '{"version":1,"argv":["python3","scripts/generate.py","--target","src"]}'
 ```
 
-The Hook requires approved state, rejects shell interpreters, issues a one-use runner token, increments the mutation revision, and invalidates stale observations or verification. A runner that never starts expires instead of leaving the contract permanently blocked. Continue to use `apply_patch`, `Edit`, or `Write` directly for ordinary file edits; their canonical tool names already make mutation intent unambiguous.
+The Hook requires approved state, rejects shell interpreters and direct process-control executables such as `kill`, `pkill`, `killall`, `taskkill`, and `Stop-Process`, issues a one-use runner token, increments the mutation revision, and invalidates stale observations or verification. Every accepted subprocess starts in an isolated process group so group-directed signals from a child cannot reach the Codex parent group. A runner that never starts expires instead of leaving the contract permanently blocked. Continue to use `apply_patch`, `Edit`, or `Write` directly for ordinary file edits; their canonical tool names already make mutation intent unambiguous.
 
 ## Verification
 
@@ -40,4 +40,4 @@ Python checks must use an explicit supported pytest, unittest, or coverage modul
 
 ## Enforcement boundary
 
-This protocol removes shell-string classification from accepted capability execution and makes supported argv behavior deterministic. Minimum-class inference closes simple cost underdeclaration but cannot measure work concealed inside an allowed program. It does not cover hosted tools, specialized paths that opt out of hooks, hidden reasoning, semantic boundary correctness, or arbitrary custom code executed by an allowed program. Click remains a workflow guardrail, not an operating-system sandbox.
+This protocol removes shell-string classification from accepted capability execution and makes supported argv behavior deterministic. Minimum-class inference closes simple cost underdeclaration but cannot measure work concealed inside an allowed program. Direct process-control names are blocked and child groups are isolated, but an allowed custom program can still target unrelated processes explicitly or conceal other work internally. The protocol does not cover hosted tools, specialized paths that opt out of hooks, hidden reasoning, semantic boundary correctness, or arbitrary custom code executed by an allowed program. Click remains a workflow guardrail, not an operating-system sandbox.

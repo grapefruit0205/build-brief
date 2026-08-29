@@ -70,7 +70,7 @@ After explicit approval:
 
 1. In Manual mode, run `click-gate arm` in the approval turn. In Always ON mode this is optional.
 2. Run `click-gate pass '<Execution Contract JSON>'` with the exact staged JSON.
-3. Implement continuously inside the approved semantic boundary without creating a new plan, restaging the contract, or reopening repository-wide inventory exploration. Use ordinary edit tools for file edits and `click-gate mutate '{"version":1,"argv":[...]}'` for an implementation command that may write.
+3. Implement continuously inside the approved semantic boundary without creating a new plan, restaging the contract, or reopening repository-wide inventory exploration. Use ordinary edit tools for file edits and `click-gate mutate '{"version":1,"argv":[...]}'` for an implementation command that may write. Do not use `kill`, `pkill`, `killall`, `taskkill`, `Stop-Process`, or another direct process-control executable; the Hook rejects them and runs accepted child commands in an isolated process group.
 4. Use `click-gate inspect '{"version":1,"commands":[[...]]}'` when a read is ambiguous or when explicit tracked argv evidence is clearer than compatible direct read syntax.
 5. Submit only the primary evidence sources assigned to local argv checks in the smallest sufficient final batch as `click-gate verify '{"version":1,"checks":[{"argv":[...],"class":"targeted"}]}'`. Use `targeted`, `broad`, or `deep` honestly; the Hook raises underdeclared checks to their inferred minimum. Do not use Python `-c`, a direct Python script, a shell, or a renamed wrapper as verification.
 6. Report results and material implementation choices.
