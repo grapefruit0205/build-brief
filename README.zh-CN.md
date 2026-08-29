@@ -108,9 +108,27 @@ flowchart TB
   },
   "verification": {
     "scale": "full",
+    "evidence": [
+      {
+        "id": "E1",
+        "kind": "argv",
+        "description": "覆盖成功、重复、并发和支付服务商失败的取消测试"
+      },
+      {
+        "id": "E2",
+        "kind": "argv",
+        "description": "现有 API 回归测试套件"
+      }
+    ],
     "done_when": [
-      "退款行为正确 — 主要证据：覆盖成功、重复、并发和支付服务商失败的取消测试。",
-      "公共 API 保持兼容 — 主要证据：现有 API 回归测试套件。"
+      {
+        "condition": "退款行为正确。",
+        "primary_evidence": "E1"
+      },
+      {
+        "condition": "公共 API 保持兼容。",
+        "primary_evidence": "E2"
+      }
     ]
   },
   "plain_language": "客户可以取消符合条件的订单，但重试或同时发出的请求不能导致重复退款。公共 API 保持不变，支付调用失败也不能错误地完成退款。由于此变更涉及支付和并发，Click 推荐 full 验证。"
@@ -189,7 +207,7 @@ SSH Git 读取是 **Experimental，并且只支持远端 POSIX shell**。它只�
 
 Click 根据当前风险和仓库证据选择最小且足够的规模。用户会把它作为契约的一部分批准，不会出现第二次预算提示。
 
-每个 `done_when` 条件只分配一个充分且成本最低的主要证据来源。一个来源可以覆盖多个条件。Click 优先复用当前 revision 仍然有效的证据和范围最窄的自动检查；只有更便宜的来源无法证明条件时，才使用浏览器、人工、hosted、完整 suite 或耗时的 end-to-end 证据。它不会通过另一个界面重复证明自动检查已经证明的结果，并会在所有条件都有当前证据后立即停止。语义上的充分性仍由 Skill 和 grader 判断，但 Hook 会直接计量标准 Browser MCP 路径：只有 `done_when` 的主要证据明确写明 Browser 时，才允许一个串行代表性 session，最多三次调用、90 秒实测时间；单次 tool timeout 不得超过 30 秒，明确 wait 不得超过五秒，完成后也不能重放。后续 mutation 会重置该证据，matcher 之外的 connector 仍不在此计量范围内。
+每个证据源只在 `verification.evidence` 中声明一次，包含 id、类型化的 `kind` 和说明。每个 `done_when` 条件通过 `primary_evidence` 引用一个充分且成本最低的证据 id；一个 id 可以覆盖多个条件。Click 优先复用当前 revision 仍然有效的证据和范围最窄的自动检查；只有更便宜的来源无法证明条件时，才使用浏览器、人工、hosted、完整 suite 或耗时的 end-to-end 证据。它不会通过另一个界面重复证明自动检查已经证明的结果，并会在所有条件都有当前证据后立即停止。语义上的充分性仍由 Skill 和 grader 判断，但 Hook 会结构化计量标准 Browser MCP 路径：只有一个被引用证据源的 `kind` 为 `browser` 时，才允许一个串行代表性 session，最多三次调用、90 秒实测时间；单次 tool timeout 不得超过 30 秒，明确 wait 不得超过五秒，完成后也不能重放。后续 mutation 会重置该证据，matcher 之外的 connector 仍不在此计量范围内。
 
 | 规模 | 典型用途 | 自动上限 |
 | --- | --- | ---: |
@@ -223,7 +241,7 @@ Hook 会验证并规范化提交的 class，在不使用 shell 的情况下执�
 | 安全 | 身份认证、授权、密钥、隐私边界 |
 | 兼容性 | 现有 API、数据、状态和用户可见行为 |
 
-重要条件属于 `must_hold`；具体的状态或失败含义属于可选的 `build.semantics`；可观察的证明属于 `verification.done_when`。Hook 会保护契约结构、批准顺序、digest 一致性、可见循环和可见的验证范围，但它本身无法证明实现的架构正确性或语义忠实度。
+重要条件属于 `must_hold`；具体的状态或失败含义属于可选的 `build.semantics`。证据源在 `verification.evidence` 中声明，可观察的完成条件从 `verification.done_when` 引用其 id。Hook 会保护契约结构、批准顺序、digest 一致性、可见循环和可见的验证范围，但它本身无法证明实现的架构正确性或语义忠实度。
 
 更准确地说，Click 不会从语义上判断一个新微服务、queue 或 abstraction 是否属于过度设计。Skill 和 semantic grader 倾向于选择最小且有证据支持的设计；Hook 则阻止经常导致设计膨胀的重复规划、全仓库重新发现和重复验证循环。产品声明仅限于这个可观察的执行边界。
 

@@ -110,9 +110,27 @@ Click may present a compact contract like this before touching code:
   },
   "verification": {
     "scale": "full",
+    "evidence": [
+      {
+        "id": "E1",
+        "kind": "argv",
+        "description": "cancellation tests for success, duplicate, concurrent, and provider-failure cases"
+      },
+      {
+        "id": "E2",
+        "kind": "argv",
+        "description": "the existing API regression suite"
+      }
+    ],
     "done_when": [
-      "Refund behavior is correct — primary evidence: cancellation tests for success, duplicate, concurrent, and provider-failure cases.",
-      "The public API remains compatible — primary evidence: the existing API regression suite."
+      {
+        "condition": "Refund behavior is correct.",
+        "primary_evidence": "E1"
+      },
+      {
+        "condition": "The public API remains compatible.",
+        "primary_evidence": "E2"
+      }
     ]
   },
   "plain_language": "Customers can cancel an eligible order, but retries or simultaneous requests cannot refund it twice. The public API stays the same, and a failed payment call cannot falsely complete the refund. Because this touches payments and concurrency, Click recommends full verification."
@@ -191,7 +209,7 @@ SSH Git inspection is **Experimental and POSIX-remote-shell only**. It supports 
 
 Click chooses the smallest sufficient scale from the current risk and repository evidence. The user approves it as part of the contract; there is no second budget prompt.
 
-Every `done_when` condition gets exactly one cheapest sufficient primary evidence source. One source may cover several conditions. Click prefers current valid evidence and narrow automated checks, using browser, manual, hosted, broad-suite, or timed end-to-end evidence only when cheaper sources cannot prove the condition. It does not duplicate an automated result through another surface, and it stops when every condition has current evidence. Semantic sufficiency still belongs to the Skill and grader, but the Hook now observes the canonical Browser MCP path: Browser calls are denied unless a `done_when` source explicitly names Browser, then capped at three serial calls and 90 measured seconds. A single tool timeout may not exceed 30 seconds, obvious waits above five seconds are rejected, a later mutation resets that evidence, and completion prevents replay. Other unmatched connectors remain outside this meter.
+Each source is declared once in `verification.evidence` with an id, a typed `kind`, and a description. Every `done_when` condition references exactly one cheapest sufficient source id through `primary_evidence`; one id may cover several conditions. Click prefers current valid evidence and narrow automated checks, using browser, manual, hosted, broad-suite, or timed end-to-end evidence only when cheaper sources cannot prove the condition. It does not duplicate an automated result through another surface, and it stops when every condition has current evidence. Semantic sufficiency still belongs to the Skill and grader, but the Hook observes the canonical Browser MCP path structurally: Browser calls are denied unless one referenced evidence source has `kind: "browser"`, then capped at three serial calls and 90 measured seconds. A single tool timeout may not exceed 30 seconds, obvious waits above five seconds are rejected, a later mutation resets that evidence, and completion prevents replay. Other unmatched connectors remain outside this meter.
 
 | Scale | Typical use | Automatic ceiling |
 | --- | --- | ---: |
@@ -225,7 +243,7 @@ Minimum design removes ceremony, not necessary safeguards.
 | Security | Authentication, authorization, secrets, privacy boundaries |
 | Compatibility | Existing API, data, statuses, and user-visible behavior |
 
-Material conditions belong in `must_hold`; concrete state or failure meaning belongs in optional `build.semantics`; observable proof belongs in `verification.done_when`. The Hook protects contract shape, approval order, digest equality, visible loops, and visible verification breadth. It does not prove that the implementation is architecturally correct or semantically faithful by itself.
+Material conditions belong in `must_hold`; concrete state or failure meaning belongs in optional `build.semantics`; evidence sources belong in `verification.evidence`, and observable conditions reference them from `verification.done_when`. The Hook protects contract shape, approval order, digest equality, visible loops, and visible verification breadth. It does not prove that the implementation is architecturally correct or semantically faithful by itself.
 
 More precisely, Click does not semantically decide whether a new microservice, queue, or abstraction is overdesign. The Skill and semantic grader prefer the smallest evidence-backed design; the Hook blocks the repeated planning, whole-repository rediscovery, and repeated-verification loops that often produce design expansion. Product claims are limited to that observable enforcement boundary.
 

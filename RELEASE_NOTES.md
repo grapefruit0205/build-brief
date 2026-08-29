@@ -4,9 +4,11 @@
 
 Click v0.19.0 makes the cheapest-evidence policy observable at the Browser boundary and removes the foreground-server failure mode that inflated one-shot game work.
 
-### Bounded primary evidence
+### Structured and bounded primary evidence
 
-- Browser MCP work is available during an approved contract only when a `done_when` string explicitly assigns Browser as its primary evidence source. Otherwise the Hook rejects it as shadow verification.
+- Contracts declare each evidence source once with an id, typed `kind`, and description. Every `done_when` condition references exactly one source id, so one source can cover several conditions without duplicating natural-language evidence text.
+- Inline `done_when` strings are rejected with a migration message; contracts now use condition objects and `primary_evidence` references, and unused or unresolved evidence ids fail closed.
+- Browser MCP work is available during an approved contract only when one referenced evidence source has `kind: "browser"`. Locale-specific marker and substring matching no longer controls Browser authorization; otherwise the Hook rejects it as shadow verification.
 - One representative Browser session is capped at three serial tool calls and 90 seconds of measured tool time. Tool timeouts above 30 seconds and obvious waits above five seconds are rejected in favor of deterministic state or one representative interaction.
 - Browser evidence is reset by a later mutation, is required before a Browser-assigned contract can complete, and cannot be repeated after current-revision completion.
 - A/B runtime traces now report Browser call count, measured Browser seconds, and timed Browser calls, so the plugin-versus-baseline time cost is visible instead of being hidden inside generic MCP items.

@@ -156,8 +156,18 @@ class ClickGateTests(unittest.TestCase):
             },
             "verification": {
                 "scale": "focused",
+                "evidence": [
+                    {
+                        "id": "E1",
+                        "kind": "argv",
+                        "description": "focused concurrent threshold tests",
+                    }
+                ],
                 "done_when": [
-                    "one alert is sent per crossing — primary evidence: focused concurrent threshold tests"
+                    {
+                        "condition": "one alert is sent per threshold crossing",
+                        "primary_evidence": "E1",
+                    }
                 ],
             },
             "plain_language": (
@@ -1171,6 +1181,89 @@ class ClickGateTests(unittest.TestCase):
         output = payload["hookSpecificOutput"]
         self.assertEqual(output["permissionDecision"], "deny")
         self.assertIn("must_hold", output["permissionDecisionReason"])
+
+    def test_contract_requires_structured_evidence_references(self) -> None:
+        cases: list[tuple[str, dict, str]] = []
+
+        missing_evidence = self.contract()
+        del missing_evidence["verification"]["evidence"]
+        cases.append(("missing evidence", missing_evidence, "evidence"))
+
+        inline_string = self.contract()
+        inline_string["verification"]["done_when"] = [
+            "behavior works — primary evidence: one browser session"
+        ]
+        cases.append(("inline string", inline_string, "inline evidence strings"))
+
+        duplicate_id = self.contract()
+        duplicate_id["verification"]["evidence"].append(
+            {
+                "id": "E1",
+                "kind": "manual",
+                "description": "manual observation",
+            }
+        )
+        cases.append(("duplicate id", duplicate_id, "must be unique"))
+
+        unknown_reference = self.contract()
+        unknown_reference["verification"]["done_when"][0][
+            "primary_evidence"
+        ] = "E-missing"
+        cases.append(("unknown reference", unknown_reference, "unknown evidence id"))
+
+        unsupported_kind = self.contract()
+        unsupported_kind["verification"]["evidence"][0]["kind"] = "vector-match"
+        cases.append(("unsupported kind", unsupported_kind, "kind must be one of"))
+
+        unused_source = self.contract()
+        unused_source["verification"]["evidence"].append(
+            {
+                "id": "E2",
+                "kind": "hosted",
+                "description": "hosted deployment status",
+            }
+        )
+        cases.append(("unused source", unused_source, "are unused"))
+
+        for label, contract, expected in cases:
+            with self.subTest(label=label):
+                value, error = CLICK_GATE._validate_contract(json.dumps(contract))
+                self.assertIsNone(value)
+                self.assertIn(expected, error)
+
+    def test_one_structured_evidence_source_can_cover_multiple_conditions(self) -> None:
+        contract = self.contract()
+        contract["verification"]["done_when"].append(
+            {
+                "condition": "the existing inventory write remains compatible",
+                "primary_evidence": "E1",
+            }
+        )
+        value, error = CLICK_GATE._validate_contract(json.dumps(contract))
+        self.assertEqual(error, "")
+        self.assertEqual(value, contract)
+
+    def test_contract_allows_only_one_browser_evidence_source(self) -> None:
+        contract = self.contract()
+        contract["verification"]["evidence"] = [
+            {
+                "id": "E-browser-1",
+                "kind": "browser",
+                "description": "first browser session",
+            },
+            {
+                "id": "E-browser-2",
+                "kind": "browser",
+                "description": "second browser session",
+            },
+        ]
+        contract["verification"]["done_when"] = [
+            {"condition": "first view works", "primary_evidence": "E-browser-1"},
+            {"condition": "second view works", "primary_evidence": "E-browser-2"},
+        ]
+        value, error = CLICK_GATE._validate_contract(json.dumps(contract))
+        self.assertIsNone(value)
+        self.assertIn("at most one Browser evidence source", error)
 
     def test_optional_build_constraints_are_omitted_or_non_empty(self) -> None:
         compact = self.contract()
@@ -2796,27 +2889,55 @@ class ClickGateTests(unittest.TestCase):
             denied["hookSpecificOutput"]["permissionDecision"], "deny"
         )
         self.assertIn(
-            "not an assigned primary evidence source",
+            "kind `browser`",
             denied["hookSpecificOutput"]["permissionDecisionReason"],
         )
 
-    def test_browser_primary_source_recognizes_supported_localized_markers(self) -> None:
+    def test_browser_primary_source_uses_structured_kind_not_localized_text(self) -> None:
         conditions = (
-            "layout works — primary evidence: one browser session",
-            "레이아웃이 동작한다 — 주 증거: 브라우저 세션 1회",
-            "布局正常 — 主要证据：一次浏览器会话",
-            "レイアウトが動作する — 主な証拠：ブラウザセッション1回",
+            "layout works",
+            "레이아웃이 동작한다",
+            "布局正常",
+            "レイアウトが動作する",
         )
         for condition in conditions:
             with self.subTest(condition=condition):
                 contract = self.contract()
-                contract["verification"]["done_when"] = [condition]
+                contract["verification"]["evidence"] = [
+                    {
+                        "id": "E-browser",
+                        "kind": "browser",
+                        "description": "one representative session",
+                    }
+                ]
+                contract["verification"]["done_when"] = [
+                    {
+                        "condition": condition,
+                        "primary_evidence": "E-browser",
+                    }
+                ]
                 self.assertTrue(CLICK_GATE._browser_evidence_required(contract))
+
+        non_browser = self.contract()
+        non_browser["verification"]["evidence"][0]["description"] = (
+            "a local test whose name happens to contain browser"
+        )
+        self.assertFalse(CLICK_GATE._browser_evidence_required(non_browser))
 
     def test_browser_evidence_is_bounded_and_long_timers_are_denied(self) -> None:
         contract = self.contract()
+        contract["verification"]["evidence"] = [
+            {
+                "id": "E-browser",
+                "kind": "browser",
+                "description": "one representative input and layout session",
+            }
+        ]
         contract["verification"]["done_when"] = [
-            "input and responsive layout work — primary evidence: one representative browser session"
+            {
+                "condition": "input and responsive layout work",
+                "primary_evidence": "E-browser",
+            }
         ]
         self.arm_gate("turn-1")
         self.stage_gate(contract, "turn-1")
@@ -2867,8 +2988,18 @@ class ClickGateTests(unittest.TestCase):
 
     def test_browser_primary_source_is_required_for_contract_completion(self) -> None:
         contract = self.contract()
+        contract["verification"]["evidence"] = [
+            {
+                "id": "E-browser",
+                "kind": "browser",
+                "description": "one representative visual integration session",
+            }
+        ]
         contract["verification"]["done_when"] = [
-            "visual integration works — primary evidence: one representative browser session"
+            {
+                "condition": "visual integration works",
+                "primary_evidence": "E-browser",
+            }
         ]
         self.arm_gate("turn-1")
         self.stage_gate(contract, "turn-1")
@@ -2881,6 +3012,9 @@ class ClickGateTests(unittest.TestCase):
             (self.plugin_data / "gate-state").glob("session-contract-*.json")
         )
         state = json.loads(state_path.read_text(encoding="utf-8"))
+        self.assertEqual(
+            state["external_evidence"]["browser_source_id"], "E-browser"
+        )
         self.assertFalse(CLICK_GATE._contract_is_completed(state))
 
         self.assertIsNone(

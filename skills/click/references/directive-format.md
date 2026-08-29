@@ -19,15 +19,27 @@ Stage and pass one JSON object with exactly these fields:
   },
   "verification": {
     "scale": "focused",
-    "done_when": ["observable condition — primary evidence: one cheapest sufficient source"]
+    "evidence": [
+      {
+        "id": "E1",
+        "kind": "argv",
+        "description": "one cheapest sufficient source"
+      }
+    ],
+    "done_when": [
+      {
+        "condition": "observable completion condition",
+        "primary_evidence": "E1"
+      }
+    ]
   },
   "plain_language": "Faithful easy explanation of the compact contract and verification scale."
 }
 ```
 
-`outcome`, `boundary.in_scope`, `must_hold`, `build.approach`, `verification.scale`, `verification.done_when`, and `plain_language` are required. `boundary.out_of_scope` is required but may be empty when nothing material needs exclusion. `verification.scale` must be `quick`, `focused`, or `full`.
+`outcome`, `boundary.in_scope`, `must_hold`, `build.approach`, `verification.scale`, `verification.evidence`, `verification.done_when`, and `plain_language` are required. `boundary.out_of_scope` is required but may be empty when nothing material needs exclusion. `verification.scale` must be `quick`, `focused`, or `full`.
 
-Each `done_when` string names one observable condition and its one cheapest sufficient primary evidence source. One source may cover several conditions. Do not add a second source for the same condition merely to repeat proof through another tool or surface. Put local argv sources in the final verification batch. When Browser is the source, name it explicitly after `primary evidence:` (or a supported localized marker such as `주 증거:`, `主要证据:`, or `主な証拠:`) so the Hook can authorize one metered representative session. Collect other hosted, manual, or external sources once after the last relevant mutation and reuse them at handoff.
+Declare each source once in `evidence` with exactly `id`, `kind`, and `description`. IDs start with a letter, use at most 32 letters, digits, underscores, or hyphens, and are unique. `kind` is one of `argv`, `browser`, `hosted`, `manual`, or `existing`. Each `done_when` object has exactly one non-empty `condition` and one `primary_evidence` id that resolves to the registry. Every source must be referenced, while one id may be reused by several conditions. Do not add a second source for the same condition merely to repeat proof through another tool or surface. Put `argv` sources in the final verification batch. Use at most one `browser` source and reference that id from every condition covered by its metered representative session. Collect other hosted, manual, or existing sources once after the last relevant mutation and reuse them at handoff.
 
 Only when material, add `build.semantics` as a non-empty list for state, failure, security, concurrency, migration, or compatibility meaning; `build.order` as a non-empty list for a real sequencing constraint; or `verification.intermediate_gate` as a non-empty string for one irreversible boundary. Otherwise omit them. Do not add unsupported fields.
 
