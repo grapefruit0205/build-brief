@@ -20,7 +20,7 @@ class RepositoryPolicyTests(unittest.TestCase):
             (ROOT / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8")
         )
         self.assertEqual(manifest["name"], "click")
-        self.assertEqual(manifest["version"], "0.20.0")
+        self.assertEqual(manifest["version"], "0.21.0")
         self.assertEqual(manifest["license"], "MIT")
         self.assertIn("always on", manifest["description"].lower())
         self.assertIn("manual", manifest["description"].lower())
@@ -251,7 +251,7 @@ class RepositoryPolicyTests(unittest.TestCase):
         self.assertEqual(marketplace["name"], "click")
         self.assertEqual(marketplace["plugins"][0]["name"], "click")
         self.assertEqual(
-            marketplace["plugins"][0]["source"]["ref"], "v0.20.0"
+            marketplace["plugins"][0]["source"]["ref"], "v0.21.0"
         )
 
     def test_ci_enforces_distribution_compilation_and_diff_validation(self) -> None:
@@ -266,20 +266,19 @@ class RepositoryPolicyTests(unittest.TestCase):
         self.assertIn("workflow_dispatch:", workflow)
         self.assertTrue((ROOT / "scripts" / "validate_distribution.py").is_file())
 
-    def test_release_documents_identify_v020_and_the_unreleased_candidate(self) -> None:
+    def test_release_documents_identify_v021(self) -> None:
         for readme_name in README_NAMES:
             with self.subTest(readme=readme_name):
                 readme = (ROOT / readme_name).read_text(encoding="utf-8")
-                self.assertIn("v0.20.0", readme)
+                self.assertIn("v0.21.0", readme)
                 self.assertIn("version-18", readme)
         notes = (ROOT / "RELEASE_NOTES.md").read_text(encoding="utf-8")
+        self.assertIn("## v0.21.0", notes)
         self.assertIn("## v0.20.0", notes)
-        self.assertIn("## Unreleased v0.21 candidate", notes)
-        self.assertIn("## Unreleased v0.21 candidate", (ROOT / "README.md").read_text())
-        self.assertIn("## 미출시 v0.21 후보", (ROOT / "README.ko.md").read_text())
-        self.assertIn(
-            "## 未发布的 v0.21 candidate", (ROOT / "README.zh-CN.md").read_text()
-        )
+        self.assertNotIn("Unreleased v0.21", notes)
+        self.assertIn("## Evidence-bound completion in v0.21.0", (ROOT / "README.md").read_text())
+        self.assertIn("## v0.21.0의 증거별 완료 판정", (ROOT / "README.ko.md").read_text())
+        self.assertIn("## v0.21.0 的逐证据完成判定", (ROOT / "README.zh-CN.md").read_text())
 
     def test_completion_docs_match_per_source_and_service_state(self) -> None:
         modes = (
@@ -309,7 +308,7 @@ class RepositoryPolicyTests(unittest.TestCase):
                     phrase, (ROOT / name).read_text(encoding="utf-8")
                 )
 
-    def test_readmes_explain_the_core_purpose_and_v020_update(self) -> None:
+    def test_readmes_explain_the_core_purpose_and_v021_update(self) -> None:
         english = (ROOT / "README.md").read_text(encoding="utf-8")
         korean = (ROOT / "README.ko.md").read_text(encoding="utf-8")
         chinese = (ROOT / "README.zh-CN.md").read_text(encoding="utf-8")

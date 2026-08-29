@@ -34,7 +34,7 @@ Use Always ON for future software changes (recommended), or Manual only when I m
 @Click 添加订单取消功能。防止重复退款，并保持现有 API 兼容。
 ```
 
-## 更新到 v0.20.0
+## 更新到 v0.21.0
 
 如果已经安装 Click，需要明确刷新 Git marketplace 快照并重新安装插件，才能加载本版本。
 
@@ -43,7 +43,7 @@ codex plugin marketplace upgrade click
 codex plugin add click@click
 ```
 
-重新启动 ChatGPT 桌面应用，检查并信任更新后的 Click Hook，然后开始一个新任务。现有模式偏好仍保存在目标仓库之外。如果自动化直接调用 `click-gate`，请让 `pass` 使用发出的 `contract_id` 而不是契约 JSON，并把内联 `done_when` 字符串迁移为结构化证据引用。
+重新启动 ChatGPT 桌面应用，检查并信任更新后的 Click Hook，然后开始一个新任务。现有模式偏好仍保存在目标仓库之外。直接调用 `click-gate` 时，必须使用 verify 协议版本 `2`，为每项检查提供已批准的 argv `evidence_id`，让 `pass` 只传递已签发的 `contract_id`，并使用结构化 `done_when` 证据引用。v0.20 中已经 staged 或 approved 但尚未完成的契约没有可恢复的逐来源 ledger；请在升级前完成它，或在升级后通过准确的 `@Click cancel` 流程取消，再重新 stage 并批准新契约。
 
 之后你可以说“Set Click to Always ON”或“Set Click to Manual”，这些偏好会持久保存在目标仓库之外。若只想绕过一个 turn，请把用户提示的第一行写成 `@Click bypass`，或使用自动补全形式 `[@Click](plugin://click@click) bypass`；Hook 只授权同一 turn 的一次 `click-gate bypass`，并保留活动契约。要丢弃活动契约，请使用对应的 `cancel` 形式来授权一次 `click-gate cancel`。`@Click` 标签和动作不区分大小写，但 plugin URI 必须完全匹配，指令行不能包含其他文字；实际任务可以从第二行继续。两种授权都不能重复使用或带到下一个 turn。Click 不会把偏好或契约文件放进你的项目。
 
@@ -63,11 +63,9 @@ codex plugin add click@click
 
 </details>
 
-## 未发布的 v0.21 candidate
+## v0.21.0 的逐证据完成判定
 
-下文新增的逐证据 completion 行为描述当前源码候选，不是 marketplace 中已发布的 v0.20.0。v0.20 中已经 staged 或 approved 但尚未完成的契约没有逐 id evidence ledger，候选 Hook 不会猜测其含义并继续执行。测试候选前应先完成该契约；如果已经切换，则必须通过准确的 `@Click cancel` 流程取消它，重新 stage、展示并批准契约。
-
-测试该候选源码的直接自动化必须把 `verify` 升级为协议版本 `2`，并为每项检查提供声明的 `evidence_id`。`pass` 仍然只接收已签发的 `contract_id`，`done_when` 仍使用结构化证据引用。当前没有发布、manifest 升级或安装包替换。
+v0.21 将契约声明的每个完成证据与当前代码 revision 的 Hook 状态连接起来。local argv check 必须指定它所证明的已批准 evidence ID；成功的 Browser 工作先被观察，再显式 finalize；hosted、manual 与 existing 仍是诚实的 attestation，而不是 Hook 对外部事实的独立证明。当所有声明来源都为 current 且没有受管服务仍处于活动状态时，契约立即完成，因此没有 argv 来源的契约不需要无关的本地验证命令。
 
 ## 工作原理
 
@@ -223,7 +221,7 @@ click-gate evidence '{"version":1,"evidence_id":"E-browser"}'
 
 SSH Git 读取是 **Experimental，并且只支持远端 POSIX shell**。它只允许受限的 `git status`、`git rev-parse HEAD`、`git merge-base` 和 `git remote get-url`，不接受用户提供的 SSH option。它要求 host key 已知，关闭交互式 password、host-key 更新、forwarding、local command 和 TTY，并通过 connection 与 keepalive 限制快速失败。未知 host、非 POSIX 远端 shell 和无响应 server 都会 fail closed。这不是通用远程执行器或安全 sandbox。
 
-## 自动验证预算（未发布的 v0.21 candidate）
+## 自动验证预算
 
 Click 根据当前风险和仓库证据选择最小且足够的规模。用户会把它作为契约的一部分批准，不会出现第二次预算提示。
 
@@ -294,7 +292,7 @@ Click 面向两类用户：
 
 ## 证据与诚实边界
 
-当前公开版本是 v0.20.0。未发布的 v0.21 candidate 计划以确定性 suite 作为 release gate，验证持久模式、跨 turn 批准、active-contract 锁、读取与 plan 防循环、verify v2 的 evidence-id 绑定、逐来源 completion ledger、无 argv 契约的完成、Browser observe-then-finalize、非 argv attestation 边界、哈希 evidence id、旧版未完成契约迁移、受管服务器、加固的 Git 读取、process 隔离和验证期间 workspace mutation 检测。它尚未发布、未升级 manifest，也未替换已安装的 v0.20.0；公开发布前不声称该候选已经通过必需 CI。
+当前公开版本 v0.21.0 使用确定性 suite 作为 release gate，验证持久模式、跨 turn 批准、active-contract 锁、读取与 plan 防循环、verify v2 的 evidence-id 绑定、逐来源 completion ledger、无 argv 契约的完成、Browser observe-then-finalize、非 argv attestation 边界、哈希 evidence id、旧版未完成契约迁移、受管服务器、加固的 Git 读取、process 隔离和验证期间 workspace mutation 检测。
 
 仓库还包含用于确定性 fixture 策略审查的 version-18 golden cases 和 semantic grader。这些资料检查契约结构与预期行为，并不测量 runtime 生产力。
 

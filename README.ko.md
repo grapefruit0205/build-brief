@@ -34,7 +34,7 @@ ChatGPT 데스크톱 앱을 다시 시작하고 포함된 Click Hook을 검토�
 @Click 주문 취소 기능을 추가해줘. 중복 환불을 방지하고 기존 API 호환성을 유지해야 해.
 ```
 
-## v0.20.0으로 업데이트
+## v0.21.0으로 업데이트
 
 Click을 이미 설치했다면 Git 마켓플레이스 스냅샷을 명시적으로 갱신하고 플러그인을 다시 설치해야 이번 버전이 적용됩니다.
 
@@ -43,7 +43,7 @@ codex plugin marketplace upgrade click
 codex plugin add click@click
 ```
 
-ChatGPT 데스크톱 앱을 다시 시작하고 갱신된 Click Hook을 검토해 신뢰한 뒤 새 작업을 시작합니다. 기존 모드 설정은 대상 저장소 밖에 그대로 유지됩니다. `click-gate`를 직접 호출하는 자동화가 있다면 `pass`에 계약 JSON 대신 발급된 `contract_id`를 전달하고, 인라인 `done_when` 문자열을 구조화된 증거 참조로 바꿔야 합니다.
+ChatGPT 데스크톱 앱을 다시 시작하고 갱신된 Click Hook을 검토해 신뢰한 뒤 새 작업을 시작합니다. 기존 모드 설정은 대상 저장소 밖에 그대로 유지됩니다. `click-gate`를 직접 호출한다면 verify 프로토콜 버전 `2`를 사용하고 모든 check에 승인된 argv `evidence_id`를 넣으며, `pass`에는 계약 JSON 대신 발급된 `contract_id`만 전달하고 `done_when`은 구조화된 증거 참조를 사용해야 합니다. v0.20에서 stage했거나 승인했지만 끝나지 않은 계약에는 복구 가능한 증거별 ledger가 없습니다. 업그레이드 전에 끝내거나, 업그레이드 후 정확한 `@Click cancel` 절차로 취소한 뒤 새 계약을 stage하고 승인해야 합니다.
 
 나중에 “Click을 Always ON으로 설정해줘” 또는 “Click을 Manual로 설정해줘”라고 바꿀 수 있고, 이 설정은 대상 저장소 밖에 유지됩니다. 정확히 한 turn만 우회하려면 사용자 프롬프트 첫 줄에 `@Click bypass` 또는 자동완성 형식인 `[@Click](plugin://click@click) bypass`를 씁니다. Hook은 같은 turn의 `click-gate bypass` 한 번만 승인하고 active 계약은 그대로 보존합니다. active 계약을 버릴 때는 같은 형식의 `cancel` 명령으로 `click-gate cancel` 한 번을 승인합니다. `@Click` 이름과 명령의 대소문자는 구분하지 않지만 plugin URI는 정확히 일치해야 하며, 명령 줄에 다른 문구를 붙일 수 없습니다. 실제 작업 내용은 둘째 줄부터 이어서 쓸 수 있습니다. 두 권한은 재사용하거나 다음 turn으로 가져갈 수 없습니다. Click은 프로젝트 안에 설정이나 계약 파일을 만들지 않습니다.
 
@@ -63,11 +63,9 @@ Build Brief 0.8이라면 첫 번째 명령을 `codex plugin remove build-brief@b
 
 </details>
 
-## 미출시 v0.21 후보
+## v0.21.0의 증거별 완료 판정
 
-아래 기술 설명은 아직 공개 릴리스나 marketplace 설치본이 아닌 v0.21 후보 동작을 반영합니다. v0.20에서 stage했거나 승인했지만 끝나지 않은 계약에는 ID별 evidence ledger가 없으므로 후보 Hook이 그 의미를 추측해 이어받지 않습니다. 후보를 시험하기 전에 해당 계약을 끝내거나, 후보로 전환한 뒤 정확한 `@Click cancel` 절차로 취소하고 계약을 다시 stage·승인해야 합니다.
-
-`click-gate`를 직접 호출하는 자동화가 있다면 `verify` 요청을 프로토콜 버전 `2`로 올리고 모든 check에 승인된 argv 증거의 `evidence_id`를 넣어야 합니다. `pass`는 계속 계약 JSON이 아니라 발급된 `contract_id`만 받습니다. `done_when`은 구조화된 증거 참조를 사용합니다.
+v0.21은 계약에 선언한 모든 완료 증거를 현재 코드 revision의 Hook 상태와 연결합니다. local argv check는 자신이 증명하는 승인된 evidence ID를 지정하고, 성공한 Browser 작업은 관찰된 뒤 명시적으로 finalize됩니다. hosted·manual·existing은 Hook이 외부 사실을 독립적으로 증명하는 것이 아니라 명시적인 attestation으로 남습니다. 모든 선언 증거가 current이고 관리 서비스가 활성 상태가 아니면 즉시 완료되므로 argv 증거가 없는 계약에 무관한 local 검증 명령을 억지로 추가하지 않습니다.
 
 ## 작동 방식
 
@@ -287,7 +285,7 @@ Click의 핵심 대상은 다음 두 그룹입니다.
 
 ## 근거와 솔직한 한계
 
-현재 공개 릴리스는 v0.20.0입니다. 미출시 v0.21 후보는 결정적 suite를 release gate로 사용하도록 설계되어 있으며, 영구 모드, turn 분리 승인, active-contract 잠금, 읽기·계획 anti-loop, ID가 결합된 argv 검증, 증거별 현재 revision 완료, Browser 수집 후 finalize, 외부 attestation의 정직한 한계, 관리형 서버 시작·종료, Node 파일 검사, 강화된 Git 조회, process 격리, 검증 중 workspace 변경 감지, 배포 일관성, 저장소 정책을 검증 대상으로 둡니다. 공개 릴리스 전에는 이 후보가 필수 CI를 통과했다고 주장하지 않습니다.
+현재 공개 릴리스 v0.21.0은 결정적 suite를 release gate로 사용합니다. 영구 모드, turn 분리 승인, active-contract 잠금, 읽기·계획 anti-loop, ID가 결합된 argv 검증, 증거별 현재 revision 완료, Browser 수집 후 finalize, 외부 attestation의 정직한 한계, 관리형 서버 시작·종료, Node 파일 검사, 강화된 Git 조회, process 격리, 검증 중 workspace 변경 감지, 배포 일관성, 저장소 정책을 검증 대상으로 둡니다.
 
 저장소에는 결정적 fixture 기반 정책 검토를 위한 version-18 golden case와 의미 grader도 포함되어 있습니다. 이 자료는 계약 형식과 기대 동작을 검사하며 runtime 생산성을 측정하지 않습니다.
 
