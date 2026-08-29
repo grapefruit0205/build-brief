@@ -95,6 +95,30 @@ class ClickGateTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         return payload
 
+    def tool_hook(
+        self,
+        mode: str,
+        tool_name: str,
+        tool_input: dict[str, object],
+        *,
+        turn_id: str = "turn-2",
+        tool_use_id: str = "browser-tool-1",
+        tool_response: dict[str, object] | None = None,
+    ) -> dict | None:
+        event = {
+            **self.base_event,
+            "turn_id": turn_id,
+            "hook_event_name": "PreToolUse" if mode == "pre-tool" else "PostToolUse",
+            "tool_name": tool_name,
+            "tool_use_id": tool_use_id,
+            "tool_input": tool_input,
+        }
+        if tool_response is not None:
+            event["tool_response"] = tool_response
+        result, payload = self.run_hook(mode, event)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return payload
+
     def prompt_submit(
         self, prompt: str = "review this code", turn_id: str = "turn-1"
     ) -> dict:
@@ -133,7 +157,7 @@ class ClickGateTests(unittest.TestCase):
             "verification": {
                 "scale": "focused",
                 "done_when": [
-                    "focused concurrent threshold tests send one alert per crossing"
+                    "one alert is sent per crossing — primary evidence: focused concurrent threshold tests"
                 ],
             },
             "plain_language": (
@@ -406,12 +430,25 @@ class ClickGateTests(unittest.TestCase):
         )
         self.assertEqual(
             hooks["PreToolUse"][0]["matcher"],
-            "^(Bash|apply_patch|Edit|Write|update_plan|functions\\.update_plan)$",
+            "^(Bash|apply_patch|Edit|Write|update_plan|functions\\.update_plan|mcp__node_repl__js)$",
         )
         pre_tool_handler = hooks["PreToolUse"][0]["hooks"][0]
         self.assertTrue(pre_tool_handler["command"].endswith('click_gate.py\" pre-tool'))
         self.assertEqual(prompt_handler["timeout"], 7)
         self.assertEqual(pre_tool_handler["timeout"], 7)
+        self.assertEqual(
+            hooks["PostToolUse"][0]["matcher"], "^mcp__node_repl__js$"
+        )
+        self.assertTrue(
+            hooks["PostToolUse"][0]["hooks"][0]["command"].endswith(
+                'click_gate.py" post-tool'
+            )
+        )
+        self.assertTrue(
+            hooks["SessionEnd"][0]["hooks"][0]["command"].endswith(
+                'click_gate.py" session-end'
+            )
+        )
 
     def test_uninvoked_hook_starts_without_state(self) -> None:
         self.assertFalse((self.plugin_data / "gate-state").exists())
@@ -1389,12 +1426,20 @@ class ClickGateTests(unittest.TestCase):
             ("cargo", "check"): "broad",
             ("cargo", "clippy"): "broad",
             ("go", "vet", "./..."): "broad",
+            ("node", "--check", "src/one.js"): "targeted",
+            ("node", "--test", "tests/one.test.js"): "targeted",
+            ("node", "--test"): "broad",
         }
         for argv, expected in cases.items():
             with self.subTest(argv=argv):
                 self.assertEqual(
                     CLICK_GATE._minimum_verification_class(list(argv)), expected
                 )
+        self.assertIsNone(
+            CLICK_GATE._minimum_verification_class(
+                ["node", "--eval", "process.exit(0)"]
+            )
+        )
 
     def test_inline_and_direct_python_programs_are_not_verification(self) -> None:
         self.approve_contract()
@@ -2695,6 +2740,204 @@ class ClickGateTests(unittest.TestCase):
             "active execution contract",
             blocked["hookSpecificOutput"]["permissionDecisionReason"],
         )
+
+    def test_browser_evidence_requires_an_assigned_primary_source(self) -> None:
+        self.approve_contract()
+        denied = self.tool_hook(
+            "pre-tool",
+            "mcp__node_repl__js",
+            {"code": "await page.title()", "timeout_ms": 5000},
+        )
+        self.assertEqual(
+            denied["hookSpecificOutput"]["permissionDecision"], "deny"
+        )
+        self.assertIn(
+            "not an assigned primary evidence source",
+            denied["hookSpecificOutput"]["permissionDecisionReason"],
+        )
+
+    def test_browser_primary_source_recognizes_supported_localized_markers(self) -> None:
+        conditions = (
+            "layout works — primary evidence: one browser session",
+            "레이아웃이 동작한다 — 주 증거: 브라우저 세션 1회",
+            "布局正常 — 主要证据：一次浏览器会话",
+            "レイアウトが動作する — 主な証拠：ブラウザセッション1回",
+        )
+        for condition in conditions:
+            with self.subTest(condition=condition):
+                contract = self.contract()
+                contract["verification"]["done_when"] = [condition]
+                self.assertTrue(CLICK_GATE._browser_evidence_required(contract))
+
+    def test_browser_evidence_is_bounded_and_long_timers_are_denied(self) -> None:
+        contract = self.contract()
+        contract["verification"]["done_when"] = [
+            "input and responsive layout work — primary evidence: one representative browser session"
+        ]
+        self.arm_gate("turn-1")
+        self.stage_gate(contract, "turn-1")
+        self.arm_gate("turn-2")
+        self.pass_gate(contract, "turn-2")
+
+        timed = self.tool_hook(
+            "pre-tool",
+            "mcp__node_repl__js",
+            {"code": "await page.waitForTimeout(55000)", "timeout_ms": 60000},
+        )
+        self.assertEqual(timed["hookSpecificOutput"]["permissionDecision"], "deny")
+        self.assertIn("timeouts may not exceed", timed["hookSpecificOutput"]["permissionDecisionReason"])
+
+        for index in range(1, 4):
+            tool_id = f"browser-{index}"
+            self.assertIsNone(
+                self.tool_hook(
+                    "pre-tool",
+                    "mcp__node_repl__js",
+                    {"code": "await page.title()", "timeout_ms": 5000},
+                    tool_use_id=tool_id,
+                )
+            )
+            self.assertIsNone(
+                self.tool_hook(
+                    "post-tool",
+                    "mcp__node_repl__js",
+                    {"code": "await page.title()", "timeout_ms": 5000},
+                    tool_use_id=tool_id,
+                    tool_response={"status": "success"},
+                )
+            )
+
+        exhausted = self.tool_hook(
+            "pre-tool",
+            "mcp__node_repl__js",
+            {"code": "await page.title()", "timeout_ms": 5000},
+            tool_use_id="browser-4",
+        )
+        self.assertEqual(
+            exhausted["hookSpecificOutput"]["permissionDecision"], "deny"
+        )
+        self.assertIn(
+            "browser evidence budget is exhausted",
+            exhausted["hookSpecificOutput"]["permissionDecisionReason"],
+        )
+
+    def test_browser_primary_source_is_required_for_contract_completion(self) -> None:
+        contract = self.contract()
+        contract["verification"]["done_when"] = [
+            "visual integration works — primary evidence: one representative browser session"
+        ]
+        self.arm_gate("turn-1")
+        self.stage_gate(contract, "turn-1")
+        self.arm_gate("turn-2")
+        self.pass_gate(contract, "turn-2")
+
+        verification = self.verify_gate([self.verification_argv()])
+        self.assertEqual(self.run_rewritten(verification).returncode, 0)
+        state_path = next(
+            (self.plugin_data / "gate-state").glob("session-contract-*.json")
+        )
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        self.assertFalse(CLICK_GATE._contract_is_completed(state))
+
+        self.assertIsNone(
+            self.tool_hook(
+                "pre-tool",
+                "mcp__node_repl__js",
+                {"code": "await page.title()", "timeout_ms": 5000},
+                tool_use_id="completion-browser",
+            )
+        )
+        self.tool_hook(
+            "post-tool",
+            "mcp__node_repl__js",
+            {"code": "await page.title()", "timeout_ms": 5000},
+            tool_use_id="completion-browser",
+            tool_response={"status": "success"},
+        )
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        self.assertTrue(CLICK_GATE._contract_is_completed(state))
+        repeated = self.tool_hook(
+            "pre-tool",
+            "mcp__node_repl__js",
+            {"code": "await page.title()", "timeout_ms": 5000},
+            tool_use_id="completion-browser-2",
+        )
+        self.assertEqual(
+            repeated["hookSpecificOutput"]["permissionDecision"], "deny"
+        )
+        self.assertIn(
+            "contract is complete",
+            repeated["hookSpecificOutput"]["permissionDecisionReason"],
+        )
+        self.prompt_submit("open an unrelated browser reference", "turn-3")
+        self.assertIsNone(
+            self.tool_hook(
+                "pre-tool",
+                "mcp__node_repl__js",
+                {"code": "await page.title()", "timeout_ms": 5000},
+                turn_id="turn-3",
+                tool_use_id="unrelated-browser",
+            )
+        )
+
+    def test_long_running_local_server_uses_managed_service_lifecycle(self) -> None:
+        self.approve_contract()
+        argv = [sys.executable, "-m", "http.server", "0", "--bind", "127.0.0.1"]
+        mutation = self.mutate_gate(argv)
+        self.assertEqual(
+            mutation["hookSpecificOutput"]["permissionDecision"], "deny"
+        )
+        self.assertIn(
+            "click-gate service",
+            mutation["hookSpecificOutput"]["permissionDecisionReason"],
+        )
+
+        start_request = {"version": 1, "action": "start", "argv": argv}
+        start = self.pre_tool(
+            "Bash",
+            f"click-gate service {shlex.quote(json.dumps(start_request))}",
+            "turn-2",
+        )
+        self.assertEqual(start["hookSpecificOutput"]["permissionDecision"], "allow")
+        start_result = self.run_rewritten(start)
+        self.assertEqual(start_result.returncode, 0, start_result.stderr)
+
+        stop_request = {"version": 1, "action": "stop"}
+        stop = self.pre_tool(
+            "Bash",
+            f"click-gate service {shlex.quote(json.dumps(stop_request))}",
+            "turn-2",
+        )
+        self.assertEqual(stop["hookSpecificOutput"]["permissionDecision"], "allow")
+        stop_result = self.run_rewritten(stop)
+        self.assertEqual(stop_result.returncode, 0, stop_result.stderr)
+        state_path = next(
+            (self.plugin_data / "gate-state").glob("session-contract-*.json")
+        )
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        self.assertEqual(state["service"]["status"], "stopped")
+
+        restart = self.pre_tool(
+            "Bash",
+            f"click-gate service {shlex.quote(json.dumps(start_request))}",
+            "turn-2",
+        )
+        restart_result = self.run_rewritten(restart)
+        self.assertEqual(restart_result.returncode, 0, restart_result.stderr)
+        end_event = {
+            **self.base_event,
+            "hook_event_name": "SessionEnd",
+        }
+        end_result, end_payload = self.run_hook("session-end", end_event)
+        self.assertEqual(end_result.returncode, 0, end_result.stderr)
+        self.assertIsNone(end_payload)
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            state = json.loads(state_path.read_text(encoding="utf-8"))
+            if state["service"]["status"] == "stopped":
+                break
+            time.sleep(0.05)
+        self.assertEqual(state["service"]["status"], "stopped")
 
     def test_verification_root_main_py_fails_stale(self) -> None:
         self.assertTrue(CLICK_GATE._new_untracked_is_suspicious("main.py"))

@@ -162,6 +162,8 @@ flowchart TB
 | 不重置全仓库清单 | 根级清单命令（如 `rg --files`、`find .`、递归根目录列表及等价的 Git 清单扫描）会被拒绝；仍可使用限定路径的检查。 |
 | 明确命令意图 | 活动状态下，含义不明确的 Bash 会被拒绝，并提示读取使用结构化 `inspect`、实现使用 `mutate`、最终检查使用 `verify`。 |
 | 检查必须在预算内 | 最终检查必须通过结构化的 `click-gate verify` batch 运行，并符合已批准的规模。 |
+| 限定 Browser 证据 | Browser MCP 只有被明确指定为主要证据时，才获得三次调用、90 秒的代表性 session；长时间推进和完成后重放会被拒绝。 |
+| 持有本地服务器生命周期 | 可识别的开发服务器通过 `click-gate service` 启停，由 Click 清理准确的隔离子进程。 |
 | 提案与批准分离 | 同 turn pass 和同 turn 的替换 staging 会被拒绝；只有在后续 `UserPromptSubmit` 后才能 pass 完全相同的 digest。 |
 
 失败的 observation，或输出超过 48,000 字节的 observation，可以原样重试一次。源代码 mutation 会重置成功的 observation 证据，因为代码可能已经变化。Hook 状态变更使用跨平台锁，因此并行结果记录不会遗留错误的“running” observation。Hook 只存储请求 digest 和不含内容的元数据，不存储命令正文或输出。
@@ -175,9 +177,11 @@ flowchart TB
 ```text
 click-gate inspect '{"version":1,"commands":[["git","status","--short"],["sed","-n","1,160p","src/app.py"]]}'
 click-gate mutate '{"version":1,"argv":["python3","scripts/generate.py","--target","src"]}'
+click-gate service '{"version":1,"action":"start","argv":["python3","-m","http.server","4173","--bind","127.0.0.1"]}'
+click-gate service '{"version":1,"action":"stop"}'
 ```
 
-`inspect` 只接受 Hook 限定的只读操作。Git 读取采用按 subcommand 划分的 positive option policy；`git grep`、`git cat-file`、任意 `--format`/`--pretty` 输出、signature 输出选项以及 `git status -v/-vv` 都被排除。允许的 Git 读取会忽略继承的 `GIT_*` 变量和 system/global Git config，强制安全的 log·diff 设置，关闭 pager 与 optional lock，并为支持的 diff 输出加入 `--no-ext-diff` 和 `--no-textconv`。`mutate` 要求完全相同的已批准契约，并把先前证据标记为 stale。普通 `apply_patch`、`Edit` 和 `Write` 仍可直接作为 mutation 使用。格式错误的请求、shell interpreter，以及 `kill`、`pkill`、`killall`、`taskkill`、`Stop-Process` 等直接 process-control 可执行程序都会 fail closed。获准的自定义程序仍可能在内部隐藏明确的进程操作，因此 Click 是 workflow guardrail，而不是操作系统 sandbox。精确 schema 和执行边界请参阅[能力协议](skills/click/references/capability-protocol.md)。
+`inspect` 只接受 Hook 限定的只读操作。Git 读取采用按 subcommand 划分的 positive option policy；`git grep`、`git cat-file`、任意 `--format`/`--pretty` 输出、signature 输出选项以及 `git status -v/-vv` 都被排除。允许的 Git 读取会忽略继承的 `GIT_*` 变量和 system/global Git config，强制安全的 log·diff 设置，关闭 pager 与 optional lock，并为支持的 diff 输出加入 `--no-ext-diff` 和 `--no-textconv`。`mutate` 要求完全相同的已批准契约，并把先前证据标记为 stale。可识别的长时开发服务器会在 `mutate` 中被拒绝，改由 `service` 启动；Click supervisor 持有准确的子进程和 process group，并在显式 stop、`SessionEnd` 或两小时上限时清理。普通 `apply_patch`、`Edit` 和 `Write` 仍可直接作为 mutation 使用。格式错误的请求、shell interpreter，以及 `kill`、`pkill`、`killall`、`taskkill`、`Stop-Process` 等直接 process-control 可执行程序都会 fail closed。获准的自定义程序仍可能在内部隐藏明确的进程操作，因此 Click 是 workflow guardrail，而不是操作系统 sandbox。精确 schema 和执行边界请参阅[能力协议](skills/click/references/capability-protocol.md)。
 
 SSH Git 读取是 **Experimental，并且只支持远端 POSIX shell**。它只允许受限的 `git status`、`git rev-parse HEAD`、`git merge-base` 和 `git remote get-url`，不接受用户提供的 SSH option。它要求 host key 已知，关闭交互式 password、host-key 更新、forwarding、local command 和 TTY，并通过 connection 与 keepalive 限制快速失败。未知 host、非 POSIX 远端 shell 和无响应 server 都会 fail closed。这不是通用远程执行器或安全 sandbox。
 
@@ -185,7 +189,7 @@ SSH Git 读取是 **Experimental，并且只支持远端 POSIX shell**。它只�
 
 Click 根据当前风险和仓库证据选择最小且足够的规模。用户会把它作为契约的一部分批准，不会出现第二次预算提示。
 
-每个 `done_when` 条件只分配一个充分且成本最低的主要证据来源。一个来源可以覆盖多个条件。Click 优先复用当前 revision 仍然有效的证据和范围最窄的自动检查；只有更便宜的来源无法证明条件时，才使用浏览器、人工、hosted、完整 suite 或耗时的 end-to-end 证据。它不会通过另一个界面重复证明自动检查已经证明的结果，并会在所有条件都有当前证据后立即停止。该证据经济规则由 Skill 和 semantic grader 负责；Hook 无法从语义上判断 matcher 之外的 connector 是否在证明同一条件。
+每个 `done_when` 条件只分配一个充分且成本最低的主要证据来源。一个来源可以覆盖多个条件。Click 优先复用当前 revision 仍然有效的证据和范围最窄的自动检查；只有更便宜的来源无法证明条件时，才使用浏览器、人工、hosted、完整 suite 或耗时的 end-to-end 证据。它不会通过另一个界面重复证明自动检查已经证明的结果，并会在所有条件都有当前证据后立即停止。语义上的充分性仍由 Skill 和 grader 判断，但 Hook 会直接计量标准 Browser MCP 路径：只有 `done_when` 的主要证据明确写明 Browser 时，才允许一个串行代表性 session，最多三次调用、90 秒实测时间；单次 tool timeout 不得超过 30 秒，明确 wait 不得超过五秒，完成后也不能重放。后续 mutation 会重置该证据，matcher 之外的 connector 仍不在此计量范围内。
 
 | 规模 | 典型用途 | 自动上限 |
 | --- | --- | ---: |
@@ -201,7 +205,7 @@ Click 会把每项检查作为一个明确的 argv 条目提交给：
 click-gate verify '{"version":1,"checks":[{"argv":["python3","-m","unittest","discover","-s","tests","-q"],"class":"broad"},{"argv":["git","diff","--check"],"class":"targeted"}]}'
 ```
 
-Hook 会验证并规范化提交的 class，在不使用 shell 的情况下执行已接受的最终 batch，并记录真实退出码。对于 Python，只允许明确的 pytest、unittest 和 coverage 模块 runner，包括 Windows 的 `py -3 -m ...`；Python `-c` 和直接执行 Python 脚本会被拒绝。常见的限定形式，如 `uv run pytest`、`npm run lint`、`npm run build`、`ruff check`、`mypy`、`tsc --noEmit`、`cargo check`、`cargo clippy` 和 `go vet`，会被识别，并按推断范围计费。旧版 shell-string `commands` batch 会被拒绝，同时给出迁移提示。失败的 batch 可因临时故障原样重试一次；之后必须先进行范围内 mutation。后续 mutation 会使之前的成功结果 stale，并允许再次运行同一 batch。
+Hook 会验证并规范化提交的 class，在不使用 shell 的情况下执行已接受的最终 batch，并记录真实退出码。对于 Python，只允许明确的 pytest、unittest 和 coverage 模块 runner，包括 Windows 的 `py -3 -m ...`；Python `-c` 和直接执行 Python 脚本会被拒绝。指定一个准确文件的 `node --check`、`node --test`，以及 `uv run pytest`、`npm run lint`、`npm run build`、`ruff check`、`mypy`、`tsc --noEmit`、`cargo check`、`cargo clippy` 和 `go vet`，会被识别并按推断范围计费。项目级 `node --test` 是 broad，Node eval/print 不属于验证能力。旧版 shell-string `commands` batch 会被拒绝，同时给出迁移提示。失败的 batch 可因临时故障原样重试一次；之后必须先进行范围内 mutation。后续 mutation 会使之前的成功结果 stale，并允许再次运行同一 batch。
 
 在 Git worktree 中，runner 会在 batch 前快照 tracked 内容以及既有的 **non-ignored untracked** 内容。如果受保护内容发生变化，batch 会以 stale 失败，并推进 mutation revision，而不是记录错误的成功结果。它还会报告每一个新出现的 non-ignored untracked 路径。在明显的 source、application、library、configuration 或 migration 目录下出现的新路径，会被视为 implementation mutation 并以 stale 失败；普通的新生成报告只会产生警告。该快照无法看到被 Git ignore 的路径。在 Git 之外，这一内容差异守卫不可用；argv 验证、无 shell 执行和 revision 状态仍然有效。
 
@@ -242,11 +246,11 @@ Click 面向两类用户：
 
 ## 证据与诚实边界
 
-v0.18.0 源码以确定性 suite 作为 release gate。覆盖内容包括：仓库外持久模式选择、按 prompt 路由上下文、Manual fail-open 与 session-active mutation 阻止、Always ON mutation gate、代码审查防循环、精简契约、跨 turn 批准与相同 restage 拒绝、完成契约 rollover、活动生命周期 plan 阻止、已批准契约的 observation 复用、范围感知的验证 class 推断、常见 build 与 check runner、Python 验证限制、加固的本地 Git 与 Experimental SSH Git 读取、Git 受保护内容和新路径 mutation 检测、带版本的 inspect/mutate/verify、无 shell argv、状态锁与废弃 runner 恢复、重试状态、不含内容的 Hook 状态、A/B 隔离、semantic grader、发布一致性和仓库策略。必需 CI 会在 Linux、macOS 和 Windows 运行该 suite，并在 Ubuntu 额外验证 plugin、marketplace、Click/Fix Skill、Python compilation 和 whitespace。
+v0.19.0 源码以确定性 suite 作为 release gate。覆盖内容包括：持久模式、跨 turn 批准、active-contract 锁、读取与 plan 防循环、范围感知的本地验证、Browser 主要证据分配和预算、受管服务器启动与停止、Node 文件检查、加固的 Git 读取、process 隔离、验证期间 workspace mutation 检测、Browser A/B runtime 指标、发布一致性和仓库策略。必需 CI 会在 Linux、macOS 和 Windows 运行该 suite，并在 Ubuntu 额外验证 plugin、marketplace、Click/Fix Skill、Python compilation 和 whitespace。
 
-仓库还包含 version-16 golden cases、semantic grader，以及一个 A/B runner。该 runner 配置为 6 个固定的 self-hosted 任务、3 种条件、每种条件 5 次打乱顺序的重复，并使用 `gpt-5.6-sol` 与 `max` reasoning effort。付费调用前，runner 要求 source checkout 干净，检查 suite 版本与 manifest 一致，将准确的 Click commit 克隆到临时本地 marketplace，并安装到临时 `CODEX_HOME`。候选只加载该隔离配置，不加载操作者真实的用户配置；runner 会明确禁用它发现的每一个非候选插件。它会为每次 trial 隔离 Click 状态，并记录 Codex 版本、Click 版本与 commit、临时配置路径、操作系统、Python、已安装插件和预期活动插件集。judge 仍使用 `--ignore-user-config`，因为它不需要插件。临时 runtime 会在结束后删除。根目录清单指标会复用 Hook 的 argv parser，而不是使用 substring 匹配。它会报告 correctness、token、耗时、已完成 tool item、重复成功命令、重复根目录清单、plan item、验证命令、分布以及与 no-plugin baseline 的 paired delta。由于这 90 次条件 trial 会消耗付费模型时间，安装和 CI **不会运行它们**。
+仓库还包含 version-17 golden cases、semantic grader，以及一个 A/B runner。该 runner 配置为 6 个固定的 self-hosted 任务、3 种条件、每种条件 5 次打乱顺序的重复，并使用 `gpt-5.6-sol` 与 `max` reasoning effort。付费调用前，runner 要求 source checkout 干净，检查 suite 版本与 manifest 一致，将准确的 Click commit 克隆到临时本地 marketplace，并安装到临时 `CODEX_HOME`。候选只加载该隔离配置，不加载操作者真实的用户配置；runner 会明确禁用它发现的每一个非候选插件。它会为每次 trial 隔离 Click 状态，并记录 Codex 版本、Click 版本与 commit、临时配置路径、操作系统、Python、已安装插件和预期活动插件集。judge 仍使用 `--ignore-user-config`，因为它不需要插件。临时 runtime 会在结束后删除。根目录清单指标会复用 Hook 的 argv parser，而不是使用 substring 匹配。它会报告 correctness、token、耗时、已完成 tool item、重复成功命令、重复根目录清单、plan item、验证命令、Browser 调用数、Browser 总时间、长计时调用、分布以及与 no-plugin baseline 的 paired delta。由于这 90 次条件 trial 会消耗付费模型时间，安装和 CI **不会运行它们**。
 
-这是评估基础设施，不是 benchmark 结果。在完成这些 trial、经过人工校准，并在多个无关的真实仓库中重复之前，Click 不会声称能跨项目提高成功率、准确性、速度、token 使用效率或减少过度设计。仓库中的 v0.5.0 单次 pilot 仍然是历史失败证据，不是 v0.18.0 的效果证据。
+这是评估基础设施，不是 benchmark 结果。在完成这些 trial、经过人工校准，并在多个无关的真实仓库中重复之前，Click 不会声称能跨项目提高成功率、准确性、速度、token 使用效率或减少过度设计。仓库中的 v0.5.0 单次 pilot 仍然是历史失败证据，不是 v0.19.0 的效果证据。
 
 Click 并不声称自己是该领域的第一个或唯一工作流。它与 spec-driven、autonomous-loop 和 approval-gated 工具有重叠；其刻意收窄的重点是：一次持久选择、一份精简契约、一次批准、One-shot 实现、可观察的防循环守卫，以及一次最终验证预算。
 

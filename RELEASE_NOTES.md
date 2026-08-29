@@ -1,5 +1,28 @@
 # Release notes
 
+## v0.19.0 — 2026-08-29
+
+Click v0.19.0 makes the cheapest-evidence policy observable at the Browser boundary and removes the foreground-server failure mode that inflated one-shot game work.
+
+### Bounded primary evidence
+
+- Browser MCP work is available during an approved contract only when a `done_when` string explicitly assigns Browser as its primary evidence source. Otherwise the Hook rejects it as shadow verification.
+- One representative Browser session is capped at three serial tool calls and 90 seconds of measured tool time. Tool timeouts above 30 seconds and obvious waits above five seconds are rejected in favor of deterministic state or one representative interaction.
+- Browser evidence is reset by a later mutation, is required before a Browser-assigned contract can complete, and cannot be repeated after current-revision completion.
+- A/B runtime traces now report Browser call count, measured Browser seconds, and timed Browser calls, so the plugin-versus-baseline time cost is visible instead of being hidden inside generic MCP items.
+- CI runs feature-branch commits through `pull_request` only and reserves the `push` trigger for `main`, eliminating the duplicate three-OS matrix that previously ran when a pushed branch also had a PR.
+
+### Faster local feedback
+
+- Recognizable development servers use `click-gate service` with `start` and `stop` requests. A Click-owned supervisor retains the exact child handle, isolates its process group, stops it on request or `SessionEnd`, and enforces a two-hour final lifetime ceiling.
+- Foreground server forms are rejected by `click-gate mutate`, preventing a long-running child from holding the implementation command open. Direct process-control executables remain blocked.
+- Exact `node --check <file>` and `node --test <file>` checks qualify as targeted evidence; project-wide `node --test` remains broad, while Node eval/print forms are not verification capabilities.
+
+### Release gate
+
+- The plugin manifest, repository marketplace, deterministic policy tests, and A/B metadata identify v0.19.0.
+- The tag and GitHub Release must point to the exact protected-main commit that passes the full local suite and required GitHub Actions checks. Paid A/B runs remain opt-in and are not implied by this release.
+
 ## v0.18.0 — 2026-08-29
 
 Click v0.18.0 turns the hardened post-v0.17 source into one reproducible stable release without expanding the one-contract workflow.

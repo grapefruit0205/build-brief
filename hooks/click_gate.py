@@ -21,6 +21,7 @@ from pathlib import Path
 import re
 import secrets
 import shlex
+import signal
 import subprocess
 import sys
 import tempfile
@@ -48,6 +49,7 @@ VERIFICATION_UNIT_LIMITS = {"quick": 1, "focused": 4, "full": 10}
 CAPABILITY_PROTOCOL_VERSION = 1
 INSPECTION_REQUEST_FIELDS = {"version", "commands"}
 MUTATION_REQUEST_FIELDS = {"version", "argv"}
+SERVICE_REQUEST_FIELDS = {"version", "action", "argv"}
 VERIFICATION_BATCH_FIELDS = {"version", "checks"}
 VERIFICATION_CHECK_FIELDS = {"argv", "class"}
 VERIFICATION_CLASSES = {"targeted": 1, "broad": 3, "deep": 5}
@@ -84,6 +86,10 @@ MAX_CAPABILITY_REQUEST_CHARS = 6_000
 MAX_VERIFICATION_BATCH_CHARS = 6_000
 MAX_OBSERVATION_OUTPUT_BYTES = 48_000
 MAX_OBSERVATION_ENTRIES = 64
+MAX_BROWSER_EVIDENCE_CALLS = 3
+MAX_BROWSER_EVIDENCE_SECONDS = 90
+MAX_BROWSER_TOOL_TIMEOUT_MS = 30_000
+MAX_BROWSER_WAIT_MS = 5_000
 OBSERVATION_RUNNING_TTL_SECONDS = 10 * 60
 MUTATION_RUNNING_TTL_SECONDS = 10 * 60
 VERIFY_RUNNING_TTL_SECONDS = 60 * 60
@@ -121,6 +127,48 @@ PROCESS_CONTROL_EXECUTABLES = {
     "tskill.exe",
     "xkill",
 }
+
+BROWSER_TOOL_NAMES = {"mcp__node_repl__js"}
+BROWSER_SOURCE_MARKERS = (
+    "primary evidence:",
+    "primary source:",
+    "주 증거:",
+    "주요 증거:",
+    "主要证据:",
+    "主要证据：",
+    "主证据:",
+    "主证据：",
+    "主な証拠:",
+    "主な証拠：",
+    "主証拠:",
+    "主証拠：",
+)
+BROWSER_SOURCE_TERMS = ("browser", "브라우저", "浏览器", "ブラウザ")
+BROWSER_WAIT_PATTERNS = (
+    re.compile(r"(?i:waitForTimeout)\s*\(\s*(\d+)"),
+    re.compile(r"(?i:setTimeout)\s*\([^,]{0,240},\s*(\d+)"),
+)
+MANAGED_SERVICE_EXECUTABLES = {
+    "flask",
+    "gunicorn",
+    "http-server",
+    "next",
+    "serve",
+    "uvicorn",
+    "vite",
+    "webpack-dev-server",
+}
+MANAGED_SERVICE_ACTIONS = {"start", "stop"}
+MANAGED_SERVICE_SCRIPT_MARKERS = {
+    "dev",
+    "preview",
+    "runserver",
+    "serve",
+    "start",
+}
+SERVICE_START_TIMEOUT_SECONDS = 8
+SERVICE_STOP_TIMEOUT_SECONDS = 8
+MANAGED_SERVICE_MAX_SECONDS = 2 * 60 * 60
 
 VERIFICATION_EXECUTABLES = {
     "bandit",
@@ -592,6 +640,53 @@ def _fresh_verification_state(contract: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _browser_evidence_required(contract: dict[str, Any]) -> bool:
+    verification = contract.get("verification")
+    done_when = verification.get("done_when") if isinstance(verification, dict) else []
+    if not isinstance(done_when, list):
+        return False
+    for condition in done_when:
+        if not isinstance(condition, str):
+            continue
+        lowered = condition.lower()
+        sources = [
+            lowered.split(marker, 1)[1]
+            for marker in BROWSER_SOURCE_MARKERS
+            if marker in lowered
+        ]
+        if any(term in source for source in sources for term in BROWSER_SOURCE_TERMS):
+            return True
+    return False
+
+
+def _fresh_external_evidence_state(
+    contract: dict[str, Any] | None = None, *, required: bool | None = None
+) -> dict[str, Any]:
+    browser_required = (
+        _browser_evidence_required(contract or {}) if required is None else required
+    )
+    return {
+        "browser_required": browser_required,
+        "browser_status": "ready" if browser_required else "not-required",
+        "browser_calls": 0,
+        "browser_seconds": 0.0,
+        "browser_running": {},
+        "last_browser_error": "",
+    }
+
+
+def _fresh_service_state() -> dict[str, Any]:
+    return {
+        "status": "idle",
+        "service_id": "",
+        "stop_requested": False,
+        "supervisor_pid": 0,
+        "child_pid": 0,
+        "started_at": 0,
+        "last_exit_code": None,
+    }
+
+
 def _fresh_observation_state() -> dict[str, Any]:
     return {"entries": {}}
 
@@ -658,8 +753,10 @@ def _write_contract_state(
             "staged_turn_id": str(event.get("turn_id", "")),
             "approved_turn_id": "",
             "verification": _fresh_verification_state(contract),
+            "external_evidence": _fresh_external_evidence_state(contract),
             "observations": _fresh_observation_state(),
             "mutation": _fresh_mutation_state(),
+            "service": _fresh_service_state(),
             "updated_at": int(time.time()),
         },
     )
@@ -763,11 +860,25 @@ def _contract_is_completed(state: dict[str, Any]) -> bool:
     verification = state.get("verification")
     if not isinstance(verification, dict):
         return False
-    return bool(
+    local_verification_passed = bool(
         verification.get("status") == "passed"
         and int(verification.get("verified_revision", -1))
         == int(verification.get("mutation_revision", 0))
     )
+    if not local_verification_passed:
+        return False
+    external = state.get("external_evidence")
+    if isinstance(external, dict) and external.get("browser_required") is True:
+        if external.get("browser_status") != "passed":
+            return False
+    service = state.get("service")
+    if isinstance(service, dict) and service.get("status") in {
+        "starting",
+        "running",
+        "stopping",
+    }:
+        return False
+    return True
 
 
 def _approved_contract_is_active(state: dict[str, Any]) -> bool:
@@ -825,6 +936,13 @@ def _mark_contract_mutated(event: dict[str, Any]) -> str:
         verification["unchanged_failure_retries"] = 0
         verification["workspace_changed"] = False
     state["verification"] = verification
+    external = state.get("external_evidence")
+    browser_required = bool(
+        isinstance(external, dict) and external.get("browser_required") is True
+    )
+    state["external_evidence"] = _fresh_external_evidence_state(
+        required=browser_required
+    )
     state["observations"] = _fresh_observation_state()
     _save_contract_state(event, state)
     return ""
@@ -1010,6 +1128,38 @@ def _validate_argv(value: Any, label: str) -> tuple[list[str] | None, str]:
     return argv, ""
 
 
+def _looks_like_managed_service(argv: list[str]) -> bool:
+    executable = Path(argv[0]).name.lower()
+    if executable.endswith(".exe"):
+        executable = executable[:-4]
+    arguments = [argument.lower() for argument in argv[1:]]
+    if executable in MANAGED_SERVICE_EXECUTABLES:
+        return True
+    if executable == "py" or re.fullmatch(r"(?:python|pypy)\d*(?:\.\d+)?", executable):
+        if executable == "py" and arguments and re.fullmatch(
+            r"-\d+(?:\.\d+)?(?:-\d+)?", arguments[0]
+        ):
+            arguments = arguments[1:]
+        if len(arguments) >= 2 and arguments[:2] == ["-m", "http.server"]:
+            return True
+        return any(marker in arguments for marker in {"runserver"})
+    if executable in {"npm", "pnpm", "yarn", "bun"}:
+        meaningful = {
+            argument
+            for argument in arguments
+            if argument not in {"run", "exec", "x", "--"}
+            and not argument.startswith("-")
+        }
+        return bool(meaningful & MANAGED_SERVICE_SCRIPT_MARKERS)
+    if executable in {"npx", "pnpx", "bunx"}:
+        return any(
+            Path(argument).name.lower() in MANAGED_SERVICE_EXECUTABLES
+            for argument in arguments
+            if not argument.startswith("-")
+        )
+    return any(marker in arguments for marker in {"runserver"})
+
+
 def _validate_inspection_request(
     raw: str,
 ) -> tuple[dict[str, Any] | None, bool, str]:
@@ -1061,7 +1211,47 @@ def _validate_mutation_request(raw: str) -> tuple[dict[str, Any] | None, str]:
     if argv_error:
         return None, argv_error
     assert argv is not None
+    if _looks_like_managed_service(argv):
+        return (
+            None,
+            "Long-running local servers must use `click-gate service` so Click owns "
+            "the exact child lifecycle and cannot strand a foreground mutation.",
+        )
     return {"version": CAPABILITY_PROTOCOL_VERSION, "argv": argv}, ""
+
+
+def _validate_service_request(raw: str) -> tuple[dict[str, Any] | None, str]:
+    value, error = _decode_capability_request(raw, "Managed service")
+    if error:
+        return None, error
+    assert value is not None
+    unknown = sorted(set(value) - SERVICE_REQUEST_FIELDS)
+    if unknown:
+        rendered = ", ".join(f"`{field}`" for field in unknown)
+        return None, f"Managed service request contains unsupported field(s): {rendered}."
+    action = value.get("action")
+    if action not in MANAGED_SERVICE_ACTIONS:
+        allowed = ", ".join(sorted(MANAGED_SERVICE_ACTIONS))
+        return None, f"Managed service `action` must be one of: {allowed}."
+    if action == "stop":
+        if "argv" in value:
+            return None, "Managed service stop must omit `argv`."
+        return {"version": CAPABILITY_PROTOCOL_VERSION, "action": "stop"}, ""
+    argv, argv_error = _validate_argv(value.get("argv"), "Managed service")
+    if argv_error:
+        return None, argv_error
+    assert argv is not None
+    if not _looks_like_managed_service(argv):
+        return (
+            None,
+            "Managed service start accepts a recognizable local development server, "
+            "not an arbitrary detached command.",
+        )
+    return {
+        "version": CAPABILITY_PROTOCOL_VERSION,
+        "action": "start",
+        "argv": argv,
+    }, ""
 
 
 def _validate_verification_batch(
@@ -1077,7 +1267,7 @@ def _validate_verification_batch(
         return (
             None,
             0,
-            "Click 0.16 verification uses `checks` with argv arrays and a submitted "
+            "Click verification uses `checks` with argv arrays and a submitted "
             "`class`; legacy shell-string `commands` are no longer accepted.",
         )
     unknown = sorted(set(value) - VERIFICATION_BATCH_FIELDS)
@@ -1159,6 +1349,7 @@ def _control_request(command: str) -> tuple[str | None, str, str]:
     if len(tokens) == 3 and tokens[1] in {
         "inspect",
         "mutate",
+        "service",
         "stage",
         "pass",
         "verify",
@@ -1171,6 +1362,7 @@ def _control_request(command: str) -> tuple[str | None, str, str]:
         f"JSON>'`, `{CONTROL_COMMAND} pass '<Execution Contract JSON>'`, "
         f"`{CONTROL_COMMAND} inspect '<Inspection JSON>'`, "
         f"`{CONTROL_COMMAND} mutate '<Mutation JSON>'`, "
+        f"`{CONTROL_COMMAND} service '<Managed Service JSON>'`, "
         f"`{CONTROL_COMMAND} verify '<Verification Batch JSON>'`, "
         f"`{CONTROL_COMMAND} review`, `{CONTROL_COMMAND} bypass`, "
         f"`{CONTROL_COMMAND} cancel`, "
@@ -1448,6 +1640,25 @@ def _minimum_verification_class(
         if executable in {"bats", "jest", "phpunit", "pytest", "rspec", "vitest"}:
             return _minimum_test_runner_class(executable, arguments)
         return "broad"
+    if executable == "node":
+        if any(
+            argument in {"-e", "--eval", "-p", "--print"}
+            or argument.startswith(("--eval=", "--print="))
+            for argument in arguments
+        ):
+            return None
+        if arguments[:1] == ["--check"]:
+            targets = [argument for argument in arguments[1:] if not argument.startswith("-")]
+            return (
+                "targeted"
+                if len(targets) == 1
+                and Path(targets[0]).suffix.lower() in {".cjs", ".js", ".mjs"}
+                else None
+            )
+        if "--test" in arguments:
+            test_arguments = [argument for argument in arguments if argument != "--test"]
+            return _minimum_test_runner_class("node", test_arguments)
+        return None
     if executable in {"npm", "pnpm", "yarn", "bun"}:
         meaningful = [item for item in arguments if item not in {"run", "exec", "x"}]
         target = meaningful[0] if meaningful else ""
@@ -1837,6 +2048,83 @@ def _prepare_mutation(event: dict[str, Any], raw: str) -> tuple[str, str]:
     ), ""
 
 
+def _service_runner_command(
+    event: dict[str, Any], request: dict[str, Any], service_id: str
+) -> str:
+    arguments = [
+        sys.executable,
+        str(Path(__file__).resolve()),
+        "run-service-start" if request["action"] == "start" else "run-service-stop",
+        str(_contract_path(event)),
+        service_id,
+    ]
+    if request["action"] == "start":
+        arguments.extend([str(event.get("cwd", "")), _encoded_request(request)])
+    return subprocess.list2cmdline(arguments) if os.name == "nt" else shlex.join(arguments)
+
+
+def _request_service_stop(event: dict[str, Any]) -> bool:
+    state = _read_contract_state(event)
+    service = state.get("service")
+    if not isinstance(service, dict) or service.get("status") not in {
+        "starting",
+        "running",
+        "stopping",
+    }:
+        return False
+    service["status"] = "stopping"
+    service["stop_requested"] = True
+    state["service"] = service
+    _save_contract_state(event, state)
+    return True
+
+
+def _prepare_service(event: dict[str, Any], raw: str) -> tuple[str, str]:
+    request, error = _validate_service_request(raw)
+    if error:
+        return "", error
+    assert request is not None
+    state = _read_contract_state(event)
+    if state.get("status") != "approved":
+        return "", "Approve the staged Click execution contract before managing a service."
+    service = state.get("service")
+    if not isinstance(service, dict):
+        service = _fresh_service_state()
+    if request["action"] == "stop":
+        if service.get("status") not in {"starting", "running", "stopping"}:
+            return "echo Click managed service already stopped", ""
+        service["status"] = "stopping"
+        service["stop_requested"] = True
+        state["service"] = service
+        _save_contract_state(event, state)
+        return _service_runner_command(event, request, str(service["service_id"])), ""
+
+    if service.get("status") in {"starting", "running", "stopping"}:
+        started_at = int(service.get("started_at", 0))
+        if not (
+            service.get("status") == "starting"
+            and started_at
+            and time.time() - started_at > SERVICE_START_TIMEOUT_SECONDS * 2
+        ):
+            return "", "One Click-managed local service is already active. Stop it first."
+    mutation_error = _mark_contract_mutated(event)
+    if mutation_error:
+        return "", mutation_error
+    state = _read_contract_state(event)
+    service_id = secrets.token_urlsafe(24)
+    state["service"] = {
+        "status": "starting",
+        "service_id": service_id,
+        "stop_requested": False,
+        "supervisor_pid": 0,
+        "child_pid": 0,
+        "started_at": int(time.time()),
+        "last_exit_code": None,
+    }
+    _save_contract_state(event, state)
+    return _service_runner_command(event, request, service_id), ""
+
+
 def _verification_runner_command(
     event: dict[str, Any], batch: dict[str, Any], batch_digest: str, runner_token: str
 ) -> str:
@@ -2137,6 +2425,122 @@ def _is_plan_tool(tool_name: str) -> bool:
     return normalized.split("__")[-1] == "update_plan"
 
 
+def _browser_input_error(tool_input: Any) -> str:
+    if not isinstance(tool_input, dict):
+        return "Browser evidence requires an object tool input."
+    timeout_ms = tool_input.get("timeout_ms")
+    if isinstance(timeout_ms, (int, float)) and not isinstance(timeout_ms, bool):
+        if timeout_ms > MAX_BROWSER_TOOL_TIMEOUT_MS:
+            return (
+                f"Browser evidence tool timeouts may not exceed "
+                f"{MAX_BROWSER_TOOL_TIMEOUT_MS // 1000} seconds."
+            )
+    code = tool_input.get("code")
+    if isinstance(code, str):
+        for pattern in BROWSER_WAIT_PATTERNS:
+            for match in pattern.finditer(code):
+                if int(match.group(1)) > MAX_BROWSER_WAIT_MS:
+                    return (
+                        "Click blocked a long timed browser progression. Use deterministic "
+                        "state or one representative interaction; individual waits may not "
+                        f"exceed {MAX_BROWSER_WAIT_MS // 1000} seconds."
+                    )
+    return ""
+
+
+def _tool_response_failed(response: Any) -> bool:
+    if not isinstance(response, dict):
+        return False
+    if response.get("isError") is True or response.get("is_error") is True:
+        return True
+    return str(response.get("status", "")).lower() in {"error", "failed", "failure"}
+
+
+def _prepare_browser_evidence(event: dict[str, Any]) -> tuple[bool, str]:
+    state = _read_contract_state(event)
+    if state.get("status") not in {"staged", "approved"}:
+        return False, ""
+    if state.get("status") != "approved":
+        return True, "Approve the staged Click contract before collecting browser evidence."
+    if _contract_is_completed(state):
+        if _read_state(event).get("status") != "passed":
+            return False, ""
+        return (
+            True,
+            "The approved Click contract is complete. Reuse its evidence instead of "
+            "starting a shadow browser verification session.",
+        )
+    external = state.get("external_evidence")
+    if not isinstance(external, dict) or external.get("browser_required") is not True:
+        return (
+            True,
+            "Browser work is not an assigned primary evidence source in this contract. "
+            "Use the cheaper assigned source instead of adding shadow verification.",
+        )
+    mutation = state.get("mutation")
+    if _mutation_is_running(mutation):
+        return True, "Wait for the structured mutation to finish before browser evidence."
+    verification = state.get("verification")
+    if isinstance(verification, dict) and verification.get("status") == "running":
+        return True, "Wait for the final local verification batch before browser evidence."
+    running = external.get("browser_running")
+    if isinstance(running, dict) and running:
+        return True, "One browser evidence call is already running; keep the session serial."
+    calls = int(external.get("browser_calls", 0))
+    seconds = float(external.get("browser_seconds", 0.0))
+    if calls >= MAX_BROWSER_EVIDENCE_CALLS or seconds >= MAX_BROWSER_EVIDENCE_SECONDS:
+        return (
+            True,
+            "The one-session browser evidence budget is exhausted. Reuse the collected "
+            "result or report that the assigned source was insufficient; do not open a "
+            "shadow verification run.",
+        )
+    input_error = _browser_input_error(event.get("tool_input"))
+    if input_error:
+        return True, input_error
+    tool_use_id = str(event.get("tool_use_id", ""))
+    if not tool_use_id:
+        return True, "Browser evidence requires a stable tool_use_id for PostToolUse accounting."
+    external["browser_calls"] = calls + 1
+    external["browser_status"] = "running"
+    external["browser_running"] = {tool_use_id: time.time()}
+    external["last_browser_error"] = ""
+    state["external_evidence"] = external
+    _save_contract_state(event, state)
+    return True, ""
+
+
+def _handle_post_tool(event: dict[str, Any]) -> None:
+    if str(event.get("tool_name", "")) not in BROWSER_TOOL_NAMES:
+        return
+    state = _read_contract_state(event)
+    if state.get("status") != "approved":
+        return
+    external = state.get("external_evidence")
+    if not isinstance(external, dict):
+        return
+    running = external.get("browser_running")
+    tool_use_id = str(event.get("tool_use_id", ""))
+    if not isinstance(running, dict) or tool_use_id not in running:
+        return
+    started_at = float(running.pop(tool_use_id))
+    duration = max(0.0, time.time() - started_at)
+    total = float(external.get("browser_seconds", 0.0)) + duration
+    external["browser_seconds"] = round(total, 3)
+    external["browser_running"] = running
+    if total > MAX_BROWSER_EVIDENCE_SECONDS:
+        external["browser_status"] = "failed"
+        external["last_browser_error"] = "time-budget-exceeded"
+    elif _tool_response_failed(event.get("tool_response")):
+        external["browser_status"] = "failed"
+        external["last_browser_error"] = "tool-error"
+    else:
+        external["browser_status"] = "passed"
+        external["last_browser_error"] = ""
+    state["external_evidence"] = external
+    _save_contract_state(event, state)
+
+
 def _handle_prompt_submit(event: dict[str, Any]) -> None:
     _prune_state()
     authorization = _record_user_prompt(event)
@@ -2152,7 +2556,10 @@ def _handle_prompt_submit(event: dict[str, Any]) -> None:
             "do not stage a build contract, and reuse successful evidence instead of "
             "repeating reads or repository-wide inventory. During review or approved "
             "implementation use versioned `click-gate inspect`, `click-gate mutate`, and "
-            "`click-gate verify` argv requests when direct Bash intent is ambiguous. Use "
+            "`click-gate verify` argv requests when direct Bash intent is ambiguous; use "
+            "`click-gate service` start/stop for a recognizable long-running local server. "
+            "Browser MCP work must be an explicitly assigned primary evidence source and "
+            "fit its one representative-session budget. Use "
             "`click-gate bypass` only when the user explicitly opts out for the current turn."
         )
     elif default_mode == "manual":
@@ -2162,7 +2569,8 @@ def _handle_prompt_submit(event: dict[str, Any]) -> None:
             "code review remain fail-open unless explicitly activated. Once activated, a "
             "staged or incomplete approved session contract remains mutation-locked across "
             "later turns. It must be staged now and passed only after a later "
-            "UserPromptSubmit turn."
+            "UserPromptSubmit turn. Approved Browser evidence is metered and long-running "
+            "local servers use `click-gate service` start/stop."
         )
     else:
         context = (
@@ -2189,10 +2597,20 @@ def _handle_prompt_submit(event: dict[str, Any]) -> None:
     )
 
 
+def _handle_session_end(event: dict[str, Any]) -> None:
+    _request_service_stop(event)
+
+
 def _handle_pre_tool(event: dict[str, Any]) -> None:
     tool_name = str(event.get("tool_name", ""))
     tool_input = event.get("tool_input")
     command = tool_input.get("command", "") if isinstance(tool_input, dict) else ""
+
+    if tool_name in BROWSER_TOOL_NAMES:
+        handled, browser_error = _prepare_browser_evidence(event)
+        if handled and browser_error:
+            _deny(browser_error)
+        return
 
     if tool_name == "Bash":
         action, value, control_error = _control_request(str(command))
@@ -2222,6 +2640,7 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
                 if authorization_error:
                     _deny(authorization_error)
                     return
+                _request_service_stop(event)
                 _clear_contract_state(event)
                 _clear_review_state(event)
                 _write_state(event, "idle")
@@ -2303,6 +2722,20 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
                 rewritten, mutation_error = _prepare_mutation(event, value)
                 if mutation_error:
                     _deny(mutation_error)
+                    return
+                _allow_rewritten(rewritten)
+                return
+            if action == "service":
+                current_status = _read_state(event).get("status")
+                if current_status != "passed" and _read_mode(event) != "strict":
+                    _deny(
+                        "Pass the approved Click execution contract in the current turn "
+                        "before managing its local development service."
+                    )
+                    return
+                rewritten, service_error = _prepare_service(event, value)
+                if service_error:
+                    _deny(service_error)
                     return
                 _allow_rewritten(rewritten)
                 return
@@ -2503,7 +2936,7 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
             return
         if _is_recognized_verification_command(str(command)):
             _deny(
-                "Click 0.16 final checks use `click-gate verify` with argv-based `checks` "
+                "Click final checks use `click-gate verify` with argv-based `checks` "
                 "and an explicit targeted, broad, or deep class."
             )
             return
@@ -3065,6 +3498,234 @@ def _run_mutation(arguments: list[str]) -> int:
     return exit_code
 
 
+def _managed_contract_path(path: Path) -> bool:
+    try:
+        return (
+            path.resolve().parent == _state_root().resolve()
+            and path.name.startswith("session-contract-")
+            and path.suffix == ".json"
+        )
+    except OSError:
+        return False
+
+
+def _service_snapshot(path: Path, service_id: str) -> dict[str, Any] | None:
+    if not _managed_contract_path(path):
+        return None
+    try:
+        state = json.loads(path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return None
+    service = state.get("service") if isinstance(state, dict) else None
+    if not isinstance(service, dict) or service.get("service_id") != service_id:
+        return None
+    return dict(service)
+
+
+def _record_service_fields(
+    path: Path, service_id: str, **fields: Any
+) -> bool:
+    if not _managed_contract_path(path):
+        return False
+    try:
+        state = json.loads(path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return False
+    service = state.get("service") if isinstance(state, dict) else None
+    if not isinstance(service, dict) or service.get("service_id") != service_id:
+        return False
+    service.update(fields)
+    state["service"] = service
+    state["updated_at"] = int(time.time())
+    _write_json(path, state)
+    return True
+
+
+def _terminate_managed_child(child: subprocess.Popen[Any]) -> int:
+    if child.poll() is not None:
+        return int(child.returncode or 0)
+    try:
+        if os.name == "nt":
+            ctrl_break = getattr(signal, "CTRL_BREAK_EVENT", None)
+            if ctrl_break is not None:
+                child.send_signal(ctrl_break)
+            else:
+                child.terminate()
+        else:
+            os.killpg(child.pid, signal.SIGTERM)
+        return int(child.wait(timeout=3))
+    except (OSError, subprocess.TimeoutExpired):
+        try:
+            if os.name == "nt":
+                child.kill()
+            else:
+                os.killpg(child.pid, signal.SIGKILL)
+            return int(child.wait(timeout=3))
+        except (OSError, subprocess.TimeoutExpired):
+            return 1
+
+
+def _run_service_supervisor(arguments: list[str]) -> int:
+    if len(arguments) != 4:
+        return 2
+    state_path = Path(arguments[0])
+    service_id, cwd_raw, encoded = arguments[1:]
+    raw, error = _decode_encoded_request(encoded, "managed service")
+    if error:
+        return 2
+    request, error = _validate_service_request(raw)
+    if error or request is None or request.get("action") != "start":
+        return 2
+    cwd = Path(cwd_raw)
+    if not cwd.is_dir() or _service_snapshot(state_path, service_id) is None:
+        return 2
+    try:
+        child = subprocess.Popen(
+            _execution_argv(request["argv"]),
+            cwd=cwd,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            close_fds=True,
+            **_isolated_subprocess_kwargs(),
+        )
+    except OSError:
+        with _state_lock():
+            _record_service_fields(
+                state_path,
+                service_id,
+                status="failed",
+                last_exit_code=127,
+                stop_requested=False,
+            )
+        return 127
+
+    time.sleep(0.2)
+    early_exit = child.poll()
+    with _state_lock():
+        recorded = _record_service_fields(
+            state_path,
+            service_id,
+            status="failed" if early_exit is not None else "running",
+            supervisor_pid=os.getpid(),
+            child_pid=child.pid,
+            last_exit_code=int(early_exit) if early_exit is not None else None,
+        )
+    if early_exit is not None or not recorded:
+        if early_exit is None:
+            _terminate_managed_child(child)
+        return int(early_exit or 2)
+
+    started = time.monotonic()
+    stop_requested = False
+    while True:
+        exit_code = child.poll()
+        if exit_code is not None:
+            break
+        snapshot = _service_snapshot(state_path, service_id)
+        if snapshot is None or snapshot.get("stop_requested") is True:
+            stop_requested = True
+            exit_code = _terminate_managed_child(child)
+            break
+        if time.monotonic() - started >= MANAGED_SERVICE_MAX_SECONDS:
+            stop_requested = True
+            exit_code = _terminate_managed_child(child)
+            break
+        time.sleep(0.2)
+
+    with _state_lock():
+        _record_service_fields(
+            state_path,
+            service_id,
+            status="stopped" if stop_requested else "failed",
+            stop_requested=False,
+            child_pid=0,
+            supervisor_pid=0,
+            last_exit_code=int(exit_code or 0),
+        )
+    return int(exit_code or 0)
+
+
+def _run_service_start(arguments: list[str]) -> int:
+    if len(arguments) != 4:
+        sys.stderr.write(
+            "usage: click_gate.py run-service-start <state> <id> <cwd> <request>\n"
+        )
+        return 2
+    state_path = Path(arguments[0])
+    service_id, cwd_raw, encoded = arguments[1:]
+    raw, error = _decode_encoded_request(encoded, "managed service")
+    if error:
+        sys.stderr.write(f"{error}\n")
+        return 2
+    request, error = _validate_service_request(raw)
+    if error or request is None or request.get("action") != "start":
+        sys.stderr.write(f"{error or 'Managed service start request is invalid.'}\n")
+        return 2
+    if _service_snapshot(state_path, service_id) is None:
+        sys.stderr.write("Click managed service state did not match.\n")
+        return 2
+    supervisor = [
+        sys.executable,
+        str(Path(__file__).resolve()),
+        "run-service-supervisor",
+        str(state_path),
+        service_id,
+        cwd_raw,
+        encoded,
+    ]
+    try:
+        subprocess.Popen(
+            supervisor,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            close_fds=True,
+            **_isolated_subprocess_kwargs(),
+        )
+    except OSError as exc:
+        sys.stderr.write(f"Click could not start the managed service supervisor: {exc}\n")
+        return 127
+    deadline = time.monotonic() + SERVICE_START_TIMEOUT_SECONDS
+    while time.monotonic() < deadline:
+        snapshot = _service_snapshot(state_path, service_id)
+        if snapshot is None:
+            return 2
+        if snapshot.get("status") == "running":
+            sys.stdout.write("Click managed service started\n")
+            return 0
+        if snapshot.get("status") == "failed":
+            sys.stderr.write("Click managed service exited during startup.\n")
+            return int(snapshot.get("last_exit_code") or 2)
+        time.sleep(0.05)
+    with _state_lock():
+        _record_service_fields(
+            state_path,
+            service_id,
+            status="stopping",
+            stop_requested=True,
+        )
+    sys.stderr.write("Click managed service did not start within its bounded timeout.\n")
+    return 2
+
+
+def _run_service_stop(arguments: list[str]) -> int:
+    if len(arguments) != 2:
+        sys.stderr.write("usage: click_gate.py run-service-stop <state> <id>\n")
+        return 2
+    state_path = Path(arguments[0])
+    service_id = arguments[1]
+    deadline = time.monotonic() + SERVICE_STOP_TIMEOUT_SECONDS
+    while time.monotonic() < deadline:
+        snapshot = _service_snapshot(state_path, service_id)
+        if snapshot is None or snapshot.get("status") in {"failed", "idle", "stopped"}:
+            sys.stdout.write("Click managed service stopped\n")
+            return 0
+        time.sleep(0.05)
+    sys.stderr.write("Click managed service did not stop within its bounded timeout.\n")
+    return 2
+
+
 def _git_capture(cwd: Path, arguments: list[str]) -> bytes | None:
     try:
         result = subprocess.run(
@@ -3316,16 +3977,35 @@ def main() -> int:
         return _run_observation(sys.argv[2:])
     if len(sys.argv) >= 2 and sys.argv[1] == "run-mutation":
         return _run_mutation(sys.argv[2:])
+    if len(sys.argv) >= 2 and sys.argv[1] == "run-service-start":
+        return _run_service_start(sys.argv[2:])
+    if len(sys.argv) >= 2 and sys.argv[1] == "run-service-stop":
+        return _run_service_stop(sys.argv[2:])
+    if len(sys.argv) >= 2 and sys.argv[1] == "run-service-supervisor":
+        return _run_service_supervisor(sys.argv[2:])
     if len(sys.argv) >= 2 and sys.argv[1] == "run-verification":
         return _run_verification(sys.argv[2:])
-    if len(sys.argv) != 2 or sys.argv[1] not in {"pre-tool", "prompt-submit"}:
-        sys.stderr.write("usage: click_gate.py pre-tool|prompt-submit\n")
+    if len(sys.argv) != 2 or sys.argv[1] not in {
+        "post-tool",
+        "pre-tool",
+        "prompt-submit",
+        "session-end",
+    }:
+        sys.stderr.write(
+            "usage: click_gate.py pre-tool|post-tool|prompt-submit|session-end\n"
+        )
         return 1
     try:
         event = _read_event()
         if sys.argv[1] == "prompt-submit":
             with _state_lock():
                 _handle_prompt_submit(event)
+        elif sys.argv[1] == "post-tool":
+            with _state_lock():
+                _handle_post_tool(event)
+        elif sys.argv[1] == "session-end":
+            with _state_lock():
+                _handle_session_end(event)
         else:
             with _state_lock():
                 _handle_pre_tool(event)

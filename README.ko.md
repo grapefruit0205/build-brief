@@ -162,6 +162,8 @@ Click은 코드를 건드리기 전에 다음과 같은 축약 계약을 제시�
 | 전체 목록 재탐색 금지 | 루트의 `rg --files`, `find .`, 루트 재귀 목록, 동등한 Git 목록 스캔을 거부하고 경로를 좁힌 확인은 허용합니다. |
 | 명령 의도를 명시 | 활성 상태에서 애매한 Bash는 거부하고 조회는 `inspect`, 구현 명령은 `mutate`, 최종 검사는 `verify`를 사용하도록 안내합니다. |
 | 검증을 예산 안에 유지 | 최종 검사는 구조화된 `click-gate verify` 묶음으로 실행하고 승인한 규모 안에 들어야 합니다. |
+| Browser 근거 제한 | Browser MCP는 주 증거로 명시한 경우만 3회·90초 대표 세션을 허용하며 긴 시간 진행과 완료 후 재호출을 거부합니다. |
+| 로컬 서버 수명주기 소유 | 인식 가능한 개발 서버는 `click-gate service`로 시작·종료해 Click이 정확한 격리 자식을 정리합니다. |
 | 제안과 승인 분리 | 같은 turn의 pass와 대체 stage를 거부하고, 정확한 digest는 다음 `UserPromptSubmit` 뒤에만 pass합니다. |
 
 실패한 관찰 또는 출력이 48,000바이트를 넘은 관찰은 변경 없이 한 번 재시도할 수 있습니다. 소스가 수정되면 이전 근거가 오래됐을 수 있으므로 성공 관찰 기록을 초기화합니다. Hook 상태 변경에는 크로스 플랫폼 잠금을 사용해 병렬 결과 기록이 잘못된 “실행 중” 상태를 남기지 않게 합니다. Hook은 요청 digest와 본문을 포함하지 않는 메타데이터만 저장하며 명령과 출력은 저장하지 않습니다.
@@ -175,9 +177,11 @@ Click은 코드를 건드리기 전에 다음과 같은 축약 계약을 제시�
 ```text
 click-gate inspect '{"version":1,"commands":[["git","status","--short"],["sed","-n","1,160p","src/app.py"]]}'
 click-gate mutate '{"version":1,"argv":["python3","scripts/generate.py","--target","src"]}'
+click-gate service '{"version":1,"action":"start","argv":["python3","-m","http.server","4173","--bind","127.0.0.1"]}'
+click-gate service '{"version":1,"action":"stop"}'
 ```
 
-`inspect`는 Hook이 허용한 제한된 읽기 전용 작업만 받습니다. Git 조회는 subcommand별 positive option policy를 사용하며 `git grep`, `git cat-file`, 임의의 `--format`/`--pretty` 출력, signature 출력 옵션, `git status -v/-vv`는 제외합니다. 허용된 Git 조회는 상속된 `GIT_*` 변수와 system/global Git config를 무시하고 안전한 log·diff 설정, pager·optional lock 비활성화, 지원되는 diff 출력의 `--no-ext-diff`·`--no-textconv`를 강제합니다. `mutate`는 정확한 계약 승인이 있어야 하고 이전 근거를 오래된 것으로 표시합니다. `apply_patch`, `Edit`, `Write` 같은 명확한 편집 도구는 shell envelope 없이 그대로 지원합니다. 잘못된 요청, shell interpreter, `kill`, `pkill`, `killall`, `taskkill`, `Stop-Process` 같은 직접 process-control 실행 파일은 fail-closed로 거부합니다. 허용된 사용자 정의 프로그램은 명시적인 process 작업을 내부에 숨길 수 있으므로 Click은 운영체제 sandbox가 아니라 workflow guardrail입니다. 정확한 schema와 적용 경계는 [capability protocol](skills/click/references/capability-protocol.md)에 있습니다.
+`inspect`는 Hook이 허용한 제한된 읽기 전용 작업만 받습니다. Git 조회는 subcommand별 positive option policy를 사용하며 `git grep`, `git cat-file`, 임의의 `--format`/`--pretty` 출력, signature 출력 옵션, `git status -v/-vv`는 제외합니다. 허용된 Git 조회는 상속된 `GIT_*` 변수와 system/global Git config를 무시하고 안전한 log·diff 설정, pager·optional lock 비활성화, 지원되는 diff 출력의 `--no-ext-diff`·`--no-textconv`를 강제합니다. `mutate`는 정확한 계약 승인이 있어야 하고 이전 근거를 오래된 것으로 표시합니다. 인식 가능한 장시간 개발 서버는 `mutate`에서 거부하고 `service`로 시작합니다. Click supervisor가 정확한 자식과 process group을 소유해 명시적 stop, `SessionEnd`, 최대 2시간 제한에서 정리합니다. `apply_patch`, `Edit`, `Write` 같은 명확한 편집 도구는 shell envelope 없이 그대로 지원합니다. 잘못된 요청, shell interpreter, `kill`, `pkill`, `killall`, `taskkill`, `Stop-Process` 같은 직접 process-control 실행 파일은 fail-closed로 거부합니다. 허용된 사용자 정의 프로그램은 명시적인 process 작업을 내부에 숨길 수 있으므로 Click은 운영체제 sandbox가 아니라 workflow guardrail입니다. 정확한 schema와 적용 경계는 [capability protocol](skills/click/references/capability-protocol.md)에 있습니다.
 
 SSH Git 조회는 **Experimental이며 원격 POSIX shell만 지원**합니다. 제한된 `git status`, `git rev-parse HEAD`, `git merge-base`, `git remote get-url`만 허용하고 사용자가 SSH option을 넣을 수 없습니다. 이미 알려진 host key를 요구하며 대화형 password, host-key 갱신, forwarding, local command, TTY를 끄고 connection·keepalive 제한으로 빠르게 실패합니다. 모르는 host, POSIX가 아닌 원격 shell, 응답하지 않는 server는 fail-closed입니다. 일반 원격 실행기나 보안 sandbox가 아닙니다.
 
@@ -185,7 +189,7 @@ SSH Git 조회는 **Experimental이며 원격 POSIX shell만 지원**합니다. 
 
 Click은 현재 위험과 저장소 근거로 충분한 최소 규모를 고릅니다. 사용자는 계약과 함께 그 규모를 승인하므로 검증 예산만 따로 다시 묻지 않습니다.
 
-각 `done_when` 조건에는 충분하면서 가장 싼 주 증거를 정확히 하나만 지정합니다. 증거 하나가 여러 조건을 함께 충족해도 됩니다. Click은 현재 revision에 유효한 근거와 좁은 자동 검사를 먼저 사용하고, 더 싼 근거로 조건을 증명할 수 없을 때만 브라우저·수동·hosted·전체 suite·시간이 긴 end-to-end 검증을 사용합니다. 자동 검사 결과를 다른 화면에서 다시 증명하지 않으며 모든 조건에 현재 근거가 생기면 즉시 멈춥니다. 이 근거 경제성은 Skill과 의미 grader의 규칙이며, Hook은 matcher 밖 connector 두 개가 같은 조건을 증명하는지 의미적으로 판단할 수 없습니다.
+각 `done_when` 조건에는 충분하면서 가장 싼 주 증거를 정확히 하나만 지정합니다. 증거 하나가 여러 조건을 함께 충족해도 됩니다. Click은 현재 revision에 유효한 근거와 좁은 자동 검사를 먼저 사용하고, 더 싼 근거로 조건을 증명할 수 없을 때만 브라우저·수동·hosted·전체 suite·시간이 긴 end-to-end 검증을 사용합니다. 자동 검사 결과를 다른 화면에서 다시 증명하지 않으며 모든 조건에 현재 근거가 생기면 즉시 멈춥니다. 의미상 충분성은 Skill과 grader가 판단하지만, Hook은 표준 Browser MCP 경로를 직접 계측합니다. `done_when`의 주 증거에 브라우저가 명시된 경우에만 3회 호출·측정 시간 90초의 직렬 대표 세션을 허용하며, 30초 초과 tool timeout, 5초 초과 명시적 wait, 완료 후 재호출을 거부합니다. 이후 수정은 브라우저 근거를 초기화하며 matcher 밖 connector는 이 계측 범위 밖입니다.
 
 | 규모 | 주로 쓰는 경우 | 자동 상한 |
 | --- | --- | ---: |
@@ -201,7 +205,7 @@ Click은 항목마다 명시적인 argv 검사 하나를 다음 runner에 전달
 click-gate verify '{"version":1,"checks":[{"argv":["python3","-m","unittest","discover","-s","tests","-q"],"class":"broad"},{"argv":["git","diff","--check"],"class":"targeted"}]}'
 ```
 
-Hook이 제출한 class를 검증·정규화하고 승인된 최종 묶음을 shell 없이 실행해 실제 종료 코드를 기록합니다. Python 검증은 pytest·unittest·coverage의 명시적 module runner를 받으며 Windows의 `py -3 -m ...`도 지원하지만, Python `-c`와 직접 Python 스크립트는 거부합니다. `uv run pytest`, `npm run lint`, `npm run build`, `ruff check`, `mypy`, `tsc --noEmit`, `cargo check`, `cargo clippy`, `go vet` 같은 일반 형태도 인식해 실제 범위에 맞춰 계산합니다. 예전 shell 문자열 `commands` 형식은 이전 방법을 안내하며 거부합니다. 일시적인 실패라면 같은 묶음을 변경 없이 한 번 재시도할 수 있고, 그 뒤에는 범위 안의 수정이 필요합니다. 이후 소스를 수정하면 앞선 성공 결과가 오래된 것으로 간주되어 같은 묶음을 다시 실행할 수 있습니다.
+Hook이 제출한 class를 검증·정규화하고 승인된 최종 묶음을 shell 없이 실행해 실제 종료 코드를 기록합니다. Python 검증은 pytest·unittest·coverage의 명시적 module runner를 받으며 Windows의 `py -3 -m ...`도 지원하지만, Python `-c`와 직접 Python 스크립트는 거부합니다. 정확한 파일을 지정한 `node --check`·`node --test`, `uv run pytest`, `npm run lint`, `npm run build`, `ruff check`, `mypy`, `tsc --noEmit`, `cargo check`, `cargo clippy`, `go vet` 같은 형태도 인식해 실제 범위에 맞춰 계산합니다. 전체 `node --test`는 broad이며 Node eval·print는 검증으로 받지 않습니다. 예전 shell 문자열 `commands` 형식은 이전 방법을 안내하며 거부합니다. 일시적인 실패라면 같은 묶음을 변경 없이 한 번 재시도할 수 있고, 그 뒤에는 범위 안의 수정이 필요합니다. 이후 소스를 수정하면 앞선 성공 결과가 오래된 것으로 간주되어 같은 묶음을 다시 실행할 수 있습니다.
 
 Git worktree에서는 batch 전의 tracked content와 기존 **non-ignored untracked** content를 snapshot합니다. 보호한 내용이 검증 도중 바뀌면 거짓 성공으로 기록하지 않고 batch를 stale 실패로 처리하며 mutation revision을 올립니다. 검증 뒤 새로 생긴 non-ignored untracked 경로는 모두 보고하며, 경로 종류와 무관하게 workspace 변경으로 처리해 stale 실패시키고 mutation revision을 올립니다. source·config처럼 의심스러운 분류는 메시지를 더 명확하게 보여주는 데만 사용합니다. 검증 중 생성이 예상되는 산출물은 Git ignore 대상으로 두거나 승인된 mutation 단계에서 미리 생성해야 합니다. Git에서 ignored인 경로는 이 snapshot으로 볼 수 없습니다. Git 밖에서는 content-diff 안전망을 사용할 수 없지만 argv 검증, shell 없는 실행, revision 상태 검사는 계속 적용됩니다.
 
@@ -242,11 +246,11 @@ Click의 핵심 대상은 다음 두 그룹입니다.
 
 ## 근거와 솔직한 한계
 
-v0.18.0 소스는 결정적 suite를 release gate로 사용합니다. 저장소 밖 영구 모드 선택, 요청별 라우팅 문맥, Manual fail-open과 session-active mutation 차단, Always ON 변경 gate, 코드 리뷰 anti-loop, 축약 계약, turn이 분리된 승인과 동일 계약 재-stage 거부, 완료 계약 전환, active lifecycle 계획 차단, 승인 계약의 관찰 근거 재사용, 범위 중심 검증 class 추론, 일반 build·check runner, Python 검증 제한, 강화된 local Git 및 Experimental SSH Git 조회, Git 보호 content와 신규 경로 변경 감지, versioned inspect·mutate·verify, shell 없는 argv 처리, 상태 잠금과 중단 runner 복구, 재시도 상태, 본문을 저장하지 않는 Hook 상태, A/B 격리, 의미 grader, 배포 일관성, 저장소 정책을 다룹니다. 필수 CI는 Linux·macOS·Windows에서 suite를 실행하고 Ubuntu에서는 plugin·marketplace·Click/Fix Skill·Python compilation·whitespace도 검증합니다.
+v0.19.0 소스는 결정적 suite를 release gate로 사용합니다. 영구 모드, turn 분리 승인, active-contract 잠금, 읽기·계획 anti-loop, 범위 중심 로컬 검증, Browser 주 증거 할당과 예산, 관리형 서버 시작·종료, Node 파일 검사, 강화된 Git 조회, process 격리, 검증 중 workspace 변경 감지, Browser A/B runtime metric, 배포 일관성, 저장소 정책을 다룹니다. 필수 CI는 Linux·macOS·Windows에서 suite를 실행하고 Ubuntu에서는 plugin·marketplace·Click/Fix Skill·Python compilation·whitespace도 검증합니다.
 
-저장소에는 version 16 golden case, 의미 grader, A/B runner도 포함되어 있습니다. A/B suite는 고정된 self-hosted 작업 6개, 조건 3개, 조건별 무작위 순서 5회, `gpt-5.6-sol`의 `max` 추론으로 설정되어 있습니다. 유료 호출 전에 source checkout이 clean인지와 suite·manifest 버전이 같은지 검사하고, 정확한 Click commit을 임시 local marketplace에 clone하여 임시 `CODEX_HOME`에 설치합니다. candidate는 실행자의 실제 사용자 config가 아니라 이 격리 config만 읽고, runner는 발견한 다른 plugin을 모두 명시적으로 끄며 trial별 Click 상태도 분리합니다. plugin이 필요 없는 judge만 `--ignore-user-config`를 사용합니다. summary에는 Codex 버전, Click 버전·commit, 임시 config 경로, OS, Python, installed plugin, 조건별 active plugin을 기록하고 임시 runtime은 종료 뒤 삭제합니다. root inventory metric은 문자열 검색 대신 Hook의 argv parser를 재사용합니다. 정확성·토큰·경과 시간·완료 tool item·성공 명령 중복·root inventory 반복·plan item·검증 명령의 분포와 no-plugin baseline 대비 paired delta를 기록합니다. 총 90개 condition trial은 유료 모델 시간과 비용이 들기 때문에 설치나 CI에서 **자동 실행하지 않습니다**.
+저장소에는 version 17 golden case, 의미 grader, A/B runner도 포함되어 있습니다. A/B suite는 고정된 self-hosted 작업 6개, 조건 3개, 조건별 무작위 순서 5회, `gpt-5.6-sol`의 `max` 추론으로 설정되어 있습니다. 유료 호출 전에 source checkout이 clean인지와 suite·manifest 버전이 같은지 검사하고, 정확한 Click commit을 임시 local marketplace에 clone하여 임시 `CODEX_HOME`에 설치합니다. candidate는 실행자의 실제 사용자 config가 아니라 이 격리 config만 읽고, runner는 발견한 다른 plugin을 모두 명시적으로 끄며 trial별 Click 상태도 분리합니다. plugin이 필요 없는 judge만 `--ignore-user-config`를 사용합니다. summary에는 Codex 버전, Click 버전·commit, 임시 config 경로, OS, Python, installed plugin, 조건별 active plugin을 기록하고 임시 runtime은 종료 뒤 삭제합니다. root inventory metric은 문자열 검색 대신 Hook의 argv parser를 재사용합니다. 정확성·토큰·경과 시간·완료 tool item·성공 명령 중복·root inventory 반복·plan item·검증 명령·Browser 호출 수·Browser 총시간·긴 타이머 호출의 분포와 no-plugin baseline 대비 paired delta를 기록합니다. 총 90개 condition trial은 유료 모델 시간과 비용이 들기 때문에 설치나 CI에서 **자동 실행하지 않습니다**.
 
-이는 평가 기반 시설이지 benchmark 결과가 아닙니다. 실제로 실행하고 사람이 표본 보정한 뒤, 서로 관련 없는 여러 실제 저장소에서도 반복하기 전까지 Click이 프로젝트 전반의 성공률·정확도·시간·토큰·과설계를 개선한다고 주장하지 않습니다. 저장된 v0.5.0 단일 pilot은 과거 실패 근거일 뿐 v0.18.0의 효과 증거가 아닙니다.
+이는 평가 기반 시설이지 benchmark 결과가 아닙니다. 실제로 실행하고 사람이 표본 보정한 뒤, 서로 관련 없는 여러 실제 저장소에서도 반복하기 전까지 Click이 프로젝트 전반의 성공률·정확도·시간·토큰·과설계를 개선한다고 주장하지 않습니다. 저장된 v0.5.0 단일 pilot은 과거 실패 근거일 뿐 v0.19.0의 효과 증거가 아닙니다.
 
 Click이 이 분야에서 최초이거나 유일하다고 주장하지 않습니다. spec-driven·autonomous loop·승인 게이트 도구와 겹치지만, 영구 선택 한 번·축약 계약 하나·승인 한 번·One-shot 구현·관찰 가능한 anti-loop 안전망·최종 검증 예산 하나에 의도적으로 좁게 집중합니다.
 

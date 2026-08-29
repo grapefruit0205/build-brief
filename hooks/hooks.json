@@ -1,5 +1,5 @@
 {
-  "description": "Load the user's persistent Click mode, gate supported software mutations behind one approved compact contract in Always ON mode, preserve explicit activation in Manual mode, apply read-only anti-loop guards during code review, and meter one final verification batch within its automatic budget.",
+  "description": "Load the user's persistent Click mode, gate supported software mutations behind one approved compact contract in Always ON mode, preserve explicit activation in Manual mode, apply read-only anti-loop guards during code review, meter one final verification batch, and bound assigned browser evidence plus managed local services.",
   "hooks": {
     "UserPromptSubmit": [
       {
@@ -16,12 +16,37 @@
     ],
     "PreToolUse": [
       {
-        "matcher": "^(Bash|apply_patch|Edit|Write|update_plan|functions\\.update_plan)$",
+        "matcher": "^(Bash|apply_patch|Edit|Write|update_plan|functions\\.update_plan|mcp__node_repl__js)$",
         "hooks": [
           {
             "type": "command",
             "command": "python3 \"${PLUGIN_ROOT}/hooks/click_gate.py\" pre-tool",
             "commandWindows": "py -3 \"%PLUGIN_ROOT%\\hooks\\click_gate.py\" pre-tool",
+            "timeout": 7
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "^mcp__node_repl__js$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${PLUGIN_ROOT}/hooks/click_gate.py\" post-tool",
+            "commandWindows": "py -3 \"%PLUGIN_ROOT%\\hooks\\click_gate.py\" post-tool",
+            "timeout": 7
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${PLUGIN_ROOT}/hooks/click_gate.py\" session-end",
+            "commandWindows": "py -3 \"%PLUGIN_ROOT%\\hooks\\click_gate.py\" session-end",
             "timeout": 7
           }
         ]
