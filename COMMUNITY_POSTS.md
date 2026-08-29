@@ -34,7 +34,7 @@ I built it for:
 - users of high-capability models who are tired of planning and verification churn;
 - MVPs, internal tools, automations, and clearly bounded features where minimum design followed by continuous implementation matters more than a large spec process.
 
-What is verified: deterministic Hook behavior and the repository test suite. What is not yet proven: that Click improves accuracy, total time, or token use across real projects. The repo contains a shuffled five-repeat Sol/max A/B harness that pins the exact Click commit in a temporary isolated Codex configuration, records runtime provenance, and measures correctness, token, time, and observable loops using the Hook's argv semantics. The paid trials have not been run and the self-hosted cases still need unrelated real-project replication.
+What is verified: deterministic Hook behavior, contract structure, and the repository test suite. What is not yet proven: that Click improves accuracy, total time, or token use across real projects. Those product-level effects require independent measurement on unrelated real repositories.
 
 Install:
 
@@ -95,7 +95,7 @@ Click이 모델보다 더 좋은 아키텍처를 발명한다고 주장하지는
 - 성능 좋은 모델의 재계획·반복 탐색·과도한 검증에 피로를 느끼는 사용자
 - 큰 명세 절차보다 최소설계 뒤 바로 구현하는 MVP·내부 도구·자동화·명확한 기능 추가가 중요한 사용자
 
-현재 결정적 Hook 동작과 저장소 테스트는 검증했습니다. 저장소에는 정확한 Click commit을 임시 격리 Codex 설정에 고정하고 실행 provenance를 기록한 뒤 Sol/max를 조건별 5회 무작위 반복하는 A/B runner도 들어 있습니다. 정확성·토큰·시간·Hook과 같은 argv 의미로 측정한 관찰 가능한 loop metric을 비교합니다. 하지만 유료 trial은 아직 실행하지 않았고 self-hosted 사례를 다른 실제 프로젝트로 복제하지도 않았으므로, 정확도·전체 시간·토큰이 개선된다는 주장은 아직 하지 않습니다.
+현재 결정적 Hook 동작, 계약 구조, 저장소 테스트는 검증했습니다. 하지만 실제 프로젝트 전반에서 정확도·전체 시간·토큰이 개선되는지는 아직 증명하지 않았으며, 서로 관련 없는 실제 저장소에서 독립적으로 측정해야 합니다.
 
 설치:
 

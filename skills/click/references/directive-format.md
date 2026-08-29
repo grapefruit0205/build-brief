@@ -41,6 +41,8 @@ Stage and pass one JSON object with exactly these fields:
 
 Declare each source once in `evidence` with exactly `id`, `kind`, and `description`. IDs start with a letter, use at most 32 letters, digits, underscores, or hyphens, and are unique. `kind` is one of `argv`, `browser`, `hosted`, `manual`, or `existing`. Each `done_when` object has exactly one non-empty `condition` and one `primary_evidence` id that resolves to the registry. Every source must be referenced, while one id may be reused by several conditions. Do not add a second source for the same condition merely to repeat proof through another tool or surface. Put `argv` sources in the final verification batch. Use at most one `browser` source and reference that id from every condition covered by its metered representative session. Collect other hosted, manual, or existing sources once after the last relevant mutation and reuse them at handoff.
 
+The Hook treats `condition`, `description`, and the other contract prose as opaque text. Enforcement follows typed fields, ids, references, verification scale, and explicit capability argv; natural-language keywords do not grant permissions or change budgets. Exact executable names, options, tool names, and explicit Click directives remain protocol syntax rather than semantic prose.
+
 Only when material, add `build.semantics` as a non-empty list for state, failure, security, concurrency, migration, or compatibility meaning; `build.order` as a non-empty list for a real sequencing constraint; or `verification.intermediate_gate` as a non-empty string for one irreversible boundary. Otherwise omit them. Do not add unsupported fields.
 
 ## One semantic contract, not many checkpoints

@@ -264,11 +264,11 @@ Click의 핵심 대상은 다음 두 그룹입니다.
 
 ## 근거와 솔직한 한계
 
-v0.19.0 소스는 결정적 suite를 release gate로 사용합니다. 영구 모드, turn 분리 승인, active-contract 잠금, 읽기·계획 anti-loop, 범위 중심 로컬 검증, Browser 주 증거 할당과 예산, 관리형 서버 시작·종료, Node 파일 검사, 강화된 Git 조회, process 격리, 검증 중 workspace 변경 감지, Browser A/B runtime metric, 배포 일관성, 저장소 정책을 다룹니다. 필수 CI는 Linux·macOS·Windows에서 suite를 실행하고 Ubuntu에서는 plugin·marketplace·Click/Fix Skill·Python compilation·whitespace도 검증합니다.
+v0.19.0 소스는 결정적 suite를 release gate로 사용합니다. 영구 모드, turn 분리 승인, active-contract 잠금, 읽기·계획 anti-loop, 범위 중심 로컬 검증, 구조화된 증거 참조, Browser 주 증거 할당과 예산, 관리형 서버 시작·종료, Node 파일 검사, 강화된 Git 조회, process 격리, 검증 중 workspace 변경 감지, 배포 일관성, 저장소 정책을 다룹니다. 필수 CI는 Linux·macOS·Windows에서 suite를 실행하고 Ubuntu에서는 plugin·marketplace·Click/Fix Skill·Python compilation·whitespace도 검증합니다.
 
-저장소에는 version 17 golden case, 의미 grader, A/B runner도 포함되어 있습니다. A/B suite는 고정된 self-hosted 작업 6개, 조건 3개, 조건별 무작위 순서 5회, `gpt-5.6-sol`의 `max` 추론으로 설정되어 있습니다. 유료 호출 전에 source checkout이 clean인지와 suite·manifest 버전이 같은지 검사하고, 정확한 Click commit을 임시 local marketplace에 clone하여 임시 `CODEX_HOME`에 설치합니다. candidate는 실행자의 실제 사용자 config가 아니라 이 격리 config만 읽고, runner는 발견한 다른 plugin을 모두 명시적으로 끄며 trial별 Click 상태도 분리합니다. plugin이 필요 없는 judge만 `--ignore-user-config`를 사용합니다. summary에는 Codex 버전, Click 버전·commit, 임시 config 경로, OS, Python, installed plugin, 조건별 active plugin을 기록하고 임시 runtime은 종료 뒤 삭제합니다. root inventory metric은 문자열 검색 대신 Hook의 argv parser를 재사용합니다. 정확성·토큰·경과 시간·완료 tool item·성공 명령 중복·root inventory 반복·plan item·검증 명령·Browser 호출 수·Browser 총시간·긴 타이머 호출의 분포와 no-plugin baseline 대비 paired delta를 기록합니다. 총 90개 condition trial은 유료 모델 시간과 비용이 들기 때문에 설치나 CI에서 **자동 실행하지 않습니다**.
+저장소에는 결정적 fixture 기반 정책 검토를 위한 version 17 golden case와 의미 grader도 포함되어 있습니다. 이 자료는 계약 형식과 기대 동작을 검사하며 runtime 생산성을 측정하지 않습니다.
 
-이는 평가 기반 시설이지 benchmark 결과가 아닙니다. 실제로 실행하고 사람이 표본 보정한 뒤, 서로 관련 없는 여러 실제 저장소에서도 반복하기 전까지 Click이 프로젝트 전반의 성공률·정확도·시간·토큰·과설계를 개선한다고 주장하지 않습니다. 저장된 v0.5.0 단일 pilot은 과거 실패 근거일 뿐 v0.19.0의 효과 증거가 아닙니다.
+이 gate는 관찰 가능한 Hook과 계약 동작만 증명합니다. 서로 관련 없는 실제 저장소에서 독립적으로 측정하기 전까지 Click이 프로젝트 전반의 성공률·정확도·시간·토큰·과설계를 개선한다고 주장하지 않습니다.
 
 Click이 이 분야에서 최초이거나 유일하다고 주장하지 않습니다. spec-driven·autonomous loop·승인 게이트 도구와 겹치지만, 영구 선택 한 번·축약 계약 하나·승인 한 번·One-shot 구현·관찰 가능한 anti-loop 안전망·최종 검증 예산 하나에 의도적으로 좁게 집중합니다.
 
@@ -286,7 +286,7 @@ skills/click/references/capability-protocol.md  구조화 runner schema
 skills/fix/                           축약 수정 Skill
 hooks/click_gate.py                   계약·capability·anti-loop·예산 안전망
 hooks/hooks.json                      라이프사이클 Hook 설정
-evals/                                golden case·A/B runner·의미 grader
+evals/                                golden case·의미 grader
 tests/                                Hook·grader·정책 결정적 테스트
 scripts/validate_distribution.py     저장소 자체 release validator
 COMMUNITY_POSTS.md                    영문·국문 커뮤니티 홍보 초안
@@ -298,12 +298,6 @@ python3 scripts/validate_distribution.py
 python3 -m compileall -q hooks evals scripts tests
 python3 -m unittest discover -s tests -v
 git diff --check
-```
-
-A/B runner는 실행자가 다음처럼 유료 실행을 명시적으로 확인하지 않으면 model call을 시작하지 않습니다.
-
-```bash
-python3 evals/run_ab.py --results /path/to/results --execute-paid-runs
 ```
 
 </details>

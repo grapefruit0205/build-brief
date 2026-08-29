@@ -11,7 +11,6 @@ Click v0.19.0 makes the cheapest-evidence policy observable at the Browser bound
 - Browser MCP work is available during an approved contract only when one referenced evidence source has `kind: "browser"`. Locale-specific marker and substring matching no longer controls Browser authorization; otherwise the Hook rejects it as shadow verification.
 - One representative Browser session is capped at three serial tool calls and 90 seconds of measured tool time. Tool timeouts above 30 seconds and obvious waits above five seconds are rejected in favor of deterministic state or one representative interaction.
 - Browser evidence is reset by a later mutation, is required before a Browser-assigned contract can complete, and cannot be repeated after current-revision completion.
-- A/B runtime traces now report Browser call count, measured Browser seconds, and timed Browser calls, so the plugin-versus-baseline time cost is visible instead of being hidden inside generic MCP items.
 - CI runs feature-branch commits through `pull_request` only and reserves the `push` trigger for `main`, eliminating the duplicate three-OS matrix that previously ran when a pushed branch also had a PR.
 
 ### Faster local feedback
@@ -22,8 +21,8 @@ Click v0.19.0 makes the cheapest-evidence policy observable at the Browser bound
 
 ### Release gate
 
-- The plugin manifest, repository marketplace, deterministic policy tests, and A/B metadata identify v0.19.0.
-- The tag and GitHub Release must point to the exact protected-main commit that passes the full local suite and required GitHub Actions checks. Paid A/B runs remain opt-in and are not implied by this release.
+- The plugin manifest, repository marketplace, deterministic policy tests, READMEs, and release notes identify v0.19.0.
+- The tag and GitHub Release must point to the exact protected-main commit that passes the full local suite and required GitHub Actions checks.
 
 ## v0.18.0 — 2026-08-29
 
@@ -39,11 +38,11 @@ Click v0.18.0 turns the hardened post-v0.17 source into one reproducible stable 
 
 ### Reproducible distribution
 
-- The plugin manifest, A/B metadata, three READMEs, and release notes identify v0.18.0.
+- The plugin manifest, three READMEs, and release notes identify v0.18.0.
 - The repository marketplace pins the immutable `v0.18.0` tag instead of following `main`.
 - Required CI keeps the Linux, macOS, and Windows deterministic suite and adds Ubuntu release checks for the repository-owned plugin/marketplace/Click/Fix validator, Python compilation, and `git diff --check`.
 - The Hook remains standard-library-only, external Click state remains content-free and outside target repositories, and Git/SSH inspection remains a workflow guardrail rather than a security sandbox.
 
 ### Release gate
 
-The tag and GitHub Release must point to the exact protected-main commit that passed the full local suite and every required GitHub Actions check. The installed plugin is compared with that tagged artifact after publication. Paid A/B trials are not part of this release and no unmeasured accuracy, time, token, or overdesign improvement is claimed.
+The tag and GitHub Release must point to the exact protected-main commit that passed the full local suite and every required GitHub Actions check. The installed plugin is compared with that tagged artifact after publication. No unmeasured accuracy, time, token, or overdesign improvement is claimed.
