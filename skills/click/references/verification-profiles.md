@@ -12,7 +12,23 @@ One `targeted` argv check costs 1 unit, `broad` costs 3, and `deep` security, au
 
 Use present evidence, not task size alone. `focused` is the normal recommendation. Do not inflate `quick` work into broad testing, and do not reduce high-impact work to `quick` merely to save time.
 
-Run `done_when` checks together after implementation with `click-gate verify '{"version":1,"checks":[{"argv":[...],"class":"targeted"}]}'`. Python verification accepts explicit pytest, unittest, or coverage module runners, including `py -3 -m ...`; it rejects Python `-c` and direct Python scripts. Common recognized forms include `uv run pytest`, package-manager lint/build scripts, `ruff check`, `mypy`, `tsc --noEmit`, `cargo check`, `cargo clippy`, and `go vet`. Routine implementation builds, app runs, and narrow feedback use `click-gate mutate` when they may write. The Hook blocks a needless repeat after success. A failed batch gets one unchanged transient retry; further retries require an in-scope mutation. A later mutation makes a successful result stale and permits the same batch again.
+## One cheapest sufficient primary evidence source per condition
+
+Before staging the contract, assign every `verification.done_when` condition exactly one primary evidence source. The source must be the cheapest available evidence that is still strong enough to prove that condition on the final relevant revision. One source may cover several conditions; do not split it merely to create one command per sentence.
+
+Use this order as a cost heuristic, not as a substitute for sufficiency:
+
+1. current successful evidence that the relevant mutation did not invalidate;
+2. a narrow static, unit, or existing regression check;
+3. a focused integration or build check;
+4. one representative browser, manual, hosted, or external-system scenario;
+5. a broad suite or timed end-to-end flow only when the condition itself concerns that complete flow.
+
+Do not prove one condition twice by default. In particular, do not pair an automated rule test with a browser replay of the same rule, exhaustively exercise equivalent UI permutations, or play through long timed progression when a deterministic state transition can prove the outcome. Use interactive evidence for integration, input, accessibility, or visual behavior that cheaper checks cannot establish. If a primary source fails, becomes stale after a relevant mutation, or is genuinely insufficient, fix or replace that source; do not retain it and add a second proof path.
+
+Argv-based primary sources run together in the one final `click-gate verify` batch. Unmatched browser, hosted, manual, or external evidence is collected once after the last relevant mutation and reused in the handoff instead of being repeated before or after the argv batch. Once every `done_when` condition has current primary evidence, stop verifying.
+
+Run the argv-based primary sources together after implementation with `click-gate verify '{"version":1,"checks":[{"argv":[...],"class":"targeted"}]}'`. Python verification accepts explicit pytest, unittest, or coverage module runners, including `py -3 -m ...`; it rejects Python `-c` and direct Python scripts. Common recognized forms include `uv run pytest`, package-manager lint/build scripts, `ruff check`, `mypy`, `tsc --noEmit`, `cargo check`, `cargo clippy`, and `go vet`. Routine implementation builds, app runs, and narrow feedback use `click-gate mutate` when they may write. The Hook blocks a needless repeat after success. A failed batch gets one unchanged transient retry; further retries require an in-scope mutation. A later mutation makes a successful result stale and permits the same batch again.
 
 In a Git worktree, the runner snapshots tracked content and pre-existing non-ignored untracked content. If protected content changes, verification fails stale and advances the mutation revision instead of recording success. Every newly created non-ignored untracked path is reported; a new path under a source, application, library, configuration, or migration directory also fails stale, while a generic generated report only warns. Git-ignored paths are outside the snapshot. Outside Git, this content-change check is unavailable; command allowlisting, shell-free execution, and revision state still apply.
 

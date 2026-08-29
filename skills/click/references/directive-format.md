@@ -19,13 +19,15 @@ Stage and pass one JSON object with exactly these fields:
   },
   "verification": {
     "scale": "focused",
-    "done_when": ["observable completion check in the one final batch"]
+    "done_when": ["observable condition — primary evidence: one cheapest sufficient source"]
   },
   "plain_language": "Faithful easy explanation of the compact contract and verification scale."
 }
 ```
 
 `outcome`, `boundary.in_scope`, `must_hold`, `build.approach`, `verification.scale`, `verification.done_when`, and `plain_language` are required. `boundary.out_of_scope` is required but may be empty when nothing material needs exclusion. `verification.scale` must be `quick`, `focused`, or `full`.
+
+Each `done_when` string names one observable condition and its one cheapest sufficient primary evidence source. One source may cover several conditions. Do not add a second source for the same condition merely to repeat proof through another tool or surface. Put local argv sources in the final verification batch; collect an unmatched browser, hosted, manual, or external source once after the last relevant mutation and reuse it at handoff.
 
 Only when material, add `build.semantics` as a non-empty list for state, failure, security, concurrency, migration, or compatibility meaning; `build.order` as a non-empty list for a real sequencing constraint; or `verification.intermediate_gate` as a non-empty string for one irreversible boundary. Otherwise omit them. Do not add unsupported fields.
 

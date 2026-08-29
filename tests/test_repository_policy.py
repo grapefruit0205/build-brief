@@ -29,6 +29,10 @@ class RepositoryPolicyTests(unittest.TestCase):
         self.assertIn("compact", manifest["description"].lower())
         self.assertIn("one shot", manifest["interface"]["longDescription"].lower())
         self.assertIn("verification", manifest["interface"]["longDescription"].lower())
+        self.assertIn(
+            "cheapest sufficient primary evidence",
+            manifest["interface"]["longDescription"].lower(),
+        )
         self.assertIn("automatically", manifest["interface"]["longDescription"].lower())
         self.assertIn("replanning", manifest["interface"]["longDescription"].lower())
         self.assertIn("anti-loop", manifest["keywords"])
@@ -62,6 +66,50 @@ class RepositoryPolicyTests(unittest.TestCase):
         self.assertIn("Python `-c`", english)
         self.assertIn("Python `-c`", korean)
         self.assertIn("Python `-c`", chinese)
+
+    def test_evidence_economy_uses_one_primary_source_per_condition(self) -> None:
+        click_skill = (ROOT / "skills" / "click" / "SKILL.md").read_text(
+            encoding="utf-8"
+        )
+        fix_skill = (ROOT / "skills" / "fix" / "SKILL.md").read_text(
+            encoding="utf-8"
+        )
+        verification = (
+            ROOT
+            / "skills"
+            / "click"
+            / "references"
+            / "verification-profiles.md"
+        ).read_text(encoding="utf-8")
+        anti_loop = (
+            ROOT / "skills" / "click" / "references" / "anti-loop-policy.md"
+        ).read_text(encoding="utf-8")
+        directive = (
+            ROOT / "skills" / "click" / "references" / "directive-format.md"
+        ).read_text(encoding="utf-8")
+        grader = (ROOT / "evals" / "SEMANTIC_GRADER.md").read_text(
+            encoding="utf-8"
+        )
+
+        for document in (
+            click_skill,
+            fix_skill,
+            verification,
+            anti_loop,
+            directive,
+            grader,
+        ):
+            with self.subTest(document=document[:40]):
+                lowered = document.lower()
+                self.assertIn("one cheapest sufficient primary evidence source", lowered)
+                self.assertIn("one source may cover several conditions", lowered)
+
+        english = (ROOT / "README.md").read_text(encoding="utf-8")
+        korean = (ROOT / "README.ko.md").read_text(encoding="utf-8")
+        chinese = (ROOT / "README.zh-CN.md").read_text(encoding="utf-8")
+        self.assertIn("cheapest sufficient primary evidence source", english)
+        self.assertIn("가장 싼 주 증거", korean)
+        self.assertIn("成本最低的主要证据来源", chinese)
 
     def test_readmes_document_distinct_turn_approval_and_git_mutation_guard(self) -> None:
         english = (ROOT / "README.md").read_text(encoding="utf-8")
@@ -271,7 +319,7 @@ class RepositoryPolicyTests(unittest.TestCase):
         catalog = (
             ROOT / "evals" / "golden-prompts.yaml"
         ).read_text(encoding="utf-8")
-        self.assertIn("version: 15", catalog)
+        self.assertIn("version: 16", catalog)
         for case_id in (
             "unset-first-mutation-choice",
             "always-on-trivial-edit",
@@ -288,6 +336,7 @@ class RepositoryPolicyTests(unittest.TestCase):
         self.assertIn("id: verification-workspace-mutation", catalog)
         self.assertIn("id: distinct-turn-contract-approval", catalog)
         self.assertIn("id: active-lifecycle-plan-block", catalog)
+        self.assertIn("id: cheapest-evidence-browser-game", catalog)
 
 
 if __name__ == "__main__":

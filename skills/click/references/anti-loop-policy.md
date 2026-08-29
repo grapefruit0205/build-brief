@@ -12,6 +12,12 @@ Apply the build guards after the exact staged Click contract has been approved a
 6. **Keep broad verification in the budget.** Final checks use argv-based `click-gate verify` entries with submitted `targeted`, `broad`, or `deep` classes. The Hook infers and applies each recognized command's minimum class before checking the approved scale.
 7. **Do not mutate through verification.** Python `-c` and direct Python scripts are rejected as checks. In Git worktrees, a final batch that changes tracked or pre-existing non-ignored untracked content fails stale. New non-ignored paths are reported, and obvious new source, application, library, configuration, or migration paths also fail stale; ignored paths remain outside this snapshot.
 
+## Evidence economy outside Hook enforcement
+
+For each approved `done_when` condition, use exactly one cheapest sufficient primary evidence source. One source may cover several conditions. Do not duplicate an automated result with browser, manual, hosted, or external proof of the same condition, and do not exhaustively enumerate equivalent interactions or timed progression when one deterministic or representative scenario is sufficient. Collect each source once after the last relevant mutation, reuse current successful evidence, and stop when every condition is covered.
+
+This is a Skill and semantic-grader rule. The Hook enforces local argv budgets and repeat guards, but it cannot decide whether two different tools prove the same semantic condition or meter unmatched connector work. Do not exploit that enforcement boundary to create a shadow verification suite.
+
 ## Read-only code review
 
 When Always ON is active and the user requests code review without changes, run `click-gate review`. Do not create or approve a build contract. Use structured inspection or compatible simple direct reads. One repository-wide inventory may establish context; after success, narrow later reads and searches. Identical successful observations are blocked for the review turn. Mutations and plan-tool churn are rejected while review mode is active.

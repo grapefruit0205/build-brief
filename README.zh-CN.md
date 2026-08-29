@@ -109,8 +109,8 @@ flowchart TB
   "verification": {
     "scale": "full",
     "done_when": [
-      "取消测试覆盖成功、重复、并发和支付服务商失败场景。",
-      "现有 API 回归测试套件仍然通过。"
+      "退款行为正确 — 主要证据：覆盖成功、重复、并发和支付服务商失败的取消测试。",
+      "公共 API 保持兼容 — 主要证据：现有 API 回归测试套件。"
     ]
   },
   "plain_language": "客户可以取消符合条件的订单，但重试或同时发出的请求不能导致重复退款。公共 API 保持不变，支付调用失败也不能错误地完成退款。由于此变更涉及支付和并发，Click 推荐 full 验证。"
@@ -185,6 +185,8 @@ SSH Git 读取是 **Experimental，并且只支持远端 POSIX shell**。它只�
 
 Click 根据当前风险和仓库证据选择最小且足够的规模。用户会把它作为契约的一部分批准，不会出现第二次预算提示。
 
+每个 `done_when` 条件只分配一个充分且成本最低的主要证据来源。一个来源可以覆盖多个条件。Click 优先复用当前 revision 仍然有效的证据和范围最窄的自动检查；只有更便宜的来源无法证明条件时，才使用浏览器、人工、hosted、完整 suite 或耗时的 end-to-end 证据。它不会通过另一个界面重复证明自动检查已经证明的结果，并会在所有条件都有当前证据后立即停止。该证据经济规则由 Skill 和 semantic grader 负责；Hook 无法从语义上判断 matcher 之外的 connector 是否在证明同一条件。
+
 | 规模 | 典型用途 | 自动上限 |
 | --- | --- | ---: |
 | `quick` | 小型、局部、可逆的变更 | 1 unit |
@@ -242,7 +244,7 @@ Click 面向两类用户：
 
 v0.18.0 源码以确定性 suite 作为 release gate。覆盖内容包括：仓库外持久模式选择、按 prompt 路由上下文、Manual fail-open 与 session-active mutation 阻止、Always ON mutation gate、代码审查防循环、精简契约、跨 turn 批准与相同 restage 拒绝、完成契约 rollover、活动生命周期 plan 阻止、已批准契约的 observation 复用、范围感知的验证 class 推断、常见 build 与 check runner、Python 验证限制、加固的本地 Git 与 Experimental SSH Git 读取、Git 受保护内容和新路径 mutation 检测、带版本的 inspect/mutate/verify、无 shell argv、状态锁与废弃 runner 恢复、重试状态、不含内容的 Hook 状态、A/B 隔离、semantic grader、发布一致性和仓库策略。必需 CI 会在 Linux、macOS 和 Windows 运行该 suite，并在 Ubuntu 额外验证 plugin、marketplace、Click/Fix Skill、Python compilation 和 whitespace。
 
-仓库还包含 version-15 golden cases、semantic grader，以及一个 A/B runner。该 runner 配置为 6 个固定的 self-hosted 任务、3 种条件、每种条件 5 次打乱顺序的重复，并使用 `gpt-5.6-sol` 与 `max` reasoning effort。付费调用前，runner 要求 source checkout 干净，检查 suite 版本与 manifest 一致，将准确的 Click commit 克隆到临时本地 marketplace，并安装到临时 `CODEX_HOME`。候选只加载该隔离配置，不加载操作者真实的用户配置；runner 会明确禁用它发现的每一个非候选插件。它会为每次 trial 隔离 Click 状态，并记录 Codex 版本、Click 版本与 commit、临时配置路径、操作系统、Python、已安装插件和预期活动插件集。judge 仍使用 `--ignore-user-config`，因为它不需要插件。临时 runtime 会在结束后删除。根目录清单指标会复用 Hook 的 argv parser，而不是使用 substring 匹配。它会报告 correctness、token、耗时、已完成 tool item、重复成功命令、重复根目录清单、plan item、验证命令、分布以及与 no-plugin baseline 的 paired delta。由于这 90 次条件 trial 会消耗付费模型时间，安装和 CI **不会运行它们**。
+仓库还包含 version-16 golden cases、semantic grader，以及一个 A/B runner。该 runner 配置为 6 个固定的 self-hosted 任务、3 种条件、每种条件 5 次打乱顺序的重复，并使用 `gpt-5.6-sol` 与 `max` reasoning effort。付费调用前，runner 要求 source checkout 干净，检查 suite 版本与 manifest 一致，将准确的 Click commit 克隆到临时本地 marketplace，并安装到临时 `CODEX_HOME`。候选只加载该隔离配置，不加载操作者真实的用户配置；runner 会明确禁用它发现的每一个非候选插件。它会为每次 trial 隔离 Click 状态，并记录 Codex 版本、Click 版本与 commit、临时配置路径、操作系统、Python、已安装插件和预期活动插件集。judge 仍使用 `--ignore-user-config`，因为它不需要插件。临时 runtime 会在结束后删除。根目录清单指标会复用 Hook 的 argv parser，而不是使用 substring 匹配。它会报告 correctness、token、耗时、已完成 tool item、重复成功命令、重复根目录清单、plan item、验证命令、分布以及与 no-plugin baseline 的 paired delta。由于这 90 次条件 trial 会消耗付费模型时间，安装和 CI **不会运行它们**。
 
 这是评估基础设施，不是 benchmark 结果。在完成这些 trial、经过人工校准，并在多个无关的真实仓库中重复之前，Click 不会声称能跨项目提高成功率、准确性、速度、token 使用效率或减少过度设计。仓库中的 v0.5.0 单次 pilot 仍然是历史失败证据，不是 v0.18.0 的效果证据。
 

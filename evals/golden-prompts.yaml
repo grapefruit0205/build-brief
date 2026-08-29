@@ -1,4 +1,4 @@
-version: 15
+version: 16
 skill: click
 evaluation_conditions:
   - no-plugin
@@ -28,6 +28,7 @@ evaluation_dimensions:
   - hook_latency_per_tool_call
   - verification_definition
   - verification_scale
+  - verification_evidence_economy
   - final_verification_batch
   - one_shot_execution
   - default_mode_selection
@@ -91,6 +92,8 @@ global_invariants:
   - "Reuses existing boundaries and mechanisms unless current evidence proves they cannot preserve an invariant"
   - "Rejects material additions only when they are out of scope, speculative, or disproportionate; it does not ban a technology category"
   - "Includes verification with one quick, focused, or full scale and observable done_when checks for one final batch"
+  - "Assigns every done_when condition one cheapest sufficient primary evidence source, allows one source to cover several conditions, and does not duplicate proof through another tool or surface"
+  - "Uses browser, manual, hosted, broad-suite, or timed end-to-end evidence only when cheaper evidence cannot prove the condition, then stops when all conditions have current evidence"
   - "Does not create parallel verification ceremonies or include an intermediate gate without an irreversible boundary"
   - "Avoids serial technical preference questions by exposing consequential assumptions in the single contract review"
   - "Performs no implementation before the displayed developer execution contract is explicitly approved"
@@ -591,3 +594,21 @@ cases:
       reuse: "Git's non-ignored untracked inventory and the existing before/after snapshot"
       reject_without_evidence:
         - "A filesystem watcher, artifact database, daemon, or large allowlist"
+
+  - id: cheapest-evidence-browser-game
+    prompt: "@Click 10개 웨이브와 승리·패배, 데스크톱·모바일 조작을 갖춘 브라우저 타워 디펜스 게임을 한 번에 구현해줘."
+    default_mode: on
+    expected_activation: true
+    expected_mode: build
+    expected_mutation_gate: none-before-approval
+    directive_semantics:
+      - "Assigns every done_when condition one cheapest sufficient primary evidence source and allows one source to cover several conditions"
+      - "Uses deterministic game-logic tests for waves, rewards, damage, victory, and defeat instead of replaying the whole timed campaign"
+      - "Uses one representative browser session only for integration, input, responsive layout, and visual behavior that logic tests cannot prove"
+      - "Does not duplicate the same rule through both automated and browser evidence or add a shadow verification suite"
+      - "Stops verification as soon as every condition has current evidence"
+    minimality_expectations:
+      reuse: "The game core's deterministic state and one continuous browser session"
+      reject_without_evidence:
+        - "A natural ten-wave victory playthrough followed by a separate full defeat playthrough"
+        - "Repeated desktop and mobile checks of rules already proven by automated tests"
