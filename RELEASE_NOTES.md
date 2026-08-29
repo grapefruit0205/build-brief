@@ -1,5 +1,30 @@
 # Release notes
 
+## v0.21.1 — 2026-08-30
+
+Click v0.21.1 is a focused workflow-security maintenance release. It closes executable-resolution and runner-authorization gaps without changing the compact contract schema or one-approval workflow.
+
+### Read-only execution boundary
+
+- Read-only capabilities now accept only bare executable names. Names containing `/` or `\\`, Windows drive-prefixed forms such as `C:cat.exe`, and UNC forms fail closed before execution.
+- Direct recognized reads are always rewritten through Click's shell-free inspection runner, including when no contract or review ledger is active. This preserves lightweight reads while preventing the original shell from resolving a workspace-controlled lookalike.
+- The runner removes empty, relative, and repository-resolving PATH entries, rejects repository executables and symlinks in either direction, resolves the accepted executable to an absolute real path, and executes that path. The boundary is the nearest containing Git repository, or the current working directory outside Git. The same rule covers local Git and SSH inspection.
+- Read and Git children also drop inherited `LD_*`, `DYLD_*`, `GCONV_PATH`, and `LOCPATH`; Git additionally drops inherited `GIT_*` configuration. Internal Git snapshots resolve Git through the same executable boundary.
+
+### Mutation authorization and runner state
+
+- A structured mutation runner now atomically claims its managed state path, approved status, request digest, one-use token, replay state, and expiry before starting the requested process. Invalid, expired, tampered, unmanaged, or replayed runners execute zero mutation commands. An unstarted reservation may expire; after claim, it remains active until result recording or explicit cancellation rather than guessing that the child stopped.
+- Managed-service start and supervisor launches now use the same digest-bound, one-use pre-execution claim, preventing replay from spawning another server. A claimed verification batch likewise cannot expire into a parallel retry while its process may still be running.
+- Unclaimed verification and managed-service reservations are rechecked for malformed, future, or expired timestamps at the execution claim itself. On Windows, rewritten runner arguments travel in a bounded compressed encoding so legal `%...%` and `!...!` path text cannot be expanded by `cmd.exe`; launcher paths containing cmd.exe or PowerShell expansion characters fail closed.
+- Mutation-result recording accepts only a successfully claimed runner. Every stateful rewritten command carries the Hook-selected canonical `gate-state` root and canonical state path, so child runners do not depend on an ambient `PLUGIN_DATA` value or accept a symlinked/mismatched state file.
+- In a detected Git worktree, failure to establish the initial protected-content snapshot fails closed before any verification check runs.
+
+### Compatibility and release gate
+
+- Contract JSON, evidence protocol, modes, and user approval behavior are unchanged from v0.21.0. Existing users should refresh the marketplace snapshot, reinstall Click, restart the app, review the updated Hook, and begin a new task.
+- The deterministic suite includes path-qualified, PATH-shadow, symlink, absolute-executable, state-tamper, expiry, and replay regressions. The tag is published only after the exact release branch passes the full local gate and Linux, macOS, Windows, and Plugin Security Scan workflows.
+- These changes harden Click's observable workflow boundary. Click still does not claim to be an operating-system sandbox or to protect secrets, network access, external paths, concurrent same-user replacement of an executable outside the repository, or arbitrary behavior hidden inside an approved custom program.
+
 ## v0.21.0 — 2026-08-29
 
 Click v0.21.0 connects every declared completion source to current-revision Hook state. It removes the ceremonial local verification batch from contracts whose sufficient evidence is Browser, hosted, manual, or existing, while binding every local argv check to the exact approved evidence ID it proves.
