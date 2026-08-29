@@ -21,11 +21,13 @@ from pathlib import Path
 import re
 import secrets
 import shlex
+import shutil
 import signal
 import subprocess
 import sys
 import tempfile
 import time
+import zlib
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
@@ -812,6 +814,10 @@ def _fresh_service_state() -> dict[str, Any]:
     return {
         "status": "idle",
         "service_id": "",
+        "request_digest": "",
+        "runner_token_digest": "",
+        "runner_claimed_at": 0,
+        "supervisor_claimed_at": 0,
         "stop_requested": False,
         "supervisor_pid": 0,
         "child_pid": 0,
@@ -829,6 +835,7 @@ def _fresh_mutation_state() -> dict[str, Any]:
         "status": "idle",
         "request_digest": "",
         "runner_token_digest": "",
+        "runner_claimed_at": 0,
         "started_at": 0,
         "last_exit_code": None,
     }
@@ -837,11 +844,22 @@ def _fresh_mutation_state() -> dict[str, Any]:
 def _mutation_is_running(mutation: Any) -> bool:
     if not isinstance(mutation, dict) or mutation.get("status") != "running":
         return False
+    # Expiry cannot prove that a claimed child has stopped. Keep a claimed
+    # mutation active until it records a result or the user explicitly cancels.
+    if mutation.get("runner_claimed_at"):
+        return True
     started_at = int(mutation.get("started_at", 0))
     return bool(
         started_at
         and time.time() - started_at <= MUTATION_RUNNING_TTL_SECONDS
     )
+
+
+def _unclaimed_reservation_is_fresh(value: Any, ttl_seconds: int) -> bool:
+    if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+        return False
+    age = time.time() - value
+    return 0 <= age <= ttl_seconds
 
 
 def _write_review_state(event: dict[str, Any]) -> None:
@@ -1037,6 +1055,7 @@ def _contract_is_completed(state: dict[str, Any]) -> bool:
     service = state.get("service")
     if isinstance(service, dict) and service.get("status") in {
         "starting",
+        "launching",
         "running",
         "stopping",
     }:
@@ -1148,7 +1167,7 @@ def _prune_state() -> None:
     for candidate in root.glob("*.json"):
         try:
             age = now - candidate.stat().st_mtime
-        except OSError:
+        except (OSError, RuntimeError):
             continue
         ttl = EPHEMERAL_STATE_TTL_SECONDS
         if candidate.name.startswith("session-contract-"):
@@ -1400,7 +1419,7 @@ def _validate_argv(value: Any, label: str) -> tuple[list[str] | None, str]:
             f"{label} cannot use a NAME=value environment prefix. Pass direct argv; "
             "a future protocol may add an explicit environment field.",
         )
-    executable = argv[0].replace("\\", "/").rsplit("/", 1)[-1].lower()
+    executable = _policy_executable_name(argv[0])
     if executable in SHELL_EXECUTABLES:
         return (
             None,
@@ -1415,6 +1434,15 @@ def _validate_argv(value: Any, label: str) -> tuple[list[str] | None, str]:
             "unrelated processes.",
         )
     return argv, ""
+
+
+def _policy_executable_name(value: str) -> str:
+    """Normalize Win32 executable aliases before policy comparisons."""
+    executable = value.replace("\\", "/").rsplit("/", 1)[-1].lower()
+    executable = executable.rstrip(" .")
+    if executable.endswith(".exe"):
+        executable = executable[:-4].rstrip(" .")
+    return executable
 
 
 def _looks_like_managed_service(argv: list[str]) -> bool:
@@ -1809,13 +1837,20 @@ def _git_subcommand(tokens: list[str]) -> str:
 
 def _sanitized_git_environment(
     source: dict[str, str] | None = None,
+    *,
+    workspace: Path | None = None,
 ) -> dict[str, str]:
     inherited = os.environ if source is None else source
     environment = {
         key: value
         for key, value in inherited.items()
         if not key.upper().startswith("GIT_")
+        and key.upper() != "PATH"
+        and not _unsafe_inherited_environment_key(key)
     }
+    environment["PATH"] = _sanitized_executable_path(
+        inherited.get("PATH", ""), workspace=workspace
+    )
     environment["GIT_OPTIONAL_LOCKS"] = "0"
     environment["GIT_CONFIG_NOSYSTEM"] = "1"
     environment["GIT_CONFIG_GLOBAL"] = os.devnull
@@ -2215,6 +2250,105 @@ def _capability_digest(request: dict[str, Any]) -> str:
     return hashlib.sha256(canonical.encode()).hexdigest()
 
 
+def _windows_shell_quote(argument: str) -> str:
+    """Quote one argv item for cmd.exe while preserving CRT argv decoding."""
+    if any(character in argument for character in ("\0", "\r", "\n")):
+        raise ValueError("Click runner arguments cannot contain control characters.")
+    result = ['"']
+    backslashes = 0
+    for character in argument:
+        if character == "\\":
+            backslashes += 1
+            continue
+        if character == '"':
+            result.append("\\" * (backslashes * 2 + 1))
+            result.append('"')
+            backslashes = 0
+            continue
+        if backslashes:
+            result.append("\\" * backslashes)
+            backslashes = 0
+        result.append(character)
+    if backslashes:
+        result.append("\\" * (backslashes * 2))
+    result.append('"')
+    return "".join(result)
+
+
+MAX_RUNNER_TRANSPORT_BYTES = 24_000
+WINDOWS_COMMAND_LINE_LIMIT = 8_191
+
+
+def _encode_runner_transport(arguments: list[str]) -> str:
+    raw = json.dumps(arguments, ensure_ascii=False, separators=(",", ":")).encode()
+    return base64.urlsafe_b64encode(zlib.compress(raw, level=9)).decode()
+
+
+def _decode_runner_transport(encoded: str) -> tuple[list[str] | None, str]:
+    try:
+        compressed = base64.b64decode(
+            encoded.encode(), altchars=b"-_", validate=True
+        )
+        decompressor = zlib.decompressobj()
+        raw = decompressor.decompress(compressed, MAX_RUNNER_TRANSPORT_BYTES + 1)
+        if (
+            len(raw) > MAX_RUNNER_TRANSPORT_BYTES
+            or not decompressor.eof
+            or decompressor.unconsumed_tail
+            or decompressor.unused_data
+        ):
+            return None, "Click runner transport exceeded its bounded payload."
+        value = json.loads(raw.decode())
+    except (UnicodeDecodeError, ValueError, json.JSONDecodeError, zlib.error):
+        return None, "Click runner transport was malformed."
+    if (
+        not isinstance(value, list)
+        or not value
+        or any(not isinstance(item, str) or "\x00" in item for item in value)
+    ):
+        return None, "Click runner transport did not contain a valid argv list."
+    return value, ""
+
+
+def _windows_launcher_path_is_safe(value: str) -> bool:
+    # Arguments after the launcher are encoded. These characters remain unsafe
+    # in the two launcher paths because cmd.exe and PowerShell expand them even
+    # inside double quotes under some configurations.
+    return not any(character in value for character in ("%", "!", "$", "`"))
+
+
+def _runner_shell_command(arguments: list[str]) -> str:
+    if os.name == "nt":
+        if len(arguments) < 3 or not all(
+            _windows_launcher_path_is_safe(argument) for argument in arguments[:2]
+        ):
+            return "exit 2"
+        transported = [
+            arguments[0],
+            arguments[1],
+            "--encoded-runner",
+            _encode_runner_transport(arguments[2:]),
+        ]
+        command = " ".join(
+            _windows_shell_quote(argument) for argument in transported
+        )
+        if len(command) > WINDOWS_COMMAND_LINE_LIMIT:
+            return "exit 2"
+        return command
+    return shlex.join(arguments)
+
+
+def _stateful_runner_prefix(action: str) -> list[str]:
+    """Bind a rewritten runner to the state root selected by the Hook process."""
+    return [
+        sys.executable,
+        str(Path(__file__).resolve()),
+        "--state-root",
+        str(_state_root().resolve()),
+        action,
+    ]
+
+
 def _observation_runner_command(
     state_path: Path, request: dict[str, Any], request_digest: str, runner_token: str
 ) -> str:
@@ -2222,15 +2356,13 @@ def _observation_runner_command(
         json.dumps(request, ensure_ascii=False, separators=(",", ":")).encode()
     ).decode()
     arguments = [
-        sys.executable,
-        str(Path(__file__).resolve()),
-        "run-observation",
-        str(state_path),
+        *_stateful_runner_prefix("run-observation"),
+        str(state_path.resolve()),
         request_digest,
         runner_token,
         encoded,
     ]
-    return subprocess.list2cmdline(arguments) if os.name == "nt" else shlex.join(arguments)
+    return _runner_shell_command(arguments)
 
 
 def _prepare_observation(
@@ -2352,22 +2484,20 @@ def _inspection_once_runner_command(request: dict[str, Any]) -> str:
         "run-inspection-once",
         _encoded_request(request),
     ]
-    return subprocess.list2cmdline(arguments) if os.name == "nt" else shlex.join(arguments)
+    return _runner_shell_command(arguments)
 
 
 def _mutation_runner_command(
     event: dict[str, Any], request: dict[str, Any], request_digest: str, runner_token: str
 ) -> str:
     arguments = [
-        sys.executable,
-        str(Path(__file__).resolve()),
-        "run-mutation",
-        str(_contract_path(event)),
+        *_stateful_runner_prefix("run-mutation"),
+        str(_contract_path(event).resolve()),
         request_digest,
         runner_token,
         _encoded_request(request),
     ]
-    return subprocess.list2cmdline(arguments) if os.name == "nt" else shlex.join(arguments)
+    return _runner_shell_command(arguments)
 
 
 def _prepare_mutation(event: dict[str, Any], raw: str) -> tuple[str, str]:
@@ -2389,6 +2519,7 @@ def _prepare_mutation(event: dict[str, Any], raw: str) -> tuple[str, str]:
         "status": "running",
         "request_digest": request_digest,
         "runner_token_digest": hashlib.sha256(runner_token.encode()).hexdigest(),
+        "runner_claimed_at": 0,
         "started_at": int(time.time()),
         "last_exit_code": None,
     }
@@ -2399,18 +2530,27 @@ def _prepare_mutation(event: dict[str, Any], raw: str) -> tuple[str, str]:
 
 
 def _service_runner_command(
-    event: dict[str, Any], request: dict[str, Any], service_id: str
+    event: dict[str, Any],
+    request: dict[str, Any],
+    service_id: str,
+    runner_token: str = "",
 ) -> str:
     arguments = [
-        sys.executable,
-        str(Path(__file__).resolve()),
-        "run-service-start" if request["action"] == "start" else "run-service-stop",
-        str(_contract_path(event)),
+        *_stateful_runner_prefix(
+            "run-service-start" if request["action"] == "start" else "run-service-stop"
+        ),
+        str(_contract_path(event).resolve()),
         service_id,
     ]
     if request["action"] == "start":
-        arguments.extend([str(event.get("cwd", "")), _encoded_request(request)])
-    return subprocess.list2cmdline(arguments) if os.name == "nt" else shlex.join(arguments)
+        arguments.extend(
+            [
+                runner_token,
+                str(Path(str(event.get("cwd", ""))).resolve()),
+                _encoded_request(request),
+            ]
+        )
+    return _runner_shell_command(arguments)
 
 
 def _request_service_stop(event: dict[str, Any]) -> bool:
@@ -2418,6 +2558,7 @@ def _request_service_stop(event: dict[str, Any]) -> bool:
     service = state.get("service")
     if not isinstance(service, dict) or service.get("status") not in {
         "starting",
+        "launching",
         "running",
         "stopping",
     }:
@@ -2441,7 +2582,12 @@ def _prepare_service(event: dict[str, Any], raw: str) -> tuple[str, str]:
     if not isinstance(service, dict):
         service = _fresh_service_state()
     if request["action"] == "stop":
-        if service.get("status") not in {"starting", "running", "stopping"}:
+        if service.get("status") not in {
+            "starting",
+            "launching",
+            "running",
+            "stopping",
+        }:
             return "echo Click managed service already stopped", ""
         service["status"] = "stopping"
         service["stop_requested"] = True
@@ -2449,7 +2595,7 @@ def _prepare_service(event: dict[str, Any], raw: str) -> tuple[str, str]:
         _save_contract_state(event, state)
         return _service_runner_command(event, request, str(service["service_id"])), ""
 
-    if service.get("status") in {"starting", "running", "stopping"}:
+    if service.get("status") in {"starting", "launching", "running", "stopping"}:
         started_at = int(service.get("started_at", 0))
         if not (
             service.get("status") == "starting"
@@ -2462,9 +2608,16 @@ def _prepare_service(event: dict[str, Any], raw: str) -> tuple[str, str]:
         return "", mutation_error
     state = _read_contract_state(event)
     service_id = secrets.token_urlsafe(24)
+    runner_token = secrets.token_urlsafe(24)
+    cwd_raw = str(Path(str(event.get("cwd", ""))).resolve())
+    request_digest = _capability_digest({"request": request, "cwd": cwd_raw})
     state["service"] = {
         "status": "starting",
         "service_id": service_id,
+        "request_digest": request_digest,
+        "runner_token_digest": hashlib.sha256(runner_token.encode()).hexdigest(),
+        "runner_claimed_at": 0,
+        "supervisor_claimed_at": 0,
         "stop_requested": False,
         "supervisor_pid": 0,
         "child_pid": 0,
@@ -2472,7 +2625,7 @@ def _prepare_service(event: dict[str, Any], raw: str) -> tuple[str, str]:
         "last_exit_code": None,
     }
     _save_contract_state(event, state)
-    return _service_runner_command(event, request, service_id), ""
+    return _service_runner_command(event, request, service_id, runner_token), ""
 
 
 def _verification_runner_command(
@@ -2482,15 +2635,13 @@ def _verification_runner_command(
         json.dumps(batch, ensure_ascii=False, separators=(",", ":")).encode()
     ).decode()
     arguments = [
-        sys.executable,
-        str(Path(__file__).resolve()),
-        "run-verification",
-        str(_contract_path(event)),
+        *_stateful_runner_prefix("run-verification"),
+        str(_contract_path(event).resolve()),
         batch_digest,
         runner_token,
         encoded,
     ]
-    return subprocess.list2cmdline(arguments) if os.name == "nt" else shlex.join(arguments)
+    return _runner_shell_command(arguments)
 
 
 def _record_evidence_completion(event: dict[str, Any], raw: str) -> tuple[str, str]:
@@ -2613,28 +2764,22 @@ def _prepare_verification(
     assert batch is not None
     status = str(verification.get("status", "ready"))
     if status == "running":
+        claimed_at = verification.get("runner_claimed_at", 0)
+        if not isinstance(claimed_at, int) or isinstance(claimed_at, bool):
+            return "", "Click verification runner claim state is malformed."
+        if claimed_at > 0:
+            return "", "The approved Click verification batch is already running."
         started_at = int(verification.get("started_at", 0))
         if started_at and time.time() - started_at <= VERIFY_RUNNING_TTL_SECONDS:
             return "", "The approved Click verification batch is already running."
-        claimed_at = verification.get("runner_claimed_at", 0)
-        was_claimed = bool(
-            isinstance(claimed_at, int)
-            and not isinstance(claimed_at, bool)
-            and claimed_at > 0
-        )
         status = "failed"
         verification["status"] = status
         verification["last_exit_code"] = 124
         for source_key in verification.get("running_evidence_keys", []):
             source = sources.get(source_key)
             if isinstance(source, dict) and source.get("status") == "running":
-                if was_claimed:
-                    source["status"] = "failed"
-                    source["attempts"] = int(source.get("attempts", 0)) + 1
-                    source["last_exit_code"] = 124
-                else:
-                    source["status"] = "ready"
-                    source["last_exit_code"] = None
+                source["status"] = "ready"
+                source["last_exit_code"] = None
         verification["running_evidence_keys"] = []
         verification["runner_claimed_at"] = 0
 
@@ -2814,13 +2959,19 @@ def _structured_ssh_parts(tokens: list[str]) -> tuple[str, list[str]] | None:
     return target, remote_argv
 
 
+def _is_path_qualified_executable(value: str) -> bool:
+    return "/" in value or "\\" in value or bool(re.match(r"^[A-Za-z]:", value))
+
+
 def _is_local_read_only_tokens(tokens: list[str]) -> bool:
     if not tokens:
         return False
     if ENVIRONMENT_ASSIGNMENT.match(tokens[0]):
         return False
+    if _is_path_qualified_executable(tokens[0]):
+        return False
 
-    executable = Path(tokens[0]).name.lower()
+    executable = tokens[0].lower()
     if executable in {"git", "git.exe"}:
         return _parse_read_only_git_tokens(tokens) is not None
     if executable not in READ_ONLY_COMMANDS:
@@ -2868,7 +3019,9 @@ def _is_local_read_only_tokens(tokens: list[str]) -> bool:
 def _is_read_only_tokens(tokens: list[str]) -> bool:
     if not tokens:
         return False
-    if Path(tokens[0]).name.lower() == "ssh":
+    if _is_path_qualified_executable(tokens[0]):
+        return False
+    if tokens[0].lower() in {"ssh", "ssh.exe"}:
         return _structured_ssh_parts(tokens) is not None
     return _is_local_read_only_tokens(tokens)
 
@@ -2878,21 +3031,51 @@ def _is_read_only_bash(command: str) -> bool:
     return request is not None
 
 
-def _inspection_request_from_bash(
-    command: str,
-) -> tuple[dict[str, Any] | None, bool, str]:
-    if not command.strip() or "\n" in command or "\r" in command or "`" in command:
-        return None, False, ""
+def _direct_command_tokens(
+    command: str, *, windows: bool | None = None
+) -> tuple[list[str] | None, str]:
+    windows_tokens = os.name == "nt" if windows is None else windows
     try:
         lexer = shlex.shlex(
             command,
-            posix=True,
+            posix=not windows_tokens,
             punctuation_chars="".join(sorted(SHELL_CONTROL_PUNCTUATION)),
         )
         lexer.whitespace_split = True
         lexer.commenters = ""
         tokens = list(lexer)
     except ValueError:
+        return None, ""
+    if not windows_tokens:
+        return tokens, ""
+
+    normalized_tokens: list[str] = []
+    for token in tokens:
+        if (
+            len(token) >= 2
+            and token[0] == token[-1]
+            and token[0] in {'"', "'"}
+        ):
+            token = token[1:-1]
+        if '"' in token or "'" in token:
+            return (
+                None,
+                "Click could not safely normalize this Windows command line. "
+                "Use `click-gate inspect` with explicit argv JSON.",
+            )
+        normalized_tokens.append(token)
+    return normalized_tokens, ""
+
+
+def _inspection_request_from_bash(
+    command: str, *, windows: bool | None = None
+) -> tuple[dict[str, Any] | None, bool, str]:
+    if not command.strip() or "\n" in command or "\r" in command or "`" in command:
+        return None, False, ""
+    tokens, token_error = _direct_command_tokens(command, windows=windows)
+    if token_error:
+        return None, False, token_error
+    if tokens is None:
         return None, False, ""
 
     commands: list[list[str]] = [[]]
@@ -3626,10 +3809,7 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
                 _deny(observation_error)
                 return
             _allow_rewritten(rewritten)
-        elif any(
-            Path(argv[0]).name.lower() in {"git", "git.exe"}
-            for argv in inspection_request["commands"]
-        ):
+        else:
             _allow_rewritten(_inspection_once_runner_command(inspection_request))
         return
 
@@ -3895,6 +4075,8 @@ def _record_observation_result(
     output_bytes: int,
     incomplete: bool,
 ) -> bool:
+    if not _managed_observation_path(path):
+        return False
     try:
         state = json.loads(path.read_text(encoding="utf-8"))
     except (FileNotFoundError, json.JSONDecodeError, OSError):
@@ -3951,6 +4133,160 @@ def _decode_encoded_request(encoded: str, label: str) -> tuple[str, str]:
         return base64.urlsafe_b64decode(encoded.encode()).decode(), ""
     except (ValueError, UnicodeDecodeError):
         return "", f"Click {label} runner received an invalid request."
+
+
+def _path_is_within(path: Path, root: Path) -> bool:
+    try:
+        path.relative_to(root)
+        return True
+    except ValueError:
+        pass
+
+    # `relative_to` is lexical and can miss case aliases on a case-insensitive
+    # filesystem. Compare filesystem identity for existing ancestors as well.
+    try:
+        root_stat = root.stat()
+        current = path if path.is_dir() else path.parent
+        for candidate in (current, *current.parents):
+            if os.path.samestat(candidate.stat(), root_stat):
+                return True
+    except OSError:
+        pass
+    return False
+
+
+def _valid_git_worktree_marker(marker: Path) -> bool:
+    """Recognize real Git metadata, not an unrelated empty ancestor named .git."""
+    try:
+        if marker.is_dir():
+            return (marker / "HEAD").is_file() and (
+                (marker / "objects").is_dir() or (marker / "commondir").is_file()
+            )
+        if not marker.is_file():
+            return False
+        first_line = marker.read_text(encoding="utf-8", errors="strict").splitlines()[0]
+        if not first_line.lower().startswith("gitdir:"):
+            return False
+        target = Path(first_line.split(":", 1)[1].strip())
+        if not target.is_absolute():
+            target = marker.parent / target
+        target = target.resolve(strict=True)
+        return (target / "HEAD").is_file() and (
+            (target / "objects").is_dir() or (target / "commondir").is_file()
+        )
+    except (IndexError, OSError, RuntimeError, UnicodeError):
+        return False
+
+
+def _workspace_boundary(workspace: Path | None = None) -> Path:
+    candidate = workspace or Path.cwd()
+    try:
+        current = candidate.resolve()
+    except (OSError, RuntimeError):
+        current = Path(os.path.abspath(candidate))
+    for possible in (current, *current.parents):
+        marker = possible / ".git"
+        if _valid_git_worktree_marker(marker):
+            return possible
+    return current
+
+
+def _git_metadata_present(workspace: Path | None = None) -> bool:
+    root = _workspace_boundary(workspace)
+    return _valid_git_worktree_marker(root / ".git")
+
+
+def _unsafe_inherited_environment_key(key: str) -> bool:
+    upper = key.upper()
+    return upper.startswith(("LD_", "DYLD_")) or upper in {
+        "GCONV_PATH",
+        "LOCPATH",
+    }
+
+
+def _sanitized_executable_path(
+    source: str | None = None, *, workspace: Path | None = None
+) -> str:
+    root = _workspace_boundary(workspace)
+    value = os.environ.get("PATH", "") if source is None else source
+    entries: list[str] = []
+    seen: set[str] = set()
+    for raw_entry in value.split(os.pathsep):
+        normalized_entry = raw_entry.strip()
+        if (
+            len(normalized_entry) >= 2
+            and normalized_entry[0] == normalized_entry[-1]
+            and normalized_entry[0] in {'"', "'"}
+        ):
+            normalized_entry = normalized_entry[1:-1]
+        normalized_entry = os.path.expandvars(normalized_entry)
+        if not normalized_entry or not os.path.isabs(normalized_entry):
+            continue
+        lexical = Path(os.path.abspath(normalized_entry))
+        if _path_is_within(lexical, root):
+            continue
+        try:
+            resolved = Path(normalized_entry).resolve()
+        except (OSError, RuntimeError):
+            continue
+        if _path_is_within(resolved, root):
+            continue
+        rendered = str(resolved)
+        key = os.path.normcase(rendered)
+        if key in seen:
+            continue
+        seen.add(key)
+        entries.append(rendered)
+    return os.pathsep.join(entries)
+
+
+def _resolve_read_only_executable(
+    executable: str, *, workspace: Path | None = None
+) -> tuple[str | None, str]:
+    if _is_path_qualified_executable(executable):
+        return None, "read-only executables must use an unqualified trusted name"
+    root = _workspace_boundary(workspace)
+
+    inherited = shutil.which(executable)
+    if inherited is not None:
+        inherited_lexical = Path(os.path.abspath(inherited))
+        if _path_is_within(inherited_lexical, root):
+            return None, "the inherited executable path is inside the workspace"
+        try:
+            inherited_path = Path(inherited).resolve(strict=True)
+        except (OSError, RuntimeError):
+            return None, "the inherited executable path could not be resolved safely"
+        if _path_is_within(inherited_path, root):
+            return None, "the inherited executable resolves inside the workspace"
+
+    sanitized_path = _sanitized_executable_path(workspace=root)
+    resolved = shutil.which(executable, path=sanitized_path)
+    if resolved is None:
+        return None, "the executable was not found on Click's sanitized PATH"
+    resolved_lexical = Path(os.path.abspath(resolved))
+    if _path_is_within(resolved_lexical, root):
+        return None, "the executable path is inside the workspace"
+    try:
+        resolved_path = Path(resolved).resolve(strict=True)
+    except (OSError, RuntimeError):
+        return None, "the executable path could not be resolved safely"
+    if _path_is_within(resolved_path, root):
+        return None, "the executable resolves inside the workspace"
+    if not resolved_path.is_file():
+        return None, "the executable does not resolve to a regular file"
+    return str(resolved_path), ""
+
+
+def _sanitized_read_only_environment(
+    *, workspace: Path | None = None
+) -> dict[str, str]:
+    environment = {
+        key: value
+        for key, value in os.environ.items()
+        if key.upper() != "PATH" and not _unsafe_inherited_environment_key(key)
+    }
+    environment["PATH"] = _sanitized_executable_path(workspace=workspace)
+    return environment
 
 
 def _execution_argv(argv: list[str]) -> list[str]:
@@ -4039,16 +4375,42 @@ def _redact_git_remote_output(data: bytes) -> bytes:
 
 
 def _execute_argv_commands(
-    commands: list[list[str]], stdout_file: Any | None = None, stderr_file: Any | None = None
+    commands: list[list[str]],
+    stdout_file: Any | None = None,
+    stderr_file: Any | None = None,
+    *,
+    trusted_read_only: bool = False,
+    workspace: Path | None = None,
 ) -> int:
     exit_code = 0
     for argv in commands:
         try:
             redact = _is_git_remote_output_request(argv)
+            execution_argv = _execution_argv(argv)
+            if trusted_read_only:
+                executable, error = _resolve_read_only_executable(
+                    argv[0], workspace=workspace
+                )
+                if error or executable is None:
+                    _write_runner_stream(
+                        stderr_file,
+                        (
+                            "Click rejected the read-only executable at execution time: "
+                            f"{error}.\n"
+                        ).encode(),
+                        error=True,
+                    )
+                    return 2
+                execution_argv[0] = executable
             result = subprocess.run(
-                _execution_argv(argv),
+                execution_argv,
                 stdout=subprocess.PIPE if redact else stdout_file,
                 stderr=subprocess.PIPE if redact else stderr_file,
+                env=(
+                    _sanitized_read_only_environment(workspace=workspace)
+                    if trusted_read_only
+                    else None
+                ),
                 check=False,
                 **_isolated_subprocess_kwargs(),
             )
@@ -4111,7 +4473,11 @@ def _execute_native_get_content(
 
 
 def _execute_read_only_git(
-    argv: list[str], stdout_file: Any | None, stderr_file: Any | None
+    argv: list[str],
+    stdout_file: Any | None,
+    stderr_file: Any | None,
+    *,
+    workspace: Path | None = None,
 ) -> int:
     safe_argv, error = _build_read_only_git_argv(argv)
     if error or safe_argv is None:
@@ -4121,13 +4487,27 @@ def _execute_read_only_git(
             error=True,
         )
         return 2
+    executable, executable_error = _resolve_read_only_executable(
+        argv[0], workspace=workspace
+    )
+    if executable_error or executable is None:
+        _write_runner_stream(
+            stderr_file,
+            (
+                "Click rejected the Git executable at execution time: "
+                f"{executable_error}.\n"
+            ).encode(),
+            error=True,
+        )
+        return 2
+    safe_argv[0] = executable
     try:
         redact = _is_git_remote_output_request(argv)
         result = subprocess.run(
             safe_argv,
             stdout=subprocess.PIPE if redact else stdout_file,
             stderr=subprocess.PIPE if redact else stderr_file,
-            env=_sanitized_git_environment(),
+            env=_sanitized_git_environment(workspace=workspace),
             check=False,
             **_isolated_subprocess_kwargs(),
         )
@@ -4151,7 +4531,11 @@ def _execute_read_only_git(
 
 
 def _execute_inspection_commands(
-    commands: list[list[str]], stdout_file: Any | None = None, stderr_file: Any | None = None
+    commands: list[list[str]],
+    stdout_file: Any | None = None,
+    stderr_file: Any | None = None,
+    *,
+    workspace: Path | None = None,
 ) -> int:
     for argv in commands:
         native_result = _execute_native_get_content(argv, stdout_file, stderr_file)
@@ -4159,10 +4543,18 @@ def _execute_inspection_commands(
             if native_result != 0:
                 return native_result
             continue
-        if Path(argv[0]).name.lower() in {"git", "git.exe"}:
-            exit_code = _execute_read_only_git(argv, stdout_file, stderr_file)
+        if argv[0].lower() in {"git", "git.exe"}:
+            exit_code = _execute_read_only_git(
+                argv, stdout_file, stderr_file, workspace=workspace
+            )
         else:
-            exit_code = _execute_argv_commands([argv], stdout_file, stderr_file)
+            exit_code = _execute_argv_commands(
+                [argv],
+                stdout_file,
+                stderr_file,
+                trusted_read_only=True,
+                workspace=workspace,
+            )
         if exit_code != 0:
             return exit_code
     return 0
@@ -4242,6 +4634,9 @@ def _run_observation(arguments: list[str]) -> int:
         )
         return 2
     state_path = Path(arguments[0])
+    if not _managed_observation_path(state_path):
+        sys.stderr.write("Click observation runner received an unmanaged state path.\n")
+        return 2
     request_digest, runner_token, encoded = arguments[1:]
     raw, error = _decode_encoded_request(encoded, "observation")
     if error:
@@ -4260,12 +4655,62 @@ def _run_observation(arguments: list[str]) -> int:
     )
 
 
-def _record_mutation_result(
-    path: Path, request_digest: str, runner_token: str, exit_code: int
-) -> bool:
+def _claim_mutation_run(
+    path: Path, raw: str, request_digest: str, runner_token: str
+) -> tuple[dict[str, Any] | None, str]:
+    """Atomically authorize one mutation runner before any side effect."""
+    if not _managed_contract_path(path):
+        return None, "Click mutation runner received an unmanaged state path."
     try:
         state = json.loads(path.read_text(encoding="utf-8"))
     except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return None, "Click mutation runner could not read its contract state."
+    if not isinstance(state, dict) or state.get("status") != "approved":
+        return None, "Click mutation runner is no longer authorized to execute."
+    mutation = state.get("mutation")
+    if not isinstance(mutation, dict) or mutation.get("status") != "running":
+        return None, "Click mutation runner is no longer authorized to execute."
+    if mutation.get("request_digest") != request_digest:
+        return None, "Click mutation runner request digest did not match active state."
+    token_digest = hashlib.sha256(runner_token.encode()).hexdigest()
+    if not secrets.compare_digest(
+        str(mutation.get("runner_token_digest", "")), token_digest
+    ):
+        return None, "Click mutation runner token did not match active state."
+    claimed_at = mutation.get("runner_claimed_at", 0)
+    if not isinstance(claimed_at, int) or isinstance(claimed_at, bool):
+        return None, "Click mutation runner claim state is malformed."
+    if claimed_at:
+        return None, "Click mutation runner was already claimed; replay is blocked."
+    if not _unclaimed_reservation_is_fresh(
+        mutation.get("started_at", 0), MUTATION_RUNNING_TTL_SECONDS
+    ):
+        return None, "Click mutation runner authorization expired before execution."
+
+    request, error = _validate_mutation_request(raw)
+    if error:
+        return None, error
+    assert request is not None
+    if _capability_digest(request) != request_digest:
+        return None, "Click mutation runner request digest did not match."
+
+    mutation["runner_claimed_at"] = int(time.time()) or 1
+    state["mutation"] = mutation
+    state["updated_at"] = int(time.time())
+    _write_json(path, state)
+    return request, ""
+
+
+def _record_mutation_result(
+    path: Path, request_digest: str, runner_token: str, exit_code: int
+) -> bool:
+    if not _managed_contract_path(path):
+        return False
+    try:
+        state = json.loads(path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return False
+    if not isinstance(state, dict) or state.get("status") != "approved":
         return False
     mutation = state.get("mutation")
     if not isinstance(mutation, dict) or mutation.get("status") != "running":
@@ -4277,10 +4722,18 @@ def _record_mutation_result(
         str(mutation.get("runner_token_digest", "")), token_digest
     ):
         return False
+    claimed_at = mutation.get("runner_claimed_at", 0)
+    if (
+        not isinstance(claimed_at, int)
+        or isinstance(claimed_at, bool)
+        or not claimed_at
+    ):
+        return False
     mutation.update(
         {
             "status": "passed" if exit_code == 0 else "failed",
             "runner_token_digest": "",
+            "runner_claimed_at": 0,
             "started_at": 0,
             "last_exit_code": exit_code,
         }
@@ -4303,14 +4756,14 @@ def _run_mutation(arguments: list[str]) -> int:
     if error:
         sys.stderr.write(f"{error}\n")
         return 2
-    request, error = _validate_mutation_request(raw)
+    with _state_lock():
+        request, error = _claim_mutation_run(
+            state_path, raw, request_digest, runner_token
+        )
     if error:
         sys.stderr.write(f"{error}\n")
         return 2
     assert request is not None
-    if _capability_digest(request) != request_digest:
-        sys.stderr.write("Click mutation runner request digest did not match.\n")
-        return 2
     exit_code = _execute_argv_commands([request["argv"]])
     with _state_lock():
         recorded = _record_mutation_result(
@@ -4323,13 +4776,27 @@ def _run_mutation(arguments: list[str]) -> int:
 
 
 def _managed_contract_path(path: Path) -> bool:
+    return _managed_state_path(path, ("session-contract-",))
+
+
+def _managed_observation_path(path: Path) -> bool:
+    return _managed_state_path(path, ("session-contract-", "review-"))
+
+
+def _managed_state_path(path: Path, prefixes: tuple[str, ...]) -> bool:
     try:
+        if not path.is_absolute():
+            return False
+        resolved_path = path.resolve(strict=True)
+        lexical_path = Path(os.path.abspath(path))
+        resolved_root = _state_root().resolve(strict=True)
         return (
-            path.resolve().parent == _state_root().resolve()
-            and path.name.startswith("session-contract-")
-            and path.suffix == ".json"
+            lexical_path == resolved_path
+            and resolved_path.parent == resolved_root
+            and resolved_path.name.startswith(prefixes)
+            and resolved_path.suffix == ".json"
         )
-    except OSError:
+    except (OSError, RuntimeError):
         return False
 
 
@@ -4340,14 +4807,20 @@ def _service_snapshot(path: Path, service_id: str) -> dict[str, Any] | None:
         state = json.loads(path.read_text(encoding="utf-8"))
     except (FileNotFoundError, json.JSONDecodeError, OSError):
         return None
-    service = state.get("service") if isinstance(state, dict) else None
+    if not isinstance(state, dict) or state.get("status") != "approved":
+        return None
+    service = state.get("service")
     if not isinstance(service, dict) or service.get("service_id") != service_id:
         return None
     return dict(service)
 
 
 def _record_service_fields(
-    path: Path, service_id: str, **fields: Any
+    path: Path,
+    service_id: str,
+    *,
+    expected_statuses: tuple[str, ...] | None = None,
+    **fields: Any,
 ) -> bool:
     if not _managed_contract_path(path):
         return False
@@ -4355,14 +4828,80 @@ def _record_service_fields(
         state = json.loads(path.read_text(encoding="utf-8"))
     except (FileNotFoundError, json.JSONDecodeError, OSError):
         return False
-    service = state.get("service") if isinstance(state, dict) else None
+    if not isinstance(state, dict) or state.get("status") != "approved":
+        return False
+    service = state.get("service")
     if not isinstance(service, dict) or service.get("service_id") != service_id:
+        return False
+    if expected_statuses is not None and service.get("status") not in expected_statuses:
         return False
     service.update(fields)
     state["service"] = service
     state["updated_at"] = int(time.time())
     _write_json(path, state)
     return True
+
+
+def _claim_service_runner(
+    path: Path,
+    service_id: str,
+    request: dict[str, Any],
+    cwd_raw: str,
+    runner_token: str,
+    *,
+    supervisor: bool,
+) -> str:
+    if not _managed_contract_path(path):
+        return "Click managed service runner received an unmanaged state path."
+    try:
+        state = json.loads(path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return "Click managed service runner could not read its contract state."
+    if not isinstance(state, dict) or state.get("status") != "approved":
+        return "Click managed service runner is no longer authorized to execute."
+    service = state.get("service")
+    expected_status = "launching" if supervisor else "starting"
+    if (
+        not isinstance(service, dict)
+        or service.get("service_id") != service_id
+        or service.get("status") != expected_status
+        or service.get("stop_requested") is True
+    ):
+        return "Click managed service runner is no longer authorized to execute."
+    request_digest = _capability_digest({"request": request, "cwd": cwd_raw})
+    if service.get("request_digest") != request_digest:
+        return "Click managed service runner request digest did not match active state."
+    token_digest = hashlib.sha256(runner_token.encode()).hexdigest()
+    if not secrets.compare_digest(
+        str(service.get("runner_token_digest", "")), token_digest
+    ):
+        return "Click managed service runner token did not match active state."
+    runner_claimed_at = service.get("runner_claimed_at", 0)
+    supervisor_claimed_at = service.get("supervisor_claimed_at", 0)
+    for claimed_at in (runner_claimed_at, supervisor_claimed_at):
+        if not isinstance(claimed_at, int) or isinstance(claimed_at, bool):
+            return "Click managed service runner claim state is malformed."
+    if supervisor:
+        if runner_claimed_at <= 0 or supervisor_claimed_at > 0:
+            return "Click managed service supervisor was already claimed or not launched."
+        if not _unclaimed_reservation_is_fresh(
+            runner_claimed_at, SERVICE_START_TIMEOUT_SECONDS * 2
+        ):
+            return "Click managed service supervisor authorization expired before launch."
+        service["supervisor_claimed_at"] = int(time.time()) or 1
+    else:
+        if runner_claimed_at > 0 or supervisor_claimed_at > 0:
+            return "Click managed service start runner was already claimed."
+        if not _unclaimed_reservation_is_fresh(
+            service.get("started_at", 0), SERVICE_START_TIMEOUT_SECONDS * 2
+        ):
+            return "Click managed service start authorization expired before launch."
+        service["runner_claimed_at"] = int(time.time()) or 1
+        service["status"] = "launching"
+    state["service"] = service
+    state["updated_at"] = int(time.time())
+    _write_json(path, state)
+    return ""
 
 
 def _terminate_managed_child(child: subprocess.Popen[Any]) -> int:
@@ -4390,18 +4929,37 @@ def _terminate_managed_child(child: subprocess.Popen[Any]) -> int:
 
 
 def _run_service_supervisor(arguments: list[str]) -> int:
-    if len(arguments) != 4:
+    if len(arguments) != 5:
         return 2
     state_path = Path(arguments[0])
-    service_id, cwd_raw, encoded = arguments[1:]
+    service_id, runner_token, cwd_raw, encoded = arguments[1:]
     raw, error = _decode_encoded_request(encoded, "managed service")
     if error:
         return 2
     request, error = _validate_service_request(raw)
     if error or request is None or request.get("action") != "start":
         return 2
+    with _state_lock():
+        claim_error = _claim_service_runner(
+            state_path,
+            service_id,
+            request,
+            cwd_raw,
+            runner_token,
+            supervisor=True,
+        )
+    if claim_error:
+        return 2
     cwd = Path(cwd_raw)
-    if not cwd.is_dir() or _service_snapshot(state_path, service_id) is None:
+    if not cwd.is_dir():
+        with _state_lock():
+            _record_service_fields(
+                state_path,
+                service_id,
+                expected_statuses=("launching",),
+                status="failed",
+                last_exit_code=2,
+            )
         return 2
     try:
         child = subprocess.Popen(
@@ -4418,6 +4976,7 @@ def _run_service_supervisor(arguments: list[str]) -> int:
             _record_service_fields(
                 state_path,
                 service_id,
+                expected_statuses=("launching",),
                 status="failed",
                 last_exit_code=127,
                 stop_requested=False,
@@ -4430,6 +4989,7 @@ def _run_service_supervisor(arguments: list[str]) -> int:
         recorded = _record_service_fields(
             state_path,
             service_id,
+            expected_statuses=("launching",),
             status="failed" if early_exit is not None else "running",
             supervisor_pid=os.getpid(),
             child_pid=child.pid,
@@ -4461,6 +5021,7 @@ def _run_service_supervisor(arguments: list[str]) -> int:
         _record_service_fields(
             state_path,
             service_id,
+            expected_statuses=("running", "stopping", "launching"),
             status="stopped" if stop_requested else "failed",
             stop_requested=False,
             child_pid=0,
@@ -4471,13 +5032,14 @@ def _run_service_supervisor(arguments: list[str]) -> int:
 
 
 def _run_service_start(arguments: list[str]) -> int:
-    if len(arguments) != 4:
+    if len(arguments) != 5:
         sys.stderr.write(
-            "usage: click_gate.py run-service-start <state> <id> <cwd> <request>\n"
+            "usage: click_gate.py run-service-start "
+            "<state> <id> <token> <cwd> <request>\n"
         )
         return 2
     state_path = Path(arguments[0])
-    service_id, cwd_raw, encoded = arguments[1:]
+    service_id, runner_token, cwd_raw, encoded = arguments[1:]
     raw, error = _decode_encoded_request(encoded, "managed service")
     if error:
         sys.stderr.write(f"{error}\n")
@@ -4486,15 +5048,23 @@ def _run_service_start(arguments: list[str]) -> int:
     if error or request is None or request.get("action") != "start":
         sys.stderr.write(f"{error or 'Managed service start request is invalid.'}\n")
         return 2
-    if _service_snapshot(state_path, service_id) is None:
-        sys.stderr.write("Click managed service state did not match.\n")
+    with _state_lock():
+        claim_error = _claim_service_runner(
+            state_path,
+            service_id,
+            request,
+            cwd_raw,
+            runner_token,
+            supervisor=False,
+        )
+    if claim_error:
+        sys.stderr.write(f"{claim_error}\n")
         return 2
     supervisor = [
-        sys.executable,
-        str(Path(__file__).resolve()),
-        "run-service-supervisor",
-        str(state_path),
+        *_stateful_runner_prefix("run-service-supervisor"),
+        str(state_path.resolve()),
         service_id,
+        runner_token,
         cwd_raw,
         encoded,
     ]
@@ -4508,6 +5078,14 @@ def _run_service_start(arguments: list[str]) -> int:
             **_isolated_subprocess_kwargs(),
         )
     except OSError as exc:
+        with _state_lock():
+            _record_service_fields(
+                state_path,
+                service_id,
+                expected_statuses=("launching",),
+                status="failed",
+                last_exit_code=127,
+            )
         sys.stderr.write(f"Click could not start the managed service supervisor: {exc}\n")
         return 127
     deadline = time.monotonic() + SERVICE_START_TIMEOUT_SECONDS
@@ -4521,11 +5099,14 @@ def _run_service_start(arguments: list[str]) -> int:
         if snapshot.get("status") == "failed":
             sys.stderr.write("Click managed service exited during startup.\n")
             return int(snapshot.get("last_exit_code") or 2)
+        if snapshot.get("status") in {"stopping", "stopped"}:
+            return 2
         time.sleep(0.05)
     with _state_lock():
         _record_service_fields(
             state_path,
             service_id,
+            expected_statuses=("launching", "starting"),
             status="stopping",
             stop_requested=True,
         )
@@ -4551,10 +5132,13 @@ def _run_service_stop(arguments: list[str]) -> int:
 
 
 def _git_capture(cwd: Path, arguments: list[str]) -> bytes | None:
+    executable, error = _resolve_read_only_executable("git", workspace=cwd)
+    if error or executable is None:
+        return None
     try:
         result = subprocess.run(
             [
-                "git",
+                executable,
                 "--no-pager",
                 "--no-optional-locks",
                 "-c",
@@ -4562,7 +5146,7 @@ def _git_capture(cwd: Path, arguments: list[str]) -> bytes | None:
                 *arguments,
             ],
             cwd=cwd,
-            env=_sanitized_git_environment(),
+            env=_sanitized_git_environment(workspace=cwd),
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
             check=False,
@@ -4711,7 +5295,9 @@ def _claim_verification_run(
         state = json.loads(state_path.read_text(encoding="utf-8"))
     except (FileNotFoundError, json.JSONDecodeError, OSError):
         return None, "Click verification runner could not read its contract state."
-    verification = state.get("verification") if isinstance(state, dict) else None
+    if not isinstance(state, dict) or state.get("status") != "approved":
+        return None, "Click verification runner is no longer authorized to execute."
+    verification = state.get("verification")
     if not isinstance(verification, dict):
         return None, "Click verification runner could not read its approved scale."
     if verification.get("status") != "running":
@@ -4728,6 +5314,10 @@ def _claim_verification_run(
         return None, "Click verification runner claim state is malformed."
     if claimed_at:
         return None, "Click verification runner was already claimed; replay is blocked."
+    if not _unclaimed_reservation_is_fresh(
+        verification.get("started_at", 0), VERIFY_RUNNING_TTL_SECONDS
+    ):
+        return None, "Click verification runner authorization expired before execution."
 
     scale = str(verification.get("scale", ""))
     if scale not in VERIFICATION_UNIT_LIMITS:
@@ -4781,21 +5371,30 @@ def _run_verification(arguments: list[str]) -> int:
     assert batch is not None
     checks = batch["checks"]
     before = _git_workspace_snapshot(Path.cwd())
-
-    exit_code = 0
-    succeeded_count = 0
-    for index, check in enumerate(checks, start=1):
-        argv = check["argv"]
-        rendered = subprocess.list2cmdline(argv) if os.name == "nt" else shlex.join(argv)
-        print(
-            f"[Click verification {index}/{len(checks)}:{check['evidence_id']}:"
-            f"{check['class']}] {rendered}",
-            flush=True,
+    snapshot_failed = before is None and _git_metadata_present(Path.cwd())
+    if snapshot_failed:
+        sys.stderr.write(
+            "[Click] Verification could not establish a protected Git workspace "
+            "snapshot. No check was executed.\n"
         )
-        exit_code = _execute_argv_commands([argv])
-        if exit_code != 0:
-            break
-        succeeded_count += 1
+
+    exit_code = 2 if snapshot_failed else 0
+    succeeded_count = 0
+    if not snapshot_failed:
+        for index, check in enumerate(checks, start=1):
+            argv = check["argv"]
+            rendered = (
+                subprocess.list2cmdline(argv) if os.name == "nt" else shlex.join(argv)
+            )
+            print(
+                f"[Click verification {index}/{len(checks)}:{check['evidence_id']}:"
+                f"{check['class']}] {rendered}",
+                flush=True,
+            )
+            exit_code = _execute_argv_commands([argv])
+            if exit_code != 0:
+                break
+            succeeded_count += 1
 
     workspace_changed = False
     if before is not None:
@@ -4854,22 +5453,78 @@ def _run_verification(arguments: list[str]) -> int:
     return exit_code
 
 
+STATEFUL_RUNNER_ACTIONS = {
+    "run-observation",
+    "run-mutation",
+    "run-service-start",
+    "run-service-stop",
+    "run-service-supervisor",
+    "run-verification",
+}
+
+
+def _runner_arguments(arguments: list[str]) -> tuple[list[str], str]:
+    """Adopt only an explicit absolute gate-state root for internal runners."""
+    if not arguments:
+        return arguments, ""
+    if arguments[0] in STATEFUL_RUNNER_ACTIONS:
+        return [], "Click stateful runner requires an explicit state-root binding."
+    if arguments[0] != "--state-root":
+        return arguments, ""
+    if len(arguments) < 4 or arguments[2] not in STATEFUL_RUNNER_ACTIONS:
+        return [], "Click runner state-root binding is malformed."
+    state_root = Path(arguments[1])
+    if not state_root.is_absolute():
+        return [], "Click runner state-root binding is invalid."
+    try:
+        resolved = state_root.resolve(strict=True)
+    except (OSError, RuntimeError):
+        return [], "Click runner state-root binding could not be resolved."
+    if resolved.name != "gate-state" or state_root != resolved:
+        return [], "Click runner state-root binding is invalid."
+    state_path = Path(arguments[3])
+    if not state_path.is_absolute():
+        return [], "Click runner state path is invalid."
+    try:
+        resolved_state = state_path.resolve(strict=True)
+    except (OSError, RuntimeError):
+        return [], "Click runner state path could not be resolved."
+    if state_path != resolved_state or resolved_state.parent != resolved:
+        return [], "Click runner state path does not match its bound state root."
+    os.environ["PLUGIN_DATA"] = str(resolved.parent)
+    return arguments[2:], ""
+
+
 def main() -> int:
-    if len(sys.argv) >= 2 and sys.argv[1] == "run-inspection-once":
-        return _run_inspection_once(sys.argv[2:])
-    if len(sys.argv) >= 2 and sys.argv[1] == "run-observation":
-        return _run_observation(sys.argv[2:])
-    if len(sys.argv) >= 2 and sys.argv[1] == "run-mutation":
-        return _run_mutation(sys.argv[2:])
-    if len(sys.argv) >= 2 and sys.argv[1] == "run-service-start":
-        return _run_service_start(sys.argv[2:])
-    if len(sys.argv) >= 2 and sys.argv[1] == "run-service-stop":
-        return _run_service_stop(sys.argv[2:])
-    if len(sys.argv) >= 2 and sys.argv[1] == "run-service-supervisor":
-        return _run_service_supervisor(sys.argv[2:])
-    if len(sys.argv) >= 2 and sys.argv[1] == "run-verification":
-        return _run_verification(sys.argv[2:])
-    if len(sys.argv) != 2 or sys.argv[1] not in {
+    arguments = sys.argv[1:]
+    if arguments and arguments[0] == "--encoded-runner":
+        if len(arguments) != 2:
+            sys.stderr.write("Click runner transport was malformed.\n")
+            return 2
+        decoded, transport_error = _decode_runner_transport(arguments[1])
+        if transport_error or decoded is None:
+            sys.stderr.write(f"{transport_error}\n")
+            return 2
+        arguments = decoded
+    arguments, runner_error = _runner_arguments(arguments)
+    if runner_error:
+        sys.stderr.write(f"{runner_error}\n")
+        return 2
+    if arguments and arguments[0] == "run-inspection-once":
+        return _run_inspection_once(arguments[1:])
+    if arguments and arguments[0] == "run-observation":
+        return _run_observation(arguments[1:])
+    if arguments and arguments[0] == "run-mutation":
+        return _run_mutation(arguments[1:])
+    if arguments and arguments[0] == "run-service-start":
+        return _run_service_start(arguments[1:])
+    if arguments and arguments[0] == "run-service-stop":
+        return _run_service_stop(arguments[1:])
+    if arguments and arguments[0] == "run-service-supervisor":
+        return _run_service_supervisor(arguments[1:])
+    if arguments and arguments[0] == "run-verification":
+        return _run_verification(arguments[1:])
+    if len(arguments) != 1 or arguments[0] not in {
         "post-tool",
         "pre-tool",
         "prompt-submit",
@@ -4881,13 +5536,13 @@ def main() -> int:
         return 1
     try:
         event = _read_event()
-        if sys.argv[1] == "prompt-submit":
+        if arguments[0] == "prompt-submit":
             with _state_lock():
                 _handle_prompt_submit(event)
-        elif sys.argv[1] == "post-tool":
+        elif arguments[0] == "post-tool":
             with _state_lock():
                 _handle_post_tool(event)
-        elif sys.argv[1] == "session-end":
+        elif arguments[0] == "session-end":
             with _state_lock():
                 _handle_session_end(event)
         else:
