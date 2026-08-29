@@ -20,7 +20,7 @@ class RepositoryPolicyTests(unittest.TestCase):
             (ROOT / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8")
         )
         self.assertEqual(manifest["name"], "click")
-        self.assertEqual(manifest["version"], "0.21.0")
+        self.assertEqual(manifest["version"], "0.21.1")
         self.assertEqual(manifest["license"], "MIT")
         self.assertIn("always on", manifest["description"].lower())
         self.assertIn("manual", manifest["description"].lower())
@@ -251,7 +251,7 @@ class RepositoryPolicyTests(unittest.TestCase):
         self.assertEqual(marketplace["name"], "click")
         self.assertEqual(marketplace["plugins"][0]["name"], "click")
         self.assertEqual(
-            marketplace["plugins"][0]["source"]["ref"], "v0.21.0"
+            marketplace["plugins"][0]["source"]["ref"], "v0.21.1"
         )
 
     def test_ci_enforces_distribution_compilation_and_diff_validation(self) -> None:
@@ -266,13 +266,15 @@ class RepositoryPolicyTests(unittest.TestCase):
         self.assertIn("workflow_dispatch:", workflow)
         self.assertTrue((ROOT / "scripts" / "validate_distribution.py").is_file())
 
-    def test_release_documents_identify_v021(self) -> None:
+    def test_release_documents_identify_v0211_and_preserve_v021_history(self) -> None:
         for readme_name in README_NAMES:
             with self.subTest(readme=readme_name):
                 readme = (ROOT / readme_name).read_text(encoding="utf-8")
+                self.assertIn("v0.21.1", readme)
                 self.assertIn("v0.21.0", readme)
                 self.assertIn("version-18", readme)
         notes = (ROOT / "RELEASE_NOTES.md").read_text(encoding="utf-8")
+        self.assertIn("## v0.21.1", notes)
         self.assertIn("## v0.21.0", notes)
         self.assertIn("## v0.20.0", notes)
         self.assertNotIn("Unreleased v0.21", notes)
@@ -288,6 +290,33 @@ class RepositoryPolicyTests(unittest.TestCase):
             "## v0.21.0 的逐证据完成判定",
             (ROOT / "README.zh-CN.md").read_text(encoding="utf-8"),
         )
+
+    def test_readmes_document_trusted_reads_and_pre_execution_claims(self) -> None:
+        readmes = {
+            name: (ROOT / name).read_text(encoding="utf-8")
+            for name in README_NAMES
+        }
+        protocol = (
+            ROOT / "skills" / "click" / "references" / "capability-protocol.md"
+        ).read_text(encoding="utf-8")
+        for name, readme in readmes.items():
+            with self.subTest(readme=name):
+                for marker in (
+                    "gate-state",
+                    "PLUGIN_DATA",
+                    "LD_*",
+                    "DYLD_*",
+                    "GCONV_PATH",
+                    "LOCPATH",
+                    "one-use",
+                    "snapshot",
+                ):
+                    self.assertIn(marker, readme)
+        self.assertIn("Windows drive-prefixed forms", protocol)
+        self.assertIn("nearest containing Git repository", protocol)
+        self.assertIn("executes no mutation command", protocol)
+        self.assertIn("initial protected snapshot", protocol)
+        self.assertIn("concurrent same-user replacement", protocol)
 
     def test_completion_docs_match_per_source_and_service_state(self) -> None:
         modes = (

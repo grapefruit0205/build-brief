@@ -34,7 +34,7 @@ ChatGPT 데스크톱 앱을 다시 시작하고 포함된 Click Hook을 검토�
 @Click 주문 취소 기능을 추가해줘. 중복 환불을 방지하고 기존 API 호환성을 유지해야 해.
 ```
 
-## v0.21.0으로 업데이트
+## v0.21.1로 업데이트
 
 Click을 이미 설치했다면 Git 마켓플레이스 스냅샷을 명시적으로 갱신하고 플러그인을 다시 설치해야 이번 버전이 적용됩니다.
 
@@ -43,7 +43,7 @@ codex plugin marketplace upgrade click
 codex plugin add click@click
 ```
 
-ChatGPT 데스크톱 앱을 다시 시작하고 갱신된 Click Hook을 검토해 신뢰한 뒤 새 작업을 시작합니다. 기존 모드 설정은 대상 저장소 밖에 그대로 유지됩니다. `click-gate`를 직접 호출한다면 verify 프로토콜 버전 `2`를 사용하고 모든 check에 승인된 argv `evidence_id`를 넣으며, `pass`에는 계약 JSON 대신 발급된 `contract_id`만 전달하고 `done_when`은 구조화된 증거 참조를 사용해야 합니다. v0.20에서 stage했거나 승인했지만 끝나지 않은 계약에는 복구 가능한 증거별 ledger가 없습니다. 업그레이드 전에 끝내거나, 업그레이드 후 정확한 `@Click cancel` 절차로 취소한 뒤 새 계약을 stage하고 승인해야 합니다.
+ChatGPT 데스크톱 앱을 다시 시작하고 갱신된 Click Hook을 검토해 신뢰한 뒤 새 작업을 시작합니다. 기존 모드 설정은 대상 저장소 밖에 그대로 유지됩니다. v0.21.1은 계약이나 증거 schema를 바꾸지 않습니다. `click-gate`를 직접 호출한다면 계속 verify 프로토콜 버전 `2`를 사용하고 모든 check에 승인된 argv `evidence_id`를 넣으며, `pass`에는 발급된 `contract_id`만 전달하고 `done_when`은 구조화된 증거 참조를 사용합니다. 예전 설치가 만든 실행 대기 중 runner 명령은 재사용하지 말고, 갱신된 Hook이 새 명령을 발급하게 합니다.
 
 나중에 “Click을 Always ON으로 설정해줘” 또는 “Click을 Manual로 설정해줘”라고 바꿀 수 있고, 이 설정은 대상 저장소 밖에 유지됩니다. 정확히 한 turn만 우회하려면 사용자 프롬프트 첫 줄에 `@Click bypass` 또는 자동완성 형식인 `[@Click](plugin://click@click) bypass`를 씁니다. Hook은 같은 turn의 `click-gate bypass` 한 번만 승인하고 active 계약은 그대로 보존합니다. active 계약을 버릴 때는 같은 형식의 `cancel` 명령으로 `click-gate cancel` 한 번을 승인합니다. `@Click` 이름과 명령의 대소문자는 구분하지 않지만 plugin URI는 정확히 일치해야 하며, 명령 줄에 다른 문구를 붙일 수 없습니다. 실제 작업 내용은 둘째 줄부터 이어서 쓸 수 있습니다. 두 권한은 재사용하거나 다음 turn으로 가져갈 수 없습니다. Click은 프로젝트 안에 설정이나 계약 파일을 만들지 않습니다.
 
@@ -216,7 +216,7 @@ click-gate service '{"version":1,"action":"stop"}'
 click-gate evidence '{"version":1,"evidence_id":"E-browser"}'
 ```
 
-`inspect`는 Hook이 허용한 제한된 읽기 전용 작업만 받습니다. Git 조회는 subcommand별 positive option policy를 사용하며 `git grep`, `git cat-file`, 임의의 `--format`/`--pretty` 출력, signature 출력 옵션, `git status -v/-vv`는 제외합니다. 허용된 Git 조회는 상속된 `GIT_*` 변수와 system/global Git config를 무시하고 안전한 log·diff 설정, pager·optional lock 비활성화, 지원되는 diff 출력의 `--no-ext-diff`·`--no-textconv`를 강제합니다. `mutate`는 현재 turn에서 승인된 digest에 묶인 발급 id를 pass해야 실행되며 이전 근거를 오래된 것으로 표시합니다. 인식 가능한 장시간 개발 서버는 `mutate`에서 거부하고 `service`로 시작합니다. Click supervisor가 정확한 자식과 process group을 소유해 명시적 stop, `SessionEnd`, 최대 2시간 제한에서 정리합니다. `apply_patch`, `Edit`, `Write` 같은 명확한 편집 도구는 shell envelope 없이 그대로 지원합니다. 잘못된 요청, shell interpreter, `kill`, `pkill`, `killall`, `taskkill`, `Stop-Process` 같은 직접 process-control 실행 파일은 fail-closed로 거부합니다. 허용된 사용자 정의 프로그램은 명시적인 process 작업을 내부에 숨길 수 있으므로 Click은 운영체제 sandbox가 아니라 workflow guardrail입니다. 정확한 schema와 적용 경계는 [capability protocol](skills/click/references/capability-protocol.md)에 있습니다.
+`inspect`는 Hook이 허용한 제한된 읽기 전용 작업만 받습니다. 읽기 실행 파일은 bare name만 허용하며 구분자가 붙은 이름, Windows drive-prefix 이름, 저장소의 PATH shadow, 저장소로 향하는 symlink는 fail-closed로 거부합니다. 경계는 가장 가까운 상위 Git 저장소 전체이며 Git 밖에서는 현재 작업 디렉터리입니다. 인식된 직접 읽기는 shell 없는 runner로 바꾸고, PATH에서 빈 항목·상대경로·저장소 항목을 제거한 뒤 해석한 절대 실행 파일을 사용합니다. 읽기 자식에서는 `LD_*`, `DYLD_*`, `GCONV_PATH`, `LOCPATH` 같은 loader 주입 변수도 제거하고, Git 조회는 `GIT_*` 및 system/global Git config도 무시합니다. `mutate`는 실행 전에 승인 상태·정확한 digest·일회용 token·재실행 상태·실행 전 만료를 원자적으로 claim합니다. 한 번 claim되면 결과 기록 또는 사용자의 취소 전까지 active로 남아 시간 경과만으로 병렬 runner를 허용하지 않습니다. 모든 상태형 runner는 주변 `PLUGIN_DATA`를 믿지 않고 canonical `gate-state` root와 state path를 전달합니다. 장시간 서버는 `service`를 사용하며 start runner와 detached supervisor가 각각 spawn 전에 digest-bound one-use claim을 수행한 뒤 정확한 자식 process group만 정리합니다. 잘못된 요청, shell interpreter, `pkill` 같은 직접 process-control 이름은 계속 fail-closed입니다. Click은 workflow guardrail이지 운영체제 sandbox가 아닙니다. secret·network·외부 경로·저장소 밖 실행 파일의 동시 same-user 교체·승인된 프로그램 안에 숨은 동작은 보호하지 않습니다. 정확한 schema와 적용 경계는 [capability protocol](skills/click/references/capability-protocol.md)에 있습니다.
 
 SSH Git 조회는 **Experimental이며 원격 POSIX shell만 지원**합니다. 제한된 `git status`, `git rev-parse HEAD`, `git merge-base`, `git remote get-url`만 허용하고 사용자가 SSH option을 넣을 수 없습니다. 이미 알려진 host key를 요구하며 대화형 password, host-key 갱신, forwarding, local command, TTY를 끄고 connection·keepalive 제한으로 빠르게 실패합니다. 모르는 host, POSIX가 아닌 원격 shell, 응답하지 않는 server는 fail-closed입니다. 일반 원격 실행기나 보안 sandbox가 아닙니다.
 
@@ -246,7 +246,7 @@ click-gate verify '{"version":2,"checks":[{"evidence_id":"E1","argv":["python3",
 
 각 check의 `evidence_id`는 승인된 registry의 `kind: "argv"` 항목 하나와 정확히 결합되어야 합니다. Hook은 제출한 class를 검증·정규화하고 승인된 묶음을 shell 없이 실행해 실제 종료 코드를 ID별로 기록합니다. ID가 빠졌거나 등록되지 않았거나 argv가 아닌 kind를 가리키면 거부합니다. Python 검증은 pytest·unittest·coverage의 명시적 module runner를 받으며 Windows의 `py -3 -m ...`도 지원하지만, Python `-c`와 직접 Python 스크립트는 거부합니다. 정확한 파일을 지정한 `node --check`·`node --test`, `uv run pytest`, `npm run lint`, `npm run build`, `ruff check`, `mypy`, `tsc --noEmit`, `cargo check`, `cargo clippy`, `go vet` 같은 형태도 인식해 실제 범위에 맞춰 계산합니다. 전체 `node --test`는 broad이며 Node eval·print는 검증으로 받지 않습니다. 예전 shell 문자열 `commands`와 `evidence_id`가 없는 verify v1 check는 migration 안내와 함께 거부합니다. 일시적인 실패라면 해당 ID를 변경 없이 한 번 재시도할 수 있고, 그 뒤에는 범위 안의 수정이 필요합니다. 이후 소스를 수정하면 앞선 성공 결과가 오래된 것으로 간주되어 같은 ID를 다시 실행할 수 있습니다.
 
-Git worktree에서는 batch 전의 tracked content와 기존 **non-ignored untracked** content를 snapshot합니다. 보호한 내용이 검증 도중 바뀌면 거짓 성공으로 기록하지 않고 batch를 stale 실패로 처리하며 mutation revision을 올립니다. 검증 뒤 새로 생긴 non-ignored untracked 경로는 모두 보고하며, 경로 종류와 무관하게 workspace 변경으로 처리해 stale 실패시키고 mutation revision을 올립니다. source·config처럼 의심스러운 분류는 메시지를 더 명확하게 보여주는 데만 사용합니다. 검증 중 생성이 예상되는 산출물은 Git ignore 대상으로 두거나 승인된 mutation 단계에서 미리 생성해야 합니다. Git에서 ignored인 경로는 이 snapshot으로 볼 수 없습니다. Git 밖에서는 content-diff 안전망을 사용할 수 없지만 argv 검증, shell 없는 실행, revision 상태 검사는 계속 적용됩니다.
+실행되지 않은 verification 예약만 만료 후 재시도할 수 있습니다. 이미 claim된 batch는 결과를 기록하거나 사용자가 취소할 때까지 running입니다. Git worktree에서는 batch 전의 tracked content와 기존 **non-ignored untracked** content를 snapshot하며, 최초 snapshot을 만들지 못하면 어떤 check도 실행하지 않습니다. 보호한 내용이 바뀌거나 새 non-ignored untracked 경로가 생기면 거짓 성공을 기록하지 않고 stale 실패시키며 mutation revision을 올립니다. 예상 산출물은 Git ignore 대상으로 두거나 승인된 mutation 단계에서 미리 생성해야 합니다. Git 밖에서는 content-diff 안전망을 사용할 수 없지만 argv 검증, shell 없는 실행, revision 상태 검사는 계속 적용됩니다.
 
 최소 class 추론은 단순한 비용 축소 제출을 막습니다. 알 수 없는 검증형 이름의 사용자 정의 래퍼는 보수적으로 `deep`으로 계산하고 인식하지 못한 명령은 거부하지만, 허용된 프로그램 내부에 비싼 작업을 숨길 가능성까지 측정하지는 못합니다. 따라서 보안·자원 샌드박스가 아니며 선택한 테스트의 의미가 충분하다고 증명하지도 않습니다.
 
@@ -285,7 +285,7 @@ Click의 핵심 대상은 다음 두 그룹입니다.
 
 ## 근거와 솔직한 한계
 
-현재 공개 릴리스 v0.21.0은 결정적 suite를 release gate로 사용합니다. 영구 모드, turn 분리 승인, active-contract 잠금, 읽기·계획 anti-loop, ID가 결합된 argv 검증, 증거별 현재 revision 완료, Browser 수집 후 finalize, 외부 attestation의 정직한 한계, 관리형 서버 시작·종료, Node 파일 검사, 강화된 Git 조회, process 격리, 검증 중 workspace 변경 감지, 배포 일관성, 저장소 정책을 검증 대상으로 둡니다.
+현재 공개 릴리스 v0.21.1은 결정적 suite를 release gate로 사용합니다. 영구 모드, turn 분리 승인, active-contract 잠금, 읽기·계획 anti-loop, ID가 결합된 argv 검증, 증거별 현재 revision 완료, Browser 수집 후 finalize, 외부 attestation의 정직한 한계, 관리형 서버 one-use launch claim과 종료, 저장소 제외 실행 파일 해석, state-root binding, 실행 전 runner claim, 강화된 Git 조회, Git snapshot fail-closed, process 격리, 검증 중 workspace 변경 감지, 배포 일관성, 저장소 정책을 검증 대상으로 둡니다.
 
 저장소에는 결정적 fixture 기반 정책 검토를 위한 version-18 golden case와 의미 grader도 포함되어 있습니다. 이 자료는 계약 형식과 기대 동작을 검사하며 runtime 생산성을 측정하지 않습니다.
 
