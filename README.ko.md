@@ -5,15 +5,15 @@
 [![CI](https://github.com/grapefruit0205/click/actions/workflows/ci.yml/badge.svg)](https://github.com/grapefruit0205/click/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-> 구현 경계를 한 번 승인하고, 다시 계획하지 않고, 한 번만 검증합니다.
+> 무엇을 바꾸고 무엇을 지킬지 한 번 합의한 뒤, 그 경계 안에서 구현과 필요한 검증을 끝냅니다.
 
-Click은 성능 좋은 모델이 소프트웨어 작업에서 계획을 다시 세우고, 같은 파일을 다시 읽고, 저장소를 다시 훑고, 검증을 과하게 반복하는 데 지친 사람을 위한 Codex 플러그인입니다. 처음 한 번 **Always ON(추천)** 또는 **Manual**을 선택합니다. Always ON은 소프트웨어 생성·수정·삭제·리팩터링·수리에 자동 적용되고, Manual은 `@Click`을 멘션했을 때만 적용됩니다.
+Click은 코딩 에이전트와 소프트웨어 변경을 한 번 합의한 뒤, 계획을 다시 쓰거나 저장소 전체를 다시 훑거나 같은 결과를 다른 도구로 재확인하지 않고 끝까지 진행하고 싶은 사용자를 위한 Codex 플러그인입니다. 요청과 관련 저장소 맥락을 짧은 계약—무엇을 바꿀지, 무엇을 반드시 지킬지, 어떤 근거면 완료인지—으로 만들고 쉬운 말로 설명한 뒤 승인을 기다립니다. 승인 후에는 구현과 검증을 그 경계 안에 유지합니다.
 
-변경 요청에서는 가장 좁은 관련 저장소 맥락을 확인하고, 요청을 축약 실행 계약으로 번역하고, 같은 내용을 쉬운 말로 설명한 뒤 코드 수정 전에 한 번만 승인을 요청합니다. 승인 뒤에는 그 경계 안에서 One-shot으로 구현합니다. 활성 작업 중에는 버전이 있는 argv 기반 `inspect`·`mutate`·`verify` runner로 지원 명령의 의도를 분명히 하고 shell 없이 실행합니다. Hook은 관찰 가능한 재읽기·재탐색·재계획·예산 밖 검증 루프를 막되, 승인된 범위 안에서 필요한 구현 선택은 열어 둡니다.
+소프트웨어 변경에 기본 적용하려면 **Always ON(추천)**을, `@Click`을 부른 작업에만 적용하려면 **Manual**을 선택합니다. 질문·설명·단순 조회·수정 없는 코드 리뷰는 가볍게 유지됩니다.
 
-Always ON이어도 질문·설명·단순 조회는 평소처럼 처리합니다. 코드 리뷰도 구현 계약이나 승인이 필요하지 않습니다. 대신 읽기 전용 anti-loop 안전망을 적용해 처음 필요한 근거 수집은 허용하고, 성공한 동일 shell 조회와 저장소 전체 재탐색 반복을 막습니다.
+## 핵심 목적
 
-Click은 아키텍처 패턴 선택기나 완전한 명세 시스템이 아닙니다. 사용자가 모듈러 모노리스, 이벤트 드리븐, 배치, 함수형 중 하나를 미리 고를 필요가 없습니다. 요청한 동작과 기존 시스템에 실제로 필요한 최소 설계 언어를 Click이 도출합니다.
+Click의 핵심 목적은 사용자가 승인한 하나의 변경 경계를 제안부터 구현과 필요한 검증까지 유지하는 것입니다. 더 큰 명세를 만들거나 아키텍처 패턴을 대신 선택하는 도구가 아닙니다. 무엇을 바꿀지, 무엇을 지킬지, 어떤 근거면 충분한지를 명확히 한 뒤 관찰 가능한 재계획·저장소 전체 재탐색·중복 검증을 제한하면서 승인 범위 안의 필요한 구현 선택은 열어 둡니다.
 
 ## 빠르게 시작하기
 
@@ -33,6 +33,17 @@ ChatGPT 데스크톱 앱을 다시 시작하고 포함된 Click Hook을 검토�
 ```text
 @Click 주문 취소 기능을 추가해줘. 중복 환불을 방지하고 기존 API 호환성을 유지해야 해.
 ```
+
+## v0.20.0으로 업데이트
+
+Click을 이미 설치했다면 Git 마켓플레이스 스냅샷을 명시적으로 갱신하고 플러그인을 다시 설치해야 이번 버전이 적용됩니다.
+
+```bash
+codex plugin marketplace upgrade click
+codex plugin add click@click
+```
+
+ChatGPT 데스크톱 앱을 다시 시작하고 갱신된 Click Hook을 검토해 신뢰한 뒤 새 작업을 시작합니다. 기존 모드 설정은 대상 저장소 밖에 그대로 유지됩니다. `click-gate`를 직접 호출하는 자동화가 있다면 `pass`에 계약 JSON 대신 발급된 `contract_id`를 전달하고, 인라인 `done_when` 문자열을 구조화된 증거 참조로 바꿔야 합니다.
 
 나중에 “Click을 Always ON으로 설정해줘” 또는 “Click을 Manual로 설정해줘”라고 바꿀 수 있고, 이 설정은 대상 저장소 밖에 유지됩니다. 정확히 한 turn만 우회하려면 사용자 프롬프트 첫 줄에 `@Click bypass` 또는 자동완성 형식인 `[@Click](plugin://click@click) bypass`를 씁니다. Hook은 같은 turn의 `click-gate bypass` 한 번만 승인하고 active 계약은 그대로 보존합니다. active 계약을 버릴 때는 같은 형식의 `cancel` 명령으로 `click-gate cancel` 한 번을 승인합니다. `@Click` 이름과 명령의 대소문자는 구분하지 않지만 plugin URI는 정확히 일치해야 하며, 명령 줄에 다른 문구를 붙일 수 없습니다. 실제 작업 내용은 둘째 줄부터 이어서 쓸 수 있습니다. 두 권한은 재사용하거나 다음 turn으로 가져갈 수 없습니다. Click은 프로젝트 안에 설정이나 계약 파일을 만들지 않습니다.
 
@@ -264,7 +275,7 @@ Click의 핵심 대상은 다음 두 그룹입니다.
 
 ## 근거와 솔직한 한계
 
-v0.19.0 소스는 결정적 suite를 release gate로 사용합니다. 영구 모드, turn 분리 승인, active-contract 잠금, 읽기·계획 anti-loop, 범위 중심 로컬 검증, 구조화된 증거 참조, Browser 주 증거 할당과 예산, 관리형 서버 시작·종료, Node 파일 검사, 강화된 Git 조회, process 격리, 검증 중 workspace 변경 감지, 배포 일관성, 저장소 정책을 다룹니다. 필수 CI는 Linux·macOS·Windows에서 suite를 실행하고 Ubuntu에서는 plugin·marketplace·Click/Fix Skill·Python compilation·whitespace도 검증합니다.
+v0.20.0 소스는 결정적 suite를 release gate로 사용합니다. 영구 모드, turn 분리 승인, active-contract 잠금, 읽기·계획 anti-loop, 범위 중심 로컬 검증, 구조화된 증거 참조, Browser 주 증거 할당과 예산, 관리형 서버 시작·종료, Node 파일 검사, 강화된 Git 조회, process 격리, 검증 중 workspace 변경 감지, 배포 일관성, 저장소 정책을 다룹니다. 필수 CI는 Linux·macOS·Windows에서 suite를 실행하고 Ubuntu에서는 plugin·marketplace·Click/Fix Skill·Python compilation·whitespace도 검증합니다.
 
 저장소에는 결정적 fixture 기반 정책 검토를 위한 version 17 golden case와 의미 grader도 포함되어 있습니다. 이 자료는 계약 형식과 기대 동작을 검사하며 runtime 생산성을 측정하지 않습니다.
 

@@ -1,7 +1,7 @@
 {
   "name": "click",
-  "version": "0.19.0",
-  "description": "Choose Always ON or Manual once; Manual uses @Click. Approve one compact plain-language execution contract, then use structured commands, managed local services, and bounded primary evidence to reduce observable implementation and shadow-verification loops.",
+  "version": "0.20.0",
+  "description": "Choose Always ON or @Click Manual. Click turns a software change into one compact plain-language execution contract, waits for approval, then keeps Codex inside that boundary with structured commands and only the primary evidence needed for completion—without repeated planning or repository-wide rescans.",
   "author": {
     "name": "Junseok Pak",
     "url": "https://github.com/grapefruit0205"
@@ -23,9 +23,9 @@
   "skills": "./skills/",
   "interface": {
     "displayName": "Click",
-    "shortDescription": "Approve once, then implement the contract in one shot.",
+    "shortDescription": "Approve one clear boundary, then build and verify without replanning.",
     "composerIcon": "./assets/icon.svg",
-    "longDescription": "Click asks once whether software changes should use Always ON (recommended) or Manual mode. Always ON applies one compact contract and one later-turn approval before supported software mutations; Manual applies the same workflow only when @Click is selected and then keeps that staged or incomplete approved session contract mutation-locked across turns. Staging validates the contract JSON once and emits an opaque contract_id; the later approval passes only that id, never the JSON again. Questions, explanations, simple read-only inspection, and code review remain lightweight. After approval Click implements in one shot. A structured evidence registry assigns each completion condition one cheapest sufficient primary evidence source by id. Local argv checks have an automatically scope-inferred budget; a referenced Browser source has one three-call, ninety-second representative-session budget and long timed progression is rejected. Long-running development servers use a Click-owned supervisor and exact stop lifecycle instead of a foreground mutation. Structured inspect, mutate, service, and verify capabilities execute without a shell in isolated child process groups, reject direct process-control executables, reuse evidence, and detect verification-time workspace changes. The Hook blocks parallel replanning, replacement contracts, and post-completion shadow verification while necessary in-scope implementation details remain flexible. The bundled Fix skill provides the same compact repair flow for direct invocation.",
+    "longDescription": "Click turns a software change into one plain-language contract you approve once, then keeps Codex inside that boundary until the implementation and agreed checks are complete. Choose Always ON (recommended) for software changes or Manual with @Click. Staging validates the contract JSON once and emits an opaque contract_id; the later approval passes only that id, never the JSON again. Questions, explanations, simple read-only inspection, and code review remain lightweight. After approval Click implements in one shot. A structured evidence registry assigns each completion condition one cheapest sufficient primary evidence source by id. Local argv checks have an automatically scope-inferred budget; a referenced Browser source has one three-call, ninety-second representative-session budget and long timed progression is rejected. Long-running development servers use a Click-owned supervisor and exact stop lifecycle instead of a foreground mutation. Structured inspect, mutate, service, and verify capabilities execute without a shell in isolated child process groups, reject direct process-control executables, reuse evidence, and detect verification-time workspace changes. The Hook blocks parallel replanning, replacement contracts, and post-completion shadow verification while necessary in-scope implementation details remain flexible. The bundled Fix skill provides the same compact repair flow for direct invocation.",
     "developerName": "Junseok Pak",
     "category": "Productivity",
     "capabilities": [
@@ -33,12 +33,9 @@
     ],
     "websiteURL": "https://github.com/grapefruit0205/click",
     "defaultPrompt": [
-      "Use Click to stage one compact developer execution contract, choose and automatically budget a verification scale, explain it plainly, and wait for one later-turn approval before implementation.",
-      "Use Click to design and implement this change in one approved shot, blocking observable tool loops and using one final verification batch.",
-      "Set Click to Always ON for software changes while keeping questions and read-only inspection normal.",
-      "Use Click's structured capability runners to inspect, implement, and verify this approved change without guessing whether shell text is read-only or writable.",
-      "Use Click's read-only review guard to review this code without repeated repository scans.",
-      "Use Fix to translate this bug report into a compact repair contract and ask once before repairing it."
+      "Use Click to agree on one clear boundary, approve it once, then implement and run only the checks needed to finish.",
+      "Set Click to Always ON for software changes while keeping questions and read-only inspection lightweight.",
+      "Use Click's read-only review guard to review this code without repeated repository scans."
     ]
   }
 }

@@ -7,15 +7,15 @@ Community link: [LINUX DO](https://linux.do/)
 [![CI](https://github.com/grapefruit0205/click/actions/workflows/ci.yml/badge.svg)](https://github.com/grapefruit0205/click/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-> Approve the boundary once. Build without replanning. Verify once.
+> Agree once on what changes and what must hold. Then finish implementation and the necessary checks inside that boundary.
 
-Click is a Codex plugin for people tired of capable models repeatedly planning, rereading, rescanning, and over-verifying software work. On first use, choose **Always ON (recommended)** or **Manual**. Always ON applies Click automatically to software creation, modification, deletion, refactoring, and repair. Manual applies it only when you mention `@Click`.
+Click is a Codex plugin for people who want coding agents to agree on a software change once and then finish it without repeatedly rewriting the plan, rescanning the repository, or proving the same result twice. It turns your request and the relevant repository context into a short contract—what will change, what must stay true, and what evidence will count—explains it plainly, waits for approval, then keeps implementation and verification inside that boundary.
 
-For a change, Click reads the narrowest relevant repository context, translates the request into one compact execution contract, explains the same meaning plainly, and asks for one approval before editing. After approval it implements inside that boundary in one shot. During active work, versioned argv-based `inspect`, `mutate`, and `verify` runners make supported command intent explicit and execute it without a shell. The Hook blocks observable rereading, rescanning, replanning, and out-of-budget verification loops while leaving necessary in-scope implementation choices open.
+Choose **Always ON (recommended)** for software changes by default or **Manual** for tasks where you mention `@Click`. Questions, explanations, simple lookup, and read-only review remain lightweight.
 
-Questions, explanations, and simple read-only inspection remain normal in Always ON mode. Code review also needs no build contract or approval; Click instead applies a read-only anti-loop guard that allows initial evidence gathering but blocks repeated successful structured reads and repeat repository-wide inventory.
+## Core purpose
 
-Click is not an architecture-pattern picker or a full specification system. You do not need to choose “modular monolith,” “event-driven,” “batch,” or “functional” up front. Click derives the smallest design language that the requested behavior and existing system actually need.
+Click's core purpose is to preserve one user-approved boundary from proposal through implementation and necessary verification. It is not a larger specification system or an architecture-pattern picker. Click makes three things explicit—what changes, what must stay true, and what evidence is enough—then blocks observable replanning, repeated repository-wide exploration, and duplicate verification while leaving necessary in-scope implementation choices open.
 
 ## Quick start
 
@@ -35,6 +35,17 @@ Choose Always ON for the default experience. Choose Manual if you prefer explici
 ```text
 @Click Add order cancellation. Prevent duplicate refunds and preserve the existing API.
 ```
+
+## Update to v0.20.0
+
+If Click is already installed, explicitly refresh its Git marketplace snapshot and reinstall the plugin to load this release:
+
+```bash
+codex plugin marketplace upgrade click
+codex plugin add click@click
+```
+
+Restart the ChatGPT desktop app, review and trust the updated Click Hook, and start a new task. Existing mode preferences remain outside the target repository. If you call `click-gate` directly, update `pass` to use the emitted `contract_id` instead of contract JSON and migrate inline `done_when` strings to structured evidence references.
 
 You can later say “Set Click to Always ON” or “Set Click to Manual.” Those preferences persist outside the target repository. To bypass Click for exactly one turn, make the first line of that user prompt either `@Click bypass` or the autocomplete form `[@Click](plugin://click@click) bypass`; the Hook authorizes one same-turn `click-gate bypass` and keeps any active contract intact. Use the corresponding `cancel` form to authorize one same-turn `click-gate cancel` and discard the active contract. The `@Click` label and action are case-insensitive, but the plugin URI must match exactly and the directive line cannot contain extra text. The task may continue on later lines. Neither authorization is reusable or carries across turns. Click does not place preference or contract files in your project.
 
@@ -266,7 +277,7 @@ Manual mode or a per-turn bypass is usually better for tiny, obvious, reversible
 
 ## Evidence and honest limits
 
-The v0.19.0 source is release-gated by the deterministic suite. It covers persistent modes, distinct-turn approval, active-contract locking, read and plan anti-loops, scope-aware local verification, structured evidence references, Browser primary-source assignment and budgets, managed server start/stop cleanup, Node file checks, hardened Git inspection, process isolation, verification-time workspace mutation detection, distribution consistency, and repository policy. Required CI runs the suite on Linux, macOS, and Windows; Ubuntu also validates the plugin, marketplace, Click/Fix skills, Python compilation, and whitespace errors.
+The v0.20.0 source is release-gated by the deterministic suite. It covers persistent modes, distinct-turn approval, active-contract locking, read and plan anti-loops, scope-aware local verification, structured evidence references, Browser primary-source assignment and budgets, managed server start/stop cleanup, Node file checks, hardened Git inspection, process isolation, verification-time workspace mutation detection, distribution consistency, and repository policy. Required CI runs the suite on Linux, macOS, and Windows; Ubuntu also validates the plugin, marketplace, Click/Fix skills, Python compilation, and whitespace errors.
 
 The repository also includes version-17 golden cases and a semantic grader for deterministic fixture-based policy review. These artifacts check contract shape and expected behavior; they are not runtime productivity measurements.
 
