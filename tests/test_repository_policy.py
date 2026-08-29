@@ -276,9 +276,18 @@ class RepositoryPolicyTests(unittest.TestCase):
         self.assertIn("## v0.21.0", notes)
         self.assertIn("## v0.20.0", notes)
         self.assertNotIn("Unreleased v0.21", notes)
-        self.assertIn("## Evidence-bound completion in v0.21.0", (ROOT / "README.md").read_text())
-        self.assertIn("## v0.21.0의 증거별 완료 판정", (ROOT / "README.ko.md").read_text())
-        self.assertIn("## v0.21.0 的逐证据完成判定", (ROOT / "README.zh-CN.md").read_text())
+        self.assertIn(
+            "## Evidence-bound completion in v0.21.0",
+            (ROOT / "README.md").read_text(encoding="utf-8"),
+        )
+        self.assertIn(
+            "## v0.21.0의 증거별 완료 판정",
+            (ROOT / "README.ko.md").read_text(encoding="utf-8"),
+        )
+        self.assertIn(
+            "## v0.21.0 的逐证据完成判定",
+            (ROOT / "README.zh-CN.md").read_text(encoding="utf-8"),
+        )
 
     def test_completion_docs_match_per_source_and_service_state(self) -> None:
         modes = (
