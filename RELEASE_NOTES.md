@@ -1,8 +1,21 @@
 # Release notes
 
-## v0.19.0 — 2026-08-29
+## v0.20.0 — 2026-08-29
 
-Click v0.19.0 makes the cheapest-evidence policy observable at the Browser boundary and removes the foreground-server failure mode that inflated one-shot game work.
+Click v0.20.0 keeps the one-contract, one-approval workflow while making its purpose clearer: agree once on what will change, what must stay true, and what evidence will count, then keep implementation and necessary verification inside that boundary without observable replanning, repository-wide rescans, or duplicate proof.
+
+### Upgrade required
+
+Existing Click users must refresh the marketplace snapshot and reinstall the plugin to load v0.20.0:
+
+```bash
+codex plugin marketplace upgrade click
+codex plugin add click@click
+```
+
+Restart the ChatGPT desktop app, review and trust the updated Click Hook, and start a new task so the new Skill and Hook definitions are loaded.
+
+If you call `click-gate` directly, update `pass` to send the emitted `contract_id` instead of contract JSON, and migrate inline `done_when` strings to structured condition objects that reference `verification.evidence` ids.
 
 ### Contract-id approval and lean skill routing
 
@@ -20,7 +33,7 @@ Click v0.19.0 makes the cheapest-evidence policy observable at the Browser bound
 - Browser evidence is reset by a later mutation, is required before a Browser-assigned contract can complete, and cannot be repeated after current-revision completion.
 - CI runs feature-branch commits through `pull_request` only and reserves the `push` trigger for `main`, eliminating the duplicate three-OS matrix that previously ran when a pushed branch also had a PR.
 
-### Faster local feedback
+### Managed local execution
 
 - Recognizable development servers use `click-gate service` with `start` and `stop` requests. A Click-owned supervisor retains the exact child handle, isolates its process group, stops it on request or `SessionEnd`, and enforces a two-hour final lifetime ceiling.
 - Foreground server forms are rejected by `click-gate mutate`, preventing a long-running child from holding the implementation command open. Direct process-control executables remain blocked.
@@ -28,7 +41,7 @@ Click v0.19.0 makes the cheapest-evidence policy observable at the Browser bound
 
 ### Release gate
 
-- The plugin manifest, repository marketplace, deterministic policy tests, READMEs, and release notes identify v0.19.0.
+- The plugin manifest, repository marketplace, deterministic policy tests, READMEs, and release notes identify v0.20.0.
 - The tag and GitHub Release must point to the exact protected-main commit that passes the full local suite and required GitHub Actions checks.
 
 ## v0.18.0 — 2026-08-29

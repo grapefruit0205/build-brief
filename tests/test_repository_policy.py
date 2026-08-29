@@ -20,7 +20,7 @@ class RepositoryPolicyTests(unittest.TestCase):
             (ROOT / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8")
         )
         self.assertEqual(manifest["name"], "click")
-        self.assertEqual(manifest["version"], "0.19.0")
+        self.assertEqual(manifest["version"], "0.20.0")
         self.assertEqual(manifest["license"], "MIT")
         self.assertIn("always on", manifest["description"].lower())
         self.assertIn("manual", manifest["description"].lower())
@@ -51,6 +51,14 @@ class RepositoryPolicyTests(unittest.TestCase):
         self.assertIn("anti-loop", manifest["keywords"])
         self.assertIn("@Click", manifest["description"])
         self.assertIn("structured", manifest["description"].lower())
+        self.assertIn("keeps codex inside that boundary", manifest["description"].lower())
+        self.assertEqual(
+            manifest["interface"]["shortDescription"],
+            "Approve one clear boundary, then build and verify without replanning.",
+        )
+        self.assertLessEqual(len(manifest["interface"]["defaultPrompt"]), 3)
+        for prompt in manifest["interface"]["defaultPrompt"]:
+            self.assertLessEqual(len(prompt), 128)
 
     def test_readmes_use_plugin_mention_as_the_default_invocation(self) -> None:
         for readme_name in README_NAMES:
@@ -200,7 +208,7 @@ class RepositoryPolicyTests(unittest.TestCase):
         self.assertEqual(marketplace["name"], "click")
         self.assertEqual(marketplace["plugins"][0]["name"], "click")
         self.assertEqual(
-            marketplace["plugins"][0]["source"]["ref"], "v0.19.0"
+            marketplace["plugins"][0]["source"]["ref"], "v0.20.0"
         )
 
     def test_ci_enforces_distribution_compilation_and_diff_validation(self) -> None:
@@ -215,14 +223,25 @@ class RepositoryPolicyTests(unittest.TestCase):
         self.assertIn("workflow_dispatch:", workflow)
         self.assertTrue((ROOT / "scripts" / "validate_distribution.py").is_file())
 
-    def test_release_documents_identify_v019_without_an_unreleased_heading(self) -> None:
+    def test_release_documents_identify_v020_without_an_unreleased_heading(self) -> None:
         for readme_name in README_NAMES:
             with self.subTest(readme=readme_name):
                 readme = (ROOT / readme_name).read_text(encoding="utf-8")
-                self.assertIn("v0.19.0", readme)
+                self.assertIn("v0.20.0", readme)
         notes = (ROOT / "RELEASE_NOTES.md").read_text(encoding="utf-8")
-        self.assertIn("## v0.19.0", notes)
+        self.assertIn("## v0.20.0", notes)
         self.assertNotIn("## Unreleased", notes)
+
+    def test_readmes_explain_the_core_purpose_and_v020_update(self) -> None:
+        english = (ROOT / "README.md").read_text(encoding="utf-8")
+        korean = (ROOT / "README.ko.md").read_text(encoding="utf-8")
+        chinese = (ROOT / "README.zh-CN.md").read_text(encoding="utf-8")
+        for readme in (english, korean, chinese):
+            self.assertIn("codex plugin marketplace upgrade click", readme)
+            self.assertIn("codex plugin add click@click", readme)
+        self.assertIn("## Core purpose", english)
+        self.assertIn("## 핵심 목적", korean)
+        self.assertIn("## 核心目的", chinese)
 
     def test_click_supports_always_on_while_fix_remains_explicit(self) -> None:
         for skill_name in ("click", "fix"):

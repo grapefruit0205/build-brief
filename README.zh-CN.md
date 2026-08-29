@@ -5,15 +5,15 @@
 [![CI](https://github.com/grapefruit0205/click/actions/workflows/ci.yml/badge.svg)](https://github.com/grapefruit0205/click/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-> 只批准一次边界。不重新规划地构建。只验证一次。
+> 一次约定要改什么、必须守住什么，然后在这个边界内完成实现和必要验证。
 
-Click 是一个 Codex 插件，面向厌倦高能力模型在软件工作中反复规划、重复读取、重新扫描和过度验证的用户。首次使用时，可选择 **Always ON（推荐）** 或 **Manual**。Always ON 会自动将 Click 应用于软件的创建、修改、删除、重构和修复；Manual 则只在你提到 `@Click` 时应用。
+Click 是一款面向 Codex 的插件，适合希望与编码代理只约定一次软件变更，然后不再反复改写计划、重新扫描整个仓库或用不同工具重复证明同一结果的用户。它会把请求和相关仓库上下文整理成一份简短契约——要改什么、必须保持什么、什么证据算完成——用易懂语言解释并等待批准，随后让实现和验证始终留在这个边界内。
 
-面对一个变更，Click 会读取最小范围的相关仓库上下文，把请求翻译成一份精简的执行契约，用通俗语言解释同一含义，并在编辑前只请求一次批准。批准后，它会在该边界内 One-shot 实现。工作进行期间，带版本且基于 argv 的 `inspect`、`mutate` 和 `verify` runner 会明确表达受支持命令的意图，并在不使用 shell 的情况下执行。Hook 会阻止可观察到的重复读取、重新扫描、重新规划和超出预算的重复验证，同时允许在范围内选择必要的实现方式。
+若希望默认应用于软件变更，请选择 **Always ON（推荐）**；若只想在提及 `@Click` 的任务中使用，请选择 **Manual**。提问、解释、简单查询和只读代码审查仍保持轻量。
 
-在 Always ON 模式下，提问、解释和简单的只读检查仍按普通方式处理。代码审查也不需要构建契约或批准；Click 会改用只读防循环守卫，允许首次收集证据，但阻止重复的成功结构化读取和再次扫描整个仓库清单。
+## 核心目的
 
-Click 不是架构模式选择器，也不是完整的规格系统。你不需要预先选择“模块化单体”“事件驱动”“批处理”或“函数式”。Click 会根据所需行为和现有系统，推导出实际需要的最小设计语言。
+Click 的核心目的是让用户批准的一条变更边界，从提案一直保持到实现和必要验证完成。它不是用来制造更大的规格，也不会代替用户选择架构模式。Click 会明确要改什么、必须保持什么、什么证据已经足够，并限制可观察到的重复规划、全仓库重复探索和重复验证，同时保留批准范围内必要的实现选择。
 
 ## 快速开始
 
@@ -33,6 +33,17 @@ Use Always ON for future software changes (recommended), or Manual only when I m
 ```text
 @Click 添加订单取消功能。防止重复退款，并保持现有 API 兼容。
 ```
+
+## 更新到 v0.20.0
+
+如果已经安装 Click，需要明确刷新 Git marketplace 快照并重新安装插件，才能加载本版本。
+
+```bash
+codex plugin marketplace upgrade click
+codex plugin add click@click
+```
+
+重新启动 ChatGPT 桌面应用，检查并信任更新后的 Click Hook，然后开始一个新任务。现有模式偏好仍保存在目标仓库之外。如果自动化直接调用 `click-gate`，请让 `pass` 使用发出的 `contract_id` 而不是契约 JSON，并把内联 `done_when` 字符串迁移为结构化证据引用。
 
 之后你可以说“Set Click to Always ON”或“Set Click to Manual”，这些偏好会持久保存在目标仓库之外。若只想绕过一个 turn，请把用户提示的第一行写成 `@Click bypass`，或使用自动补全形式 `[@Click](plugin://click@click) bypass`；Hook 只授权同一 turn 的一次 `click-gate bypass`，并保留活动契约。要丢弃活动契约，请使用对应的 `cancel` 形式来授权一次 `click-gate cancel`。`@Click` 标签和动作不区分大小写，但 plugin URI 必须完全匹配，指令行不能包含其他文字；实际任务可以从第二行继续。两种授权都不能重复使用或带到下一个 turn。Click 不会把偏好或契约文件放进你的项目。
 
@@ -264,7 +275,7 @@ Click 面向两类用户：
 
 ## 证据与诚实边界
 
-v0.19.0 源码以确定性 suite 作为 release gate。覆盖内容包括：持久模式、跨 turn 批准、active-contract 锁、读取与 plan 防循环、范围感知的本地验证、结构化证据引用、Browser 主要证据分配和预算、受管服务器启动与停止、Node 文件检查、加固的 Git 读取、process 隔离、验证期间 workspace mutation 检测、发布一致性和仓库策略。必需 CI 会在 Linux、macOS 和 Windows 运行该 suite，并在 Ubuntu 额外验证 plugin、marketplace、Click/Fix Skill、Python compilation 和 whitespace。
+v0.20.0 源码以确定性 suite 作为 release gate。覆盖内容包括：持久模式、跨 turn 批准、active-contract 锁、读取与 plan 防循环、范围感知的本地验证、结构化证据引用、Browser 主要证据分配和预算、受管服务器启动与停止、Node 文件检查、加固的 Git 读取、process 隔离、验证期间 workspace mutation 检测、发布一致性和仓库策略。必需 CI 会在 Linux、macOS 和 Windows 运行该 suite，并在 Ubuntu 额外验证 plugin、marketplace、Click/Fix Skill、Python compilation 和 whitespace。
 
 仓库还包含用于确定性 fixture 策略审查的 version-17 golden cases 和 semantic grader。这些资料检查契约结构与预期行为，并不测量 runtime 生产力。
 
