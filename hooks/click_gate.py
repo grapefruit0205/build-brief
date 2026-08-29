@@ -43,7 +43,11 @@ OBJECT_FIELDS = ("boundary", "build", "verification")
 CONTRACT_FIELDS = set(STRING_FIELDS) | set(OBJECT_FIELDS) | {"must_hold"}
 BOUNDARY_FIELDS = {"in_scope", "out_of_scope"}
 BUILD_FIELDS = {"approach", "semantics", "order"}
-VERIFICATION_FIELDS = {"scale", "done_when", "intermediate_gate"}
+VERIFICATION_FIELDS = {"scale", "evidence", "done_when", "intermediate_gate"}
+EVIDENCE_SOURCE_FIELDS = {"id", "kind", "description"}
+DONE_WHEN_FIELDS = {"condition", "primary_evidence"}
+EVIDENCE_KINDS = ("argv", "browser", "hosted", "manual", "existing")
+EVIDENCE_ID_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9_-]{0,31}$")
 VERIFICATION_SCALES = ("quick", "focused", "full")
 VERIFICATION_UNIT_LIMITS = {"quick": 1, "focused": 4, "full": 10}
 CAPABILITY_PROTOCOL_VERSION = 1
@@ -129,21 +133,6 @@ PROCESS_CONTROL_EXECUTABLES = {
 }
 
 BROWSER_TOOL_NAMES = {"mcp__node_repl__js"}
-BROWSER_SOURCE_MARKERS = (
-    "primary evidence:",
-    "primary source:",
-    "주 증거:",
-    "주요 증거:",
-    "主要证据:",
-    "主要证据：",
-    "主证据:",
-    "主证据：",
-    "主な証拠:",
-    "主な証拠：",
-    "主証拠:",
-    "主証拠：",
-)
-BROWSER_SOURCE_TERMS = ("browser", "브라우저", "浏览器", "ブラウザ")
 BROWSER_WAIT_PATTERNS = (
     re.compile(r"(?i:waitForTimeout)\s*\(\s*(\d+)"),
     re.compile(r"(?i:setTimeout)\s*\([^,]{0,240},\s*(\d+)"),
@@ -650,33 +639,39 @@ def _fresh_verification_state(contract: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _browser_evidence_required(contract: dict[str, Any]) -> bool:
+def _browser_evidence_source_id(contract: dict[str, Any]) -> str:
     verification = contract.get("verification")
-    done_when = verification.get("done_when") if isinstance(verification, dict) else []
-    if not isinstance(done_when, list):
-        return False
-    for condition in done_when:
-        if not isinstance(condition, str):
-            continue
-        lowered = condition.lower()
-        sources = [
-            lowered.split(marker, 1)[1]
-            for marker in BROWSER_SOURCE_MARKERS
-            if marker in lowered
-        ]
-        if any(term in source for source in sources for term in BROWSER_SOURCE_TERMS):
-            return True
-    return False
+    evidence = verification.get("evidence") if isinstance(verification, dict) else []
+    if not isinstance(evidence, list):
+        return ""
+    for source in evidence:
+        if isinstance(source, dict) and source.get("kind") == "browser":
+            source_id = source.get("id")
+            return source_id if isinstance(source_id, str) else ""
+    return ""
+
+
+def _browser_evidence_required(contract: dict[str, Any]) -> bool:
+    return bool(_browser_evidence_source_id(contract))
 
 
 def _fresh_external_evidence_state(
-    contract: dict[str, Any] | None = None, *, required: bool | None = None
+    contract: dict[str, Any] | None = None,
+    *,
+    required: bool | None = None,
+    source_id: str | None = None,
 ) -> dict[str, Any]:
+    browser_source_id = (
+        _browser_evidence_source_id(contract or {})
+        if source_id is None
+        else source_id
+    )
     browser_required = (
-        _browser_evidence_required(contract or {}) if required is None else required
+        bool(browser_source_id) if required is None else required
     )
     return {
         "browser_required": browser_required,
+        "browser_source_id": browser_source_id,
         "browser_status": "ready" if browser_required else "not-required",
         "browser_calls": 0,
         "browser_seconds": 0.0,
@@ -950,8 +945,14 @@ def _mark_contract_mutated(event: dict[str, Any]) -> str:
     browser_required = bool(
         isinstance(external, dict) and external.get("browser_required") is True
     )
+    browser_source_id = (
+        str(external.get("browser_source_id", ""))
+        if isinstance(external, dict)
+        else ""
+    )
     state["external_evidence"] = _fresh_external_evidence_state(
-        required=browser_required
+        required=browser_required,
+        source_id=browser_source_id,
     )
     state["observations"] = _fresh_observation_state()
     _save_contract_state(event, state)
@@ -1073,11 +1074,88 @@ def _validate_contract(raw: str) -> tuple[dict[str, Any] | None, str]:
     if scale not in VERIFICATION_SCALES:
         allowed = ", ".join(VERIFICATION_SCALES)
         return None, f"Verification `scale` must be one of: {allowed}."
+
+    evidence = verification.get("evidence")
+    if not isinstance(evidence, list) or not evidence:
+        return None, "Verification `evidence` must be a non-empty list."
+    evidence_ids: set[str] = set()
+    browser_source_ids: list[str] = []
+    for index, source in enumerate(evidence):
+        label = f"Verification evidence item {index + 1}"
+        if not isinstance(source, dict):
+            return None, f"{label} must be an object."
+        unknown_source_fields = sorted(set(source) - EVIDENCE_SOURCE_FIELDS)
+        if unknown_source_fields:
+            rendered = ", ".join(
+                f"`{field}`" for field in unknown_source_fields
+            )
+            return None, f"{label} contains unsupported field(s): {rendered}."
+        source_id = source.get("id")
+        if not isinstance(source_id, str) or not EVIDENCE_ID_PATTERN.fullmatch(
+            source_id
+        ):
+            return (
+                None,
+                f"{label} `id` must start with a letter and contain at most 32 "
+                "letters, digits, underscores, or hyphens.",
+            )
+        if source_id in evidence_ids:
+            return None, f"Verification evidence id `{source_id}` must be unique."
+        evidence_ids.add(source_id)
+        kind = source.get("kind")
+        if kind not in EVIDENCE_KINDS:
+            allowed = ", ".join(EVIDENCE_KINDS)
+            return None, f"Evidence `{source_id}` kind must be one of: {allowed}."
+        description = source.get("description")
+        if not isinstance(description, str) or not description.strip():
+            return None, f"Evidence `{source_id}` description must be non-empty."
+        if kind == "browser":
+            browser_source_ids.append(source_id)
+    if len(browser_source_ids) > 1:
+        return (
+            None,
+            "Verification may assign at most one Browser evidence source; reuse its id "
+            "across every condition covered by the representative session.",
+        )
+
     done_when = verification.get("done_when")
     if not isinstance(done_when, list) or not done_when:
         return None, "Verification `done_when` must be a non-empty list."
-    if any(not isinstance(item, str) or not item.strip() for item in done_when):
-        return None, "Every verification `done_when` item must be a non-empty string."
+    used_evidence_ids: set[str] = set()
+    for index, item in enumerate(done_when):
+        label = f"Verification done_when item {index + 1}"
+        if not isinstance(item, dict):
+            return (
+                None,
+                f"{label} must be an object with `condition` and `primary_evidence`; "
+                "inline evidence strings are no longer accepted.",
+            )
+        unknown_condition_fields = sorted(set(item) - DONE_WHEN_FIELDS)
+        if unknown_condition_fields:
+            rendered = ", ".join(
+                f"`{field}`" for field in unknown_condition_fields
+            )
+            return None, f"{label} contains unsupported field(s): {rendered}."
+        condition = item.get("condition")
+        if not isinstance(condition, str) or not condition.strip():
+            return None, f"{label} `condition` must be a non-empty string."
+        primary_evidence = item.get("primary_evidence")
+        if not isinstance(primary_evidence, str) or not primary_evidence.strip():
+            return None, f"{label} `primary_evidence` must be one evidence id."
+        if primary_evidence not in evidence_ids:
+            return (
+                None,
+                f"{label} references unknown evidence id `{primary_evidence}`.",
+            )
+        used_evidence_ids.add(primary_evidence)
+    unused_evidence_ids = sorted(evidence_ids - used_evidence_ids)
+    if unused_evidence_ids:
+        rendered = ", ".join(f"`{source_id}`" for source_id in unused_evidence_ids)
+        return (
+            None,
+            f"Verification evidence source(s) {rendered} are unused; remove them or "
+            "reference each one from `done_when`.",
+        )
     if "intermediate_gate" in verification:
         intermediate_gate = verification["intermediate_gate"]
         if not isinstance(intermediate_gate, str) or not intermediate_gate.strip():
@@ -2484,8 +2562,9 @@ def _prepare_browser_evidence(event: dict[str, Any]) -> tuple[bool, str]:
     if not isinstance(external, dict) or external.get("browser_required") is not True:
         return (
             True,
-            "Browser work is not an assigned primary evidence source in this contract. "
-            "Use the cheaper assigned source instead of adding shadow verification.",
+            "Browser work has no referenced verification evidence source with kind "
+            "`browser` in this contract. Use the cheaper assigned source instead of "
+            "adding shadow verification.",
         )
     mutation = state.get("mutation")
     if _mutation_is_running(mutation):
@@ -2568,8 +2647,8 @@ def _handle_prompt_submit(event: dict[str, Any]) -> None:
             "implementation use versioned `click-gate inspect`, `click-gate mutate`, and "
             "`click-gate verify` argv requests when direct Bash intent is ambiguous; use "
             "`click-gate service` start/stop for a recognizable long-running local server. "
-            "Browser MCP work must be an explicitly assigned primary evidence source and "
-            "fit its one representative-session budget. Use "
+            "Browser MCP work requires one referenced verification evidence source with "
+            "kind `browser` and must fit its representative-session budget. Use "
             "`click-gate bypass` only when the user explicitly opts out for the current turn."
         )
     elif default_mode == "manual":
@@ -3008,8 +3087,9 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
             "Click blocked this mutation because the active execution contract has "
             "not been staged, explained plainly, explicitly approved, and matched for the "
             "current turn. Complete outcome, boundary.in_scope, boundary.out_of_scope, "
-            "must_hold, build.approach, verification.scale, verification.done_when, and "
-            "plain_language; add build.semantics, build.order, or an intermediate gate only "
+            "must_hold, build.approach, verification.scale, verification.evidence, "
+            "verification.done_when, and plain_language; add build.semantics, build.order, "
+            "or an intermediate gate only "
             "when the work materially requires them; "
             "stage the exact JSON shown to the user, obtain approval, arm the approval turn, "
             "then pass that same JSON. In Always ON mode, arm is optional because the "

@@ -79,7 +79,7 @@ global_invariants:
   - "Routes code-review-only work in Always ON into a read-only anti-loop guard without a build contract or approval"
   - "Leaves questions, explanations, and simple read-only lookups outside both the build contract and review observation ledger"
   - "Presents a compact developer execution contract and a faithful plain-language explanation before modifying code, tests, configuration, or schemas when Click is activated"
-  - "Includes outcome, scoped boundary, must_hold, build.approach, verification scale and done_when, and plain_language without parallel plan, phase, step, task, minimality, or proof sections"
+  - "Includes outcome, scoped boundary, must_hold, build.approach, verification scale, structured evidence registry and referenced done_when conditions, and plain_language without parallel plan, phase, step, task, minimality, or proof sections"
   - "Adds build.semantics, build.order, or an intermediate gate only when the work materially requires them"
   - "Treats the staged developer execution contract as the approval target, records its UserPromptSubmit turn, and cannot pass it until a later user turn"
   - "Rejects a second stage in the same user turn and rejects stage or pass when the Hook cannot match the tool call to a UserPromptSubmit turn"
@@ -91,8 +91,8 @@ global_invariants:
   - "Treats required behavior as a hard gate, then selects the smallest justified design delta among passing candidates"
   - "Reuses existing boundaries and mechanisms unless current evidence proves they cannot preserve an invariant"
   - "Rejects material additions only when they are out of scope, speculative, or disproportionate; it does not ban a technology category"
-  - "Includes verification with one quick, focused, or full scale and observable done_when checks for one final batch"
-  - "Assigns every done_when condition one cheapest sufficient primary evidence source, allows one source to cover several conditions, and does not duplicate proof through another tool or surface"
+  - "Includes verification with one quick, focused, or full scale, structured evidence sources, and observable done_when checks for one final batch"
+  - "Declares each evidence source once with a unique id and supported kind, assigns every done_when condition one primary_evidence id, allows one id to cover several conditions, and does not duplicate proof through another tool or surface"
   - "Uses browser, manual, hosted, broad-suite, or timed end-to-end evidence only when cheaper evidence cannot prove the condition, then stops when all conditions have current evidence"
   - "Does not create parallel verification ceremonies or include an intermediate gate without an irreversible boundary"
   - "Avoids serial technical preference questions by exposing consequential assumptions in the single contract review"
@@ -602,10 +602,10 @@ cases:
     expected_mode: build
     expected_mutation_gate: none-before-approval
     directive_semantics:
-      - "Assigns every done_when condition one cheapest sufficient primary evidence source and allows one source to cover several conditions"
+      - "Declares each evidence source once and assigns every done_when condition one cheapest sufficient primary_evidence id while allowing one id to cover several conditions"
       - "Uses deterministic game-logic tests for waves, rewards, damage, victory, and defeat instead of replaying the whole timed campaign"
       - "Uses one representative browser session only for integration, input, responsive layout, and visual behavior that logic tests cannot prove"
-      - "Names Browser explicitly as the primary evidence source and stays within three serial calls, 90 measured seconds, and five-second explicit waits"
+      - "Declares one referenced evidence source with kind browser and stays within three serial calls, 90 measured seconds, and five-second explicit waits"
       - "Does not duplicate the same rule through both automated and browser evidence or add a shadow verification suite"
       - "Stops verification as soon as every condition has current evidence"
     minimality_expectations:

@@ -75,7 +75,7 @@ class RepositoryPolicyTests(unittest.TestCase):
         self.assertIn("Python `-c`", korean)
         self.assertIn("Python `-c`", chinese)
 
-    def test_evidence_economy_uses_one_primary_source_per_condition(self) -> None:
+    def test_evidence_economy_uses_structured_primary_source_references(self) -> None:
         click_skill = (ROOT / "skills" / "click" / "SKILL.md").read_text(
             encoding="utf-8"
         )
@@ -108,16 +108,21 @@ class RepositoryPolicyTests(unittest.TestCase):
             grader,
         ):
             with self.subTest(document=document[:40]):
-                lowered = document.lower()
-                self.assertIn("one cheapest sufficient primary evidence source", lowered)
-                self.assertIn("one source may cover several conditions", lowered)
+                self.assertIn("primary_evidence", document)
+                self.assertIn("evidence", document)
 
         english = (ROOT / "README.md").read_text(encoding="utf-8")
         korean = (ROOT / "README.ko.md").read_text(encoding="utf-8")
         chinese = (ROOT / "README.zh-CN.md").read_text(encoding="utf-8")
-        self.assertIn("cheapest sufficient primary evidence source", english)
-        self.assertIn("가장 싼 주 증거", korean)
-        self.assertIn("成本最低的主要证据来源", chinese)
+        for readme in (english, korean, chinese):
+            self.assertIn('"evidence": [', readme)
+            self.assertIn('"primary_evidence":', readme)
+            self.assertIn('"kind": "argv"', readme)
+
+        hook = (ROOT / "hooks" / "click_gate.py").read_text(encoding="utf-8")
+        self.assertNotIn("BROWSER_SOURCE_MARKERS", hook)
+        self.assertNotIn("BROWSER_SOURCE_TERMS", hook)
+        self.assertIn('source.get("kind") == "browser"', hook)
 
     def test_readmes_document_distinct_turn_approval_and_git_mutation_guard(self) -> None:
         english = (ROOT / "README.md").read_text(encoding="utf-8")

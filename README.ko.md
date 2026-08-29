@@ -108,9 +108,27 @@ Click은 코드를 건드리기 전에 다음과 같은 축약 계약을 제시�
   },
   "verification": {
     "scale": "full",
+    "evidence": [
+      {
+        "id": "E1",
+        "kind": "argv",
+        "description": "성공·중복·동시 요청·결제 사업자 실패를 다루는 주문 취소 테스트"
+      },
+      {
+        "id": "E2",
+        "kind": "argv",
+        "description": "기존 API 회귀 테스트"
+      }
+    ],
     "done_when": [
-      "환불 동작이 정확하다 — 주 증거: 성공, 중복, 동시 요청, 결제 사업자 실패를 다루는 주문 취소 테스트.",
-      "공개 API가 호환된다 — 주 증거: 기존 API 회귀 테스트."
+      {
+        "condition": "환불 동작이 정확하다.",
+        "primary_evidence": "E1"
+      },
+      {
+        "condition": "공개 API가 호환된다.",
+        "primary_evidence": "E2"
+      }
     ]
   },
   "plain_language": "고객은 취소 가능한 주문을 취소할 수 있지만 재시도하거나 동시에 요청해도 환불은 한 번만 됩니다. 공개 API는 그대로 유지되고 결제 호출 실패가 환불 완료로 잘못 기록되지 않습니다. 결제와 동시성을 다루므로 Click은 full 검증을 추천합니다."
@@ -189,7 +207,7 @@ SSH Git 조회는 **Experimental이며 원격 POSIX shell만 지원**합니다. 
 
 Click은 현재 위험과 저장소 근거로 충분한 최소 규모를 고릅니다. 사용자는 계약과 함께 그 규모를 승인하므로 검증 예산만 따로 다시 묻지 않습니다.
 
-각 `done_when` 조건에는 충분하면서 가장 싼 주 증거를 정확히 하나만 지정합니다. 증거 하나가 여러 조건을 함께 충족해도 됩니다. Click은 현재 revision에 유효한 근거와 좁은 자동 검사를 먼저 사용하고, 더 싼 근거로 조건을 증명할 수 없을 때만 브라우저·수동·hosted·전체 suite·시간이 긴 end-to-end 검증을 사용합니다. 자동 검사 결과를 다른 화면에서 다시 증명하지 않으며 모든 조건에 현재 근거가 생기면 즉시 멈춥니다. 의미상 충분성은 Skill과 grader가 판단하지만, Hook은 표준 Browser MCP 경로를 직접 계측합니다. `done_when`의 주 증거에 브라우저가 명시된 경우에만 3회 호출·측정 시간 90초의 직렬 대표 세션을 허용하며, 30초 초과 tool timeout, 5초 초과 명시적 wait, 완료 후 재호출을 거부합니다. 이후 수정은 브라우저 근거를 초기화하며 matcher 밖 connector는 이 계측 범위 밖입니다.
+각 증거는 `verification.evidence`에 id·`kind`·설명으로 한 번만 선언합니다. 각 `done_when` 조건은 `primary_evidence`로 충분하면서 가장 싼 증거 id 하나를 참조하며, id 하나가 여러 조건을 함께 충족해도 됩니다. Click은 현재 revision에 유효한 근거와 좁은 자동 검사를 먼저 사용하고, 더 싼 근거로 조건을 증명할 수 없을 때만 브라우저·수동·hosted·전체 suite·시간이 긴 end-to-end 검증을 사용합니다. 자동 검사 결과를 다른 화면에서 다시 증명하지 않으며 모든 조건에 현재 근거가 생기면 즉시 멈춥니다. 의미상 충분성은 Skill과 grader가 판단하지만, Hook은 표준 Browser MCP 경로를 구조적으로 계측합니다. 참조된 증거 하나의 `kind`가 `browser`일 때만 3회 호출·측정 시간 90초의 직렬 대표 세션을 허용하며, 30초 초과 tool timeout, 5초 초과 명시적 wait, 완료 후 재호출을 거부합니다. 이후 수정은 브라우저 근거를 초기화하며 matcher 밖 connector는 이 계측 범위 밖입니다.
 
 | 규모 | 주로 쓰는 경우 | 자동 상한 |
 | --- | --- | ---: |
@@ -223,7 +241,7 @@ Git worktree에서는 batch 전의 tracked content와 기존 **non-ignored untra
 | 보안 | 인증, 권한, 비밀정보, 개인정보 경계 |
 | 호환성 | 기존 API, 데이터, 상태값, 사용자 동작 |
 
-중요한 조건은 `must_hold`에, 구체적인 상태·실패 의미는 필요할 때 `build.semantics`에, 관찰 가능한 완료 근거는 `verification.done_when`에 둡니다. Hook은 계약 형식·승인 순서·digest 동일성·보이는 반복·보이는 검증 범위를 지킵니다. 구현이 아키텍처적으로 옳고 의미까지 정확하다고 Hook 하나로 증명하는 것은 아닙니다.
+중요한 조건은 `must_hold`에, 구체적인 상태·실패 의미는 필요할 때 `build.semantics`에 둡니다. 증거 원천은 `verification.evidence`에 선언하고 관찰 가능한 완료 조건은 `verification.done_when`에서 그 id를 참조합니다. Hook은 계약 형식·승인 순서·digest 동일성·보이는 반복·보이는 검증 범위를 지킵니다. 구현이 아키텍처적으로 옳고 의미까지 정확하다고 Hook 하나로 증명하는 것은 아닙니다.
 
 정확히 말하면 Click Hook은 새 마이크로서비스·queue·추상화가 과설계인지 의미적으로 판정하지 않습니다. Skill과 의미 grader가 근거 있는 최소설계를 선호하고, Hook은 설계를 계속 불리는 원인이 되기 쉬운 반복 계획·저장소 전체 재탐색·반복 검증 루프를 차단합니다. 제품 주장은 이 관찰 가능한 적용 경계로 제한합니다.
 
