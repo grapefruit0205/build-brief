@@ -1,0 +1,44 @@
+{
+  "click-context": {
+    "PreInvocation": [
+      {
+        "type": "command",
+        "command": "python3 ./hooks/antigravity_gate.py pre-invocation",
+        "timeout": 7
+      }
+    ],
+    "Stop": [
+      {
+        "type": "command",
+        "command": "python3 ./hooks/antigravity_gate.py stop",
+        "timeout": 7
+      }
+    ]
+  },
+  "click-tools": {
+    "PreToolUse": [
+      {
+        "matcher": "run_command|write_to_file|replace_file_content|multi_replace_file_content|update_plan|create_plan",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ./hooks/antigravity_gate.py pre-tool",
+            "timeout": 7
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "run_command|write_to_file|replace_file_content|multi_replace_file_content",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ./hooks/antigravity_gate.py post-tool",
+            "timeout": 7
+          }
+        ]
+      }
+    ]
+  }
+}

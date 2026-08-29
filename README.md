@@ -36,6 +36,31 @@ Choose Always ON for the default experience. Choose Manual if you prefer explici
 @Click Add order cancellation. Prevent duplicate refunds and preserve the existing API.
 ```
 
+## Google Antigravity adapter (experimental source build)
+
+The repository also builds a self-contained Google Antigravity plugin that
+shares Click's contract state machine, evidence ledger, verification budget,
+and shell-free runners with the Codex plugin:
+
+```bash
+python3 scripts/build_antigravity_distribution.py
+agy plugin install ./dist/antigravity
+```
+
+Antigravity IDE users may instead copy `dist/antigravity` to
+`.agents/plugins/click` for one workspace or
+`~/.gemini/config/plugins/click` globally. Codex continues to use its existing
+`.codex-plugin/plugin.json` and Codex Hook adapter; installing one target does
+not replace the other.
+
+Antigravity's Hook contract differs from Codex. Click therefore uses a bundled
+launcher for structured commands and requires a fully idle `model_stop`, a new
+readable user transcript entry, and the next `PreInvocation` for the
+proposal/approval execution boundary. Native
+Antigravity reads are not cross-tool deduplicated, and Browser evidence is not currently supported. See
+[`platforms/antigravity/README.md`](platforms/antigravity/README.md) for the
+exact limits instead of assuming full host parity.
+
 ## Update to v0.21.0
 
 If Click is already installed, explicitly refresh its Git marketplace snapshot and reinstall the plugin to load this release:
