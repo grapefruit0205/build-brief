@@ -2039,7 +2039,10 @@ class ClickGateTests(unittest.TestCase):
         command = payload["hookSpecificOutput"]["updatedInput"]["command"]
         tokens = shlex.split(command, posix=os.name != "nt")
         self.assertEqual(tokens[2], "--state-root")
-        self.assertEqual(Path(tokens[3]), self.plugin_data / "gate-state")
+        self.assertEqual(
+            Path(tokens[3]).resolve(),
+            (self.plugin_data / "gate-state").resolve(),
+        )
         self.assertEqual(tokens[4], "run-verification")
 
         environment = os.environ.copy()
