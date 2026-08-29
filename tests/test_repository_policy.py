@@ -302,42 +302,6 @@ class RepositoryPolicyTests(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertTrue(lowered.isdisjoint(forbidden_parts))
 
-    def test_ab_suite_is_bounded_and_reproducible(self) -> None:
-        suite = json.loads(
-            (ROOT / "evals" / "ab-suite.json").read_text(encoding="utf-8")
-        )
-        self.assertEqual(suite["schema_version"], 6)
-        self.assertEqual(suite["release_under_test"], "0.19.0")
-        self.assertEqual(suite["model"], "gpt-5.6-sol")
-        self.assertEqual(suite["reasoning_effort"], "max")
-        self.assertGreaterEqual(suite["runs_per_condition"], 5)
-        self.assertIsInstance(suite["random_seed"], int)
-        self.assertEqual(
-            suite["conditions"],
-            ["no-plugin", "explicit-skill-only", "explicit-skill-and-hook"],
-        )
-        self.assertGreaterEqual(len(suite["cases"]), 6)
-        for case in suite["cases"]:
-            with self.subTest(case=case["id"]):
-                self.assertRegex(case["commit"], r"^[0-9a-f]{40}$")
-                self.assertTrue(case["required_invariants"])
-                if case["expected_activation"]:
-                    self.assertTrue(case["baseline_prompt"])
-        approval_case = next(
-            case for case in suite["cases"] if case["expected_activation"]
-        )
-        self.assertTrue(approval_case["approval_followup"])
-        runner = (ROOT / "evals" / "run_ab.py").read_text(encoding="utf-8")
-        self.assertIn("--execute-paid-runs", runner)
-        self.assertIn("paired_deltas_against_no_plugin", runner)
-        self.assertIn("--ignore-user-config", runner)
-        self.assertIn("_prepare_isolated_runtime", runner)
-        self.assertIn("click_commit_sha", runner)
-        self.assertIn("_is_broad_exploration_command", runner)
-        self.assertIn("browser_tool_call_count", runner)
-        self.assertIn("browser_tool_seconds", runner)
-        self.assertIn("timed_browser_call_count", runner)
-
     def test_golden_cases_cover_always_on_manual_and_review_routing(self) -> None:
         catalog = (
             ROOT / "evals" / "golden-prompts.yaml"

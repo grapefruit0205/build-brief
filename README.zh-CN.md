@@ -264,11 +264,11 @@ Click 面向两类用户：
 
 ## 证据与诚实边界
 
-v0.19.0 源码以确定性 suite 作为 release gate。覆盖内容包括：持久模式、跨 turn 批准、active-contract 锁、读取与 plan 防循环、范围感知的本地验证、Browser 主要证据分配和预算、受管服务器启动与停止、Node 文件检查、加固的 Git 读取、process 隔离、验证期间 workspace mutation 检测、Browser A/B runtime 指标、发布一致性和仓库策略。必需 CI 会在 Linux、macOS 和 Windows 运行该 suite，并在 Ubuntu 额外验证 plugin、marketplace、Click/Fix Skill、Python compilation 和 whitespace。
+v0.19.0 源码以确定性 suite 作为 release gate。覆盖内容包括：持久模式、跨 turn 批准、active-contract 锁、读取与 plan 防循环、范围感知的本地验证、结构化证据引用、Browser 主要证据分配和预算、受管服务器启动与停止、Node 文件检查、加固的 Git 读取、process 隔离、验证期间 workspace mutation 检测、发布一致性和仓库策略。必需 CI 会在 Linux、macOS 和 Windows 运行该 suite，并在 Ubuntu 额外验证 plugin、marketplace、Click/Fix Skill、Python compilation 和 whitespace。
 
-仓库还包含 version-17 golden cases、semantic grader，以及一个 A/B runner。该 runner 配置为 6 个固定的 self-hosted 任务、3 种条件、每种条件 5 次打乱顺序的重复，并使用 `gpt-5.6-sol` 与 `max` reasoning effort。付费调用前，runner 要求 source checkout 干净，检查 suite 版本与 manifest 一致，将准确的 Click commit 克隆到临时本地 marketplace，并安装到临时 `CODEX_HOME`。候选只加载该隔离配置，不加载操作者真实的用户配置；runner 会明确禁用它发现的每一个非候选插件。它会为每次 trial 隔离 Click 状态，并记录 Codex 版本、Click 版本与 commit、临时配置路径、操作系统、Python、已安装插件和预期活动插件集。judge 仍使用 `--ignore-user-config`，因为它不需要插件。临时 runtime 会在结束后删除。根目录清单指标会复用 Hook 的 argv parser，而不是使用 substring 匹配。它会报告 correctness、token、耗时、已完成 tool item、重复成功命令、重复根目录清单、plan item、验证命令、Browser 调用数、Browser 总时间、长计时调用、分布以及与 no-plugin baseline 的 paired delta。由于这 90 次条件 trial 会消耗付费模型时间，安装和 CI **不会运行它们**。
+仓库还包含用于确定性 fixture 策略审查的 version-17 golden cases 和 semantic grader。这些资料检查契约结构与预期行为，并不测量 runtime 生产力。
 
-这是评估基础设施，不是 benchmark 结果。在完成这些 trial、经过人工校准，并在多个无关的真实仓库中重复之前，Click 不会声称能跨项目提高成功率、准确性、速度、token 使用效率或减少过度设计。仓库中的 v0.5.0 单次 pilot 仍然是历史失败证据，不是 v0.19.0 的效果证据。
+这些 gate 只证明可观察的 Hook 与契约行为。在多个无关真实仓库中完成独立测量之前，Click 不会声称能跨项目提高成功率、准确性、速度、token 使用效率或减少过度设计。
 
 Click 并不声称自己是该领域的第一个或唯一工作流。它与 spec-driven、autonomous-loop 和 approval-gated 工具有重叠；其刻意收窄的重点是：一次持久选择、一份精简契约、一次批准、One-shot 实现、可观察的防循环守卫，以及一次最终验证预算。
 
@@ -286,7 +286,7 @@ skills/click/references/capability-protocol.md  结构化 runner schema
 skills/fix/                           精简修复 Skill
 hooks/click_gate.py                   契约、capability、防循环和预算守卫
 hooks/hooks.json                      生命周期 Hook 配置
-evals/                                Golden cases、A/B runner、semantic grader
+evals/                                Golden cases 和 semantic grader
 tests/                                确定性 Hook、grader 和策略测试
 scripts/validate_distribution.py     仓库自带的 release validator
 COMMUNITY_POSTS.md                    可编辑的英文和韩文发布文案
@@ -298,12 +298,6 @@ python3 scripts/validate_distribution.py
 python3 -m compileall -q hooks evals scripts tests
 python3 -m unittest discover -s tests -v
 git diff --check
-```
-
-如果操作者没有显式确认付费运行，A/B runner 会拒绝启动模型调用：
-
-```bash
-python3 evals/run_ab.py --results /path/to/results --execute-paid-runs
 ```
 
 </details>

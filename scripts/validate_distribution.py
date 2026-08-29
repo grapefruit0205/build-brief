@@ -142,10 +142,6 @@ def validate(root: Path = ROOT) -> list[str]:
     elif "mcp__node_repl__js" not in json.dumps(hooks, sort_keys=True):
         errors.append("hooks/hooks.json must meter the canonical Browser MCP tool")
 
-    suite = _json(root / "evals" / "ab-suite.json", errors, root)
-    if not isinstance(suite, dict) or suite.get("release_under_test") != version:
-        errors.append("A/B suite release_under_test must match the plugin version")
-
     release_notes = (root / "RELEASE_NOTES.md").read_text(encoding="utf-8")
     if f"## v{version}" not in release_notes or "## Unreleased" in release_notes:
         errors.append("release notes must identify the current version and contain no Unreleased heading")

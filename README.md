@@ -266,11 +266,11 @@ Manual mode or a per-turn bypass is usually better for tiny, obvious, reversible
 
 ## Evidence and honest limits
 
-The v0.19.0 source is release-gated by the deterministic suite. It covers persistent modes, distinct-turn approval, active-contract locking, read and plan anti-loops, scope-aware local verification, Browser primary-source assignment and budgets, managed server start/stop cleanup, Node file checks, hardened Git inspection, process isolation, verification-time workspace mutation detection, Browser-aware A/B runtime metrics, distribution consistency, and repository policy. Required CI runs the suite on Linux, macOS, and Windows; Ubuntu also validates the plugin, marketplace, Click/Fix skills, Python compilation, and whitespace errors.
+The v0.19.0 source is release-gated by the deterministic suite. It covers persistent modes, distinct-turn approval, active-contract locking, read and plan anti-loops, scope-aware local verification, structured evidence references, Browser primary-source assignment and budgets, managed server start/stop cleanup, Node file checks, hardened Git inspection, process isolation, verification-time workspace mutation detection, distribution consistency, and repository policy. Required CI runs the suite on Linux, macOS, and Windows; Ubuntu also validates the plugin, marketplace, Click/Fix skills, Python compilation, and whitespace errors.
 
-The repository also includes version-17 golden cases, a semantic grader, and an A/B runner configured for six pinned self-hosted tasks, three conditions, five shuffled repetitions per condition, and `gpt-5.6-sol` at `max` reasoning effort. Before paid calls, the runner requires a clean source checkout, checks that the suite version matches the manifest, clones the exact Click commit into a temporary local marketplace, and installs it under a temporary `CODEX_HOME`. Candidates load only that isolated config—not the operator's real user config—and the runner explicitly disables every non-candidate plugin it finds. It isolates Click state per trial and records Codex version, Click version and commit, temporary config path, OS, Python, installed plugins, and the intended active plugin set. The judge still uses `--ignore-user-config` because it needs no plugin. The temporary runtime is removed afterward. Root-inventory metrics reuse the Hook's argv parser instead of substring matching. It reports correctness, tokens, elapsed time, completed tool items, duplicate successful commands, repeated root inventory, plan items, verification commands, Browser call count, Browser seconds, timed Browser calls, distributions, and paired deltas against no-plugin baselines. Those 90 condition trials are intentionally **not run during installation or CI** because they consume paid model time.
+The repository also includes version-17 golden cases and a semantic grader for deterministic fixture-based policy review. These artifacts check contract shape and expected behavior; they are not runtime productivity measurements.
 
-This is evaluation infrastructure, not a benchmark result. Until those trials are run, human-calibrated, and then repeated on several unrelated real repositories, Click does not claim that it improves success rate, accuracy, time, token use, or overdesign across projects. The checked-in v0.5.0 single-run pilot remains historical failure evidence, not evidence for v0.19.0.
+These gates prove observable Hook and contract behavior only. Click does not claim that it improves success rate, accuracy, time, token use, or overdesign across projects without independent measurements on unrelated real repositories.
 
 Click is not claimed to be the first or only workflow in this area. It overlaps with spec-driven, autonomous-loop, and approval-gated tools; its deliberately narrow emphasis is one persistent choice, one compact contract, one approval, one-shot implementation, observable anti-loop guards, and one final verification budget.
 
@@ -288,7 +288,7 @@ skills/click/references/capability-protocol.md  Structured runner schemas
 skills/fix/                           Compact repair Skill
 hooks/click_gate.py                   Contract, capability, anti-loop, and budget guard
 hooks/hooks.json                      Lifecycle Hook configuration
-evals/                                Golden cases, A/B runner, semantic grader
+evals/                                Golden cases and semantic grader
 tests/                                Deterministic Hook, grader, and policy tests
 scripts/validate_distribution.py     Repository-owned release validator
 COMMUNITY_POSTS.md                    Ready-to-edit English and Korean launch posts
@@ -300,12 +300,6 @@ python3 scripts/validate_distribution.py
 python3 -m compileall -q hooks evals scripts tests
 python3 -m unittest discover -s tests -v
 git diff --check
-```
-
-The A/B runner refuses to start model calls unless the operator adds the explicit paid-run acknowledgement:
-
-```bash
-python3 evals/run_ab.py --results /path/to/results --execute-paid-runs
 ```
 
 </details>
