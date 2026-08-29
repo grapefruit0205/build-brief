@@ -4,6 +4,13 @@
 
 Click v0.19.0 makes the cheapest-evidence policy observable at the Browser boundary and removes the foreground-server failure mode that inflated one-shot game work.
 
+### Contract-id approval and lean skill routing
+
+- `click-gate stage` validates the canonical contract once, stores its digest and derived runtime state, binds them to a fresh opaque 128-bit `contract_id`, and returns that content-free lifecycle handle.
+- A later approval or interrupted-run resume passes only the emitted id. Contract JSON is never reconstructed in the approval turn; same-turn pass, malformed ids, stale ids after a revised stage, and corrupted digests fail closed.
+- Pre-id active state receives a deterministic digest-derived compatibility handle so an already staged or incomplete session can finish without exposing contract plaintext or deleting state.
+- Click and Fix now route exact schema, verification, anti-loop, capability, and mode rules to their canonical references instead of repeating those details in both entry skills.
+
 ### Structured and bounded primary evidence
 
 - Contracts declare each evidence source once with an id, typed `kind`, and description. Every `done_when` condition references exactly one source id, so one source can cover several conditions without duplicating natural-language evidence text.

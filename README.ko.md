@@ -61,18 +61,18 @@ flowchart TB
     B -->|Manual| D["원할 때<br/>@Click 호출"]
     C --> E["축약 실행 계약<br/>+ 쉬운 설명"]
     D --> E
-    E --> F["계약 stage 후<br/>응답 대기"]
+    E --> F["JSON 한 번 stage<br/>contract_id 발급"]
     F --> I{"다음 사용자 turn:<br/>한 번 승인?"}
     I -->|수정 또는 취소| E
     I -->|승인| G["One-shot 구현"]
     G --> H["예산 안에서<br/>최종 검증 한 번"]
 ```
 
-처음 한 요청을 아직 보지 못한 설계에 대한 승인으로 간주하지 않습니다. Click이 먼저 개발자용 계약과 쉬운 설명을 stage해서 보여주고 멈춥니다. Hook은 `staged_turn_id`를 기록하고 같은 `UserPromptSubmit` turn의 pass와 두 번째 stage를 거부하며, 다음 사용자 turn에서만 정확히 같은 계약을 받을 수 있습니다. 사용자는 그때 제안을 수정하거나 취소할 수 있습니다. 승인하면 `approved_turn_id`를 기록하고 의미 계약을 고정한 뒤, 또 다른 계획을 승인해 달라고 묻지 않은 채 구현합니다. 이 장치는 다른 사용자 응답이 있었다는 사실을 증명하지만, 그 자연어가 실제로 승인을 뜻하는지는 Skill이 충실하게 해석해야 합니다.
+처음 한 요청을 아직 보지 못한 설계에 대한 승인으로 간주하지 않습니다. Click은 계약 JSON을 한 번 stage하고 불투명한 `contract_id`를 받은 뒤, 그 id를 개발자용 계약·쉬운 설명과 함께 보여주고 멈춥니다. Hook은 `staged_turn_id`를 기록하고 같은 `UserPromptSubmit` turn의 pass와 대체 stage를 거부합니다. 다음 turn의 명시적 승인은 JSON을 다시 보내지 않고 발급된 id만 pass하며, Hook은 이를 staged digest와 대조한 뒤 `approved_turn_id`를 기록합니다. 제안을 수정해 stage하면 새 id가 발급되어 이전 handle은 무효가 됩니다. 이 장치는 다른 사용자 응답이 있었다는 사실을 증명하지만, 그 자연어가 실제로 승인을 뜻하는지는 Skill이 충실하게 해석해야 합니다.
 
 승인한 결과·경계·반드시 지킬 동작·검증 약속이 실제로 바뀌는 경우에만 중단합니다. 승인 경계 안에서 필요한 파일·라이브러리·도구·서비스·구현 수단은 새 계약이 필요하지 않습니다.
 
-Manual의 fail-open은 active Click 계약이 없을 때만 적용됩니다. 계약을 stage했거나 승인했지만 현재 revision 검증을 끝내지 않았다면 그 세션 상태가 다음 turn에서도 일반 mutation을 막습니다. 따라서 승인 turn에서 정확한 계약을 pass하기 전에 실수로 코드를 바꿀 수 없습니다. 승인된 구현이 중단되어 다음 turn에 이어갈 때는 같은 계약을 다시 arm·pass한 뒤 계속하며, 새 계약을 만들지는 않습니다.
+Manual의 fail-open은 active Click 계약이 없을 때만 적용됩니다. 계약을 stage했거나 승인했지만 현재 revision 검증을 끝내지 않았다면 그 세션 상태가 다음 turn에서도 일반 mutation을 막습니다. 따라서 승인 turn에서 계약에 묶인 `contract_id`를 pass하기 전에 실수로 코드를 바꿀 수 없습니다. 승인된 구현이 중단되어 다음 turn에 이어갈 때는 같은 id를 arm·pass한 뒤 계속하며, JSON을 다시 보내거나 새 계약을 만들지 않습니다.
 
 현재 코드 revision의 최종 검증까지 성공하면 다음 변경 요청은 새 계약을 정상적으로 stage할 수 있습니다. 검증 전·실행 중·실패·추가 수정으로 stale인 계약은 교체할 수 없습니다. 새 계약은 조회·mutation·검증 상태를 깨끗하게 초기화하고 다시 한 번 승인을 받으므로 `bypass`나 상태 파일 수동 삭제가 필요 없습니다.
 
@@ -135,7 +135,7 @@ Click은 코드를 건드리기 전에 다음과 같은 축약 계약을 제시�
 }
 ```
 
-그다음 Click은 이 계약과 검증 규모를 승인할지, 고칠지, 취소할지 한 번 묻습니다. 승인은 쉬운 요약만이 아니라 계약에 담긴 개발자 의미 전체를 승인한다는 뜻이며, 승인하면 구현이 시작됩니다.
+stage 결과는 `CLICK_CONTRACT_ID=ctr_0123456789abcdef0123456789abcdef`입니다. Click은 이 id를 보여주고 계약과 검증 규모를 승인할지, 고칠지, 취소할지 한 번 묻습니다. 승인은 쉬운 요약만이 아니라 계약에 담긴 개발자 의미 전체를 승인한다는 뜻이며, 다음 turn에는 이 id만 pass해 구현을 시작합니다.
 
 실제 설계는 저장소마다 달라집니다. 이 예시는 모든 환불 시스템에 적용되는 정답이 아니라 계약의 형태를 보여줍니다.
 
@@ -182,7 +182,7 @@ Click은 코드를 건드리기 전에 다음과 같은 축약 계약을 제시�
 | 검증을 예산 안에 유지 | 최종 검사는 구조화된 `click-gate verify` 묶음으로 실행하고 승인한 규모 안에 들어야 합니다. |
 | Browser 근거 제한 | Browser MCP는 주 증거로 명시한 경우만 3회·90초 대표 세션을 허용하며 긴 시간 진행과 완료 후 재호출을 거부합니다. |
 | 로컬 서버 수명주기 소유 | 인식 가능한 개발 서버는 `click-gate service`로 시작·종료해 Click이 정확한 격리 자식을 정리합니다. |
-| 제안과 승인 분리 | 같은 turn의 pass와 대체 stage를 거부하고, 정확한 digest는 다음 `UserPromptSubmit` 뒤에만 pass합니다. |
+| 제안과 승인 분리 | stage가 digest에 묶인 불투명 id를 발급합니다. 같은 turn의 pass와 대체 stage를 거부하고 다음 승인 turn에는 그 id만 pass합니다. |
 
 실패한 관찰 또는 출력이 48,000바이트를 넘은 관찰은 변경 없이 한 번 재시도할 수 있습니다. 소스가 수정되면 이전 근거가 오래됐을 수 있으므로 성공 관찰 기록을 초기화합니다. Hook 상태 변경에는 크로스 플랫폼 잠금을 사용해 병렬 결과 기록이 잘못된 “실행 중” 상태를 남기지 않게 합니다. Hook은 요청 digest와 본문을 포함하지 않는 메타데이터만 저장하며 명령과 출력은 저장하지 않습니다.
 
@@ -199,7 +199,7 @@ click-gate service '{"version":1,"action":"start","argv":["python3","-m","http.s
 click-gate service '{"version":1,"action":"stop"}'
 ```
 
-`inspect`는 Hook이 허용한 제한된 읽기 전용 작업만 받습니다. Git 조회는 subcommand별 positive option policy를 사용하며 `git grep`, `git cat-file`, 임의의 `--format`/`--pretty` 출력, signature 출력 옵션, `git status -v/-vv`는 제외합니다. 허용된 Git 조회는 상속된 `GIT_*` 변수와 system/global Git config를 무시하고 안전한 log·diff 설정, pager·optional lock 비활성화, 지원되는 diff 출력의 `--no-ext-diff`·`--no-textconv`를 강제합니다. `mutate`는 정확한 계약 승인이 있어야 하고 이전 근거를 오래된 것으로 표시합니다. 인식 가능한 장시간 개발 서버는 `mutate`에서 거부하고 `service`로 시작합니다. Click supervisor가 정확한 자식과 process group을 소유해 명시적 stop, `SessionEnd`, 최대 2시간 제한에서 정리합니다. `apply_patch`, `Edit`, `Write` 같은 명확한 편집 도구는 shell envelope 없이 그대로 지원합니다. 잘못된 요청, shell interpreter, `kill`, `pkill`, `killall`, `taskkill`, `Stop-Process` 같은 직접 process-control 실행 파일은 fail-closed로 거부합니다. 허용된 사용자 정의 프로그램은 명시적인 process 작업을 내부에 숨길 수 있으므로 Click은 운영체제 sandbox가 아니라 workflow guardrail입니다. 정확한 schema와 적용 경계는 [capability protocol](skills/click/references/capability-protocol.md)에 있습니다.
+`inspect`는 Hook이 허용한 제한된 읽기 전용 작업만 받습니다. Git 조회는 subcommand별 positive option policy를 사용하며 `git grep`, `git cat-file`, 임의의 `--format`/`--pretty` 출력, signature 출력 옵션, `git status -v/-vv`는 제외합니다. 허용된 Git 조회는 상속된 `GIT_*` 변수와 system/global Git config를 무시하고 안전한 log·diff 설정, pager·optional lock 비활성화, 지원되는 diff 출력의 `--no-ext-diff`·`--no-textconv`를 강제합니다. `mutate`는 현재 turn에서 승인된 digest에 묶인 발급 id를 pass해야 실행되며 이전 근거를 오래된 것으로 표시합니다. 인식 가능한 장시간 개발 서버는 `mutate`에서 거부하고 `service`로 시작합니다. Click supervisor가 정확한 자식과 process group을 소유해 명시적 stop, `SessionEnd`, 최대 2시간 제한에서 정리합니다. `apply_patch`, `Edit`, `Write` 같은 명확한 편집 도구는 shell envelope 없이 그대로 지원합니다. 잘못된 요청, shell interpreter, `kill`, `pkill`, `killall`, `taskkill`, `Stop-Process` 같은 직접 process-control 실행 파일은 fail-closed로 거부합니다. 허용된 사용자 정의 프로그램은 명시적인 process 작업을 내부에 숨길 수 있으므로 Click은 운영체제 sandbox가 아니라 workflow guardrail입니다. 정확한 schema와 적용 경계는 [capability protocol](skills/click/references/capability-protocol.md)에 있습니다.
 
 SSH Git 조회는 **Experimental이며 원격 POSIX shell만 지원**합니다. 제한된 `git status`, `git rev-parse HEAD`, `git merge-base`, `git remote get-url`만 허용하고 사용자가 SSH option을 넣을 수 없습니다. 이미 알려진 host key를 요구하며 대화형 password, host-key 갱신, forwarding, local command, TTY를 끄고 connection·keepalive 제한으로 빠르게 실패합니다. 모르는 host, POSIX가 아닌 원격 shell, 응답하지 않는 server는 fail-closed입니다. 일반 원격 실행기나 보안 sandbox가 아닙니다.
 
@@ -308,7 +308,7 @@ git diff --check
 | 프로젝트 | 겹치는 부분 | Click이 더 좁게 집중하는 부분 |
 | --- | --- | --- |
 | [GitHub Spec Kit](https://github.com/github/spec-kit) | 명세·계획·작업·구현 | 지속적인 다중 명령 명세 대신 축약 계약 하나와 승인 한 번 |
-| [OpenSpec](https://github.com/Fission-AI/OpenSpec) | AI 코딩 전 합의 | 프로젝트 로컬 명세 저장소 없이 대상 저장소 밖에 digest만 보관 |
+| [OpenSpec](https://github.com/Fission-AI/OpenSpec) | AI 코딩 전 합의 | 프로젝트 로컬 명세 저장소 없이 대상 저장소 밖에 digest와 본문 없는 lifecycle metadata만 보관 |
 | [Kiro Specs](https://kiro.dev/docs/cli/v3/specs/) | 요구사항·설계·작업·검증 실행 | 전체 계약 한 번 검토 뒤 One-shot 구현 |
 | [Agentic SDLC Codex Plugin](https://github.com/aantenore/agentic-sdlc-codex-plugin) | hash로 묶인 제안과 승인 | 더 넓은 SDLC 거버넌스보다 작은 구현 전 경계 |
 

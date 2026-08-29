@@ -185,11 +185,24 @@ class ClickGateTests(unittest.TestCase):
         self.assertIsNotNone(payload)
         return payload
 
+    def active_contract_id(self) -> str:
+        state_paths = list(
+            (self.plugin_data / "gate-state").glob("session-contract-*.json")
+        )
+        if not state_paths:
+            return "ctr_" + ("0" * 32)
+        state = json.loads(state_paths[0].read_text(encoding="utf-8"))
+        contract_id = CLICK_GATE._contract_id_from_state(state)
+        self.assertRegex(contract_id, r"^ctr_[0-9a-f]{32}$")
+        return contract_id
+
     def pass_gate(
-        self, contract: dict | None = None, turn_id: str = "turn-2"
+        self, contract_id: str | None = None, turn_id: str = "turn-2"
     ) -> dict:
-        value = contract or self.contract()
-        command = f"click-gate pass {shlex.quote(json.dumps(value))}"
+        if contract_id is not None and not isinstance(contract_id, str):
+            raise TypeError("pass_gate accepts only a contract_id string")
+        contract_id = contract_id or self.active_contract_id()
+        command = f"click-gate pass {contract_id}"
         payload = self.pre_tool("Bash", command, turn_id)
         self.assertIsNotNone(payload)
         return payload
@@ -397,7 +410,7 @@ class ClickGateTests(unittest.TestCase):
         self.arm_gate("turn-1")
         self.stage_gate(contract, "turn-1")
         self.arm_gate("turn-2")
-        self.pass_gate(contract, "turn-2")
+        self.pass_gate(turn_id="turn-2")
         payload = self.verify_checks(
             [
                 {
@@ -1045,6 +1058,30 @@ class ClickGateTests(unittest.TestCase):
             payload["hookSpecificOutput"]["permissionDecisionReason"],
         )
 
+    def test_incomplete_approved_contract_resume_reuses_the_same_id(self) -> None:
+        self.set_default("manual", "turn-0")
+        self.arm_gate("turn-1")
+        self.stage_gate(turn_id="turn-1")
+        contract_id = self.active_contract_id()
+        self.arm_gate("turn-2")
+        self.pass_gate(contract_id, "turn-2")
+
+        context = self.prompt_submit("계속 진행해줘", "turn-3")["hookSpecificOutput"][
+            "additionalContext"
+        ]
+        self.assertIn(f"incomplete approved contract_id is `{contract_id}`", context)
+        self.arm_gate("turn-3")
+        resumed = self.pass_gate(contract_id, "turn-3")
+        self.assertEqual(
+            resumed["hookSpecificOutput"]["permissionDecision"], "allow"
+        )
+        state_path = next(
+            (self.plugin_data / "gate-state").glob("session-contract-*.json")
+        )
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        self.assertEqual(state["contract_id"], contract_id)
+        self.assertEqual(state["approved_turn_id"], "turn-2")
+
     def test_incomplete_approved_contract_blocks_later_turn_root_inventory(self) -> None:
         self.set_default("manual", "turn-0")
         self.arm_gate("turn-1")
@@ -1172,7 +1209,7 @@ class ClickGateTests(unittest.TestCase):
 
     def test_invalid_contract_is_denied(self) -> None:
         command = (
-            "click-gate pass "
+            "click-gate stage "
             "'{\"outcome\":\"API 동작을 수정합니다.\","
             "\"plain_language\":\"기존 API 동작을 유지합니다.\","
             "\"boundary\":{\"in_scope\":[\"api\"],\"out_of_scope\":[]}}'"
@@ -1291,7 +1328,7 @@ class ClickGateTests(unittest.TestCase):
     def test_plain_language_explanation_is_required(self) -> None:
         contract = self.contract()
         del contract["plain_language"]
-        command = f"click-gate pass {shlex.quote(json.dumps(contract))}"
+        command = f"click-gate stage {shlex.quote(json.dumps(contract))}"
         payload = self.pre_tool("Bash", command)
         output = payload["hookSpecificOutput"]
         self.assertEqual(output["permissionDecision"], "deny")
@@ -1310,7 +1347,7 @@ class ClickGateTests(unittest.TestCase):
             with self.subTest(field=field):
                 contract = dict(base_contract)
                 del contract[field]
-                command = f"click-gate pass {shlex.quote(json.dumps(contract))}"
+                command = f"click-gate stage {shlex.quote(json.dumps(contract))}"
                 payload = self.pre_tool("Bash", command)
                 output = payload["hookSpecificOutput"]
                 self.assertEqual(output["permissionDecision"], "deny")
@@ -1404,7 +1441,7 @@ class ClickGateTests(unittest.TestCase):
         self.arm_gate("turn-1")
         self.stage_gate(contract, "turn-1")
         self.arm_gate("turn-2")
-        self.pass_gate(contract, "turn-2")
+        self.pass_gate(turn_id="turn-2")
 
         command = self.verification_argv()
         denied = self.verify_gate([command, command])
@@ -1429,7 +1466,7 @@ class ClickGateTests(unittest.TestCase):
         self.arm_gate("turn-1")
         self.stage_gate(quick, "turn-1")
         self.arm_gate("turn-2")
-        self.pass_gate(quick, "turn-2")
+        self.pass_gate(turn_id="turn-2")
         broad = self.verify_gate(["python3 -m unittest discover -s tests"])
         self.assertEqual(
             broad["hookSpecificOutput"]["permissionDecision"], "deny"
@@ -1461,7 +1498,7 @@ class ClickGateTests(unittest.TestCase):
         self.arm_gate("turn-4")
         self.stage_gate(full, "turn-4")
         self.arm_gate("turn-5")
-        self.pass_gate(full, "turn-5")
+        self.pass_gate(turn_id="turn-5")
         expensive = self.verify_gate(
             ["npx playwright test", "python3 -m unittest discover -s tests"],
             "turn-5",
@@ -1476,7 +1513,7 @@ class ClickGateTests(unittest.TestCase):
         self.arm_gate("turn-1")
         self.stage_gate(contract, "turn-1")
         self.arm_gate("turn-2")
-        self.pass_gate(contract, "turn-2")
+        self.pass_gate(turn_id="turn-2")
 
         broad_as_targeted = self.verify_checks(
             [
@@ -1618,7 +1655,7 @@ class ClickGateTests(unittest.TestCase):
         self.arm_gate("turn-1")
         self.stage_gate(contract, "turn-1")
         self.arm_gate("turn-2")
-        self.pass_gate(contract, "turn-2")
+        self.pass_gate(turn_id="turn-2")
         command = self.verification_argv()
 
         first = self.verify_gate([command])
@@ -1664,7 +1701,7 @@ class ClickGateTests(unittest.TestCase):
         self.arm_gate("turn-1")
         self.stage_gate(contract, "turn-1")
         self.arm_gate("turn-2")
-        self.pass_gate(contract, "turn-2")
+        self.pass_gate(turn_id="turn-2")
         payload = self.verify_checks(
             [
                 {
@@ -1727,7 +1764,7 @@ class ClickGateTests(unittest.TestCase):
         self.arm_gate("turn-1")
         self.stage_gate(contract, "turn-1")
         self.arm_gate("turn-2")
-        self.pass_gate(contract, "turn-2")
+        self.pass_gate(turn_id="turn-2")
 
         payload = self.verify_checks(
             [
@@ -1773,7 +1810,7 @@ class ClickGateTests(unittest.TestCase):
         self.arm_gate("turn-1")
         self.stage_gate(contract, "turn-1")
         self.arm_gate("turn-2")
-        self.pass_gate(contract, "turn-2")
+        self.pass_gate(turn_id="turn-2")
 
         payload = self.verify_checks(
             [
@@ -1812,7 +1849,7 @@ class ClickGateTests(unittest.TestCase):
         self.arm_gate("turn-1")
         self.stage_gate(contract, "turn-1")
         self.arm_gate("turn-2")
-        self.pass_gate(contract, "turn-2")
+        self.pass_gate(turn_id="turn-2")
 
         payload = self.verify_checks(
             [
@@ -1866,7 +1903,7 @@ class ClickGateTests(unittest.TestCase):
         self.arm_gate("turn-1")
         self.stage_gate(contract, "turn-1")
         self.arm_gate("turn-2")
-        self.pass_gate(contract, "turn-2")
+        self.pass_gate(turn_id="turn-2")
 
         payload = self.verify_checks(
             [
@@ -2195,7 +2232,7 @@ class ClickGateTests(unittest.TestCase):
         self.arm_gate("turn-1")
         self.stage_gate(contract, "turn-1")
         self.arm_gate("turn-2")
-        self.pass_gate(contract, "turn-2")
+        self.pass_gate(turn_id="turn-2")
         self.verify_gate([self.verification_argv()])
 
         for tool_name, command in (
@@ -2218,7 +2255,7 @@ class ClickGateTests(unittest.TestCase):
         self.arm_gate("turn-1")
         self.stage_gate(contract, "turn-1")
         self.arm_gate("turn-2")
-        self.pass_gate(contract, "turn-2")
+        self.pass_gate(turn_id="turn-2")
         command = self.verification_argv(exit_code=1)
 
         first = self.verify_gate([command])
@@ -2314,25 +2351,150 @@ class ClickGateTests(unittest.TestCase):
         self.assertEqual(output["permissionDecision"], "deny")
         self.assertIn("No staged", output["permissionDecisionReason"])
 
+    def test_pass_accepts_only_a_well_formed_contract_id(self) -> None:
+        self.arm_gate("turn-1")
+        self.stage_gate(turn_id="turn-1")
+        self.arm_gate("turn-2")
+
+        malformed = self.pre_tool("Bash", "click-gate pass contract-123", "turn-2")
+        self.assertEqual(
+            malformed["hookSpecificOutput"]["permissionDecision"], "deny"
+        )
+        self.assertIn(
+            "exactly 32 lowercase hexadecimal",
+            malformed["hookSpecificOutput"]["permissionDecisionReason"],
+        )
+
+        legacy = self.pre_tool(
+            "Bash",
+            f"click-gate pass {shlex.quote(json.dumps(self.contract()))}",
+            "turn-2",
+        )
+        self.assertEqual(legacy["hookSpecificOutput"]["permissionDecision"], "deny")
+        self.assertIn(
+            "contract_id", legacy["hookSpecificOutput"]["permissionDecisionReason"]
+        )
+        self.assertIn(
+            "not the Execution Contract JSON",
+            legacy["hookSpecificOutput"]["permissionDecisionReason"],
+        )
+
+    def test_prompt_context_exposes_only_the_active_contract_id(self) -> None:
+        self.arm_gate("turn-1")
+        self.stage_gate(turn_id="turn-1")
+        contract_id = self.active_contract_id()
+
+        context = self.prompt_submit("승인합니다", "turn-2")["hookSpecificOutput"][
+            "additionalContext"
+        ]
+        self.assertIn(f"active staged contract_id is `{contract_id}`", context)
+        self.assertIn(f"click-gate pass {contract_id}", context)
+        self.assertIn("never resend the contract JSON", context)
+        self.assertNotIn("inventory", context)
+
+    def test_pre_id_staged_state_gets_a_digest_derived_compatibility_id(self) -> None:
+        self.arm_gate("turn-1")
+        self.stage_gate(turn_id="turn-1")
+        state_path = next(
+            (self.plugin_data / "gate-state").glob("session-contract-*.json")
+        )
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        del state["contract_id"]
+        state_path.write_text(json.dumps(state), encoding="utf-8")
+        compatibility_id = f"ctr_{state['contract_digest'][:32]}"
+
+        context = self.prompt_submit("승인합니다", "turn-2")["hookSpecificOutput"][
+            "additionalContext"
+        ]
+        self.assertIn(compatibility_id, context)
+        self.arm_gate("turn-2")
+        passed = self.pass_gate(compatibility_id, "turn-2")
+        self.assertEqual(passed["hookSpecificOutput"]["permissionDecision"], "allow")
+
+    def test_malformed_stored_id_does_not_fall_back_to_the_digest(self) -> None:
+        self.arm_gate("turn-1")
+        self.stage_gate(turn_id="turn-1")
+        state_path = next(
+            (self.plugin_data / "gate-state").glob("session-contract-*.json")
+        )
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        compatibility_id = f"ctr_{state['contract_digest'][:32]}"
+        state["contract_id"] = "broken"
+        state_path.write_text(json.dumps(state), encoding="utf-8")
+
+        context = self.prompt_submit("승인합니다", "turn-2")["hookSpecificOutput"][
+            "additionalContext"
+        ]
+        self.assertNotIn(compatibility_id, context)
+        self.arm_gate("turn-2")
+        denied = self.pass_gate(compatibility_id, "turn-2")
+        self.assertEqual(denied["hookSpecificOutput"]["permissionDecision"], "deny")
+        self.assertIn(
+            "no recoverable contract_id",
+            denied["hookSpecificOutput"]["permissionDecisionReason"],
+        )
+
+    def test_pass_rejects_corrupted_staged_digest(self) -> None:
+        self.arm_gate("turn-1")
+        self.stage_gate(turn_id="turn-1")
+        contract_id = self.active_contract_id()
+        state_path = next(
+            (self.plugin_data / "gate-state").glob("session-contract-*.json")
+        )
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        state["contract_digest"] = "broken"
+        state_path.write_text(json.dumps(state), encoding="utf-8")
+
+        context = self.prompt_submit("승인합니다", "turn-2")["hookSpecificOutput"][
+            "additionalContext"
+        ]
+        self.assertNotIn(contract_id, context)
+
+        self.arm_gate("turn-2")
+        denied = self.pass_gate(contract_id, "turn-2")
+        self.assertEqual(denied["hookSpecificOutput"]["permissionDecision"], "deny")
+        self.assertIn(
+            "digest is unavailable or invalid",
+            denied["hookSpecificOutput"]["permissionDecisionReason"],
+        )
+
     def test_stage_requires_explicit_arm(self) -> None:
         payload = self.stage_gate(turn_id="turn-1")
         output = payload["hookSpecificOutput"]
         self.assertEqual(output["permissionDecision"], "deny")
         self.assertIn("Arm Click", output["permissionDecisionReason"])
 
-    def test_pass_rejects_a_contract_different_from_the_staged_contract(self) -> None:
+    def test_pass_rejects_an_id_different_from_the_staged_contract(self) -> None:
         self.arm_gate("turn-1")
         self.stage_gate(turn_id="turn-1")
-        revised = self.contract()
-        revised["build"]["approach"] = [
-            *revised["build"]["approach"],
-            "rewrite unrelated API",
-        ]
         self.arm_gate("turn-2")
-        payload = self.pass_gate(revised, "turn-2")
+        payload = self.pass_gate("ctr_" + ("f" * 32), "turn-2")
         output = payload["hookSpecificOutput"]
         self.assertEqual(output["permissionDecision"], "deny")
-        self.assertIn("differs", output["permissionDecisionReason"])
+        self.assertIn("contract_id differs", output["permissionDecisionReason"])
+
+    def test_contract_id_cannot_cross_session_or_working_directory(self) -> None:
+        self.arm_gate("turn-1")
+        self.stage_gate(turn_id="turn-1")
+        contract_id = self.active_contract_id()
+        original_event = self.base_event
+
+        for identity_change, turn_id in (
+            ({"session_id": "session-2"}, "turn-other-session"),
+            ({"cwd": str(self.workspace / "other")}, "turn-other-cwd"),
+        ):
+            with self.subTest(identity_change=identity_change):
+                self.base_event = {**original_event, **identity_change}
+                self.arm_gate(turn_id)
+                denied = self.pass_gate(contract_id, turn_id)
+                self.assertEqual(
+                    denied["hookSpecificOutput"]["permissionDecision"], "deny"
+                )
+                self.assertIn(
+                    "No staged",
+                    denied["hookSpecificOutput"]["permissionDecisionReason"],
+                )
+        self.base_event = original_event
 
     def test_contract_can_be_replaced_only_after_a_new_user_turn(self) -> None:
         original = self.contract()
@@ -2356,13 +2518,13 @@ class ClickGateTests(unittest.TestCase):
         self.assertEqual(
             replacement["hookSpecificOutput"]["permissionDecision"], "allow"
         )
-        same_turn_pass = self.pass_gate(revised, "turn-2")
+        same_turn_pass = self.pass_gate(turn_id="turn-2")
         self.assertEqual(
             same_turn_pass["hookSpecificOutput"]["permissionDecision"], "deny"
         )
 
         self.arm_gate("turn-3")
-        payload = self.pass_gate(revised, "turn-3")
+        payload = self.pass_gate(turn_id="turn-3")
         self.assertEqual(
             payload["hookSpecificOutput"]["updatedInput"]["command"],
             "echo Click mutation gate passed",
@@ -2416,7 +2578,7 @@ class ClickGateTests(unittest.TestCase):
         )
 
         self.stage_gate(turn_id="turn-2")
-        pass_command = f"click-gate pass {shlex.quote(json.dumps(self.contract()))}"
+        pass_command = f"click-gate pass {self.active_contract_id()}"
         missing_pass_prompt = self.pre_tool(
             "Bash", pass_command, "turn-3", submit_prompt=False
         )
@@ -2456,7 +2618,7 @@ class ClickGateTests(unittest.TestCase):
         self.arm_gate("turn-1")
         self.stage_gate(original, "turn-1")
         self.arm_gate("turn-2")
-        self.pass_gate(original, "turn-2")
+        self.pass_gate(turn_id="turn-2")
 
         replacement = self.contract()
         replacement["build"]["approach"] = [
@@ -2505,6 +2667,7 @@ class ClickGateTests(unittest.TestCase):
 
     def test_completed_contract_allows_fresh_next_contract_state(self) -> None:
         self.approve_contract()
+        completed_id = self.active_contract_id()
         passed = self.verify_gate([self.verification_argv()])
         result = self.run_rewritten(passed)
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -2522,6 +2685,8 @@ class ClickGateTests(unittest.TestCase):
         )
         state = json.loads(state_path.read_text(encoding="utf-8"))
         self.assertEqual(state["status"], "staged")
+        self.assertRegex(state["contract_id"], r"^ctr_[0-9a-f]{32}$")
+        self.assertNotEqual(state["contract_id"], completed_id)
         self.assertEqual(state["verification"]["status"], "ready")
         self.assertEqual(state["verification"]["scale"], "quick")
         self.assertEqual(state["verification"]["mutation_revision"], 0)
@@ -2535,16 +2700,28 @@ class ClickGateTests(unittest.TestCase):
         self.assertEqual(output["permissionDecision"], "deny")
         self.assertIn("Do not restage", output["permissionDecisionReason"])
 
-    def test_verification_change_requires_the_exact_staged_contract(self) -> None:
+    def test_revised_stage_invalidates_the_previous_contract_id(self) -> None:
         self.arm_gate("turn-1")
         self.stage_gate(turn_id="turn-1")
+        previous_id = self.active_contract_id()
         changed = self.contract()
         changed["verification"]["scale"] = "full"
         self.arm_gate("turn-2")
-        payload = self.pass_gate(changed, "turn-2")
+        replacement = self.stage_gate(changed, "turn-2")
+        self.assertEqual(
+            replacement["hookSpecificOutput"]["permissionDecision"], "allow"
+        )
+        current_id = self.active_contract_id()
+        self.assertNotEqual(previous_id, current_id)
+        self.arm_gate("turn-3")
+        payload = self.pass_gate(previous_id, "turn-3")
         output = payload["hookSpecificOutput"]
         self.assertEqual(output["permissionDecision"], "deny")
-        self.assertIn("differs", output["permissionDecisionReason"])
+        self.assertIn("contract_id differs", output["permissionDecisionReason"])
+        accepted = self.pass_gate(current_id, "turn-3")
+        self.assertEqual(
+            accepted["hookSpecificOutput"]["permissionDecision"], "allow"
+        )
 
     def test_bypass_preserves_the_staged_contract_for_later_turn(self) -> None:
         self.set_default("manual", "turn-0")
@@ -2577,10 +2754,12 @@ class ClickGateTests(unittest.TestCase):
     def test_valid_contract_is_recorded_and_control_command_is_rewritten(self) -> None:
         self.arm_gate("turn-1")
         staged = self.stage_gate(turn_id="turn-1")
+        contract_id = self.active_contract_id()
         self.assertEqual(
             staged["hookSpecificOutput"]["updatedInput"]["command"],
-            "echo Click execution contract staged",
+            f"echo CLICK_CONTRACT_ID={contract_id}",
         )
+        self.assertNotIn("inventory", contract_id)
         self.arm_gate("turn-2")
         payload = self.pass_gate(turn_id="turn-2")
         output = payload["hookSpecificOutput"]
@@ -2618,6 +2797,7 @@ class ClickGateTests(unittest.TestCase):
             for path in (self.plugin_data / "gate-state").glob("*.json")
         )
         self.assertIn("contract_digest", state_text)
+        self.assertRegex(state_text, r'"contract_id":"ctr_[0-9a-f]{32}"')
         self.assertIn('"scale":"focused"', state_text)
         self.assertIn('"unit_limit":4', state_text)
         self.assertNotIn("inventory write path", state_text)
@@ -2942,7 +3122,7 @@ class ClickGateTests(unittest.TestCase):
         self.arm_gate("turn-1")
         self.stage_gate(contract, "turn-1")
         self.arm_gate("turn-2")
-        self.pass_gate(contract, "turn-2")
+        self.pass_gate(turn_id="turn-2")
 
         timed = self.tool_hook(
             "pre-tool",
@@ -3004,7 +3184,7 @@ class ClickGateTests(unittest.TestCase):
         self.arm_gate("turn-1")
         self.stage_gate(contract, "turn-1")
         self.arm_gate("turn-2")
-        self.pass_gate(contract, "turn-2")
+        self.pass_gate(turn_id="turn-2")
 
         verification = self.verify_gate([self.verification_argv()])
         self.assertEqual(self.run_rewritten(verification).returncode, 0)

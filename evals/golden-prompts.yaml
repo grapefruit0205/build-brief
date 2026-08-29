@@ -81,9 +81,9 @@ global_invariants:
   - "Presents a compact developer execution contract and a faithful plain-language explanation before modifying code, tests, configuration, or schemas when Click is activated"
   - "Includes outcome, scoped boundary, must_hold, build.approach, verification scale, structured evidence registry and referenced done_when conditions, and plain_language without parallel plan, phase, step, task, minimality, or proof sections"
   - "Adds build.semantics, build.order, or an intermediate gate only when the work materially requires them"
-  - "Treats the staged developer execution contract as the approval target, records its UserPromptSubmit turn, and cannot pass it until a later user turn"
+  - "Stages the developer execution contract JSON once, exposes the emitted opaque contract_id as the approval handle with both contract views, records its UserPromptSubmit turn, and cannot pass that id until a later user turn"
   - "Rejects a second stage in the same user turn and rejects stage or pass when the Hook cannot match the tool call to a UserPromptSubmit turn"
-  - "Passes exactly the contract staged for approval and keeps that semantic contract fixed during one-shot implementation"
+  - "Passes only the exact contract_id emitted for the staged digest, never resends the JSON, and keeps that semantic contract fixed during one-shot implementation"
   - "Allows a fresh contract only after final verification passes for the current mutation revision; unverified, running, failed, or stale contracts still block replacement"
   - "Allows necessary in-scope dependencies, MCP tools, external services, graders, files, and low-level tactics without a replacement contract"
   - "Does not change the approved outcome, user-visible behavior, boundary, must-hold conditions, or verification commitment"
@@ -99,7 +99,7 @@ global_invariants:
   - "Performs no implementation before the displayed developer execution contract is explicitly approved"
   - "Starts from the narrowest relevant repository evidence and widens only for unresolved consequential behavior"
   - "Leaves every uninvoked Manual task unblocked and blocks the first unset mutation only to obtain the one persistent mode choice"
-  - "Once Manual is invoked, keeps a staged or incomplete approved session contract mutation-locked across later turns until the exact contract is passed and completed or explicitly bypassed"
+  - "Once Manual is invoked, keeps a staged or incomplete approved session contract mutation-locked across later turns until its emitted contract_id is passed and the contract is completed or explicitly bypassed"
   - "Gates supported mutations automatically in Always ON and arms the mutation gate when Manual invocation activates Click"
   - "Honors an explicit user opt-out immediately, including after the gate was armed"
   - "Enables session-wide strict blocking only when the user explicitly selects it"
@@ -440,7 +440,7 @@ cases:
     expected_mode: build
     expected_mutation_gate: structured-after-approval
     directive_semantics:
-      - "Uses a versioned mutate argv request for the write-capable generator after the exact contract is approved"
+      - "Uses a versioned mutate argv request for the write-capable generator after a later approval passes the emitted contract_id bound to the staged semantic contract"
       - "Uses one versioned verify batch with explicit targeted, broad, or deep classes for final checks"
       - "Does not guess command intent from an ambiguous active shell string or hide a shell interpreter inside argv"
       - "Keeps the approved outcome and boundary fixed while the structured mutation invalidates stale evidence"
@@ -524,7 +524,7 @@ cases:
     directive_semantics:
       - "Records the staging UserPromptSubmit turn outside the repository"
       - "Rejects same-turn pass and same-turn replacement stage"
-      - "Requires the pass tool call to match a later UserPromptSubmit turn and the exact digest"
+      - "Requires the pass tool call to use only the exact emitted contract_id in a later UserPromptSubmit turn and binds it to the stored digest"
       - "Allows implementation to continue without another approval after that pass"
     minimality_expectations:
       reuse: "The existing session contract and prompt Hook event"
@@ -555,7 +555,7 @@ cases:
     expected_mutation_gate: session-active-before-pass
     directive_semantics:
       - "Blocks apply_patch and write-capable Bash in a later turn while the Manual session contract is staged"
-      - "Keeps an approved but incomplete Manual contract locked until the exact contract is passed in the active turn"
+      - "Keeps an approved but incomplete Manual contract locked until the same emitted contract_id is passed in the active turn"
       - "Leaves ordinary Manual work fail-open when no Click contract is active"
       - "Preserves per-turn bypass and one-shot implementation after pass"
     minimality_expectations:

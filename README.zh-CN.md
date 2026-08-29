@@ -61,18 +61,18 @@ flowchart TB
     B -->|Manual| D["需要时<br/>使用 @Click"]
     C --> E["精简契约<br/>+ 通俗解释"]
     D --> E
-    E --> F["暂存契约<br/>并等待"]
+    E --> F["只 stage 一次 JSON<br/>获取 contract_id"]
     F --> I{"后续用户 turn：<br/>批准一次？"}
     I -->|修改或取消| E
     I -->|批准| G["One-shot 实现"]
     G --> H["一次有预算的<br/>最终验证"]
 ```
 
-最初的请求并不等于批准一份尚未展示的设计。Click 会先暂存并展示开发者契约和通俗解释，然后停止。Hook 会记录 `staged_turn_id`，拒绝在同一个 `UserPromptSubmit` turn 中 pass 或第二次 stage，并且只接受后续用户 turn 提交的完全相同契约。此时你可以修改或取消提案。批准后，Click 会记录 `approved_turn_id`，固定语义契约，并在不要求你批准另一份计划的情况下实现。这能证明期间发生了另一次用户回复；由于 Hook 不会判断自然语言是否表示同意，Skill 仍负责解释该回复是否真的意味着批准。
+最初的请求并不等于批准一份尚未展示的设计。Click 只 stage 一次契约 JSON，获取一个不透明的 `contract_id`，把该 id 与开发者契约和通俗解释一起展示，然后停止。Hook 会记录 `staged_turn_id`，拒绝同一个 `UserPromptSubmit` turn 中的 pass 或替换 stage。后续 turn 的明确批准只传递已签发的 id，不再传递 JSON；Hook 将它与 staged digest 匹配后记录 `approved_turn_id`。修改并重新 stage 提案会签发新 id，使旧 handle 失效。这能证明期间发生了另一次用户回复；由于 Hook 不会判断自然语言是否表示同意，Skill 仍负责解释该回复是否真的意味着批准。
 
 只有对已批准结果、边界、must-hold 行为或验证承诺的实质性变更才需要停止。在已批准边界内所需的文件、库、工具、服务和实现策略，不需要替换契约。
 
-在 Manual 模式下，fail-open 行为只适用于没有活动 Click 契约的情况。一旦契约已 staged，或已经 approved 但当前 revision 尚未验证，该会话状态会在后续 turn 中继续阻止普通 mutation。这可以防止在批准 turn 中、精确契约尚未 pass 前就开始编辑。如果已批准的实现被中断并在另一个 turn 中恢复，Click 必须重新 arm 并 pass 同一契约才能继续；它不会编造替代契约。
+在 Manual 模式下，fail-open 行为只适用于没有活动 Click 契约的情况。一旦契约已 staged，或已经 approved 但当前 revision 尚未验证，该会话状态会在后续 turn 中继续阻止普通 mutation。这可以防止在批准 turn 中、绑定契约的 `contract_id` 尚未 pass 前就开始编辑。如果已批准的实现被中断并在另一个 turn 中恢复，Click 会重新 arm 并 pass 同一个 id；它不会再次发送 JSON，也不会编造替代契约。
 
 当最终验证针对当前代码 revision 通过后，下一个变更请求就可以正常 stage 一份新契约。尚未运行、正在运行、失败，或在另一次 mutation 后变为 stale 的验证，都不会解锁替换。新契约会从干净的 inspection、mutation 和 verification 状态开始，并需要自己的批准；无需 `bypass` 或手动删除状态。
 
@@ -135,7 +135,7 @@ flowchart TB
 }
 ```
 
-随后 Click 只问一个问题：批准该契约及其验证规模、修改，还是取消？批准意味着授权契约中的开发者语义，而不仅是通俗摘要，并会启动实现。
+stage 会返回 `CLICK_CONTRACT_ID=ctr_0123456789abcdef0123456789abcdef`。随后 Click 展示该 id 并只问一个问题：批准该契约及其验证规模、修改，还是取消？批准意味着授权契约中的开发者语义，而不仅是通俗摘要；后续 turn 只 pass 该 id 来启动实现。
 
 具体设计取决于仓库。此示例展示的是契约结构，而不是通用的退款架构。
 
@@ -182,7 +182,7 @@ flowchart TB
 | 检查必须在预算内 | 最终检查必须通过结构化的 `click-gate verify` batch 运行，并符合已批准的规模。 |
 | 限定 Browser 证据 | Browser MCP 只有被明确指定为主要证据时，才获得三次调用、90 秒的代表性 session；长时间推进和完成后重放会被拒绝。 |
 | 持有本地服务器生命周期 | 可识别的开发服务器通过 `click-gate service` 启停，由 Click 清理准确的隔离子进程。 |
-| 提案与批准分离 | 同 turn pass 和同 turn 的替换 staging 会被拒绝；只有在后续 `UserPromptSubmit` 后才能 pass 完全相同的 digest。 |
+| 提案与批准分离 | stage 会签发绑定 digest 的不透明 id。同 turn pass 和替换 stage 会被拒绝；后续批准只 pass 该 id。 |
 
 失败的 observation，或输出超过 48,000 字节的 observation，可以原样重试一次。源代码 mutation 会重置成功的 observation 证据，因为代码可能已经变化。Hook 状态变更使用跨平台锁，因此并行结果记录不会遗留错误的“running” observation。Hook 只存储请求 digest 和不含内容的元数据，不存储命令正文或输出。
 
@@ -199,7 +199,7 @@ click-gate service '{"version":1,"action":"start","argv":["python3","-m","http.s
 click-gate service '{"version":1,"action":"stop"}'
 ```
 
-`inspect` 只接受 Hook 限定的只读操作。Git 读取采用按 subcommand 划分的 positive option policy；`git grep`、`git cat-file`、任意 `--format`/`--pretty` 输出、signature 输出选项以及 `git status -v/-vv` 都被排除。允许的 Git 读取会忽略继承的 `GIT_*` 变量和 system/global Git config，强制安全的 log·diff 设置，关闭 pager 与 optional lock，并为支持的 diff 输出加入 `--no-ext-diff` 和 `--no-textconv`。`mutate` 要求完全相同的已批准契约，并把先前证据标记为 stale。可识别的长时开发服务器会在 `mutate` 中被拒绝，改由 `service` 启动；Click supervisor 持有准确的子进程和 process group，并在显式 stop、`SessionEnd` 或两小时上限时清理。普通 `apply_patch`、`Edit` 和 `Write` 仍可直接作为 mutation 使用。格式错误的请求、shell interpreter，以及 `kill`、`pkill`、`killall`、`taskkill`、`Stop-Process` 等直接 process-control 可执行程序都会 fail closed。获准的自定义程序仍可能在内部隐藏明确的进程操作，因此 Click 是 workflow guardrail，而不是操作系统 sandbox。精确 schema 和执行边界请参阅[能力协议](skills/click/references/capability-protocol.md)。
+`inspect` 只接受 Hook 限定的只读操作。Git 读取采用按 subcommand 划分的 positive option policy；`git grep`、`git cat-file`、任意 `--format`/`--pretty` 输出、signature 输出选项以及 `git status -v/-vv` 都被排除。允许的 Git 读取会忽略继承的 `GIT_*` 变量和 system/global Git config，强制安全的 log·diff 设置，关闭 pager 与 optional lock，并为支持的 diff 输出加入 `--no-ext-diff` 和 `--no-textconv`。`mutate` 要求在当前 turn 中 pass 与已批准 digest 绑定的已签发 id，并把先前证据标记为 stale。可识别的长时开发服务器会在 `mutate` 中被拒绝，改由 `service` 启动；Click supervisor 持有准确的子进程和 process group，并在显式 stop、`SessionEnd` 或两小时上限时清理。普通 `apply_patch`、`Edit` 和 `Write` 仍可直接作为 mutation 使用。格式错误的请求、shell interpreter，以及 `kill`、`pkill`、`killall`、`taskkill`、`Stop-Process` 等直接 process-control 可执行程序都会 fail closed。获准的自定义程序仍可能在内部隐藏明确的进程操作，因此 Click 是 workflow guardrail，而不是操作系统 sandbox。精确 schema 和执行边界请参阅[能力协议](skills/click/references/capability-protocol.md)。
 
 SSH Git 读取是 **Experimental，并且只支持远端 POSIX shell**。它只允许受限的 `git status`、`git rev-parse HEAD`、`git merge-base` 和 `git remote get-url`，不接受用户提供的 SSH option。它要求 host key 已知，关闭交互式 password、host-key 更新、forwarding、local command 和 TTY，并通过 connection 与 keepalive 限制快速失败。未知 host、非 POSIX 远端 shell 和无响应 server 都会 fail closed。这不是通用远程执行器或安全 sandbox。
 
@@ -225,7 +225,7 @@ click-gate verify '{"version":1,"checks":[{"argv":["python3","-m","unittest","di
 
 Hook 会验证并规范化提交的 class，在不使用 shell 的情况下执行已接受的最终 batch，并记录真实退出码。对于 Python，只允许明确的 pytest、unittest 和 coverage 模块 runner，包括 Windows 的 `py -3 -m ...`；Python `-c` 和直接执行 Python 脚本会被拒绝。指定一个准确文件的 `node --check`、`node --test`，以及 `uv run pytest`、`npm run lint`、`npm run build`、`ruff check`、`mypy`、`tsc --noEmit`、`cargo check`、`cargo clippy` 和 `go vet`，会被识别并按推断范围计费。项目级 `node --test` 是 broad，Node eval/print 不属于验证能力。旧版 shell-string `commands` batch 会被拒绝，同时给出迁移提示。失败的 batch 可因临时故障原样重试一次；之后必须先进行范围内 mutation。后续 mutation 会使之前的成功结果 stale，并允许再次运行同一 batch。
 
-在 Git worktree 中，runner 会在 batch 前快照 tracked 内容以及既有的 **non-ignored untracked** 内容。如果受保护内容发生变化，batch 会以 stale 失败，并推进 mutation revision，而不是记录错误的成功结果。它还会报告每一个新出现的 non-ignored untracked 路径。在明显的 source、application、library、configuration 或 migration 目录下出现的新路径，会被视为 implementation mutation 并以 stale 失败；普通的新生成报告只会产生警告。该快照无法看到被 Git ignore 的路径。在 Git 之外，这一内容差异守卫不可用；argv 验证、无 shell 执行和 revision 状态仍然有效。
+在 Git worktree 中，runner 会在 batch 前快照 tracked 内容以及既有的 **non-ignored untracked** 内容。如果受保护内容发生变化，batch 会以 stale 失败，并推进 mutation revision，而不是记录错误的成功结果。它还会报告每一个新出现的 non-ignored untracked 路径；任何这类新路径都会作为 workspace 变更使验证 stale 失败并推进 mutation revision。source、application、library、configuration 或 migration 分类只用于让警告更明确。预期生成的产物应被 Git ignore，或在已批准的 mutation 阶段生成。该快照无法看到被 Git ignore 的路径。在 Git 之外，这一内容差异守卫不可用；argv 验证、无 shell 执行和 revision 状态仍然有效。
 
 最低 class 推断可以防住简单的低报。未知但看起来用于验证的 wrapper 名称会被保守地计为 `deep`，无法识别的命令会被拒绝，但一个获准程序仍可能在内部隐藏昂贵工作。这里不是安全或资源 sandbox，也不能证明所选测试在语义上足够。
 
@@ -308,7 +308,7 @@ git diff --check
 | 项目 | 重叠部分 | Click 更窄的重点 |
 | --- | --- | --- |
 | [GitHub Spec Kit](https://github.com/github/spec-kit) | 规格、规划、任务、实现 | 使用一份精简契约和一次批准，而不是持久的多命令规格流程 |
-| [OpenSpec](https://github.com/Fission-AI/OpenSpec) | AI 辅助编码前先达成一致 | 不使用项目内规格存储；Hook 只在目标仓库外保存 digest |
+| [OpenSpec](https://github.com/Fission-AI/OpenSpec) | AI 辅助编码前先达成一致 | 不使用项目内规格存储；Hook 只在目标仓库外保存 digest 和不含正文的 lifecycle metadata |
 | [Kiro Specs](https://kiro.dev/docs/cli/v3/specs/) | 需求、设计、任务、验证执行 | 审阅一份完整契约后进行 One-shot 实现 |
 | [Agentic SDLC Codex Plugin](https://github.com/aantenore/agentic-sdlc-codex-plugin) | hash 绑定的提案与批准 | 使用更小的编码前边界，而不是更广泛的 SDLC 治理 |
 
