@@ -1,5 +1,36 @@
 # Release notes
 
+## v0.24.2 — 2026-08-30
+
+Click v0.24.2 is a focused Windows Codex hook-launch compatibility patch.
+Contract shape, evidence protocol, mode behavior, and runtime authorization
+rules remain unchanged from v0.24.1.
+
+### Windows plugin-root template compatibility
+
+- `hooks/hooks.json` now uses Codex's `${PLUGIN_ROOT}` template in every
+  `commandWindows` hook command instead of the cmd-style `%PLUGIN_ROOT%` form.
+  The path remains quoted and uses Windows separators after host rendering.
+- A Windows regression suite pins all four lifecycle commands and, on the
+  Windows CI runner, executes them through PowerShell from both an ordinary
+  plugin root and a plugin root containing spaces.
+- The patch covers UserPromptSubmit, PreToolUse, PostToolUse, and SessionEnd
+  launcher rendering without changing their Click modes or authorization
+  semantics. SessionEnd remains capped at the host-supported three seconds.
+
+### Scope and release gate
+
+- This patch does not claim to fix host-side hook dispatch paths that do not
+  invoke Click's PreToolUse hook. The separately reported Windows Codex Desktop
+  unified-exec dispatch issue remains an upstream/host compatibility boundary
+  unless the host begins delivering the matching hook event.
+- Existing Always ON or Manual preferences and active-state formats require no
+  migration. Users refresh the `click` marketplace, reinstall `click@click`,
+  restart the desktop app, review the updated Hook, and begin a new task.
+- The exact release commit must pass the deterministic suite on Linux, macOS,
+  and Windows, repository distribution checks, and Plugin Security Scan before
+  the immutable `v0.24.2` tag and GitHub Release are published.
+
 ## v0.24.1 — 2026-08-30
 
 Click v0.24.1 is a focused host-compatibility patch for the SessionEnd
