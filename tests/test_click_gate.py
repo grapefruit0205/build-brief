@@ -2967,7 +2967,7 @@ class ClickGateTests(unittest.TestCase):
         self.assertEqual(actual["CLICK_TEST_ENVIRONMENT"], "stable")
 
     def test_windows_environment_binding_is_case_insensitive(self) -> None:
-        token = "runner-token"
+        reservation_nonce = "runner-nonce"
         executables = [
             {
                 "name": "python.exe",
@@ -2979,11 +2979,11 @@ class ClickGateTests(unittest.TestCase):
         ]
         with mock.patch.object(CLICK_GATE.os, "name", "nt"):
             binding = CLICK_GATE._verification_environment_binding(
-                {"Path": "C:\\Python", "Click_Test": "stable"}, token
+                {"Path": "C:\\Python", "Click_Test": "stable"}, reservation_nonce
             )
             projected, error = CLICK_GATE._verification_environment_from_binding(
                 binding,
-                token,
+                reservation_nonce,
                 {
                     "PATH": "C:\\Python",
                     "CLICK_TEST": "stable",
