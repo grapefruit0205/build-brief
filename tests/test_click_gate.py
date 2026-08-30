@@ -68,11 +68,18 @@ def split_runner_command(command: str) -> list[str]:
         kernel32.LocalFree.argtypes = [ctypes.c_void_p]
         kernel32.LocalFree.restype = ctypes.c_void_p
         kernel32.LocalFree(ctypes.cast(argv, ctypes.c_void_p))
-    if len(parsed) == 4 and parsed[2] == "--encoded-runner":
-        decoded, error = CLICK_GATE._decode_runner_transport(parsed[3])
+    encoded_index = 3 if parsed[:2] == ["py", "-3"] else 2
+    if (
+        len(parsed) == encoded_index + 2
+        and parsed[encoded_index] == "--encoded-runner"
+    ):
+        decoded, error = CLICK_GATE._decode_runner_transport(
+            parsed[encoded_index + 1]
+        )
         if error or decoded is None:
             raise ValueError(error or "invalid runner transport")
-        return [*parsed[:2], *decoded]
+        script_index = encoded_index - 1
+        return [parsed[0], parsed[script_index], *decoded]
     return parsed
 
 

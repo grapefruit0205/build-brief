@@ -20,10 +20,11 @@ non-Windows runner rendering remain unchanged from v0.24.4.
 ### End-to-end Windows regression
 
 - The Windows integration suite now asks the real PreToolUse hook to rewrite
-  a structured `click-gate inspect` request, then executes the returned
-  command through both PowerShell and `cmd.exe`.
-- Normal and space-containing plugin roots are covered, and the runner must
-  return the inspected file contents successfully from both shells.
+  structured `click-gate inspect` requests, then executes the returned
+  commands through both PowerShell and `cmd.exe`.
+- Normal and space-containing plugin roots are covered. Stateless inspection
+  and separately authorized stateful review runners must both return the
+  inspected file contents successfully from both shells.
 - Platform-independent tests pin the bare `py -3` prefix, exclude the
   interpreter's absolute path from the emitted command, and retain expansion-
   token hiding, launcher-path rejection, payload bounds, and decode fidelity.
@@ -32,6 +33,9 @@ non-Windows runner rendering remain unchanged from v0.24.4.
 
 - POSIX rendering still uses `shlex.join`; Windows command-length limits and
   fail-closed launcher-path checks are unchanged.
+- Fail-closed state-root validation is also unchanged: this release verifies
+  reachable state bindings cross-shell but does not recreate a missing or
+  inaccessible approval state.
 - The shared source hook and generated Antigravity distribution remain byte-
   equivalent. On Windows, the Antigravity adapter translates the portable
   launcher back to its active interpreter argv before direct shell-free
