@@ -59,8 +59,8 @@ class ClickStateTests(unittest.TestCase):
         for path in paths:
             with self.subTest(path=path.name):
                 self.assertEqual(path.parent, click_state.state_root())
-                self.assertNotIn("session-1", path.name)
-                self.assertNotIn("turn-1", path.name)
+                digest = path.stem.rsplit("-", 1)[-1]
+                self.assertRegex(digest, r"^[0-9a-f]{64}$")
 
     def test_write_json_atomically_replaces_content(self) -> None:
         path = click_state.state_root() / "sample.json"
@@ -80,6 +80,11 @@ class ClickStateTests(unittest.TestCase):
         click_state.write_json(managed, {"status": "approved"})
         self.assertTrue(
             click_state.managed_state_path(managed, ("session-contract-",))
+        )
+        self.assertTrue(
+            click_state.managed_state_path(
+                managed.resolve(strict=True), ("session-contract-",)
+            )
         )
         self.assertFalse(
             click_state.managed_state_path(

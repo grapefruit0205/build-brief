@@ -82,11 +82,9 @@ def managed_state_path(path: Path, prefixes: tuple[str, ...]) -> bool:
             return False
         resolved_path = path.resolve(strict=True)
         lexical_path = Path(os.path.abspath(path))
-        lexical_root = Path(os.path.abspath(state_root()))
         resolved_root = state_root().resolve(strict=True)
         return (
             path == lexical_path
-            and lexical_path.parent == lexical_root
             and not path.is_symlink()
             and resolved_path.parent == resolved_root
             and resolved_path.name.startswith(prefixes)
