@@ -60,7 +60,7 @@ launcher를 사용합니다. launcher는 확장 없는 단일 Bash 명령만 허
 가정하지 말고 정확한 제한은
 [`platforms/antigravity/README.md`](platforms/antigravity/README.md)를 확인하세요.
 
-## v0.24.2로 업데이트
+## v0.24.3으로 업데이트
 
 Click을 이미 설치했다면 Git 마켓플레이스 스냅샷을 명시적으로 갱신하고 플러그인을 다시 설치해야 이번 버전이 적용됩니다.
 
@@ -69,7 +69,7 @@ codex plugin marketplace upgrade click
 codex plugin add click@click
 ```
 
-ChatGPT 데스크톱 앱을 다시 시작하고 갱신된 Click Hook을 검토해 신뢰한 뒤 새 작업을 시작합니다. 기존 모드 설정은 대상 저장소 밖에 그대로 유지됩니다. v0.24.2는 Windows lifecycle hook 명령에서 cmd 스타일 `%PLUGIN_ROOT%` 대신 Codex의 `${PLUGIN_ROOT}` 템플릿을 사용하고, 일반 경로와 공백이 포함된 plugin root 모두를 PowerShell에서 실제 실행하는 Windows 회귀 테스트를 추가합니다. SessionEnd의 호스트 지원 최대 3초 제한은 v0.24.1 그대로이며 계약 형식, evidence 프로토콜, 모드, runtime 권한 규칙도 바뀌지 않습니다. 호스트가 해당 PreToolUse 이벤트 자체를 전달하지 않는 경로까지 해결했다고 주장하지 않습니다. 예전 설치가 만든 실행 대기 중 runner 명령은 재사용하지 말고, 갱신된 Hook이 새 명령을 발급하게 합니다.
+ChatGPT 데스크톱 앱을 다시 시작하고 갱신된 Click Hook을 검토해 신뢰한 뒤 새 작업을 시작합니다. 기존 모드 설정은 대상 저장소 밖에 그대로 유지됩니다. v0.24.3은 구조화된 조회를 실제 실행하기 직전에 원자적으로 claim합니다. 실행을 시작하지 않은 예약만 30초 뒤 만료되고, 한 번 claim된 조회는 동기 실행 결과가 기록되거나 사용자가 계약을 명시적으로 취소할 때까지 mutation과 최종 검증을 계속 막습니다. 자식 프로세스가 생기지 않은 안전한 시작 실패는 실패로 기록하고 claim을 해제합니다. 검증은 Hook 전용 `PLUGIN_ROOT`를 launcher bookkeeping으로 취급하되 프로젝트·toolchain 환경은 계속 결합하며, 어떤 check도 시작하기 전에 admission이 실패하면 정확히 인증된 미실행 예약만 `ready`로 되돌립니다. 계약 형식, evidence 프로토콜, 모드 동작, v0.24.2의 Windows `${PLUGIN_ROOT}` 수정과 v0.24.1의 SessionEnd 3초 제한은 바뀌지 않습니다. 호스트가 해당 PreToolUse 이벤트 자체를 전달하지 않는 문제까지 해결했다고 주장하지 않으므로 issue #25는 계속 열어 둡니다. 예전 설치가 만든 실행 대기 중 runner 명령은 재사용하지 말고 갱신된 Hook이 새 명령을 발급하게 합니다.
 
 나중에 “Click을 Always ON으로 설정해줘” 또는 “Click을 Manual로 설정해줘”라고 바꿀 수 있고, 이 설정은 대상 저장소 밖에 유지됩니다. 정확히 한 turn만 우회하려면 사용자 프롬프트 첫 줄에 `@Click bypass` 또는 자동완성 형식인 `[@Click](plugin://click@click) bypass`를 씁니다. Hook은 같은 turn의 `click-gate bypass` 한 번만 승인하고 active 계약은 그대로 보존합니다. active 계약을 버릴 때는 같은 형식의 `cancel` 명령으로 `click-gate cancel` 한 번을 승인합니다. `@Click` 이름과 명령의 대소문자는 구분하지 않지만 plugin URI는 정확히 일치해야 하며, 명령 줄에 다른 문구를 붙일 수 없습니다. 실제 작업 내용은 둘째 줄부터 이어서 쓸 수 있습니다. 두 권한은 재사용하거나 다음 turn으로 가져갈 수 없습니다. Click은 프로젝트 안에 설정이나 계약 파일을 만들지 않습니다.
 
@@ -230,7 +230,7 @@ stage 결과는 `CLICK_CONTRACT_ID=ctr_0123456789abcdef0123456789abcdef`입니�
 | 로컬 서버 수명주기 소유 | 인식 가능한 개발 서버는 `click-gate service`로 시작·종료해 Click이 정확한 격리 자식을 정리합니다. |
 | 제안과 승인 분리 | stage가 digest에 묶인 불투명 id를 발급합니다. 같은 turn의 pass와 대체 stage를 거부하고 다음 승인 turn에는 그 id만 pass합니다. |
 
-실패한 관찰 또는 출력이 48,000바이트를 넘은 관찰은 변경 없이 한 번 재시도할 수 있습니다. 소스가 수정되면 이전 근거가 오래됐을 수 있으므로 성공 관찰과 증거 완료 기록을 초기화합니다. Hook 상태 변경에는 크로스 플랫폼 잠금을 사용해 병렬 결과 기록이 잘못된 “실행 중” 상태를 남기지 않게 합니다. Hook은 요청 digest와 본문을 포함하지 않는 메타데이터만 저장하며 명령·출력·증거 설명은 저장하지 않습니다. evidence ID도 원문 대신 결정적 해시로 저장하지만, 예측 가능한 짧은 ID의 비밀성을 보장하는 장치는 아닙니다.
+실패한 관찰 또는 출력이 48,000바이트를 넘은 관찰은 변경 없이 한 번 재시도할 수 있습니다. 추적 대상 조회는 실행 전에 active revision·digest·일회용 token·재실행 상태·freshness를 원자적으로 claim합니다. 실행을 시작하지 않은 예약만 30초 뒤 만료되고, claim된 조회는 동기 실행 결과가 기록되거나 사용자가 명시적으로 취소할 때까지 active이므로 시간 경과만으로 mutation이나 최종 검증이 풀리지 않습니다. 소스가 수정되면 이전 근거가 오래됐을 수 있으므로 성공 관찰과 증거 완료 기록을 초기화합니다. Hook 상태 변경에는 크로스 플랫폼 잠금을 사용해 병렬 결과 기록이 잘못된 “실행 중” 상태를 남기지 않게 합니다. Hook은 요청 digest와 본문을 포함하지 않는 메타데이터만 저장하며 명령·출력·증거 설명은 저장하지 않습니다. evidence ID도 원문 대신 결정적 해시로 저장하지만, 예측 가능한 짧은 ID의 비밀성을 보장하는 장치는 아닙니다.
 
 이 안전망은 도구 수준에서 동작하며 추론 토큰 제한이나 운영체제 샌드박스가 아닙니다. Hook은 숨은 추론, 자연어로만 쓴 계획, matcher 밖 connector나 hosted tool, 의미상 경계 준수 여부를 볼 수 없고, 허용된 사용자 코드 안에 여러 작업을 숨기는 것도 막지 못합니다.
 
