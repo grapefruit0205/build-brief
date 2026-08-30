@@ -45,9 +45,16 @@ jobs:
         run: |
           set -euo pipefail
 
-          existing_ref="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${TAG}" --jq '.object.sha' 2>/dev/null || true)"
+          existing_ref=""
+          if existing_json="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${TAG}" 2>/dev/null)"; then
+            existing_ref="$(jq -r '.object.sha' <<<"${existing_json}")"
+          fi
+
           if [[ -n "${existing_ref}" ]]; then
-            target="$(gh api "repos/${GITHUB_REPOSITORY}/git/tags/${existing_ref}" --jq '.object.sha' 2>/dev/null || printf '%s' "${existing_ref}")"
+            target="${existing_ref}"
+            if tag_json="$(gh api "repos/${GITHUB_REPOSITORY}/git/tags/${existing_ref}" 2>/dev/null)"; then
+              target="$(jq -r '.object.sha' <<<"${tag_json}")"
+            fi
             if [[ "${target}" != "${TARGET_SHA}" ]]; then
               echo "${TAG} already exists but does not target ${TARGET_SHA}" >&2
               exit 1
