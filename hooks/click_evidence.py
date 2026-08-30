@@ -59,6 +59,15 @@ def fresh_state(contract: dict[str, Any]) -> dict[str, Any]:
                 "last_exit_code": None,
                 "last_check_digest": "",
                 "locked_check_digest": "",
+                "reserved_units": 0,
+                "reserved_check_digest": "",
+                "verified_contract_digest": "",
+                "verified_check_digest": "",
+                "verified_units": 0,
+                "verified_root": "",
+                "verified_tree_digest": "",
+                "verified_environment_digest": "",
+                "verified_at": 0,
             }
     return {
         "version": EVIDENCE_STATE_VERSION,
@@ -93,6 +102,12 @@ def sources_from_state(
     if not isinstance(sources, dict):
         return {}
     for key, source in sources.items():
+        reserved_units = source.get("reserved_units", 0) if isinstance(source, dict) else 0
+        reserved_digest = (
+            source.get("reserved_check_digest", "")
+            if isinstance(source, dict)
+            else ""
+        )
         if (
             not isinstance(key, str)
             or not re.fullmatch(r"[0-9a-f]{64}", key)
@@ -114,6 +129,25 @@ def sources_from_state(
             )
             or not isinstance(source.get("last_check_digest"), str)
             or not isinstance(source.get("locked_check_digest"), str)
+            or (
+                "reserved_units" in source
+                and (
+                    not isinstance(source.get("reserved_units"), int)
+                    or isinstance(source.get("reserved_units"), bool)
+                    or source.get("reserved_units", -1) < 0
+                )
+            )
+            or (
+                "reserved_check_digest" in source
+                and (
+                    not isinstance(source.get("reserved_check_digest"), str)
+                    or source.get("reserved_check_digest")
+                    and not re.fullmatch(
+                        r"[0-9a-f]{64}", source.get("reserved_check_digest", "")
+                    )
+                )
+            )
+            or (reserved_units == 0) != (reserved_digest == "")
         ):
             return {}
     source_count = evidence_state.get("source_count")
@@ -189,5 +223,6 @@ def fresh_external_state(
         "browser_calls": 0,
         "browser_seconds": 0.0,
         "browser_running": {},
+        "browser_attempts": {},
         "last_browser_error": "",
     }

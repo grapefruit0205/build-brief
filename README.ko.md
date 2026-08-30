@@ -60,7 +60,7 @@ launcher를 사용합니다. launcher는 확장 없는 단일 Bash 명령만 허
 가정하지 말고 정확한 제한은
 [`platforms/antigravity/README.md`](platforms/antigravity/README.md)를 확인하세요.
 
-## v0.23.0으로 업데이트
+## v0.24.0으로 업데이트
 
 Click을 이미 설치했다면 Git 마켓플레이스 스냅샷을 명시적으로 갱신하고 플러그인을 다시 설치해야 이번 버전이 적용됩니다.
 
@@ -69,7 +69,7 @@ codex plugin marketplace upgrade click
 codex plugin add click@click
 ```
 
-ChatGPT 데스크톱 앱을 다시 시작하고 갱신된 Click Hook을 검토해 신뢰한 뒤 새 작업을 시작합니다. 기존 모드 설정은 대상 저장소 밖에 그대로 유지됩니다. v0.23.0은 공통 shell-free 프로세스 실행, child group 격리·종료, 제한된 출력 복사를 `click_process.py`로 옮기며, 실행 파일 신뢰·Git/SSH 정책·계약·증거 의미는 gate에 그대로 둡니다. `click-gate`를 직접 호출한다면 계속 verify 프로토콜 버전 `2`를 사용하고 모든 check에 승인된 argv `evidence_id`를 넣으며, `pass`에는 발급된 `contract_id`만 전달하고 `done_when`은 구조화된 증거 참조를 사용합니다. 예전 설치가 만든 실행 대기 중 runner 명령은 재사용하지 말고, 갱신된 Hook이 새 명령을 발급하게 합니다.
+ChatGPT 데스크톱 앱을 다시 시작하고 갱신된 Click Hook을 검토해 신뢰한 뒤 새 작업을 시작합니다. 기존 모드 설정은 대상 저장소 밖에 그대로 유지됩니다. v0.24.0은 v0.23.0에서 도입한 공통 `click_process.py` 경계 위에 내용 비저장 evidence registry·ledger 동작을 `click_evidence.py`로 분리하고 Codex와 생성된 Antigravity 배포본에 함께 적용합니다. 일반 anti-loop 허용 여부도 현재 revision의 증거를 따릅니다. 필요한 첫 전체 inventory 한 번은 허용하고, evidence별 정확한 argv check 묶음을 하나의 누적 예산에 예약하며, active 계약·revision·보호된 Git tree·check·환경·실행 파일 지문이 모두 같은 성공 receipt만 재사용하고, 정규화된 Browser 입력의 중복을 막습니다. `click-gate`를 직접 호출한다면 계속 verify 프로토콜 버전 `2`를 사용하고 모든 check에 승인된 argv `evidence_id`를 넣으며, `pass`에는 발급된 `contract_id`만 전달하고 `done_when`은 구조화된 증거 참조를 사용합니다. 예전 설치가 만든 실행 대기 중 runner 명령은 재사용하지 말고, 갱신된 Hook이 새 명령을 발급하게 합니다.
 
 나중에 “Click을 Always ON으로 설정해줘” 또는 “Click을 Manual로 설정해줘”라고 바꿀 수 있고, 이 설정은 대상 저장소 밖에 유지됩니다. 정확히 한 turn만 우회하려면 사용자 프롬프트 첫 줄에 `@Click bypass` 또는 자동완성 형식인 `[@Click](plugin://click@click) bypass`를 씁니다. Hook은 같은 turn의 `click-gate bypass` 한 번만 승인하고 active 계약은 그대로 보존합니다. active 계약을 버릴 때는 같은 형식의 `cancel` 명령으로 `click-gate cancel` 한 번을 승인합니다. `@Click` 이름과 명령의 대소문자는 구분하지 않지만 plugin URI는 정확히 일치해야 하며, 명령 줄에 다른 문구를 붙일 수 없습니다. 실제 작업 내용은 둘째 줄부터 이어서 쓸 수 있습니다. 두 권한은 재사용하거나 다음 turn으로 가져갈 수 없습니다. Click은 프로젝트 안에 설정이나 계약 파일을 만들지 않습니다.
 
@@ -92,6 +92,10 @@ Build Brief 0.8이라면 첫 번째 명령을 `codex plugin remove build-brief@b
 ## v0.21.0의 증거별 완료 판정
 
 v0.21은 계약에 선언한 모든 완료 증거를 현재 코드 revision의 Hook 상태와 연결합니다. local argv check는 자신이 증명하는 승인된 evidence ID를 지정하고, 성공한 Browser 작업은 관찰된 뒤 명시적으로 finalize됩니다. hosted·manual·existing은 Hook이 외부 사실을 독립적으로 증명하는 것이 아니라 명시적인 attestation으로 남습니다. 모든 선언 증거가 current이고 관리 서비스가 활성 상태가 아니면 즉시 완료되므로 argv 증거가 없는 계약에 무관한 local 검증 명령을 억지로 추가하지 않습니다.
+
+## v0.24.0의 증거 기반 anti-loop
+
+v0.24는 일반적인 반복 허용 여부를 raw 호출 횟수가 아니라 현재 revision에서 성공한 증거로 판단합니다. 승인된 구현과 코드 리뷰는 필요한 첫 전체 저장소 inventory를 한 번 만들 수 있고 이후에는 범위를 좁혀야 합니다. 검증은 미완료 argv 증거의 일부만 묶어 실행할 수 있지만, evidence별 정확한 check와 비용을 계약 전체에 예약하므로 여러 batch로 예산을 우회할 수 없습니다. Browser는 일반 3회·90초 상한 대신 정규화한 입력을 기준으로 성공 중복과 반복 실패를 막습니다. 내용 비저장 evidence registry·ledger 동작은 전용 `click_evidence.py` 모듈에 있으며 verify 프로토콜 버전 `2`는 그대로입니다. 역사적인 v0.23.0은 공통 process 경계를 도입했지만 이 evidence-state 규칙은 포함하지 않았습니다.
 
 ## 작동 방식
 
@@ -206,7 +210,7 @@ stage 결과는 `CLICK_CONTRACT_ID=ctr_0123456789abcdef0123456789abcdef`입니�
 | 첫 줄이 일반 또는 자동완성 `@Click bypass` | 해당 turn의 우회 한 번을 승인하고 active 계약은 유지 |
 | 첫 줄이 일반 또는 자동완성 `@Click cancel` | active 계약을 지우는 cancel 한 번을 승인 |
 
-코드 리뷰에서는 필요하면 저장소 전체 목록을 처음 한 번 확인할 수 있습니다. 성공한 뒤에는 범위를 좁혀 확인해야 하며, 동일한 성공 읽기·검색과 두 번째 저장소 전체 목록 탐색을 차단합니다. 계획 도구 반복과 프로젝트 수정도 리뷰 모드에서는 거부합니다. 발견 사항을 나중에 고쳐 달라고 요청하면 별도의 축약 구현 계약을 시작합니다.
+코드 리뷰에서는 필요하면 `rg --files` 같은 저장소 전체 목록을 처음 한 번 확인할 수 있습니다. 성공한 뒤에는 범위를 좁혀 확인해야 하며, 동일한 성공 읽기·검색과 두 번째 저장소 전체 목록 탐색을 차단합니다. 계획 도구 반복과 프로젝트 수정도 리뷰 모드에서는 거부합니다. 발견 사항을 나중에 고쳐 달라고 요청하면 별도의 축약 구현 계약을 시작합니다.
 
 인식 가능한 단순 직접 조회는 계속 편하게 쓸 수 있습니다. 애매하거나 기록해야 하는 작업은 shell 문자열을 억지로 추측하지 않고 프로그램과 인자 배열을 받는 `click-gate inspect`를 사용합니다. 리뷰 안전망은 지원되는 로컬 Hook 경로만 다루며, 숨은 추론, hosted search, matcher 밖 connector, 사용자 정의 래퍼의 반복까지 제거하지는 못합니다.
 
@@ -218,11 +222,11 @@ stage 결과는 `CLICK_CONTRACT_ID=ctr_0123456789abcdef0123456789abcdef`입니�
 | --- | --- |
 | 이미 얻은 근거 재사용 | 한 번 성공한 동일 구조화 읽기·검색은 범위 안의 코드 수정으로 근거가 오래되기 전까지 차단합니다. |
 | 병렬 계획 금지 | workflow가 armed·staged·승인 후 미완료·review 상태인 동안 이후 turn에서도 `update_plan`을 거부합니다. 사용자 승인 bypass는 그 turn의 계획만 허용하고, 현재 revision의 모든 증거 ID가 완료되고 관리 서비스가 활성 상태가 아니어야 이후 일반 계획이 다시 허용됩니다. |
-| 전체 목록 재탐색 금지 | 루트의 `rg --files`, `find .`, 루트 재귀 목록, 동등한 Git 목록 스캔을 거부하고 경로를 좁힌 확인은 허용합니다. |
+| 전체 목록 반복 금지 | 현재 코드 revision에서 첫 저장소 전체 목록은 필요할 때 허용하지만, 실행 중인 목록과 한 번 성공한 뒤의 추가 전체 스캔은 거부하고 범위를 좁힌 확인만 허용합니다. |
 | 명령 의도를 명시 | 활성 상태에서 애매한 Bash는 거부하고 조회는 `inspect`, 구현 명령은 `mutate`, 최종 검사는 `verify`를 사용하도록 안내합니다. |
-| 검증을 예산 안에 유지 | argv 근거는 `evidence_id`가 있는 구조화된 `click-gate verify` 묶음으로 실행하고 승인한 규모 안에 들어야 합니다. |
+| 검증을 예산 안에 유지 | argv 근거는 `evidence_id`별 미완료 subset으로 실행할 수 있지만, 각 ID의 정확한 검사와 비용을 계약 수명 동안 예약하고 모든 batch의 누적 예약이 승인 규모 안에 들어야 합니다. |
 | ID별 완료 기록 | 계약에 등록한 모든 증거가 현재 revision에서 완료되고 관리 서비스가 활성 상태가 아니어야 합니다. argv가 없으면 local `verify`를 요구하지 않습니다. |
-| Browser 근거 제한 | Browser MCP는 주 증거로 명시한 경우만 3회·90초 대표 세션을 허용합니다. 성공한 대표 세션 뒤 `click-gate evidence`로 그 ID를 finalize하며 긴 시간 진행과 완료 후 재호출을 거부합니다. |
+| Browser 중복 제한 | Browser MCP는 주 증거로 명시한 경우만 사용합니다. 성공한 동일 입력은 재호출하지 않고, 동일 실패는 한 번만 재시도하며, 다른 입력은 허용합니다. 호출은 직렬이고 30초 timeout·5초 wait 상한과 256개 고유 입력 상태 안전 상한을 유지합니다. |
 | 로컬 서버 수명주기 소유 | 인식 가능한 개발 서버는 `click-gate service`로 시작·종료해 Click이 정확한 격리 자식을 정리합니다. |
 | 제안과 승인 분리 | stage가 digest에 묶인 불투명 id를 발급합니다. 같은 turn의 pass와 대체 stage를 거부하고 다음 승인 turn에는 그 id만 pass합니다. |
 
@@ -252,7 +256,7 @@ Click은 현재 위험과 저장소 근거로 충분한 최소 규모를 고릅�
 
 각 증거는 `verification.evidence`에 id·`kind`·설명으로 한 번만 선언합니다. 각 `done_when` 조건은 `primary_evidence`로 충분하면서 가장 싼 증거 id 하나를 참조하며, id 하나가 여러 조건을 함께 충족해도 됩니다. Click은 현재 revision에 유효한 근거와 좁은 자동 검사를 먼저 사용하고, 더 싼 근거로 조건을 증명할 수 없을 때만 브라우저·수동·hosted·전체 suite·시간이 긴 end-to-end 검증을 사용합니다. 자동 검사 결과를 다른 화면에서 다시 증명하지 않으며 모든 조건이 가리키는 증거 ID가 현재 revision에서 완료되고 관리 서비스가 활성 상태가 아니면 즉시 멈춥니다. argv 증거가 없다면 local `verify` batch는 필요하지 않습니다.
 
-Hook은 표준 Browser MCP 경로를 구조적으로 계측합니다. 참조된 증거 하나의 `kind`가 `browser`일 때만 3회 호출·측정 시간 90초의 직렬 대표 세션을 허용하며, 30초 초과 tool timeout과 5초 초과 명시적 wait를 거부합니다. Browser 호출이 성공하면 현재 revision에서 관찰된 상태가 되고, 충분한 대표 세션을 마친 뒤 `click-gate evidence '{"version":1,"evidence_id":"E-browser"}'`로 그 ID를 finalize합니다. 성공한 Browser 호출 없이 finalize할 수 없고 완료 후 재호출도 거부합니다.
+Hook은 표준 Browser MCP 경로를 구조적으로 계측합니다. 참조된 증거 하나의 `kind`가 `browser`일 때만 직렬 호출을 허용하고, 코드의 줄바꿈·바깥 공백과 timeout 같은 비의미 메타데이터를 정규화해 같은 입력인지 판별합니다. 성공한 입력은 다시 실행하지 않으며, 동일 입력 실패는 한 번만 재시도하고, 아직 필요한 다른 입력은 허용합니다. 일반 3회·90초 상한은 없지만 단일 tool timeout은 30초, 명시적 wait는 5초로 제한하고 active 계약의 상태 크기를 위해 고유 입력 256개에서 fail-closed합니다. 한 입력이 성공해 `observed`가 된 뒤 다른 입력이 실패해도 그 성공 관찰은 사라지지 않습니다. 충분한 대표 세션을 마친 뒤 `click-gate evidence '{"version":1,"evidence_id":"E-browser"}'`로 그 ID를 finalize합니다.
 
 `hosted`·`manual`·`existing` 증거도 실제 확인을 마친 뒤 같은 `click-gate evidence` 요청으로 완료 사실을 명시적으로 확인 기록(attestation)합니다. 이는 어떤 ID를 완료로 기록했는지 구조적으로 남기지만, matcher 밖 hosted 실행이나 수동 판단의 진실성을 Hook이 독립적으로 증명한다는 뜻은 아닙니다. `argv` ID는 이 attestation 경로에서 거부되며 반드시 해당 `evidence_id`가 결합된 `verify` check의 실제 성공으로만 완료됩니다. 이후 mutation은 모든 ID의 현재 완료 상태와 Browser 수집 상태를 stale로 만듭니다. 외부 상태에는 evidence ID 원문 대신 해시만 저장합니다.
 
@@ -264,15 +268,17 @@ Hook은 표준 Browser MCP 경로를 구조적으로 계측합니다. 참조된 
 
 `targeted` 검사는 1단위, `broad` 검사는 3단위, `deep` 검사는 5단위입니다. 제출한 값을 그대로 비용으로 믿지 않습니다. Hook은 runner 종류를 먼저 찾고 실제 범위를 따로 추론합니다. 정확한 파일이나 test node 하나는 targeted일 수 있지만 `-k`·regex filter, 여러 파일·package, directory, 전체 suite는 최소 broad입니다. integration·security node 하나는 broad이고 해당 suite 전체는 deep입니다. 더 낮게 제출한 검사는 자동으로 올린 뒤 총비용을 계산합니다. 상한일 뿐 반드시 모두 쓸 목표가 아닙니다.
 
-Click은 아직 완료되지 않은 argv 증거를 한 batch에 모두 포함하고 각 check에 해당 ID를 명시해 다음 runner에 전달합니다. 같은 증거에 여러 check가 필요하면 같은 `evidence_id`를 인접하게 사용하며 모두 성공해야 그 ID가 완료됩니다.
+Click은 아직 완료되지 않은 argv 증거의 비어 있지 않은 subset을 batch로 실행할 수 있습니다. 각 증거 ID를 처음 제출할 때 정규화한 정확한 check digest와 비용 단위를 계약 수명 동안 예약하며, 나중 batch로 나누어도 모든 ID의 누적 예약 비용이 승인 규모를 넘을 수 없습니다. 같은 증거에 여러 check가 필요하면 같은 `evidence_id`를 인접하게 사용하며 모두 성공해야 그 ID가 완료됩니다.
 
 ```text
 click-gate verify '{"version":2,"checks":[{"evidence_id":"E1","argv":["python3","-m","unittest","discover","-s","tests","-q"],"class":"broad"},{"evidence_id":"E2","argv":["git","diff","--check"],"class":"targeted"}]}'
 ```
 
-각 check의 `evidence_id`는 승인된 registry의 `kind: "argv"` 항목 하나와 정확히 결합되어야 합니다. Hook은 제출한 class를 검증·정규화하고 승인된 묶음을 shell 없이 실행해 실제 종료 코드를 ID별로 기록합니다. ID가 빠졌거나 등록되지 않았거나 argv가 아닌 kind를 가리키면 거부합니다. Python 검증은 pytest·unittest·coverage의 명시적 module runner를 받으며 Windows의 `py -3 -m ...`도 지원하지만, Python `-c`와 직접 Python 스크립트는 거부합니다. 정확한 파일을 지정한 `node --check`·`node --test`, `uv run pytest`, `npm run lint`, `npm run build`, `ruff check`, `mypy`, `tsc --noEmit`, `cargo check`, `cargo clippy`, `go vet` 같은 형태도 인식해 실제 범위에 맞춰 계산합니다. 전체 `node --test`는 broad이며 Node eval·print는 검증으로 받지 않습니다. 예전 shell 문자열 `commands`와 `evidence_id`가 없는 verify v1 check는 migration 안내와 함께 거부합니다. 일시적인 실패라면 해당 ID를 변경 없이 한 번 재시도할 수 있고, 그 뒤에는 범위 안의 수정이 필요합니다. 이후 소스를 수정하면 앞선 성공 결과가 오래된 것으로 간주되어 같은 ID를 다시 실행할 수 있습니다.
+각 check의 `evidence_id`는 승인된 registry의 `kind: "argv"` 항목 하나와 정확히 결합되어야 합니다. Hook은 제출한 class를 검증·정규화하고 승인된 묶음을 shell 없이 실행해 실제 종료 코드를 ID별로 기록합니다. ID가 빠졌거나 등록되지 않았거나 argv가 아닌 kind를 가리키면 거부합니다. Python 검증은 pytest·unittest·coverage의 명시적 module runner를 받으며 Windows의 `py -3 -m ...`도 지원하지만, Python `-c`와 직접 Python 스크립트는 거부합니다. 정확한 파일을 지정한 `node --check`·`node --test`, `uv run pytest`, `npm run lint`, `npm run build`, `ruff check`, `mypy`, `tsc --noEmit`, `cargo check`, `cargo clippy`, `go vet` 같은 형태도 인식해 실제 범위에 맞춰 계산합니다. 전체 `node --test`는 broad이며 Node eval·print는 검증으로 받지 않습니다. 예전 shell 문자열 `commands`와 `evidence_id`가 없는 verify v1 check는 migration 안내와 함께 거부합니다. 일시적인 실패라면 해당 ID를 변경 없이 한 번 재시도할 수 있고, 그 뒤에는 범위 안의 수정이 필요합니다. 이후 mutation은 앞선 성공을 stale로 만들며 트리가 우연히 같아도 새 revision으로 자동 승격하지 않습니다.
 
-실행되지 않은 verification 예약만 만료 후 재시도할 수 있습니다. 이미 claim된 batch는 결과를 기록하거나 사용자가 취소할 때까지 running입니다. Git worktree에서는 batch 전의 tracked content와 기존 **non-ignored untracked** content를 snapshot하며, 최초 snapshot을 만들지 못하면 어떤 check도 실행하지 않습니다. 보호한 내용이 바뀌거나 새 non-ignored untracked 경로가 생기면 거짓 성공을 기록하지 않고 stale 실패시키며 mutation revision을 올립니다. 예상 산출물은 Git ignore 대상으로 두거나 승인된 mutation 단계에서 미리 생성해야 합니다. Git 밖에서는 content-diff 안전망을 사용할 수 없지만 argv 검증, shell 없는 실행, revision 상태 검사는 계속 적용됩니다.
+이미 성공한 같은 check가 다시 제출되면 실제 명령보다 먼저 receipt를 확인합니다. 같은 active mutation revision·계약 digest·check digest·예약 비용·Git root·보호된 Git tree·정규화한 전체 실행 환경·실행 파일 내용 지문이 모두 같을 때만 runner를 `echo`로 바꿔 재실행을 생략합니다. Git 밖이거나 receipt가 없거나 하나라도 달라지면 검사를 다시 실행합니다. 이 최적화는 Git이 보는 tracked 및 non-ignored untracked 코드 상태를 대상으로 하므로 ignored dependency, 외부 서비스, 수동 변경까지 증명하지 않으며 새 mutation revision의 stale 증거를 되살리지 않습니다.
+
+실행되지 않은 verification 예약만 만료 후 재시도할 수 있습니다. 이미 claim된 batch는 결과를 기록하거나 사용자가 취소할 때까지 running입니다. Git worktree에서는 batch 전의 tracked content와 기존 **non-ignored untracked** content를 snapshot하며, 최초 snapshot을 만들지 못하면 어떤 check도 실행하지 않습니다. 보호한 내용이 바뀌거나 새 non-ignored untracked 경로가 생기면 거짓 성공을 기록하지 않고 stale 실패시키며 mutation revision을 올립니다. 예상 산출물은 Git ignore 대상으로 두거나 승인된 mutation 단계에서 미리 생성해야 합니다. Git-ignored 경로와 외부 dependency·서비스는 이 tree digest 밖에 있습니다. Git 밖에서는 content-diff 안전망과 receipt 재사용을 사용할 수 없지만 argv 검증, shell 없는 실행, revision 상태 검사는 계속 적용됩니다.
 
 최소 class 추론은 단순한 비용 축소 제출을 막습니다. 알 수 없는 검증형 이름의 사용자 정의 래퍼는 보수적으로 `deep`으로 계산하고 인식하지 못한 명령은 거부하지만, 허용된 프로그램 내부에 비싼 작업을 숨길 가능성까지 측정하지는 못합니다. 따라서 보안·자원 샌드박스가 아니며 선택한 테스트의 의미가 충분하다고 증명하지도 않습니다.
 
@@ -311,7 +317,7 @@ Click의 핵심 대상은 다음 두 그룹입니다.
 
 ## 근거와 솔직한 한계
 
-현재 공개 릴리스 v0.23.0은 결정적 suite를 release gate로 사용합니다. 영구 모드, turn 분리 승인, active-contract 잠금, 읽기·계획 anti-loop, ID가 결합된 argv 검증, 증거별 현재 revision 완료, Browser 수집 후 finalize, 외부 attestation의 정직한 한계, 관리형 서버 one-use launch claim과 종료, 저장소 제외 실행 파일 해석, state-root binding, 실행 전 runner claim, 강화된 Git 조회, Git snapshot fail-closed, process 격리, 검증 중 workspace 변경 감지, 공통 state 저장·process mechanics 경계, source·배포본의 sibling-only 시작, 배포 일관성, 저장소 정책을 검증 대상으로 둡니다.
+v0.24.0을 발행하려면 결정적 suite가 영구 모드, turn 분리 승인, active-contract 잠금, 읽기·계획 anti-loop, ID가 결합된 argv 검증, 증거별 현재 revision 완료, 첫 성공 전체 inventory 허용, evidence별 누적 예약, 현재 revision의 정확한 receipt 재사용, Browser 입력 중복 제거, 외부 attestation의 정직한 한계, 관리형 서버 one-use launch claim과 종료, 저장소 제외 실행 파일 해석, state-root binding, 실행 전 runner claim, 강화된 Git 조회, Git snapshot fail-closed, process 격리, 검증 중 workspace 변경 감지, 공통 state 저장·process mechanics·내용 비저장 evidence-ledger 경계, source·배포본의 sibling-only 시작, 배포 일관성, 저장소 정책을 검증해야 합니다. 필수 CI는 Linux·macOS·Windows에서 suite를 실행하도록 구성되어 있고, Ubuntu에서는 plugin·marketplace·Click/Fix Skill·Python compilation·whitespace 오류도 검사합니다.
 
 저장소에는 결정적 fixture 기반 정책 검토를 위한 version-18 golden case와 의미 grader도 포함되어 있습니다. 이 자료는 계약 형식과 기대 동작을 검사하며 runtime 생산성을 측정하지 않습니다.
 

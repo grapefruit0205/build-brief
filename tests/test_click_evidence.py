@@ -79,6 +79,10 @@ class ClickEvidenceTests(unittest.TestCase):
             ledger["registry_digest"],
             click_evidence.registry_digest(ledger["sources"]),
         )
+        argv_source = ledger["sources"][click_evidence.evidence_key("E1")]
+        self.assertEqual(argv_source["reserved_units"], 0)
+        self.assertEqual(argv_source["reserved_check_digest"], "")
+        self.assertEqual(argv_source["verified_tree_digest"], "")
 
     def test_browser_registry_and_external_state_remain_content_free(self) -> None:
         self.assertEqual(
@@ -138,7 +142,32 @@ class ClickEvidenceTests(unittest.TestCase):
         first = next(iter(wrong_kind["evidence_state"]["sources"].values()))
         first["kind"] = "unknown"
 
-        for state in (wrong_count, wrong_digest, wrong_kind):
+        wrong_reservation = copy.deepcopy(valid)
+        reservation_source = next(
+            iter(wrong_reservation["evidence_state"]["sources"].values())
+        )
+        reservation_source["reserved_units"] = "cheap"
+
+        units_without_digest = copy.deepcopy(valid)
+        reservation_source = next(
+            iter(units_without_digest["evidence_state"]["sources"].values())
+        )
+        reservation_source["reserved_units"] = 1
+
+        digest_without_units = copy.deepcopy(valid)
+        reservation_source = next(
+            iter(digest_without_units["evidence_state"]["sources"].values())
+        )
+        reservation_source["reserved_check_digest"] = "a" * 64
+
+        for state in (
+            wrong_count,
+            wrong_digest,
+            wrong_kind,
+            wrong_reservation,
+            units_without_digest,
+            digest_without_units,
+        ):
             with self.subTest(state=state):
                 self.assertEqual(
                     click_evidence.sources_from_state(
