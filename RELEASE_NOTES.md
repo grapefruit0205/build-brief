@@ -35,6 +35,9 @@ execution guards, and verification-time mutation detection remain fail-closed.
   canonical execution environment, and resolved executable fingerprint still
   match. A new mutation revision never auto-promotes stale evidence; non-Git
   worktrees and missing or mismatched receipts rerun the check.
+- Canonical environment fingerprints exclude launcher-owned shell bookkeeping
+  while retaining project/user variables. This prevents unchanged receipts
+  from rerunning solely because macOS or Windows added transient shell state.
 
 ### Browser input deduplication
 

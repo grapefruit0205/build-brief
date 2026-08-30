@@ -1520,9 +1520,18 @@ def _file_content_digest(path: Path) -> str:
 
 
 def _verification_environment(*, cwd: Path) -> dict[str, str]:
+    # Shell launchers add bookkeeping variables that do not change check
+    # semantics and are not stable across the Hook process and its rewritten
+    # runner. Keep user/project variables fingerprinted, but canonicalize these
+    # launcher-owned values so an unchanged receipt remains portable.
     volatile = {
         "_",
+        "__CF_USER_TEXT_ENCODING",
+        "CMDCMDLINE",
+        "COMMAND_MODE",
+        "LC_CTYPE",
         "OLDPWD",
+        "PROMPT",
         "PROMPT_COMMAND",
         "PS1",
         "PS2",
@@ -1531,7 +1540,7 @@ def _verification_environment(*, cwd: Path) -> dict[str, str]:
     environment = {
         str(key): str(value)
         for key, value in os.environ.items()
-        if str(key).upper() not in volatile
+        if str(key).upper() not in volatile and not str(key).startswith("=")
     }
     environment["PWD"] = str(cwd.resolve())
     return environment

@@ -1738,13 +1738,14 @@ class ClickGateTests(unittest.TestCase):
         self.assertEqual(state["approved_turn_id"], "turn-2")
 
     def test_incomplete_approved_contract_allows_one_later_turn_root_inventory(self) -> None:
+        self.initialize_git("verification_fixture.py")
         self.set_default("manual", "turn-0")
         self.arm_gate("turn-1")
         self.stage_gate(turn_id="turn-1")
         self.arm_gate("turn-2")
         self.pass_gate(turn_id="turn-2")
 
-        first = self.pre_tool("Bash", "rg --files", turn_id="turn-3")
+        first = self.pre_tool("Bash", "git ls-files", turn_id="turn-3")
         self.assertEqual(first["hookSpecificOutput"]["permissionDecision"], "allow")
         parallel = self.pre_tool(
             "Bash", "find . -maxdepth 2 -type f", turn_id="turn-3"
@@ -2770,7 +2771,9 @@ class ClickGateTests(unittest.TestCase):
         )
         self.assertIn(
             "run-verification",
-            stale_retry["hookSpecificOutput"]["updatedInput"]["command"],
+            split_runner_command(
+                stale_retry["hookSpecificOutput"]["updatedInput"]["command"]
+            ),
         )
 
     def test_current_receipt_reruns_when_the_git_tree_changes_out_of_band(self) -> None:
@@ -2794,7 +2797,9 @@ class ClickGateTests(unittest.TestCase):
         )
         self.assertIn(
             "run-verification",
-            repeated["hookSpecificOutput"]["updatedInput"]["command"],
+            split_runner_command(
+                repeated["hookSpecificOutput"]["updatedInput"]["command"]
+            ),
         )
         state_path = next(
             (self.plugin_data / "gate-state").glob("session-contract-*.json")
@@ -2819,8 +2824,34 @@ class ClickGateTests(unittest.TestCase):
         )
         self.assertIn(
             "run-verification",
-            repeated["hookSpecificOutput"]["updatedInput"]["command"],
+            split_runner_command(
+                repeated["hookSpecificOutput"]["updatedInput"]["command"]
+            ),
         )
+
+    def test_verification_environment_ignores_shell_bookkeeping(self) -> None:
+        stable = {
+            "PATH": os.environ.get("PATH", os.defpath),
+            "CLICK_TEST_ENVIRONMENT": "stable",
+        }
+        with mock.patch.object(CLICK_GATE.os, "environ", stable):
+            expected = CLICK_GATE._verification_environment(cwd=self.workspace)
+        noisy = {
+            **stable,
+            "_": "launcher",
+            "__CF_USER_TEXT_ENCODING": "0x1F5:0x0:0x0",
+            "CMDCMDLINE": "cmd.exe /c runner",
+            "COMMAND_MODE": "unix2003",
+            "LC_CTYPE": "UTF-8",
+            "PROMPT": "$P$G",
+            "SHLVL": "2",
+            "=C:": "C:\\runner",
+        }
+        with mock.patch.object(CLICK_GATE.os, "environ", noisy):
+            actual = CLICK_GATE._verification_environment(cwd=self.workspace)
+
+        self.assertEqual(actual, expected)
+        self.assertEqual(actual["CLICK_TEST_ENVIRONMENT"], "stable")
 
     def test_receipt_fingerprint_resolves_relative_path_from_runner_cwd(self) -> None:
         tools = self.workspace / "tools"
@@ -3631,8 +3662,9 @@ class ClickGateTests(unittest.TestCase):
         (self.workspace / "threshold.txt").write_text(
             "threshold\n", encoding="utf-8"
         )
+        self.initialize_git("threshold.txt", "verification_fixture.py")
         self.approve_contract()
-        first = self.pre_tool("Bash", "rg --files", "turn-2")
+        first = self.pre_tool("Bash", "git ls-files", "turn-2")
         self.assertEqual(first["hookSpecificOutput"]["permissionDecision"], "allow")
         parallel = self.pre_tool(
             "Bash", "find . -maxdepth 2 -type f", "turn-2"
@@ -3656,8 +3688,8 @@ class ClickGateTests(unittest.TestCase):
         )
 
         for command in (
-            "rg --files src",
-            "find src -type f",
+            "git ls-files -- src",
+            "git ls-tree -r HEAD -- src",
         ):
             with self.subTest(command=command):
                 payload = self.pre_tool("Bash", command, "turn-2")
@@ -3666,7 +3698,9 @@ class ClickGateTests(unittest.TestCase):
                 )
                 self.run_rewritten(payload)
 
-        targeted = self.pre_tool("Bash", "rg threshold .", "turn-2")
+        targeted = self.pre_tool(
+            "Bash", "Get-Content -Raw threshold.txt", "turn-2"
+        )
         self.assertEqual(
             targeted["hookSpecificOutput"]["permissionDecision"], "allow"
         )
@@ -3675,7 +3709,7 @@ class ClickGateTests(unittest.TestCase):
         self.assertIsNone(
             self.pre_tool("apply_patch", "*** Begin Patch\n*** End Patch", "turn-2")
         )
-        after_mutation = self.pre_tool("Bash", "rg --files", "turn-2")
+        after_mutation = self.pre_tool("Bash", "git ls-files", "turn-2")
         self.assertEqual(
             after_mutation["hookSpecificOutput"]["permissionDecision"], "allow"
         )
