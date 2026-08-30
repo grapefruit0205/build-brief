@@ -158,7 +158,7 @@ MAX_BROWSER_UNIQUE_INPUTS = 256
 MAX_BROWSER_TOOL_TIMEOUT_MS = 30_000
 MAX_BROWSER_WAIT_MS = 5_000
 BROWSER_RUNNING_TTL_SECONDS = 40
-OBSERVATION_RUNNING_TTL_SECONDS = 10 * 60
+OBSERVATION_RESERVATION_TTL_SECONDS = 30
 MUTATION_RUNNING_TTL_SECONDS = 10 * 60
 VERIFY_RUNNING_TTL_SECONDS = 60 * 60
 EPHEMERAL_STATE_TTL_SECONDS = 7 * 24 * 60 * 60
@@ -642,6 +642,24 @@ def _unclaimed_reservation_is_fresh(value: Any, ttl_seconds: int) -> bool:
     return 0 <= age <= ttl_seconds
 
 
+def _observation_is_running(entry: Any) -> bool:
+    if not isinstance(entry, dict) or entry.get("status") != "running":
+        return False
+    claimed_at = entry.get("runner_claimed_at", 0)
+    if not isinstance(claimed_at, int) or isinstance(claimed_at, bool):
+        return True
+    if claimed_at > 0:
+        return True
+    started_at = entry.get("started_at", 0)
+    if not isinstance(started_at, int) or isinstance(started_at, bool):
+        return True
+    if started_at <= 0 or time.time() < started_at:
+        return True
+    return _unclaimed_reservation_is_fresh(
+        started_at, OBSERVATION_RESERVATION_TTL_SECONDS
+    )
+
+
 def _write_review_state(event: dict[str, Any]) -> None:
     _write_json(
         _review_path(event),
@@ -887,12 +905,8 @@ def _mark_contract_mutated(event: dict[str, Any]) -> str:
     if isinstance(observations, dict):
         entries = observations.get("entries")
         if isinstance(entries, dict):
-            now = time.time()
             for entry in entries.values():
-                if not isinstance(entry, dict) or entry.get("status") != "running":
-                    continue
-                started_at = int(entry.get("started_at", 0))
-                if started_at and now - started_at <= OBSERVATION_RUNNING_TTL_SECONDS:
+                if _observation_is_running(entry):
                     return (
                         "Click blocked this mutation while an approved read or search is "
                         "running. Wait for that evidence before changing the implementation."
@@ -1541,6 +1555,7 @@ def _verification_environment(*, cwd: Path) -> dict[str, str]:
         "PS1",
         "PS2",
         "PLUGIN_DATA",
+        "PLUGIN_ROOT",
         "SHLVL",
     }
     environment = {
@@ -2518,18 +2533,13 @@ def _prepare_observation(
                     "inventory. Narrow the next read or search instead of rescanning "
                     "the whole repository.",
                 )
-            if existing_status == "running":
-                started_at = int(existing.get("started_at", 0))
-                if (
-                    started_at
-                    and time.time() - started_at <= OBSERVATION_RUNNING_TTL_SECONDS
-                ):
-                    return (
-                        "",
-                        "One repository-wide inventory is already running for the "
-                        "current revision. Wait for it instead of starting a parallel "
-                        "rescan.",
-                    )
+            if existing_status == "running" and _observation_is_running(existing):
+                return (
+                    "",
+                    "One repository-wide inventory is already running for the "
+                    "current revision. Wait for it instead of starting a parallel "
+                    "rescan.",
+                )
 
     prior = entries.get(digest)
     unchanged_retries = 0
@@ -2544,8 +2554,7 @@ def _prepare_observation(
                 "or issue a narrower, materially different query.",
             )
         if status == "running":
-            started_at = int(prior.get("started_at", 0))
-            if started_at and time.time() - started_at <= OBSERVATION_RUNNING_TTL_SECONDS:
+            if _observation_is_running(prior):
                 return "", "The identical Click read or search is already running."
             status = "failed"
         if status in {"failed", "incomplete"}:
@@ -2566,6 +2575,7 @@ def _prepare_observation(
         else 1,
         "unchanged_retries": unchanged_retries,
         "runner_token_digest": hashlib.sha256(runner_token.encode()).hexdigest(),
+        "runner_claimed_at": 0,
         "started_at": int(time.time()),
         "last_exit_code": None,
         "output_bytes": 0,
@@ -2864,12 +2874,8 @@ def _prepare_verification(
     if isinstance(observations, dict):
         entries = observations.get("entries")
         if isinstance(entries, dict):
-            now = time.time()
             for entry in entries.values():
-                if not isinstance(entry, dict) or entry.get("status") != "running":
-                    continue
-                started_at = int(entry.get("started_at", 0))
-                if started_at and now - started_at <= OBSERVATION_RUNNING_TTL_SECONDS:
+                if _observation_is_running(entry):
                     return (
                         "",
                         "Wait for the approved read or search to finish before starting "
@@ -4517,6 +4523,74 @@ def _record_verification_result(
     return True
 
 
+def _claim_observation_run(
+    path: Path, raw: str, command_digest: str, runner_token: str
+) -> tuple[dict[str, Any] | None, str]:
+    """Atomically authorize one observation runner before any read executes."""
+    if not _managed_observation_path(path):
+        return None, "Click observation runner received an unmanaged state path."
+    try:
+        state = json.loads(path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return None, "Click observation runner could not read its managed state."
+    status = state.get("status")
+    if status not in {"approved", "review"}:
+        return None, "Click observation runner is no longer authorized to execute."
+    observations = state.get("observations")
+    if not isinstance(observations, dict):
+        return None, "Click observation state is unavailable or malformed."
+    entries = observations.get("entries")
+    if not isinstance(entries, dict):
+        return None, "Click observation state is unavailable or malformed."
+    entry = entries.get(command_digest)
+    if not isinstance(entry, dict) or entry.get("status") != "running":
+        return None, "Click observation runner is no longer authorized to execute."
+
+    expected_revision = 0
+    if status == "approved":
+        verification = state.get("verification")
+        if not isinstance(verification, dict):
+            return None, "Click observation revision state is unavailable."
+        mutation_revision = verification.get("mutation_revision", 0)
+        if not isinstance(mutation_revision, int) or isinstance(
+            mutation_revision, bool
+        ):
+            return None, "Click observation revision state is malformed."
+        expected_revision = mutation_revision
+    if entry.get("revision") != expected_revision:
+        return None, "Click observation runner revision is stale."
+
+    token_digest = hashlib.sha256(runner_token.encode()).hexdigest()
+    if not secrets.compare_digest(
+        str(entry.get("runner_token_digest", "")), token_digest
+    ):
+        return None, "Click observation runner token did not match active state."
+    claimed_at = entry.get("runner_claimed_at", 0)
+    if not isinstance(claimed_at, int) or isinstance(claimed_at, bool):
+        return None, "Click observation runner claim state is malformed."
+    if claimed_at:
+        return None, "Click observation runner was already claimed; replay is blocked."
+    if not _unclaimed_reservation_is_fresh(
+        entry.get("started_at", 0), OBSERVATION_RESERVATION_TTL_SECONDS
+    ):
+        return None, "Click observation runner authorization expired before execution."
+
+    request, _, error = _validate_inspection_request(raw)
+    if error:
+        return None, error
+    assert request is not None
+    if _capability_digest(request) != command_digest:
+        return None, "Click observation runner request digest did not match."
+
+    entry["runner_claimed_at"] = int(time.time()) or 1
+    entries[command_digest] = entry
+    observations["entries"] = entries
+    state["observations"] = observations
+    state["updated_at"] = int(time.time())
+    _write_json(path, state)
+    return request, ""
+
+
 def _record_observation_result(
     path: Path,
     command_digest: str,
@@ -4547,8 +4621,16 @@ def _record_observation_result(
         str(entry.get("runner_token_digest", "")), token_digest
     ):
         return False
+    claimed_at = entry.get("runner_claimed_at", 0)
+    if (
+        not isinstance(claimed_at, int)
+        or isinstance(claimed_at, bool)
+        or claimed_at <= 0
+    ):
+        return False
 
     entry["runner_token_digest"] = ""
+    entry["runner_claimed_at"] = 0
     entry["started_at"] = 0
     entry["last_exit_code"] = exit_code
     entry["output_bytes"] = output_bytes
@@ -4993,6 +5075,7 @@ def _run_inspection_request(
     request: dict[str, Any], state_result: tuple[Path, str, str] | None = None
 ) -> int:
     commands = request["commands"]
+    recorded_result = False
     try:
         with tempfile.TemporaryFile() as stdout_file, tempfile.TemporaryFile() as stderr_file:
             exit_code = _execute_inspection_commands(commands, stdout_file, stderr_file)
@@ -5015,6 +5098,7 @@ def _run_inspection_request(
                 if not recorded:
                     sys.stderr.write("Click could not record the observation result safely.\n")
                     return exit_code or 2
+                recorded_result = True
 
             stdout_file.seek(0)
             stderr_file.seek(0)
@@ -5035,6 +5119,19 @@ def _run_inspection_request(
                     "paginate the next command; one unchanged retry is available.\n"
                 )
     except OSError as exc:
+        if state_result is not None and not recorded_result:
+            state_path, request_digest, runner_token = state_result
+            with _state_lock():
+                recorded = _record_observation_result(
+                    state_path,
+                    request_digest,
+                    runner_token,
+                    127,
+                    0,
+                    False,
+                )
+            if not recorded:
+                sys.stderr.write("Click could not record the observation failure safely.\n")
         sys.stderr.write(f"Click observation runner failed: {exc}\n")
         return 127
     return exit_code
@@ -5063,22 +5160,19 @@ def _run_observation(arguments: list[str]) -> int:
         )
         return 2
     state_path = Path(arguments[0])
-    if not _managed_observation_path(state_path):
-        sys.stderr.write("Click observation runner received an unmanaged state path.\n")
-        return 2
     request_digest, runner_token, encoded = arguments[1:]
     raw, error = _decode_encoded_request(encoded, "observation")
     if error:
         sys.stderr.write(f"{error}\n")
         return 2
-    request, _, error = _validate_inspection_request(raw)
+    with _state_lock():
+        request, error = _claim_observation_run(
+            state_path, raw, request_digest, runner_token
+        )
     if error:
         sys.stderr.write(f"{error}\n")
         return 2
     assert request is not None
-    if _capability_digest(request) != request_digest:
-        sys.stderr.write("Click observation runner request digest did not match.\n")
-        return 2
     return _run_inspection_request(
         request, (state_path, request_digest, runner_token)
     )
@@ -5215,10 +5309,20 @@ def _managed_observation_path(path: Path) -> bool:
 def _service_snapshot(path: Path, service_id: str) -> dict[str, Any] | None:
     if not _managed_contract_path(path):
         return None
-    try:
-        state = json.loads(path.read_text(encoding="utf-8"))
-    except (FileNotFoundError, json.JSONDecodeError, OSError):
-        return None
+    state: Any = None
+    for attempt in range(5):
+        try:
+            state = json.loads(path.read_text(encoding="utf-8"))
+            break
+        except PermissionError:
+            # Windows may briefly deny a reader while another process replaces
+            # the state file. Do not mistake that sharing collision for a
+            # missing or stopped managed service.
+            if attempt == 4:
+                return None
+            time.sleep(0.02)
+        except (FileNotFoundError, json.JSONDecodeError, OSError):
+            return None
     if not isinstance(state, dict) or state.get("status") != "approved":
         return None
     service = state.get("service")
@@ -5509,7 +5613,11 @@ def _run_service_stop(arguments: list[str]) -> int:
     deadline = time.monotonic() + SERVICE_STOP_TIMEOUT_SECONDS
     while time.monotonic() < deadline:
         snapshot = _service_snapshot(state_path, service_id)
-        if snapshot is None or snapshot.get("status") in {"failed", "idle", "stopped"}:
+        if snapshot is not None and snapshot.get("status") in {
+            "failed",
+            "idle",
+            "stopped",
+        }:
             sys.stdout.write("Click managed service stopped\n")
             return 0
         time.sleep(0.05)
@@ -5814,6 +5922,69 @@ def _claim_verification_run(
     return batch, ""
 
 
+def _release_unclaimed_verification_reservation(
+    state_path: Path, batch_digest: str, runner_token: str
+) -> bool:
+    """Release one authenticated reservation when admission failed pre-check."""
+    if not _managed_contract_path(state_path):
+        return False
+    try:
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return False
+    if not isinstance(state, dict) or state.get("status") != "approved":
+        return False
+    verification = state.get("verification")
+    if not isinstance(verification, dict) or verification.get("status") != "running":
+        return False
+    if verification.get("last_batch_digest") != batch_digest:
+        return False
+    token_digest = hashlib.sha256(runner_token.encode()).hexdigest()
+    if not secrets.compare_digest(
+        str(verification.get("runner_token_digest", "")), token_digest
+    ):
+        return False
+    claimed_at = verification.get("runner_claimed_at", 0)
+    if (
+        not isinstance(claimed_at, int)
+        or isinstance(claimed_at, bool)
+        or claimed_at != 0
+    ):
+        return False
+    sources = _evidence_sources(state)
+    if sources is None or not sources:
+        return False
+    running_keys = verification.get("running_evidence_keys")
+    if not isinstance(running_keys, list) or not running_keys:
+        return False
+    for source_key in running_keys:
+        source = sources.get(source_key) if isinstance(source_key, str) else None
+        if not isinstance(source, dict) or source.get("status") != "running":
+            return False
+
+    for source_key in running_keys:
+        source = sources[source_key]
+        source["status"] = "ready"
+        source["last_exit_code"] = None
+    verification.update(
+        {
+            "status": "ready",
+            "runner_token_digest": "",
+            "runner_claimed_at": 0,
+            "running_evidence_keys": [],
+            "running_environment_digests": {},
+            "running_environment_binding": [],
+            "running_executable_digests": {},
+            "started_at": 0,
+            "last_exit_code": None,
+        }
+    )
+    state["verification"] = verification
+    state["updated_at"] = int(time.time())
+    _write_json(state_path, state)
+    return True
+
+
 def _run_verification(arguments: list[str]) -> int:
     if len(arguments) != 4:
         sys.stderr.write(
@@ -5830,6 +6001,10 @@ def _run_verification(arguments: list[str]) -> int:
         batch, error = _claim_verification_run(
             state_path, raw, batch_digest, runner_token
         )
+        if error:
+            _release_unclaimed_verification_reservation(
+                state_path, batch_digest, runner_token
+            )
     if error:
         sys.stderr.write(f"{error}\n")
         return 2

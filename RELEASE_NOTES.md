@@ -1,5 +1,52 @@
 # Release notes
 
+## v0.24.3 — 2026-08-30
+
+Click v0.24.3 is a focused observation-runner lifecycle hardening patch.
+Contract shape, evidence protocol, mode behavior, module boundaries, and the
+v0.24.2 Windows launcher repair remain unchanged.
+
+### Claim before read
+
+- A tracked inspection now writes an unclaimed reservation, then atomically
+  claims its managed state path, active status, current revision, exact request
+  digest, one-use token, replay state, and freshness immediately before any
+  read executes.
+- An unclaimed startup reservation expires after 30 seconds. Once claimed, a
+  synchronous read does not expire merely because time passes; it continues to
+  block mutation and final verification until the runner records its result or
+  the user explicitly cancels the contract.
+- Tampered, unmanaged, stale-revision, expired, cancelled, or replayed runners
+  execute no read. Successful, failed, and incomplete results clear the claim;
+  a safe no-child startup failure records exit 127 and releases the claim for
+  the existing bounded retry path.
+
+### Recoverable verification admission
+
+- Verification environment binding now canonicalizes the Hook-owned
+  `PLUGIN_ROOT` value as launcher bookkeeping while retaining project, user,
+  PATH, toolchain, executable, tree, and exact-check binding.
+- When verification admission fails before any check executes, the runner may
+  release only the exact digest/token-matched unclaimed reservation. Its
+  sources return to `ready` without fabricated evidence or a consumed
+  test-failure retry. Claimed, stale, unavailable, tampered, and replayed state
+  remains fail-closed.
+
+### Compatibility and release gate
+
+- Focused regressions cover claim-before-execution, replay rejection,
+  unclaimed expiry, claimed-read interlocks, startup-failure cleanup,
+  Hook-owned environment normalization, verification admission cleanup,
+  tampered/claimed fail-closed behavior, parallel result recording, and
+  existing inspection behavior on Linux, macOS, and Windows.
+- The Antigravity distribution is regenerated from the same source, while its
+  documented host limitations remain unchanged.
+- Issue #25 remains open because this patch does not claim to repair a host
+  path that does not deliver Click's matching PreToolUse event.
+- The exact merged-main commit must pass the deterministic suite on Linux,
+  macOS, and Windows plus Plugin Security Scan before the immutable `v0.24.3`
+  tag and GitHub Release are published and reinstalled.
+
 ## v0.24.2 — 2026-08-30
 
 Click v0.24.2 is a focused Windows Codex hook-launch compatibility patch.

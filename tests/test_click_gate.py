@@ -449,6 +449,12 @@ class ClickGateTests(unittest.TestCase):
             check=False,
         )
 
+    def observation_runner_arguments(self, payload: dict) -> list[str]:
+        command = payload["hookSpecificOutput"]["updatedInput"]["command"]
+        runner = split_runner_command(command)
+        action_index = runner.index("run-observation")
+        return runner[action_index + 1 :]
+
     def assert_verification_new_path_behavior(
         self,
         relative: str,
@@ -1682,6 +1688,193 @@ class ClickGateTests(unittest.TestCase):
         entries = states[0]["observations"]["entries"]
         self.assertEqual(len(entries), 2)
         self.assertEqual({entry["status"] for entry in entries.values()}, {"success"})
+
+    def test_observation_runner_claims_before_read_and_clears_claim(self) -> None:
+        self.approve_contract()
+        (self.workspace / "claim.txt").write_text("claim", encoding="utf-8")
+        payload = self.pre_tool(
+            "Bash", self.read_file_command("claim.txt"), "turn-2"
+        )
+        arguments = self.observation_runner_arguments(payload)
+        state_path = Path(arguments[0])
+
+        def execute_after_claim(*_: object, **__: object) -> int:
+            state = json.loads(state_path.read_text(encoding="utf-8"))
+            entry = next(iter(state["observations"]["entries"].values()))
+            self.assertGreater(entry["runner_claimed_at"], 0)
+            return 0
+
+        with (
+            mock.patch.dict(
+                CLICK_GATE.os.environ,
+                {
+                    "PLUGIN_DATA": str(self.plugin_data),
+                    "CLICK_CONFIG_HOME": str(self.plugin_data),
+                },
+            ),
+            mock.patch.object(
+                CLICK_GATE,
+                "_execute_inspection_commands",
+                side_effect=execute_after_claim,
+            ),
+        ):
+            self.assertEqual(CLICK_GATE._run_observation(arguments), 0)
+
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        entry = next(iter(state["observations"]["entries"].values()))
+        self.assertEqual(entry["status"], "success")
+        self.assertEqual(entry["runner_claimed_at"], 0)
+        self.assertEqual(entry["runner_token_digest"], "")
+
+        with (
+            mock.patch.dict(
+                CLICK_GATE.os.environ,
+                {
+                    "PLUGIN_DATA": str(self.plugin_data),
+                    "CLICK_CONFIG_HOME": str(self.plugin_data),
+                },
+            ),
+            mock.patch.object(CLICK_GATE, "_execute_inspection_commands") as execute,
+        ):
+            self.assertEqual(CLICK_GATE._run_observation(arguments), 2)
+        execute.assert_not_called()
+
+    def test_expired_unclaimed_observation_executes_no_read(self) -> None:
+        self.approve_contract()
+        (self.workspace / "expired.txt").write_text("expired", encoding="utf-8")
+        payload = self.pre_tool(
+            "Bash", self.read_file_command("expired.txt"), "turn-2"
+        )
+        arguments = self.observation_runner_arguments(payload)
+        state_path = Path(arguments[0])
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        entry = next(iter(state["observations"]["entries"].values()))
+        entry["started_at"] = (
+            int(time.time())
+            - CLICK_GATE.OBSERVATION_RESERVATION_TTL_SECONDS
+            - 1
+        )
+        state_path.write_text(json.dumps(state), encoding="utf-8")
+
+        with (
+            mock.patch.dict(
+                CLICK_GATE.os.environ,
+                {
+                    "PLUGIN_DATA": str(self.plugin_data),
+                    "CLICK_CONFIG_HOME": str(self.plugin_data),
+                },
+            ),
+            mock.patch.object(CLICK_GATE, "_execute_inspection_commands") as execute,
+        ):
+            self.assertEqual(CLICK_GATE._run_observation(arguments), 2)
+        execute.assert_not_called()
+
+    def test_claimed_observation_does_not_expire_for_interlocks(self) -> None:
+        self.approve_contract()
+        (self.workspace / "claimed.txt").write_text("claimed", encoding="utf-8")
+        payload = self.pre_tool(
+            "Bash", self.read_file_command("claimed.txt"), "turn-2"
+        )
+        arguments = self.observation_runner_arguments(payload)
+        state_path = Path(arguments[0])
+        request_digest, runner_token, encoded = arguments[1:]
+        raw, error = CLICK_GATE._decode_encoded_request(encoded, "observation")
+        self.assertEqual(error, "")
+        with mock.patch.dict(
+            CLICK_GATE.os.environ,
+            {
+                "PLUGIN_DATA": str(self.plugin_data),
+                "CLICK_CONFIG_HOME": str(self.plugin_data),
+            },
+        ):
+            with CLICK_GATE._state_lock():
+                request, claim_error = CLICK_GATE._claim_observation_run(
+                    state_path, raw, request_digest, runner_token
+                )
+        self.assertIsNotNone(request)
+        self.assertEqual(claim_error, "")
+
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        entry = next(iter(state["observations"]["entries"].values()))
+        old_timestamp = (
+            int(time.time())
+            - CLICK_GATE.OBSERVATION_RESERVATION_TTL_SECONDS
+            - 1
+        )
+        entry["started_at"] = old_timestamp
+        entry["runner_claimed_at"] = old_timestamp
+        state_path.write_text(json.dumps(state), encoding="utf-8")
+
+        mutation = self.pre_tool(
+            "apply_patch", "*** Begin Patch\n*** End Patch", "turn-2"
+        )
+        self.assertEqual(
+            mutation["hookSpecificOutput"]["permissionDecision"], "deny"
+        )
+        self.assertIn(
+            "read or search is running",
+            mutation["hookSpecificOutput"]["permissionDecisionReason"],
+        )
+        verification = self.verify_gate([self.verification_argv()])
+        self.assertEqual(
+            verification["hookSpecificOutput"]["permissionDecision"], "deny"
+        )
+
+    def test_expired_unclaimed_observation_releases_mutation_interlock(self) -> None:
+        self.approve_contract()
+        (self.workspace / "reserved.txt").write_text("reserved", encoding="utf-8")
+        payload = self.pre_tool(
+            "Bash", self.read_file_command("reserved.txt"), "turn-2"
+        )
+        arguments = self.observation_runner_arguments(payload)
+        state_path = Path(arguments[0])
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        entry = next(iter(state["observations"]["entries"].values()))
+        entry["started_at"] = (
+            int(time.time())
+            - CLICK_GATE.OBSERVATION_RESERVATION_TTL_SECONDS
+            - 1
+        )
+        state_path.write_text(json.dumps(state), encoding="utf-8")
+
+        self.assertIsNone(
+            self.pre_tool(
+                "apply_patch", "*** Begin Patch\n*** End Patch", "turn-2"
+            )
+        )
+
+    def test_observation_startup_failure_clears_claim_for_retry(self) -> None:
+        self.approve_contract()
+        (self.workspace / "startup.txt").write_text("startup", encoding="utf-8")
+        command = self.read_file_command("startup.txt")
+        payload = self.pre_tool("Bash", command, "turn-2")
+        arguments = self.observation_runner_arguments(payload)
+        state_path = Path(arguments[0])
+
+        with (
+            mock.patch.dict(
+                CLICK_GATE.os.environ,
+                {
+                    "PLUGIN_DATA": str(self.plugin_data),
+                    "CLICK_CONFIG_HOME": str(self.plugin_data),
+                },
+            ),
+            mock.patch.object(
+                CLICK_GATE,
+                "_execute_inspection_commands",
+                side_effect=OSError("startup failed"),
+            ),
+        ):
+            self.assertEqual(CLICK_GATE._run_observation(arguments), 127)
+
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        entry = next(iter(state["observations"]["entries"].values()))
+        self.assertEqual(entry["status"], "failed")
+        self.assertEqual(entry["last_exit_code"], 127)
+        self.assertEqual(entry["runner_claimed_at"], 0)
+        self.assertEqual(entry["runner_token_digest"], "")
+        retry = self.pre_tool("Bash", command, "turn-2")
+        self.assertEqual(retry["hookSpecificOutput"]["permissionDecision"], "allow")
 
     def test_observation_runner_rejects_unmanaged_state_before_execution(self) -> None:
         unmanaged = Path(self.temporary.name) / "session-contract-copied.json"
@@ -2956,6 +3149,7 @@ class ClickGateTests(unittest.TestCase):
             "CMDCMDLINE": "cmd.exe /c runner",
             "COMMAND_MODE": "unix2003",
             "LC_CTYPE": "UTF-8",
+            "PLUGIN_ROOT": "/host/plugin/cache/click",
             "PROMPT": "$P$G",
             "SHLVL": "2",
             "=C:": "C:\\runner",
@@ -3137,7 +3331,106 @@ class ClickGateTests(unittest.TestCase):
             (self.plugin_data / "gate-state").glob("session-contract-*.json")
         )
         state = json.loads(state_path.read_text(encoding="utf-8"))
+        self.assertEqual(state["verification"]["status"], "ready")
         self.assertEqual(state["verification"]["runner_claimed_at"], 0)
+        self.assertEqual(state["verification"]["runner_token_digest"], "")
+        source = state["evidence_state"]["sources"][CLICK_GATE._evidence_key("E1")]
+        self.assertEqual(source["status"], "ready")
+
+    def test_verification_environment_mismatch_releases_unclaimed_reservation(
+        self,
+    ) -> None:
+        self.approve_contract()
+        payload = self.verify_gate([self.verification_argv()])
+        tokens = split_runner_command(
+            payload["hookSpecificOutput"]["updatedInput"]["command"]
+        )
+        state_path = Path(tokens[5])
+        with (
+            mock.patch.dict(
+                CLICK_GATE.os.environ,
+                {
+                    "PLUGIN_DATA": str(self.plugin_data),
+                    "CLICK_CONFIG_HOME": str(self.plugin_data),
+                    "HOME": str(self.workspace / "changed-home"),
+                },
+            ),
+            mock.patch.object(
+                CLICK_GATE, "_execute_argv_commands", return_value=0
+            ) as execute,
+        ):
+            self.assertEqual(CLICK_GATE._run_verification(tokens[5:]), 2)
+        execute.assert_not_called()
+
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        verification = state["verification"]
+        self.assertEqual(verification["status"], "ready")
+        self.assertEqual(verification["runner_token_digest"], "")
+        self.assertEqual(verification["runner_claimed_at"], 0)
+        self.assertEqual(verification["running_evidence_keys"], [])
+        source = state["evidence_state"]["sources"][CLICK_GATE._evidence_key("E1")]
+        self.assertEqual(source["status"], "ready")
+        self.assertEqual(source["unchanged_failure_retries"], 0)
+
+        retry = self.verify_gate([self.verification_argv()])
+        self.assertEqual(retry["hookSpecificOutput"]["permissionDecision"], "allow")
+
+    def test_tampered_verification_token_does_not_release_reservation(self) -> None:
+        self.approve_contract()
+        payload = self.verify_gate([self.verification_argv()])
+        tokens = split_runner_command(
+            payload["hookSpecificOutput"]["updatedInput"]["command"]
+        )
+        state_path = Path(tokens[5])
+        tokens[7] = "tampered-runner-token"
+        with (
+            mock.patch.dict(
+                CLICK_GATE.os.environ,
+                {
+                    "PLUGIN_DATA": str(self.plugin_data),
+                    "CLICK_CONFIG_HOME": str(self.plugin_data),
+                },
+            ),
+            mock.patch.object(
+                CLICK_GATE, "_execute_argv_commands", return_value=0
+            ) as execute,
+        ):
+            self.assertEqual(CLICK_GATE._run_verification(tokens[5:]), 2)
+        execute.assert_not_called()
+
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        self.assertEqual(state["verification"]["status"], "running")
+        self.assertEqual(state["verification"]["runner_claimed_at"], 0)
+        self.assertNotEqual(state["verification"]["runner_token_digest"], "")
+
+    def test_claimed_verification_replay_does_not_release_active_runner(self) -> None:
+        self.approve_contract()
+        payload = self.verify_gate([self.verification_argv()])
+        tokens = split_runner_command(
+            payload["hookSpecificOutput"]["updatedInput"]["command"]
+        )
+        state_path = Path(tokens[5])
+        raw, error = CLICK_GATE._decode_encoded_request(tokens[8], "verification")
+        self.assertEqual(error, "")
+        environment = {
+            "PLUGIN_DATA": str(self.plugin_data),
+            "CLICK_CONFIG_HOME": str(self.plugin_data),
+        }
+        with (
+            mock.patch.dict(CLICK_GATE.os.environ, environment),
+            mock.patch.object(CLICK_GATE.Path, "cwd", return_value=self.workspace),
+        ):
+            with CLICK_GATE._state_lock():
+                batch, claim_error = CLICK_GATE._claim_verification_run(
+                    state_path, raw, tokens[6], tokens[7]
+                )
+            self.assertEqual(claim_error, "")
+            self.assertIsNotNone(batch)
+            self.assertEqual(CLICK_GATE._run_verification(tokens[5:]), 2)
+
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        self.assertEqual(state["verification"]["status"], "running")
+        self.assertGreater(state["verification"]["runner_claimed_at"], 0)
 
     def test_verification_result_rejects_lost_context_digest_maps(self) -> None:
         for field in (
@@ -5956,6 +6249,54 @@ class ClickGateTests(unittest.TestCase):
                 break
             time.sleep(0.05)
         self.assertEqual(state["service"]["status"], "stopped")
+
+    def test_service_snapshot_retries_windows_sharing_collision(self) -> None:
+        self.approve_contract()
+        state_path = next(
+            (self.plugin_data / "gate-state").glob("session-contract-*.json")
+        )
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        state["service"] = {
+            **CLICK_GATE._fresh_service_state(),
+            "status": "stopped",
+            "service_id": "service-1",
+        }
+        state_path.write_text(json.dumps(state), encoding="utf-8")
+        original_read_text = Path.read_text
+
+        def transient_read(path: Path, *args: object, **kwargs: object) -> str:
+            if path == state_path and transient_read.attempts == 0:
+                transient_read.attempts += 1
+                raise PermissionError("sharing violation")
+            return original_read_text(path, *args, **kwargs)
+
+        transient_read.attempts = 0
+        with (
+            mock.patch.dict(
+                CLICK_GATE.os.environ,
+                {"PLUGIN_DATA": str(self.plugin_data)},
+            ),
+            mock.patch.object(Path, "read_text", transient_read),
+        ):
+            snapshot = CLICK_GATE._service_snapshot(state_path, "service-1")
+        self.assertIsNotNone(snapshot)
+        assert snapshot is not None
+        self.assertEqual(snapshot["status"], "stopped")
+
+    def test_service_stop_does_not_treat_unreadable_state_as_stopped(self) -> None:
+        with (
+            mock.patch.object(
+                CLICK_GATE,
+                "_service_snapshot",
+                side_effect=[None, {"status": "stopped"}],
+            ) as snapshot,
+            mock.patch.object(CLICK_GATE.time, "sleep"),
+        ):
+            result = CLICK_GATE._run_service_stop(
+                [str(self.plugin_data / "state.json"), "service-1"]
+            )
+        self.assertEqual(result, 0)
+        self.assertEqual(snapshot.call_count, 2)
 
     def test_verification_root_main_py_fails_stale(self) -> None:
         self.assertTrue(CLICK_GATE._new_untracked_is_suspicious("main.py"))
