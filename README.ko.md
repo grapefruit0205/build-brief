@@ -60,7 +60,7 @@ launcher를 사용합니다. launcher는 확장 없는 단일 Bash 명령만 허
 가정하지 말고 정확한 제한은
 [`platforms/antigravity/README.md`](platforms/antigravity/README.md)를 확인하세요.
 
-## v0.24.0으로 업데이트
+## v0.24.1로 업데이트
 
 Click을 이미 설치했다면 Git 마켓플레이스 스냅샷을 명시적으로 갱신하고 플러그인을 다시 설치해야 이번 버전이 적용됩니다.
 
@@ -69,7 +69,7 @@ codex plugin marketplace upgrade click
 codex plugin add click@click
 ```
 
-ChatGPT 데스크톱 앱을 다시 시작하고 갱신된 Click Hook을 검토해 신뢰한 뒤 새 작업을 시작합니다. 기존 모드 설정은 대상 저장소 밖에 그대로 유지됩니다. v0.24.0은 v0.23.0에서 도입한 공통 `click_process.py` 경계 위에 내용 비저장 evidence registry·ledger 동작을 `click_evidence.py`로 분리하고 Codex와 생성된 Antigravity 배포본에 함께 적용합니다. 일반 anti-loop 허용 여부도 현재 revision의 증거를 따릅니다. 필요한 첫 전체 inventory 한 번은 허용하고, evidence별 정확한 argv check 묶음을 하나의 누적 예산에 예약하며, active 계약·revision·보호된 Git tree·check·환경·실행 파일 지문이 모두 같은 성공 receipt만 재사용하고, 정규화된 Browser 입력의 중복을 막습니다. `click-gate`를 직접 호출한다면 계속 verify 프로토콜 버전 `2`를 사용하고 모든 check에 승인된 argv `evidence_id`를 넣으며, `pass`에는 발급된 `contract_id`만 전달하고 `done_when`은 구조화된 증거 참조를 사용합니다. 예전 설치가 만든 실행 대기 중 runner 명령은 재사용하지 말고, 갱신된 Hook이 새 명령을 발급하게 합니다.
+ChatGPT 데스크톱 앱을 다시 시작하고 갱신된 Click Hook을 검토해 신뢰한 뒤 새 작업을 시작합니다. 기존 모드 설정은 대상 저장소 밖에 그대로 유지됩니다. v0.24.1은 SessionEnd lifecycle 명령만 호스트가 지원하는 최대 3초로 제한해 clamping 경고를 제거합니다. UserPromptSubmit, PreToolUse, PostToolUse는 계속 7초이며 hook 명령, 계약 형식, 검증 프로토콜, 모드, 승인 동작은 v0.24.0과 같습니다. 예전 설치가 만든 실행 대기 중 runner 명령은 재사용하지 말고, 갱신된 Hook이 새 명령을 발급하게 합니다.
 
 나중에 “Click을 Always ON으로 설정해줘” 또는 “Click을 Manual로 설정해줘”라고 바꿀 수 있고, 이 설정은 대상 저장소 밖에 유지됩니다. 정확히 한 turn만 우회하려면 사용자 프롬프트 첫 줄에 `@Click bypass` 또는 자동완성 형식인 `[@Click](plugin://click@click) bypass`를 씁니다. Hook은 같은 turn의 `click-gate bypass` 한 번만 승인하고 active 계약은 그대로 보존합니다. active 계약을 버릴 때는 같은 형식의 `cancel` 명령으로 `click-gate cancel` 한 번을 승인합니다. `@Click` 이름과 명령의 대소문자는 구분하지 않지만 plugin URI는 정확히 일치해야 하며, 명령 줄에 다른 문구를 붙일 수 없습니다. 실제 작업 내용은 둘째 줄부터 이어서 쓸 수 있습니다. 두 권한은 재사용하거나 다음 turn으로 가져갈 수 없습니다. Click은 프로젝트 안에 설정이나 계약 파일을 만들지 않습니다.
 

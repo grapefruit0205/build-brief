@@ -531,16 +531,16 @@ class ClickGateTests(unittest.TestCase):
         self.assertEqual(
             hooks["PostToolUse"][0]["matcher"], "^mcp__node_repl__js$"
         )
+        post_tool_handler = hooks["PostToolUse"][0]["hooks"][0]
         self.assertTrue(
-            hooks["PostToolUse"][0]["hooks"][0]["command"].endswith(
-                'click_gate.py" post-tool'
-            )
+            post_tool_handler["command"].endswith('click_gate.py" post-tool')
         )
+        self.assertEqual(post_tool_handler["timeout"], 7)
+        session_end_handler = hooks["SessionEnd"][0]["hooks"][0]
         self.assertTrue(
-            hooks["SessionEnd"][0]["hooks"][0]["command"].endswith(
-                'click_gate.py" session-end'
-            )
+            session_end_handler["command"].endswith('click_gate.py" session-end')
         )
+        self.assertEqual(session_end_handler["timeout"], 3)
 
     def test_uninvoked_hook_starts_without_state(self) -> None:
         self.assertFalse((self.plugin_data / "gate-state").exists())

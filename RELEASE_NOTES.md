@@ -1,5 +1,30 @@
 # Release notes
 
+## v0.24.1 — 2026-08-30
+
+Click v0.24.1 is a focused host-compatibility patch for the SessionEnd
+lifecycle hook. Contract shape, evidence protocol, mode behavior, and all
+runtime authorization rules remain unchanged from v0.24.0.
+
+### SessionEnd timeout compatibility
+
+- `hooks/hooks.json` now declares the SessionEnd command timeout as three
+  seconds, matching the host's supported maximum and removing the startup
+  clamping warning.
+- UserPromptSubmit, PreToolUse, and PostToolUse retain their seven-second
+  timeouts, and every hook command and matcher remains unchanged.
+- The deterministic hook-configuration regression test now pins all four
+  timeout values to prevent this compatibility setting from drifting.
+
+### Compatibility and release gate
+
+- Existing Always ON or Manual preferences and active-state formats require no
+  migration. Users refresh the `click` marketplace, reinstall `click@click`,
+  restart the desktop app, review the updated Hook, and begin a new task.
+- The exact release commit must pass the full deterministic suite on Linux,
+  macOS, and Windows, the repository distribution checks, and Plugin Security
+  Scan before the immutable `v0.24.1` tag and GitHub Release are published.
+
 ## v0.24.0 — 2026-08-30
 
 Click v0.24.0 changes normal anti-loop decisions from raw call counts to
