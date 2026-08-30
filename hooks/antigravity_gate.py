@@ -242,9 +242,18 @@ def _record_pre_invocation(raw: dict[str, Any]) -> dict[str, Any]:
         click_gate._write_json(lifecycle_path, context)
         click_gate._write_json(_workspace_context_path(workspace), context)
         event = _canonical_event(context, prompt=prompt)
-        return _capture(
+        payload = _capture(
             AntigravityOutputAdapter(), click_gate._handle_prompt_submit, event
         )
+        steps = payload.get("injectSteps") if isinstance(payload, dict) else None
+        if isinstance(steps, list) and steps and isinstance(steps[0], dict):
+            message = str(steps[0].get("ephemeralMessage", ""))
+            steps[0]["ephemeralMessage"] = (
+                "Use this exact absolute Click control launcher for this installation: `"
+                f"{_control_launcher_command()}`. "
+                + message
+            )
+        return payload
 
 
 def _context_for_raw(raw: dict[str, Any]) -> dict[str, Any]:
@@ -260,33 +269,135 @@ def _context_for_cwd(cwd: Path) -> dict[str, Any]:
     return {}
 
 
-def _launcher_tokens(command: str, cwd: str) -> list[str] | None:
+def _control_launcher_prefix() -> list[str]:
+    interpreter = Path(sys.executable).resolve(strict=True)
+    script = Path(__file__).resolve(strict=True)
+    if os.name == "nt" and not all(
+        click_gate._windows_launcher_path_is_safe(str(path))
+        for path in (interpreter, script)
+    ):
+        raise ValueError(
+            "Click's installed Antigravity launcher path contains shell-expansion "
+            "characters and cannot be invoked safely."
+        )
+    return [str(interpreter), str(script), "control"]
+
+
+def _control_launcher_command() -> str:
+    # Antigravity documents run_command as a Bash command on every host. Keep
+    # the injected form in that grammar even when the host process is Windows.
+    return shlex.join(_control_launcher_prefix())
+
+
+def _windows_command_argv(command: str) -> list[str]:
+    import ctypes
+
+    argument_count = ctypes.c_int()
+    shell32 = ctypes.windll.shell32
+    shell32.CommandLineToArgvW.argtypes = [
+        ctypes.c_wchar_p,
+        ctypes.POINTER(ctypes.c_int),
+    ]
+    shell32.CommandLineToArgvW.restype = ctypes.POINTER(ctypes.c_wchar_p)
+    argv = shell32.CommandLineToArgvW(command, ctypes.byref(argument_count))
+    if not argv:
+        raise ValueError("Windows could not parse Click's runner command.")
     try:
-        segments = click_gate._shell_segments(command)
+        return [argv[index] for index in range(argument_count.value)]
+    finally:
+        kernel32 = ctypes.windll.kernel32
+        kernel32.LocalFree.argtypes = [ctypes.c_void_p]
+        kernel32.LocalFree.restype = ctypes.c_void_p
+        kernel32.LocalFree(ctypes.cast(argv, ctypes.c_void_p))
+
+
+def _command_argv(command: str) -> list[str]:
+    return _windows_command_argv(command) if os.name == "nt" else shlex.split(command)
+
+
+def _antigravity_bash_tokens(command: str) -> list[str] | None:
+    """Parse one expansion-free Antigravity Bash command.
+
+    Antigravity cannot replace run_command input after a Hook allows it. The
+    launcher must therefore reject shell control and expansion syntax before
+    comparing argv, including operators glued to an otherwise valid argument.
+    Single-quoted data stays literal; dollar/backtick expansion inside double
+    quotes is deliberately outside the accepted subset.
+    """
+    if not command or any(character in command for character in ("\0", "\r", "\n")):
+        return None
+
+    state = "unquoted"
+    escaped = False
+    expandable_unquoted = set("$`!*?[]{}~#")
+    for character in command:
+        if state == "single":
+            if character == "'":
+                state = "unquoted"
+            continue
+        if escaped:
+            escaped = False
+            continue
+        if character == "\\":
+            escaped = True
+            continue
+        if state == "double":
+            if character == '"':
+                state = "unquoted"
+            elif character in {"$", "`", "!"}:
+                return None
+            continue
+        if character == "'":
+            state = "single"
+        elif character == '"':
+            state = "double"
+        elif character in expandable_unquoted:
+            return None
+    if escaped or state != "unquoted":
+        return None
+
+    try:
+        lexer = shlex.shlex(
+            command,
+            posix=True,
+            punctuation_chars="".join(sorted(click_gate.SHELL_CONTROL_PUNCTUATION)),
+        )
+        lexer.whitespace_split = True
+        lexer.commenters = ""
+        tokens = list(lexer)
     except ValueError:
         return None
-    if not segments or len(segments) != 1:
-        return None
-    tokens = segments[0]
-    if not tokens:
-        return None
-    executable = Path(tokens[0]).name.lower()
-    script_index = 1
-    if executable in {"py", "py.exe"} and len(tokens) > 2 and tokens[1] == "-3":
-        script_index = 2
-    elif executable not in {"python", "python3", "python.exe", "python3.exe"}:
-        return None
-    if len(tokens) <= script_index + 1 or tokens[script_index + 1] != "control":
-        return None
-    script = Path(tokens[script_index]).expanduser()
-    if not script.is_absolute():
-        script = Path(cwd) / script
-    try:
-        if script.resolve() != Path(__file__).resolve():
-            return None
-    except OSError:
+    if not tokens or any(
+        token and set(token).issubset(click_gate.SHELL_CONTROL_PUNCTUATION)
+        for token in tokens
+    ):
         return None
     return tokens
+
+
+def _launcher_tokens(command: str, _cwd: str) -> list[str] | None:
+    try:
+        prefix = _control_launcher_prefix()
+    except (OSError, ValueError):
+        return None
+    tokens = _antigravity_bash_tokens(command)
+    if tokens is None:
+        return None
+    if len(tokens) <= len(prefix) or tokens[: len(prefix)] != prefix:
+        return None
+    return tokens
+
+
+def _native_run_command_read_denial() -> dict[str, str]:
+    return {
+        "decision": "deny",
+        "reason": (
+            "Antigravity cannot safely rewrite a native run_command read into Click's "
+            "trusted inspection runner. Use the exact injected control launcher with "
+            "`inspect`; native file/search tools and unrelated MCP or Skill tools remain "
+            "available."
+        ),
+    }
 
 
 def _pre_tool(raw: dict[str, Any]) -> dict[str, Any]:
@@ -303,7 +414,7 @@ def _pre_tool(raw: dict[str, Any]) -> dict[str, Any]:
             return {"decision": "allow"}
         command = str(arguments.get("CommandLine", ""))
         if tool_name == "run_command" and click_gate._is_read_only_bash(command):
-            return {"decision": "allow"}
+            return _native_run_command_read_denial()
         return {
             "decision": "deny",
             "reason": "Click has no current Antigravity PreInvocation context.",
@@ -323,10 +434,8 @@ def _pre_tool(raw: dict[str, Any]) -> dict[str, Any]:
         event["tool_input"] = {"command": command}
         if _launcher_tokens(command, str(context["workspace"])) is not None:
             return {"decision": "allow"}
-        # Native Antigravity reads cannot be rewritten to Click's observation
-        # runner. Permit bounded reads without claiming cross-tool deduplication.
         if click_gate._is_read_only_bash(command):
-            return {"decision": "allow"}
+            return _native_run_command_read_denial()
     with click_gate._state_lock():
         payload = _capture(
             AntigravityOutputAdapter(), click_gate._handle_pre_tool, event
@@ -397,11 +506,15 @@ def _control(arguments: list[str]) -> int:
     if not isinstance(command, str) or not command:
         return 0
     try:
-        argv = shlex.split(command, posix=os.name != "nt")
+        argv = _command_argv(command)
     except ValueError as exc:
         sys.stderr.write(f"Click produced an invalid runner command: {exc}\n")
         return 2
-    completed = subprocess.run(argv, cwd=Path.cwd(), check=False)
+    try:
+        completed = subprocess.run(argv, cwd=Path.cwd(), check=False)
+    except OSError as exc:
+        sys.stderr.write(f"Click could not start its structured runner: {exc}\n")
+        return 2
     return int(completed.returncode)
 
 

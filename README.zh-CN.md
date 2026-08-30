@@ -50,11 +50,13 @@ Antigravity IDE 用户也可以把 `dist/antigravity` 复制到工作区的
 `.codex-plugin/plugin.json` 和 Codex Hook 适配器；支持一个平台不会替换
 另一个平台。
 
-Antigravity 的 Hook 契约与 Codex 不同。因此，结构化命令通过随附的
-launcher 运行，并要求依次出现完全 idle 的 `model_stop`、新的可读取
-用户 transcript 条目和下一次 `PreInvocation`，以此作为提案与批准之间
-的执行边界。目前还不支持跨
-Antigravity native read 的重复阻止，也不支持 Browser evidence。请查看
+Antigravity 的 Hook 契约与 Codex 不同。因此，结构化命令通过运行时注入的
+精确绝对路径 launcher 运行，并要求依次出现完全 idle 的 `model_stop`、
+新的可读取用户 transcript 条目和下一次 `PreInvocation`，以此作为提案与
+批准之间的执行边界。只读 `run_command` 也使用同一个 control launcher。
+launcher 只接受一条不含展开的 Bash 命令；命令串联、重定向、替换、glob
+和多行后缀都会 fail closed。原生文件/搜索工具以及其他 MCP、Skill 工具仍可使用，但目前还不支持这些工具
+之间的重复阻止，也不支持 Browser evidence。请查看
 [`platforms/antigravity/README.md`](platforms/antigravity/README.md)了解准确
 限制，不要假设宿主功能完全等价。
 
