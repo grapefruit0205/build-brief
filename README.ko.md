@@ -60,7 +60,7 @@ launcher를 사용합니다. launcher는 확장 없는 단일 Bash 명령만 허
 가정하지 말고 정확한 제한은
 [`platforms/antigravity/README.md`](platforms/antigravity/README.md)를 확인하세요.
 
-## v0.24.3으로 업데이트
+## v0.24.4로 업데이트
 
 Click을 이미 설치했다면 Git 마켓플레이스 스냅샷을 명시적으로 갱신하고 플러그인을 다시 설치해야 이번 버전이 적용됩니다.
 
@@ -69,7 +69,7 @@ codex plugin marketplace upgrade click
 codex plugin add click@click
 ```
 
-ChatGPT 데스크톱 앱을 다시 시작하고 갱신된 Click Hook을 검토해 신뢰한 뒤 새 작업을 시작합니다. 기존 모드 설정은 대상 저장소 밖에 그대로 유지됩니다. v0.24.3은 구조화된 조회를 실제 실행하기 직전에 원자적으로 claim합니다. 실행을 시작하지 않은 예약만 30초 뒤 만료되고, 한 번 claim된 조회는 동기 실행 결과가 기록되거나 사용자가 계약을 명시적으로 취소할 때까지 mutation과 최종 검증을 계속 막습니다. 자식 프로세스가 생기지 않은 안전한 시작 실패는 실패로 기록하고 claim을 해제합니다. 검증은 Hook 전용 `PLUGIN_ROOT`를 launcher bookkeeping으로 취급하되 프로젝트·toolchain 환경은 계속 결합하며, 어떤 check도 시작하기 전에 admission이 실패하면 정확히 인증된 미실행 예약만 `ready`로 되돌립니다. 계약 형식, evidence 프로토콜, 모드 동작, v0.24.2의 Windows `${PLUGIN_ROOT}` 수정과 v0.24.1의 SessionEnd 3초 제한은 바뀌지 않습니다. 호스트가 해당 PreToolUse 이벤트 자체를 전달하지 않는 문제까지 해결했다고 주장하지 않으므로 issue #25는 계속 열어 둡니다. 예전 설치가 만든 실행 대기 중 runner 명령은 재사용하지 말고 갱신된 Hook이 새 명령을 발급하게 합니다.
+ChatGPT 데스크톱 앱을 다시 시작하고 갱신된 Click Hook을 검토해 신뢰한 뒤 새 작업을 시작합니다. 기존 모드 설정은 대상 저장소 밖에 그대로 유지됩니다. v0.24.4는 계약 검증을 leaf 모듈인 `hooks/click_contract.py`로 추출하면서 `click_gate._validate_contract`를 직접 호환 alias로 유지하고 검증 순서와 오류 메시지를 정확히 보존합니다. 준비 시점과 runner 시작 시점 사이에 프로젝트·사용자·PATH·toolchain 환경 값이 달라져도 검증은 이제 자동 복구합니다. 인증된 집계 binding이 현재 값을 준비된 키 집합에 투영하고 runner에서만 추가된 키는 제외하며, 추가 승인 없이 실제로 재결합된 환경 digest를 receipt에 기록합니다. 정확한 실행 파일 지문은 그대로 고정되고, 형식이 잘못됐거나 변조된 binding은 계속 fail-closed로 차단됩니다. 계약 형식, evidence 프로토콜, 모드 동작, v0.24.3의 runner claim·admission 정리 규칙, v0.24.2의 Windows `${PLUGIN_ROOT}` 수정과 v0.24.1의 SessionEnd 3초 제한은 바뀌지 않습니다. 호스트가 해당 PreToolUse 이벤트 자체를 전달하지 않는 문제까지 해결했다고 주장하지 않으므로 issue #25는 계속 열어 둡니다. 예전 설치가 만든 실행 대기 중 runner 명령은 재사용하지 말고 갱신된 Hook이 새 명령을 발급하게 합니다.
 
 나중에 “Click을 Always ON으로 설정해줘” 또는 “Click을 Manual로 설정해줘”라고 바꿀 수 있고, 이 설정은 대상 저장소 밖에 유지됩니다. 정확히 한 turn만 우회하려면 사용자 프롬프트 첫 줄에 `@Click bypass` 또는 자동완성 형식인 `[@Click](plugin://click@click) bypass`를 씁니다. Hook은 같은 turn의 `click-gate bypass` 한 번만 승인하고 active 계약은 그대로 보존합니다. active 계약을 버릴 때는 같은 형식의 `cancel` 명령으로 `click-gate cancel` 한 번을 승인합니다. `@Click` 이름과 명령의 대소문자는 구분하지 않지만 plugin URI는 정확히 일치해야 하며, 명령 줄에 다른 문구를 붙일 수 없습니다. 실제 작업 내용은 둘째 줄부터 이어서 쓸 수 있습니다. 두 권한은 재사용하거나 다음 turn으로 가져갈 수 없습니다. Click은 프로젝트 안에 설정이나 계약 파일을 만들지 않습니다.
 

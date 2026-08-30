@@ -32,7 +32,7 @@ from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 if __package__:
-    from . import click_evidence, click_process
+    from . import click_contract, click_evidence, click_process
     from .click_state import (
         STATE_LOCK_STALE_SECONDS,
         STATE_LOCK_TIMEOUT_SECONDS,
@@ -50,6 +50,7 @@ if __package__:
     )
     from .platform_protocol import CodexOutputAdapter, HookOutputAdapter
 else:  # Executed directly from the bundled hooks directory.
+    import click_contract
     import click_evidence
     import click_process
     from click_state import (
@@ -88,6 +89,10 @@ _browser_evidence_source_id = click_evidence.browser_source_id
 _browser_evidence_required = click_evidence.browser_required
 _fresh_external_evidence_state = click_evidence.fresh_external_state
 
+# Compatibility alias for direct callers and the deterministic suite. Contract
+# schema validation now lives in the one-way click_contract boundary.
+_validate_contract = click_contract.validate_contract
+
 
 CONTROL_COMMAND = "click-gate"
 CLICK_AUTHORIZATION_PATTERNS = (
@@ -97,20 +102,20 @@ CLICK_AUTHORIZATION_PATTERNS = (
         r"(?P<action>(?i:bypass|cancel))"
     ),
 )
-STRING_FIELDS = ("outcome", "plain_language")
-OBJECT_FIELDS = ("boundary", "build", "verification")
-CONTRACT_FIELDS = set(STRING_FIELDS) | set(OBJECT_FIELDS) | {"must_hold"}
-BOUNDARY_FIELDS = {"in_scope", "out_of_scope"}
-BUILD_FIELDS = {"approach", "semantics", "order"}
-VERIFICATION_FIELDS = {"scale", "evidence", "done_when", "intermediate_gate"}
-EVIDENCE_SOURCE_FIELDS = {"id", "kind", "description"}
-DONE_WHEN_FIELDS = {"condition", "primary_evidence"}
+STRING_FIELDS = click_contract.STRING_FIELDS
+OBJECT_FIELDS = click_contract.OBJECT_FIELDS
+CONTRACT_FIELDS = click_contract.CONTRACT_FIELDS
+BOUNDARY_FIELDS = click_contract.BOUNDARY_FIELDS
+BUILD_FIELDS = click_contract.BUILD_FIELDS
+VERIFICATION_FIELDS = click_contract.VERIFICATION_FIELDS
+EVIDENCE_SOURCE_FIELDS = click_contract.EVIDENCE_SOURCE_FIELDS
+DONE_WHEN_FIELDS = click_contract.DONE_WHEN_FIELDS
 EVIDENCE_KINDS = click_evidence.EVIDENCE_KINDS
 EVIDENCE_STATUSES = click_evidence.EVIDENCE_STATUSES
-EVIDENCE_ID_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9_-]{0,31}$")
+EVIDENCE_ID_PATTERN = click_contract.EVIDENCE_ID_PATTERN
 CONTRACT_ID_PATTERN = re.compile(r"^ctr_[0-9a-f]{32}$")
-VERIFICATION_SCALES = ("quick", "focused", "full")
-VERIFICATION_UNIT_LIMITS = {"quick": 1, "focused": 4, "full": 10}
+VERIFICATION_SCALES = click_contract.VERIFICATION_SCALES
+VERIFICATION_UNIT_LIMITS = click_contract.VERIFICATION_UNIT_LIMITS
 CAPABILITY_PROTOCOL_VERSION = 1
 VERIFICATION_PROTOCOL_VERSION = 2
 CONTRACT_STATE_SCHEMA_VERSION = 2
@@ -120,7 +125,7 @@ SERVICE_REQUEST_FIELDS = {"version", "action", "argv"}
 VERIFICATION_BATCH_FIELDS = {"version", "checks"}
 VERIFICATION_CHECK_FIELDS = {"evidence_id", "argv", "class"}
 EVIDENCE_RESULT_FIELDS = {"version", "evidence_id"}
-VERIFICATION_CLASSES = {"targeted": 1, "broad": 3, "deep": 5}
+VERIFICATION_CLASSES = click_contract.VERIFICATION_CLASSES
 PYTHON_VERIFICATION_MODULES = {"coverage", "pytest", "unittest"}
 DEEP_VERIFICATION_EXECUTABLES = {
     "bandit",
@@ -149,7 +154,7 @@ DEEP_VERIFICATION_MARKERS = {
 }
 MAX_CAPABILITY_COMMANDS = 8
 MAX_ARGV_ITEMS = 128
-MAX_CONTRACT_CHARS = 4_000
+MAX_CONTRACT_CHARS = click_contract.MAX_CONTRACT_CHARS
 MAX_CAPABILITY_REQUEST_CHARS = 6_000
 MAX_VERIFICATION_BATCH_CHARS = 6_000
 MAX_OBSERVATION_OUTPUT_BYTES = 48_000
@@ -576,6 +581,7 @@ def _fresh_verification_state(contract: dict[str, Any]) -> dict[str, Any]:
         "running_evidence_keys": [],
         "running_environment_digests": {},
         "running_environment_binding": [],
+        "running_environment_binding_digest": "",
         "running_executable_digests": {},
         "workspace_changed": False,
         "started_at": 0,
@@ -979,194 +985,6 @@ def _prune_state() -> None:
             candidate.unlink()
         except OSError:
             continue
-
-
-def _validate_contract(raw: str) -> tuple[dict[str, Any] | None, str]:
-    if len(raw) > MAX_CONTRACT_CHARS:
-        return (
-            None,
-            "Execution Contract is too large; keep it compact and under 4,000 characters.",
-        )
-    try:
-        value = json.loads(raw)
-    except json.JSONDecodeError:
-        return None, "Execution Contract must be valid JSON."
-    if not isinstance(value, dict):
-        return None, "Execution Contract must be a JSON object."
-
-    unknown_fields = sorted(set(value) - CONTRACT_FIELDS)
-    if unknown_fields:
-        rendered = ", ".join(f"`{field}`" for field in unknown_fields)
-        return (
-            None,
-            f"Execution Contract contains unsupported top-level field(s): {rendered}.",
-        )
-
-    for field in STRING_FIELDS:
-        text = value.get(field)
-        if not isinstance(text, str) or not text.strip():
-            return None, f"Execution Contract field `{field}` must be a non-empty string."
-
-    must_hold = value.get("must_hold")
-    if not isinstance(must_hold, list) or not must_hold:
-        return None, "Execution Contract field `must_hold` must be a non-empty list."
-    if any(not isinstance(item, str) or not item.strip() for item in must_hold):
-        return None, "Every `must_hold` item must be a non-empty string."
-
-    boundary = value.get("boundary")
-    if not isinstance(boundary, dict):
-        return None, "Execution Contract field `boundary` must be an object."
-    unknown_boundary_fields = sorted(set(boundary) - BOUNDARY_FIELDS)
-    if unknown_boundary_fields:
-        rendered = ", ".join(f"`{field}`" for field in unknown_boundary_fields)
-        return None, f"Execution Contract boundary contains unsupported field(s): {rendered}."
-    in_scope = boundary.get("in_scope")
-    if not isinstance(in_scope, list) or not in_scope:
-        return None, "Boundary `in_scope` must be a non-empty list."
-    if any(not isinstance(item, str) or not item.strip() for item in in_scope):
-        return None, "Every boundary `in_scope` item must be a non-empty string."
-    out_of_scope = boundary.get("out_of_scope")
-    if not isinstance(out_of_scope, list):
-        return None, "Boundary `out_of_scope` must be a list."
-    if any(not isinstance(item, str) or not item.strip() for item in out_of_scope):
-        return None, "Every boundary `out_of_scope` item must be a non-empty string."
-
-    build = value.get("build")
-    if not isinstance(build, dict):
-        return None, "Execution Contract field `build` must be an object."
-    unknown_build_fields = sorted(set(build) - BUILD_FIELDS)
-    if unknown_build_fields:
-        rendered = ", ".join(f"`{field}`" for field in unknown_build_fields)
-        return None, f"Execution Contract build contains unsupported field(s): {rendered}."
-    approach = build.get("approach")
-    if not isinstance(approach, list) or not approach:
-        return None, "Build `approach` must be a non-empty list."
-    if any(not isinstance(item, str) or not item.strip() for item in approach):
-        return None, "Every build `approach` item must be a non-empty string."
-    for field in ("semantics", "order"):
-        if field not in build:
-            continue
-        items = build[field]
-        if not isinstance(items, list) or not items:
-            return None, f"Optional build `{field}` must be omitted or a non-empty list."
-        if any(not isinstance(item, str) or not item.strip() for item in items):
-            return None, f"Every build `{field}` item must be a non-empty string."
-
-    verification = value.get("verification")
-    if not isinstance(verification, dict):
-        return None, "Execution Contract field `verification` must be an object."
-    unknown_verification_fields = sorted(set(verification) - VERIFICATION_FIELDS)
-    if unknown_verification_fields:
-        rendered = ", ".join(
-            f"`{field}`" for field in unknown_verification_fields
-        )
-        return (
-            None,
-            f"Execution Contract verification contains unsupported field(s): {rendered}.",
-        )
-    scale = verification.get("scale")
-    if scale not in VERIFICATION_SCALES:
-        allowed = ", ".join(VERIFICATION_SCALES)
-        return None, f"Verification `scale` must be one of: {allowed}."
-
-    evidence = verification.get("evidence")
-    if not isinstance(evidence, list) or not evidence:
-        return None, "Verification `evidence` must be a non-empty list."
-    evidence_ids: set[str] = set()
-    browser_source_ids: list[str] = []
-    argv_source_count = 0
-    for index, source in enumerate(evidence):
-        label = f"Verification evidence item {index + 1}"
-        if not isinstance(source, dict):
-            return None, f"{label} must be an object."
-        unknown_source_fields = sorted(set(source) - EVIDENCE_SOURCE_FIELDS)
-        if unknown_source_fields:
-            rendered = ", ".join(
-                f"`{field}`" for field in unknown_source_fields
-            )
-            return None, f"{label} contains unsupported field(s): {rendered}."
-        source_id = source.get("id")
-        if not isinstance(source_id, str) or not EVIDENCE_ID_PATTERN.fullmatch(
-            source_id
-        ):
-            return (
-                None,
-                f"{label} `id` must start with a letter and contain at most 32 "
-                "letters, digits, underscores, or hyphens.",
-            )
-        if source_id in evidence_ids:
-            return None, f"Verification evidence id `{source_id}` must be unique."
-        evidence_ids.add(source_id)
-        kind = source.get("kind")
-        if kind not in EVIDENCE_KINDS:
-            allowed = ", ".join(EVIDENCE_KINDS)
-            return None, f"Evidence `{source_id}` kind must be one of: {allowed}."
-        description = source.get("description")
-        if not isinstance(description, str) or not description.strip():
-            return None, f"Evidence `{source_id}` description must be non-empty."
-        if kind == "browser":
-            browser_source_ids.append(source_id)
-        elif kind == "argv":
-            argv_source_count += 1
-    if len(browser_source_ids) > 1:
-        return (
-            None,
-            "Verification may assign at most one Browser evidence source; reuse its id "
-            "across every condition covered by the representative session.",
-        )
-    minimum_argv_units = argv_source_count * VERIFICATION_CLASSES["targeted"]
-    if minimum_argv_units > VERIFICATION_UNIT_LIMITS[str(scale)]:
-        return (
-            None,
-            f"Verification scale `{scale}` cannot fit {argv_source_count} argv evidence "
-            "sources within its cumulative reservation limit; deduplicate the "
-            "sources or choose a sufficient scale before approval.",
-        )
-
-    done_when = verification.get("done_when")
-    if not isinstance(done_when, list) or not done_when:
-        return None, "Verification `done_when` must be a non-empty list."
-    used_evidence_ids: set[str] = set()
-    for index, item in enumerate(done_when):
-        label = f"Verification done_when item {index + 1}"
-        if not isinstance(item, dict):
-            return (
-                None,
-                f"{label} must be an object with `condition` and `primary_evidence`; "
-                "inline evidence strings are no longer accepted.",
-            )
-        unknown_condition_fields = sorted(set(item) - DONE_WHEN_FIELDS)
-        if unknown_condition_fields:
-            rendered = ", ".join(
-                f"`{field}`" for field in unknown_condition_fields
-            )
-            return None, f"{label} contains unsupported field(s): {rendered}."
-        condition = item.get("condition")
-        if not isinstance(condition, str) or not condition.strip():
-            return None, f"{label} `condition` must be a non-empty string."
-        primary_evidence = item.get("primary_evidence")
-        if not isinstance(primary_evidence, str) or not primary_evidence.strip():
-            return None, f"{label} `primary_evidence` must be one evidence id."
-        if primary_evidence not in evidence_ids:
-            return (
-                None,
-                f"{label} references unknown evidence id `{primary_evidence}`.",
-            )
-        used_evidence_ids.add(primary_evidence)
-    unused_evidence_ids = sorted(evidence_ids - used_evidence_ids)
-    if unused_evidence_ids:
-        rendered = ", ".join(f"`{source_id}`" for source_id in unused_evidence_ids)
-        return (
-            None,
-            f"Verification evidence source(s) {rendered} are unused; remove them or "
-            "reference each one from `done_when`.",
-        )
-    if "intermediate_gate" in verification:
-        intermediate_gate = verification["intermediate_gate"]
-        if not isinstance(intermediate_gate, str) or not intermediate_gate.strip():
-            return None, "Optional verification `intermediate_gate` must be omitted or non-empty."
-
-    return value, ""
 
 
 def _decode_capability_request(
@@ -1598,20 +1416,41 @@ def _verification_environment_binding(
     return sorted(records, key=lambda item: item["key_digest"])
 
 
+def _verification_environment_binding_digest(
+    binding: Any, runner_token: str
+) -> str:
+    try:
+        canonical = json.dumps(
+            binding, sort_keys=True, separators=(",", ":")
+        )
+    except (TypeError, ValueError):
+        return ""
+    return _verification_environment_hmac(runner_token, "binding", canonical)
+
+
+def _verification_environment_binding_is_authentic(
+    binding: Any, digest: Any, runner_token: str
+) -> bool:
+    if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
+        return False
+    expected = _verification_environment_binding_digest(binding, runner_token)
+    return bool(expected and secrets.compare_digest(digest, expected))
+
+
 def _verification_environment_from_binding(
     binding: Any,
     runner_token: str,
     current_environment: dict[str, str],
-) -> tuple[dict[str, str] | None, str]:
+) -> tuple[dict[str, str] | None, bool, str]:
     if not isinstance(binding, list) or not binding or len(binding) > 4096:
-        return None, "Click verification runner environment binding was malformed."
+        return None, False, "Click verification runner environment binding was malformed."
     expected: dict[str, str] = {}
     for record in binding:
         if not isinstance(record, dict) or set(record) != {
             "key_digest",
             "value_digest",
         }:
-            return None, "Click verification runner environment binding was malformed."
+            return None, False, "Click verification runner environment binding was malformed."
         key_digest = record.get("key_digest")
         value_digest = record.get("value_digest")
         if (
@@ -1621,11 +1460,12 @@ def _verification_environment_from_binding(
             or not re.fullmatch(r"[0-9a-f]{64}", value_digest)
             or key_digest in expected
         ):
-            return None, "Click verification runner environment binding was malformed."
+            return None, False, "Click verification runner environment binding was malformed."
         expected[key_digest] = value_digest
 
     projected: dict[str, str] = {}
     matched: set[str] = set()
+    drifted = False
     for key, value in current_environment.items():
         normalized_key = _verification_environment_key(str(key))
         key_digest = _verification_environment_hmac(
@@ -1638,14 +1478,12 @@ def _verification_environment_from_binding(
             runner_token, "value", f"{normalized_key}\0{value}"
         )
         if not secrets.compare_digest(expected_value, current_value):
-            return None, (
-                "Click verification runner environment changed after preparation."
-            )
+            drifted = True
         projected[str(key)] = str(value)
         matched.add(key_digest)
     if matched != set(expected):
-        return None, "Click verification runner environment changed after preparation."
-    return projected, ""
+        drifted = True
+    return projected, drifted, ""
 
 
 def _executable_search_path(environment: dict[str, str], *, cwd: Path) -> str:
@@ -2907,6 +2745,7 @@ def _prepare_verification(
         verification["running_evidence_keys"] = []
         verification["running_environment_digests"] = {}
         verification["running_environment_binding"] = []
+        verification["running_environment_binding_digest"] = ""
         verification["running_executable_digests"] = {}
         verification["runner_claimed_at"] = 0
 
@@ -3129,6 +2968,11 @@ def _prepare_verification(
     running_environment_binding = _verification_environment_binding(
         prepared_environment, runner_token
     )
+    running_environment_binding_digest = (
+        _verification_environment_binding_digest(
+            running_environment_binding, runner_token
+        )
+    )
     running_environment_digests: dict[str, str] = {}
     running_executable_digests: dict[str, str] = {}
     for source_key in requested_keys:
@@ -3174,6 +3018,9 @@ def _prepare_verification(
             "running_evidence_keys": sorted(requested_keys),
             "running_environment_digests": running_environment_digests,
             "running_environment_binding": running_environment_binding,
+            "running_environment_binding_digest": (
+                running_environment_binding_digest
+            ),
             "running_executable_digests": running_executable_digests,
             "started_at": int(time.time()),
         }
@@ -4370,8 +4217,15 @@ def _record_verification_result(
             )
         ):
             return False
-    _, binding_error = _verification_environment_from_binding(
-        verification.get("running_environment_binding"),
+    running_environment_binding = verification.get("running_environment_binding")
+    if not _verification_environment_binding_is_authentic(
+        running_environment_binding,
+        verification.get("running_environment_binding_digest"),
+        runner_token,
+    ):
+        return False
+    _, _, binding_error = _verification_environment_from_binding(
+        running_environment_binding,
         runner_token,
         _verification_environment(cwd=Path.cwd()),
     )
@@ -4397,6 +4251,7 @@ def _record_verification_result(
     verification["running_evidence_keys"] = []
     verification["running_environment_digests"] = {}
     verification["running_environment_binding"] = []
+    verification["running_environment_binding_digest"] = ""
     verification["running_executable_digests"] = {}
     if workspace_changed:
         previous_revision = revision
@@ -5850,10 +5705,19 @@ def _claim_verification_run(
             )
         ):
             return None, "Click verification runner context binding was malformed."
-    verification_environment, binding_error = _verification_environment_from_binding(
-        verification.get("running_environment_binding"),
+    running_environment_binding = verification.get("running_environment_binding")
+    if not _verification_environment_binding_is_authentic(
+        running_environment_binding,
+        verification.get("running_environment_binding_digest"),
         runner_token,
-        _verification_environment(cwd=Path.cwd()),
+    ):
+        return None, "Click verification runner environment binding was malformed."
+    verification_environment, environment_rebound, binding_error = (
+        _verification_environment_from_binding(
+            running_environment_binding,
+            runner_token,
+            _verification_environment(cwd=Path.cwd()),
+        )
     )
     if binding_error:
         return None, binding_error
@@ -5897,7 +5761,8 @@ def _claim_verification_run(
             str(prepared_environment_digests.get(source_key, "")),
             current_environment_digest,
         ):
-            return None, "Click verification runner context changed before execution."
+            prepared_environment_digests[source_key] = current_environment_digest
+            environment_rebound = True
         for check, record in zip(checks, executable_records):
             execution_path = record.get("_execution_path")
             if not isinstance(execution_path, str) or not execution_path:
@@ -5915,10 +5780,12 @@ def _claim_verification_run(
         return None, "Click verification runner cumulative source budget was exceeded."
 
     verification["runner_claimed_at"] = int(time.time()) or 1
+    verification["running_environment_digests"] = prepared_environment_digests
     state["verification"] = verification
     state["updated_at"] = int(time.time())
     _write_json(state_path, state)
     batch["_click_verification_environment"] = verification_environment
+    batch["_click_verification_environment_rebound"] = environment_rebound
     return batch, ""
 
 
@@ -5974,6 +5841,7 @@ def _release_unclaimed_verification_reservation(
             "running_evidence_keys": [],
             "running_environment_digests": {},
             "running_environment_binding": [],
+            "running_environment_binding_digest": "",
             "running_executable_digests": {},
             "started_at": 0,
             "last_exit_code": None,
@@ -6020,6 +5888,15 @@ def _run_verification(arguments: list[str]) -> int:
             "Click verification runner lost its prepared environment binding.\n"
         )
         return 2
+    environment_rebound = batch.pop(
+        "_click_verification_environment_rebound", False
+    )
+    if environment_rebound:
+        print(
+            "[Click] Verification runner environment changed after preparation; "
+            "rebound to the current canonical environment.",
+            flush=True,
+        )
     before = _git_workspace_snapshot(Path.cwd())
     snapshot_failed = before is None and _git_metadata_present(Path.cwd())
     if snapshot_failed:

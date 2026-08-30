@@ -3044,7 +3044,7 @@ class ClickGateTests(unittest.TestCase):
             repeated["hookSpecificOutput"]["updatedInput"]["command"],
         )
 
-    def test_prepared_environment_value_change_is_rejected_before_execution(self) -> None:
+    def test_prepared_environment_value_change_is_rebound_before_execution(self) -> None:
         (self.workspace / ".gitignore").write_text(
             "__pycache__/\n", encoding="utf-8"
         )
@@ -3054,13 +3054,21 @@ class ClickGateTests(unittest.TestCase):
             os.environ, {"CLICK_TEST_ENVIRONMENT": "prepared-value"}
         ):
             first = self.verify_gate([self.verification_argv()])
+        state_path = next(
+            (self.plugin_data / "gate-state").glob("session-contract-*.json")
+        )
+        prepared = json.loads(state_path.read_text(encoding="utf-8"))
+        source_key = CLICK_GATE._evidence_key("E1")
+        prepared_digest = prepared["verification"][
+            "running_environment_digests"
+        ][source_key]
 
         rewritten = first["hookSpecificOutput"]["updatedInput"]["command"]
         environment = os.environ.copy()
         environment["PLUGIN_DATA"] = str(self.plugin_data)
         environment["CLICK_CONFIG_HOME"] = str(self.plugin_data)
         environment["CLICK_TEST_ENVIRONMENT"] = "changed-before-runner"
-        rejected = subprocess.run(
+        completed = subprocess.run(
             rewritten,
             shell=True,
             cwd=self.workspace,
@@ -3069,15 +3077,15 @@ class ClickGateTests(unittest.TestCase):
             text=True,
             check=False,
         )
-        self.assertEqual(rejected.returncode, 2)
+        self.assertEqual(completed.returncode, 0, completed.stderr)
         self.assertIn(
-            "environment changed after preparation", rejected.stderr
-        )
-        state_path = next(
-            (self.plugin_data / "gate-state").glob("session-contract-*.json")
+            "rebound to the current canonical environment", completed.stdout
         )
         state = json.loads(state_path.read_text(encoding="utf-8"))
+        source = state["evidence_state"]["sources"][source_key]
         self.assertEqual(state["verification"]["runner_claimed_at"], 0)
+        self.assertEqual(source["status"], "passed")
+        self.assertNotEqual(source["verified_environment_digest"], prepared_digest)
         serialized = state_path.read_text(encoding="utf-8")
         self.assertNotIn("CLICK_TEST_ENVIRONMENT", serialized)
         self.assertNotIn("prepared-value", serialized)
@@ -3175,14 +3183,16 @@ class ClickGateTests(unittest.TestCase):
             binding = CLICK_GATE._verification_environment_binding(
                 {"Path": "C:\\Python", "Click_Test": "stable"}, reservation_nonce
             )
-            projected, error = CLICK_GATE._verification_environment_from_binding(
-                binding,
-                reservation_nonce,
-                {
-                    "PATH": "C:\\Python",
-                    "CLICK_TEST": "stable",
-                    "RUNNER_ONLY": "ignored",
-                },
+            projected, drifted, error = (
+                CLICK_GATE._verification_environment_from_binding(
+                    binding,
+                    reservation_nonce,
+                    {
+                        "PATH": "C:\\Python",
+                        "CLICK_TEST": "stable",
+                        "RUNNER_ONLY": "ignored",
+                    },
+                )
             )
             first_digest = CLICK_GATE._verification_environment_digest_from_records(
                 executables,
@@ -3196,10 +3206,31 @@ class ClickGateTests(unittest.TestCase):
             )
 
         self.assertEqual(error, "")
+        self.assertFalse(drifted)
         self.assertEqual(
             projected, {"PATH": "C:\\Python", "CLICK_TEST": "stable"}
         )
         self.assertEqual(first_digest, second_digest)
+
+    def test_verification_environment_binding_recovers_missing_prepared_key(
+        self,
+    ) -> None:
+        runner_token = "set-at-runtime"
+        binding = CLICK_GATE._verification_environment_binding(
+            {"PATH": "/usr/bin", "HOOK_ONLY": "prepared"}, runner_token
+        )
+
+        projected, drifted, error = (
+            CLICK_GATE._verification_environment_from_binding(
+                binding,
+                runner_token,
+                {"PATH": "/usr/bin", "RUNNER_ONLY": "ignored"},
+            )
+        )
+
+        self.assertEqual(error, "")
+        self.assertTrue(drifted)
+        self.assertEqual(projected, {"PATH": "/usr/bin"})
 
     def test_receipt_fingerprint_resolves_relative_path_from_runner_cwd(self) -> None:
         tools = self.workspace / "tools"
@@ -3337,7 +3368,7 @@ class ClickGateTests(unittest.TestCase):
         source = state["evidence_state"]["sources"][CLICK_GATE._evidence_key("E1")]
         self.assertEqual(source["status"], "ready")
 
-    def test_verification_environment_mismatch_releases_unclaimed_reservation(
+    def test_verification_environment_mismatch_rebinds_before_execution(
         self,
     ) -> None:
         self.approve_contract()
@@ -3358,22 +3389,44 @@ class ClickGateTests(unittest.TestCase):
             mock.patch.object(
                 CLICK_GATE, "_execute_argv_commands", return_value=0
             ) as execute,
+            mock.patch.object(CLICK_GATE.Path, "cwd", return_value=self.workspace),
+            mock.patch.object(CLICK_GATE, "_git_workspace_snapshot", return_value=None),
+            mock.patch.object(CLICK_GATE, "_git_metadata_present", return_value=False),
         ):
-            self.assertEqual(CLICK_GATE._run_verification(tokens[5:]), 2)
-        execute.assert_not_called()
+            self.assertEqual(CLICK_GATE._run_verification(tokens[5:]), 0)
+        execute.assert_called_once()
 
         state = json.loads(state_path.read_text(encoding="utf-8"))
         verification = state["verification"]
-        self.assertEqual(verification["status"], "ready")
+        self.assertEqual(verification["status"], "passed")
         self.assertEqual(verification["runner_token_digest"], "")
         self.assertEqual(verification["runner_claimed_at"], 0)
         self.assertEqual(verification["running_evidence_keys"], [])
         source = state["evidence_state"]["sources"][CLICK_GATE._evidence_key("E1")]
-        self.assertEqual(source["status"], "ready")
+        self.assertEqual(source["status"], "passed")
         self.assertEqual(source["unchanged_failure_retries"], 0)
 
-        retry = self.verify_gate([self.verification_argv()])
-        self.assertEqual(retry["hookSpecificOutput"]["permissionDecision"], "allow")
+    def test_verification_runner_rejects_tampered_environment_binding(self) -> None:
+        self.approve_contract()
+        payload = self.verify_gate([self.verification_argv()])
+        state_path = next(
+            (self.plugin_data / "gate-state").glob("session-contract-*.json")
+        )
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        state["verification"]["running_environment_binding"].pop()
+        state_path.write_text(json.dumps(state), encoding="utf-8")
+
+        completed = self.run_rewritten(payload)
+
+        self.assertEqual(completed.returncode, 2)
+        self.assertIn("environment binding was malformed", completed.stderr)
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        verification = state["verification"]
+        self.assertEqual(verification["status"], "ready")
+        self.assertEqual(verification["runner_claimed_at"], 0)
+        self.assertEqual(verification["runner_token_digest"], "")
+        source = state["evidence_state"]["sources"][CLICK_GATE._evidence_key("E1")]
+        self.assertEqual(source["status"], "ready")
 
     def test_tampered_verification_token_does_not_release_reservation(self) -> None:
         self.approve_contract()
@@ -3432,9 +3485,10 @@ class ClickGateTests(unittest.TestCase):
         self.assertEqual(state["verification"]["status"], "running")
         self.assertGreater(state["verification"]["runner_claimed_at"], 0)
 
-    def test_verification_result_rejects_lost_context_digest_maps(self) -> None:
+    def test_verification_result_rejects_lost_context_bindings(self) -> None:
         for field in (
             "running_environment_digests",
+            "running_environment_binding_digest",
             "running_executable_digests",
         ):
             with self.subTest(field=field):
