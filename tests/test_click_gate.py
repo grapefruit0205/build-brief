@@ -441,14 +441,29 @@ class ClickGateTests(unittest.TestCase):
         self.assertIsNotNone(payload)
         return payload
 
-    def run_rewritten(self, payload: dict) -> subprocess.CompletedProcess[str]:
+    def run_rewritten(
+        self,
+        payload: dict,
+        environment_updates: dict[str, str] | None = None,
+    ) -> subprocess.CompletedProcess[str]:
         command = payload["hookSpecificOutput"]["updatedInput"]["command"]
         environment = os.environ.copy()
         environment["PLUGIN_DATA"] = str(self.plugin_data)
         environment["CLICK_CONFIG_HOME"] = str(self.plugin_data)
+        if environment_updates:
+            environment.update(environment_updates)
+        invocation: str | list[str] = command
+        use_shell = True
+        if os.name == "nt" and command.startswith("py -3 "):
+            # Runner shell compatibility has dedicated PowerShell/cmd.exe
+            # integration coverage. Keep semantic unit tests on the same
+            # interpreter that prepared their environment fingerprints.
+            invocation = split_runner_command(command)
+            invocation[0] = sys.executable
+            use_shell = False
         return subprocess.run(
-            command,
-            shell=True,
+            invocation,
+            shell=use_shell,
             cwd=self.workspace,
             env=environment,
             capture_output=True,
@@ -3025,19 +3040,9 @@ class ClickGateTests(unittest.TestCase):
             "running_environment_digests"
         ][source_key]
 
-        rewritten = first["hookSpecificOutput"]["updatedInput"]["command"]
-        environment = os.environ.copy()
-        environment["PLUGIN_DATA"] = str(self.plugin_data)
-        environment["CLICK_CONFIG_HOME"] = str(self.plugin_data)
-        environment["CLICK_RUNNER_ONLY_NOISE"] = "launcher-added"
-        completed = subprocess.run(
-            rewritten,
-            shell=True,
-            cwd=self.workspace,
-            env=environment,
-            capture_output=True,
-            text=True,
-            check=False,
+        completed = self.run_rewritten(
+            first,
+            {"CLICK_RUNNER_ONLY_NOISE": "launcher-added"},
         )
         self.assertEqual(completed.returncode, 0, completed.stderr)
         recorded = json.loads(state_path.read_text(encoding="utf-8"))
