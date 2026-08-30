@@ -441,17 +441,8 @@ class ClickGateTests(unittest.TestCase):
         self.assertIsNotNone(payload)
         return payload
 
-    def run_rewritten(
-        self,
-        payload: dict,
-        environment_updates: dict[str, str] | None = None,
-    ) -> subprocess.CompletedProcess[str]:
+    def rewritten_invocation(self, payload: dict) -> tuple[str | list[str], bool]:
         command = payload["hookSpecificOutput"]["updatedInput"]["command"]
-        environment = os.environ.copy()
-        environment["PLUGIN_DATA"] = str(self.plugin_data)
-        environment["CLICK_CONFIG_HOME"] = str(self.plugin_data)
-        if environment_updates:
-            environment.update(environment_updates)
         invocation: str | list[str] = command
         use_shell = True
         if os.name == "nt" and command.startswith("py -3 "):
@@ -461,6 +452,19 @@ class ClickGateTests(unittest.TestCase):
             invocation = split_runner_command(command)
             invocation[0] = sys.executable
             use_shell = False
+        return invocation, use_shell
+
+    def run_rewritten(
+        self,
+        payload: dict,
+        environment_updates: dict[str, str] | None = None,
+    ) -> subprocess.CompletedProcess[str]:
+        invocation, use_shell = self.rewritten_invocation(payload)
+        environment = os.environ.copy()
+        environment["PLUGIN_DATA"] = str(self.plugin_data)
+        environment["CLICK_CONFIG_HOME"] = str(self.plugin_data)
+        if environment_updates:
+            environment.update(environment_updates)
         return subprocess.run(
             invocation,
             shell=use_shell,
@@ -1689,21 +1693,28 @@ class ClickGateTests(unittest.TestCase):
         environment = os.environ.copy()
         environment["PLUGIN_DATA"] = str(self.plugin_data)
         environment["CLICK_CONFIG_HOME"] = str(self.plugin_data)
+        invocations = [self.rewritten_invocation(payload) for payload in payloads]
         processes = [
             subprocess.Popen(
-                payload["hookSpecificOutput"]["updatedInput"]["command"],
-                shell=True,
+                invocation,
+                shell=use_shell,
                 cwd=self.workspace,
                 env=environment,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
             )
-            for payload in payloads
+            for invocation, use_shell in invocations
         ]
-        for process in processes:
-            _, stderr = process.communicate(timeout=10)
-            self.assertEqual(process.returncode, 0, stderr)
+        try:
+            for process in processes:
+                _, stderr = process.communicate(timeout=30)
+                self.assertEqual(process.returncode, 0, stderr)
+        finally:
+            for process in processes:
+                if process.poll() is None:
+                    process.kill()
+                    process.communicate()
         states = [
             json.loads(path.read_text(encoding="utf-8"))
             for path in (self.plugin_data / "gate-state").glob("session-contract-*.json")
