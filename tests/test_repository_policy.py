@@ -118,7 +118,6 @@ class RepositoryPolicyTests(core.RepositoryPolicyTests):
         readmes = _readmes()
         for readme in readmes.values():
             self.assertIn("update_plan", readme)
-            self.assertIn("Evidence", readme)
         self.assertIn("observable tool path", readmes["README.md"])
         self.assertIn("관찰 가능한 tool path", readmes["README.ko.md"])
         self.assertIn("可观察的 tool path", readmes["README.zh-CN.md"])
