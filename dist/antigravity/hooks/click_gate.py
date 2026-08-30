@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import hmac
 import json
 import os
 import platform
@@ -573,6 +574,9 @@ def _fresh_verification_state(contract: dict[str, Any]) -> dict[str, Any]:
         "runner_token_digest": "",
         "runner_claimed_at": 0,
         "running_evidence_keys": [],
+        "running_environment_digests": {},
+        "running_environment_binding": [],
+        "running_executable_digests": {},
         "workspace_changed": False,
         "started_at": 0,
     }
@@ -1528,6 +1532,7 @@ def _verification_environment(*, cwd: Path) -> dict[str, str]:
         "_",
         "__CF_USER_TEXT_ENCODING",
         "CMDCMDLINE",
+        "CLICK_CONFIG_HOME",
         "COMMAND_MODE",
         "LC_CTYPE",
         "OLDPWD",
@@ -1535,6 +1540,7 @@ def _verification_environment(*, cwd: Path) -> dict[str, str]:
         "PROMPT_COMMAND",
         "PS1",
         "PS2",
+        "PLUGIN_DATA",
         "SHLVL",
     }
     environment = {
@@ -1544,6 +1550,87 @@ def _verification_environment(*, cwd: Path) -> dict[str, str]:
     }
     environment["PWD"] = str(cwd.resolve())
     return environment
+
+
+def _verification_environment_key(key: str) -> str:
+    return key.upper() if os.name == "nt" else key
+
+
+def _verification_environment_hmac(
+    runner_token: str, domain: str, value: str
+) -> str:
+    secret = hashlib.sha256(runner_token.encode()).digest()
+    message = f"click-verification-{domain}\0{value}".encode()
+    return hmac.new(secret, message, hashlib.sha256).hexdigest()
+
+
+def _verification_environment_binding(
+    environment: dict[str, str], runner_token: str
+) -> list[dict[str, str]]:
+    records = []
+    for key, value in environment.items():
+        normalized_key = _verification_environment_key(str(key))
+        records.append(
+            {
+                "key_digest": _verification_environment_hmac(
+                    runner_token, "key", normalized_key
+                ),
+                "value_digest": _verification_environment_hmac(
+                    runner_token, "value", f"{normalized_key}\0{value}"
+                ),
+            }
+        )
+    return sorted(records, key=lambda item: item["key_digest"])
+
+
+def _verification_environment_from_binding(
+    binding: Any,
+    runner_token: str,
+    current_environment: dict[str, str],
+) -> tuple[dict[str, str] | None, str]:
+    if not isinstance(binding, list) or not binding or len(binding) > 4096:
+        return None, "Click verification runner environment binding was malformed."
+    expected: dict[str, str] = {}
+    for record in binding:
+        if not isinstance(record, dict) or set(record) != {
+            "key_digest",
+            "value_digest",
+        }:
+            return None, "Click verification runner environment binding was malformed."
+        key_digest = record.get("key_digest")
+        value_digest = record.get("value_digest")
+        if (
+            not isinstance(key_digest, str)
+            or not re.fullmatch(r"[0-9a-f]{64}", key_digest)
+            or not isinstance(value_digest, str)
+            or not re.fullmatch(r"[0-9a-f]{64}", value_digest)
+            or key_digest in expected
+        ):
+            return None, "Click verification runner environment binding was malformed."
+        expected[key_digest] = value_digest
+
+    projected: dict[str, str] = {}
+    matched: set[str] = set()
+    for key, value in current_environment.items():
+        normalized_key = _verification_environment_key(str(key))
+        key_digest = _verification_environment_hmac(
+            runner_token, "key", normalized_key
+        )
+        expected_value = expected.get(key_digest)
+        if expected_value is None:
+            continue
+        current_value = _verification_environment_hmac(
+            runner_token, "value", f"{normalized_key}\0{value}"
+        )
+        if not secrets.compare_digest(expected_value, current_value):
+            return None, (
+                "Click verification runner environment changed after preparation."
+            )
+        projected[str(key)] = str(value)
+        matched.add(key_digest)
+    if matched != set(expected):
+        return None, "Click verification runner environment changed after preparation."
+    return projected, ""
 
 
 def _executable_search_path(environment: dict[str, str], *, cwd: Path) -> str:
@@ -1557,30 +1644,40 @@ def _executable_search_path(environment: dict[str, str], *, cwd: Path) -> str:
     return os.pathsep.join(entries)
 
 
-def _verification_environment_digest(
+def _verification_executable_records(
     checks: list[dict[str, Any]], *, cwd: Path, environment: dict[str, str] | None = None
-) -> str:
+) -> list[dict[str, Any]] | None:
     effective_environment = environment or _verification_environment(cwd=cwd)
     search_path = _executable_search_path(effective_environment, cwd=cwd)
     executables: list[dict[str, Any]] = []
     for check in checks:
         argv = check.get("argv")
         executable = str(argv[0]) if isinstance(argv, list) and argv else ""
-        resolved = shutil.which(executable, path=search_path)
-        if resolved is None and executable:
-            candidate = Path(executable)
-            resolved = str(candidate) if candidate.is_absolute() else None
+        candidate = Path(executable)
+        if executable and (
+            candidate.is_absolute() or _is_path_qualified_executable(executable)
+        ):
+            selected = candidate if candidate.is_absolute() else cwd / candidate
+            resolved = shutil.which(str(selected))
+        else:
+            resolved = shutil.which(executable, path=search_path)
         item: dict[str, Any] = {"name": Path(executable).name.lower()}
         if resolved:
             try:
-                path = Path(resolved).resolve(strict=True)
+                resolved_candidate = Path(resolved)
+                if not resolved_candidate.is_absolute():
+                    resolved_candidate = cwd / resolved_candidate
+                execution_path = Path(os.path.abspath(resolved_candidate))
+                path = execution_path.resolve(strict=True)
                 metadata = path.stat()
                 item.update(
                     {
+                        "selected_path": os.path.normcase(str(execution_path)),
                         "path": os.path.normcase(str(path)),
                         "size": int(metadata.st_size),
                         "mtime_ns": int(metadata.st_mtime_ns),
                         "content_digest": _file_content_digest(path),
+                        "_execution_path": str(execution_path),
                     }
                 )
             except (OSError, RuntimeError):
@@ -1593,9 +1690,50 @@ def _verification_environment_digest(
         or not item.get("content_digest")
         for item in executables
     ):
+        return None
+    return executables
+
+
+def _verification_executable_payload(
+    executables: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    return [
+        {
+            key: value
+            for key, value in executable.items()
+            if key != "_execution_path"
+        }
+        for executable in executables
+    ]
+
+
+def _verification_executable_digest(
+    checks: list[dict[str, Any]], *, cwd: Path, environment: dict[str, str] | None = None
+) -> str:
+    executables = _verification_executable_records(
+        checks, cwd=cwd, environment=environment
+    )
+    if executables is None:
         return ""
+    return _capability_digest(
+        {"executables": _verification_executable_payload(executables)}
+    )
+
+
+def _verification_environment_digest_from_records(
+    executables: list[dict[str, Any]],
+    *,
+    cwd: Path,
+    environment: dict[str, str],
+) -> str:
     environment_payload = json.dumps(
-        sorted((str(key), str(value)) for key, value in effective_environment.items()),
+        sorted(
+            (
+                _verification_environment_key(str(key)),
+                str(value),
+            )
+            for key, value in environment.items()
+        ),
         ensure_ascii=False,
         separators=(",", ":"),
     ).encode()
@@ -1605,10 +1743,24 @@ def _verification_environment_digest(
         "platform": sys.platform,
         "machine": platform.machine(),
         "python": list(sys.version_info[:3]),
-        "executables": executables,
+        "executables": _verification_executable_payload(executables),
         "environment_digest": hashlib.sha256(environment_payload).hexdigest(),
     }
     return _capability_digest(payload)
+
+
+def _verification_environment_digest(
+    checks: list[dict[str, Any]], *, cwd: Path, environment: dict[str, str] | None = None
+) -> str:
+    effective_environment = environment or _verification_environment(cwd=cwd)
+    executables = _verification_executable_records(
+        checks, cwd=cwd, environment=effective_environment
+    )
+    if executables is None:
+        return ""
+    return _verification_environment_digest_from_records(
+        executables, cwd=cwd, environment=effective_environment
+    )
 
 
 def _verification_receipt_matches(
@@ -2747,6 +2899,9 @@ def _prepare_verification(
                 source["status"] = "ready"
                 source["last_exit_code"] = None
         verification["running_evidence_keys"] = []
+        verification["running_environment_digests"] = {}
+        verification["running_environment_binding"] = []
+        verification["running_executable_digests"] = {}
         verification["runner_claimed_at"] = 0
 
     revision = int(verification.get("mutation_revision", 0))
@@ -2962,13 +3117,46 @@ def _prepare_verification(
 
     canonical = json.dumps(batch, sort_keys=True, separators=(",", ":"))
     batch_digest = hashlib.sha256(canonical.encode()).hexdigest()
+    workspace = Path(str(event.get("cwd", ""))).resolve()
+    prepared_environment = _verification_environment(cwd=workspace)
+    runner_token = secrets.token_urlsafe(24)
+    running_environment_binding = _verification_environment_binding(
+        prepared_environment, runner_token
+    )
+    running_environment_digests: dict[str, str] = {}
+    running_executable_digests: dict[str, str] = {}
+    for source_key in requested_keys:
+        executable_records = _verification_executable_records(
+            grouped_checks[source_key],
+            cwd=workspace,
+            environment=prepared_environment,
+        )
+        if executable_records is None:
+            return (
+                "",
+                "Click could not resolve and fingerprint every verification "
+                "executable before issuing the runner.",
+            )
+        running_environment_digests[source_key] = (
+            _verification_environment_digest_from_records(
+                executable_records,
+                cwd=workspace,
+                environment=prepared_environment,
+            )
+        )
+        running_executable_digests[source_key] = _capability_digest(
+            {
+                "executables": _verification_executable_payload(
+                    executable_records
+                )
+            }
+        )
     for source_key in requested_keys:
         group_digest = group_digests[source_key]
         source = sources[source_key]
         source["status"] = "running"
         source["last_check_digest"] = group_digest
 
-    runner_token = secrets.token_urlsafe(24)
     verification.update(
         {
             "status": "running",
@@ -2978,6 +3166,9 @@ def _prepare_verification(
             "runner_token_digest": hashlib.sha256(runner_token.encode()).hexdigest(),
             "runner_claimed_at": 0,
             "running_evidence_keys": sorted(requested_keys),
+            "running_environment_digests": running_environment_digests,
+            "running_environment_binding": running_environment_binding,
+            "running_executable_digests": running_executable_digests,
             "started_at": int(time.time()),
         }
     )
@@ -3039,7 +3230,7 @@ def _get_content_paths(tokens: list[str]) -> list[str] | None:
 
 
 def _structured_ssh_parts(tokens: list[str]) -> tuple[str, list[str]] | None:
-    if len(tokens) < 4 or tokens[0].lower() not in {"ssh", "ssh.exe"}:
+    if len(tokens) < 4 or Path(tokens[0]).name.lower() not in {"ssh", "ssh.exe"}:
         return None
     target = tokens[1]
     remote_argv = tokens[2:]
@@ -4148,12 +4339,44 @@ def _record_verification_result(
     sources = _evidence_sources(state)
     if sources is None or not sources:
         return False
-    environment_digests = environment_digests or {}
     running_keys = {
         key
         for key in verification.get("running_evidence_keys", [])
         if isinstance(key, str)
     }
+    prepared_environment_digests = verification.get(
+        "running_environment_digests"
+    )
+    prepared_executable_digests = verification.get(
+        "running_executable_digests"
+    )
+    for prepared in (
+        prepared_environment_digests,
+        prepared_executable_digests,
+    ):
+        if (
+            not isinstance(prepared, dict)
+            or set(prepared) != running_keys
+            or any(
+                not isinstance(value, str)
+                or not re.fullmatch(r"[0-9a-f]{64}", value)
+                for value in prepared.values()
+            )
+        ):
+            return False
+    _, binding_error = _verification_environment_from_binding(
+        verification.get("running_environment_binding"),
+        runner_token,
+        _verification_environment(cwd=Path.cwd()),
+    )
+    if binding_error:
+        return False
+    if (
+        environment_digests is not None
+        and environment_digests != prepared_environment_digests
+    ):
+        return False
+    environment_digests = prepared_environment_digests
     checks = batch.get("checks")
     if not isinstance(checks, list):
         return False
@@ -4166,6 +4389,9 @@ def _record_verification_result(
     if set(positions) != running_keys:
         return False
     verification["running_evidence_keys"] = []
+    verification["running_environment_digests"] = {}
+    verification["running_environment_binding"] = []
+    verification["running_executable_digests"] = {}
     if workspace_changed:
         previous_revision = revision
         revision += 1
@@ -4510,7 +4736,7 @@ def _execution_argv(argv: list[str]) -> list[str]:
     if error or safe_git_argv is None:
         return argv
     return [
-        "ssh",
+        argv[0],
         "-n",
         "-F",
         "none",
@@ -5503,6 +5729,27 @@ def _claim_verification_run(
     grouped_checks, grouping_error = _verification_groups(batch)
     if grouping_error:
         return None, grouping_error
+    prepared_environment_digests = verification.get("running_environment_digests")
+    prepared_executable_digests = verification.get("running_executable_digests")
+    for prepared in (prepared_environment_digests, prepared_executable_digests):
+        if (
+            not isinstance(prepared, dict)
+            or set(prepared) != running_keys
+            or any(
+                not isinstance(value, str)
+                or not re.fullmatch(r"[0-9a-f]{64}", value)
+                for value in prepared.values()
+            )
+        ):
+            return None, "Click verification runner context binding was malformed."
+    verification_environment, binding_error = _verification_environment_from_binding(
+        verification.get("running_environment_binding"),
+        runner_token,
+        _verification_environment(cwd=Path.cwd()),
+    )
+    if binding_error:
+        return None, binding_error
+    assert verification_environment is not None
     for source_key, checks in grouped_checks.items():
         source = sources.get(source_key)
         if not isinstance(source, dict):
@@ -5514,6 +5761,42 @@ def _claim_verification_run(
             or source.get("reserved_units") != expected_units
         ):
             return None, "Click verification runner source reservation did not match."
+        executable_records = _verification_executable_records(
+            checks,
+            cwd=Path.cwd(),
+            environment=verification_environment,
+        )
+        if executable_records is None:
+            return None, "Click verification executable changed before execution."
+        current_executable_digest = _capability_digest(
+            {
+                "executables": _verification_executable_payload(
+                    executable_records
+                )
+            }
+        )
+        current_environment_digest = _verification_environment_digest_from_records(
+            executable_records,
+            cwd=Path.cwd(),
+            environment=verification_environment,
+        )
+        if not secrets.compare_digest(
+            str(prepared_executable_digests.get(source_key, "")),
+            current_executable_digest,
+        ):
+            return None, "Click verification executable changed before execution."
+        if not secrets.compare_digest(
+            str(prepared_environment_digests.get(source_key, "")),
+            current_environment_digest,
+        ):
+            return None, "Click verification runner context changed before execution."
+        for check, record in zip(checks, executable_records):
+            execution_path = record.get("_execution_path")
+            if not isinstance(execution_path, str) or not execution_path:
+                return None, "Click verification executable binding was malformed."
+            execution_argv = list(check["argv"])
+            execution_argv[0] = execution_path
+            check["argv"] = execution_argv
     reserved_total = sum(
         int(source.get("reserved_units", 0))
         for key, source in sources.items()
@@ -5527,6 +5810,7 @@ def _claim_verification_run(
     state["verification"] = verification
     state["updated_at"] = int(time.time())
     _write_json(state_path, state)
+    batch["_click_verification_environment"] = verification_environment
     return batch, ""
 
 
@@ -5555,15 +5839,12 @@ def _run_verification(arguments: list[str]) -> int:
     if grouping_error:
         sys.stderr.write(f"{grouping_error}\n")
         return 2
-    verification_environment = _verification_environment(cwd=Path.cwd())
-    environment_digests = {
-        source_key: _verification_environment_digest(
-            source_checks,
-            cwd=Path.cwd(),
-            environment=verification_environment,
+    verification_environment = batch.pop("_click_verification_environment", None)
+    if not isinstance(verification_environment, dict):
+        sys.stderr.write(
+            "Click verification runner lost its prepared environment binding.\n"
         )
-        for source_key, source_checks in grouped_checks.items()
-    }
+        return 2
     before = _git_workspace_snapshot(Path.cwd())
     snapshot_failed = before is None and _git_metadata_present(Path.cwd())
     if snapshot_failed:
@@ -5648,7 +5929,6 @@ def _run_verification(arguments: list[str]) -> int:
             workspace_changed=workspace_changed,
             workspace_root=workspace_root if not workspace_changed else "",
             workspace_digest=workspace_digest if not workspace_changed else "",
-            environment_digests=environment_digests,
         )
     if not recorded:
         sys.stderr.write("Click could not record the verification result safely.\n")

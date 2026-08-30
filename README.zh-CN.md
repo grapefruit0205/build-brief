@@ -275,7 +275,7 @@ click-gate verify '{"version":2,"checks":[{"evidence_id":"E1","argv":["python3",
 
 Hook 会验证 id、kind 和 class，在不使用 shell 的情况下执行已接受的 batch，并按来源记录真实退出码；部分失败不会把其他来源的成功抹掉。对于 Python，只允许明确的 pytest、unittest 和 coverage 模块 runner，包括 Windows 的 `py -3 -m ...`；Python `-c` 和直接执行 Python 脚本会被拒绝。指定一个准确文件的 `node --check`、`node --test`，以及 `uv run pytest`、`npm run lint`、`npm run build`、`ruff check`、`mypy`、`tsc --noEmit`、`cargo check`、`cargo clippy` 和 `go vet`，会被识别并按推断范围计费。项目级 `node --test` 是 broad，Node eval/print 不属于验证能力。旧版 version `1` verify 和 shell-string `commands` batch 会被拒绝，同时给出迁移提示。失败来源可因临时故障原样重试一次；之后必须先进行范围内 mutation。后续 mutation 会使之前的成功结果 stale；即使树碰巧相同，也不会把旧证据自动提升到新 revision。
 
-已经成功的同一检查再次提交时，Click 会在启动进程前先查看 receipt。只有活动 mutation revision、契约 digest、检查 digest、预约成本、Git root、受保护 Git tree、规范化的完整执行环境和可执行文件内容指纹全部相同，才会把 runner 替换成 `echo` 并跳过重跑。非 Git 工作区、缺失 receipt 或任一字段不同都会真正重新执行检查。该优化只覆盖 Git 可见的 tracked 与 non-ignored untracked 代码状态；它不能证明 ignored dependency、外部服务或人工状态没有变化，也绝不会复活不同 revision 的 stale 证据。
+已经成功的同一检查再次提交时，Click 会在启动进程前先查看 receipt。只有活动 mutation revision、契约 digest、检查 digest、预约成本、Git root、受保护 Git tree、Hook 在签发 runner 前固定的执行 context 和可执行文件内容指纹全部相同，才会把 runner 替换成 `echo` 并跳过重跑。Click 用 keyed content-free hash 绑定准备好的每个环境键和值；runner 要求这些值全部一致，将 launcher 新增的值排除在 child check 之外，然后为 resolved target 建立指纹，并在执行前固定所选择的 launcher 路径。这样既保留 virtual environment 与 shim 语义，也让结构化 SSH hardening 和 remote URL redaction 在固定路径后继续生效。因此 macOS 或 Windows shell bookkeeping 不会造成错误重跑，而准备值或可执行文件变化会 fail closed。非 Git 工作区、缺失 receipt 或任一字段不同都会真正重新执行检查。该优化只覆盖 Git 可见的 tracked 与 non-ignored untracked 代码状态；它不能证明 ignored dependency、外部服务或人工状态没有变化，也绝不会复活不同 revision 的 stale 证据。
 
 Browser 先经过一次成功的受计量 session，再显式 finalize 分配给它的 id：
 

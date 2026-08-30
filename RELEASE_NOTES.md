@@ -32,12 +32,18 @@ execution guards, and verification-time mutation detection remain fail-closed.
   split around the budget.
 - A current successful exact argv check is skipped only when the same active
   contract and mutation revision, check group, protected Git tree digest,
-  canonical execution environment, and resolved executable fingerprint still
+  Hook-prepared execution context, and resolved executable fingerprint still
   match. A new mutation revision never auto-promotes stale evidence; non-Git
   worktrees and missing or mismatched receipts rerun the check.
-- Canonical environment fingerprints exclude launcher-owned shell bookkeeping
-  while retaining project/user variables. This prevents unchanged receipts
-  from rerunning solely because macOS or Windows added transient shell state.
+- Click binds every prepared environment key and value with keyed content-free
+  hashes before issuing the rewritten runner. The runner requires every bound
+  value to match, excludes launcher-only additions from the child check, then
+  fingerprints the resolved target and pins the selected launcher path
+  immediately before execution, preserving virtual-environment and shim
+  semantics. Hardened structured SSH policy and remote-URL redaction also
+  remain active after executable pinning.
+  macOS and Windows shell bookkeeping therefore cannot invalidate an unchanged
+  receipt, while a changed prepared value or executable fails closed.
 
 ### Browser input deduplication
 

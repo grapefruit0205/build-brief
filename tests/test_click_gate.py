@@ -1136,6 +1136,15 @@ class ClickGateTests(unittest.TestCase):
         self.assertEqual(run.call_args.args[0], prepared)
         self.assertFalse(run.call_args.kwargs["check"])
 
+        pinned_ssh = (
+            r"C:\trusted\ssh.exe" if os.name == "nt" else "/trusted/bin/ssh"
+        )
+        pinned_argv = [pinned_ssh, "example-host", *remote_argv]
+        pinned = CLICK_GATE._execution_argv(pinned_argv)
+        self.assertEqual(pinned[0], pinned_ssh)
+        self.assertIn("BatchMode=yes", pinned)
+        self.assertIsNotNone(CLICK_GATE._structured_ssh_parts(pinned_argv))
+
     def test_structured_ssh_execution_keeps_mutations_explicit(self) -> None:
         remote_argv = ["python3", "tool.py", "--value", "literal|value"]
         argv = ["ssh", "example-host", *remote_argv]
@@ -1177,18 +1186,39 @@ class ClickGateTests(unittest.TestCase):
         self.assertNotIn(b"secret", output)
 
     def test_structured_ssh_remote_url_is_redacted_before_output(self) -> None:
-        argv = ["ssh", "example-host", "git", "remote", "get-url", "origin"]
-        with tempfile.TemporaryFile() as stdout_file, tempfile.TemporaryFile() as stderr_file:
-            with mock.patch.object(CLICK_GATE.subprocess, "run") as run:
-                run.return_value.returncode = 0
-                run.return_value.stdout = b"https://user:secret@example.com/repo.git\n"
-                run.return_value.stderr = b""
-                self.assertEqual(
-                    CLICK_GATE._execute_argv_commands([argv], stdout_file, stderr_file),
-                    0,
-                )
-            stdout_file.seek(0)
-            self.assertEqual(stdout_file.read(), b"https://example.com/repo.git\n")
+        pinned_ssh = (
+            r"C:\trusted\ssh.exe" if os.name == "nt" else "/trusted/bin/ssh"
+        )
+        for executable in ("ssh", pinned_ssh):
+            with self.subTest(executable=executable):
+                argv = [
+                    executable,
+                    "example-host",
+                    "git",
+                    "remote",
+                    "get-url",
+                    "origin",
+                ]
+                with (
+                    tempfile.TemporaryFile() as stdout_file,
+                    tempfile.TemporaryFile() as stderr_file,
+                ):
+                    with mock.patch.object(CLICK_GATE.subprocess, "run") as run:
+                        run.return_value.returncode = 0
+                        run.return_value.stdout = (
+                            b"https://user:secret@example.com/repo.git\n"
+                        )
+                        run.return_value.stderr = b""
+                        self.assertEqual(
+                            CLICK_GATE._execute_argv_commands(
+                                [argv], stdout_file, stderr_file
+                            ),
+                            0,
+                        )
+                    stdout_file.seek(0)
+                    self.assertEqual(
+                        stdout_file.read(), b"https://example.com/repo.git\n"
+                    )
 
     def test_structured_inspection_emulates_get_content_cross_platform(self) -> None:
         (self.workspace / "native.txt").write_text(
@@ -2776,6 +2806,89 @@ class ClickGateTests(unittest.TestCase):
             ),
         )
 
+    def test_runner_only_environment_noise_does_not_invalidate_receipt(self) -> None:
+        (self.workspace / ".gitignore").write_text(
+            "__pycache__/\n", encoding="utf-8"
+        )
+        self.initialize_git(".gitignore", "verification_fixture.py")
+        self.approve_contract()
+        command = self.verification_argv()
+        first = self.verify_gate([command])
+        state_path = next(
+            (self.plugin_data / "gate-state").glob("session-contract-*.json")
+        )
+        prepared = json.loads(state_path.read_text(encoding="utf-8"))
+        source_key = CLICK_GATE._evidence_key("E1")
+        prepared_digest = prepared["verification"][
+            "running_environment_digests"
+        ][source_key]
+
+        rewritten = first["hookSpecificOutput"]["updatedInput"]["command"]
+        environment = os.environ.copy()
+        environment["PLUGIN_DATA"] = str(self.plugin_data)
+        environment["CLICK_CONFIG_HOME"] = str(self.plugin_data)
+        environment["CLICK_RUNNER_ONLY_NOISE"] = "launcher-added"
+        completed = subprocess.run(
+            rewritten,
+            shell=True,
+            cwd=self.workspace,
+            env=environment,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        recorded = json.loads(state_path.read_text(encoding="utf-8"))
+        source = recorded["evidence_state"]["sources"][source_key]
+        self.assertEqual(source["verified_environment_digest"], prepared_digest)
+
+        repeated = self.verify_gate([command])
+        self.assertEqual(
+            repeated["hookSpecificOutput"]["permissionDecision"], "allow"
+        )
+        self.assertIn(
+            "reused 1 current unchanged-tree",
+            repeated["hookSpecificOutput"]["updatedInput"]["command"],
+        )
+
+    def test_prepared_environment_value_change_is_rejected_before_execution(self) -> None:
+        (self.workspace / ".gitignore").write_text(
+            "__pycache__/\n", encoding="utf-8"
+        )
+        self.initialize_git(".gitignore", "verification_fixture.py")
+        self.approve_contract()
+        with mock.patch.dict(
+            os.environ, {"CLICK_TEST_ENVIRONMENT": "prepared-value"}
+        ):
+            first = self.verify_gate([self.verification_argv()])
+
+        rewritten = first["hookSpecificOutput"]["updatedInput"]["command"]
+        environment = os.environ.copy()
+        environment["PLUGIN_DATA"] = str(self.plugin_data)
+        environment["CLICK_CONFIG_HOME"] = str(self.plugin_data)
+        environment["CLICK_TEST_ENVIRONMENT"] = "changed-before-runner"
+        rejected = subprocess.run(
+            rewritten,
+            shell=True,
+            cwd=self.workspace,
+            env=environment,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(rejected.returncode, 2)
+        self.assertIn(
+            "environment changed after preparation", rejected.stderr
+        )
+        state_path = next(
+            (self.plugin_data / "gate-state").glob("session-contract-*.json")
+        )
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        self.assertEqual(state["verification"]["runner_claimed_at"], 0)
+        serialized = state_path.read_text(encoding="utf-8")
+        self.assertNotIn("CLICK_TEST_ENVIRONMENT", serialized)
+        self.assertNotIn("prepared-value", serialized)
+
     def test_current_receipt_reruns_when_the_git_tree_changes_out_of_band(self) -> None:
         (self.workspace / ".gitignore").write_text(
             "__pycache__/\n", encoding="utf-8"
@@ -2853,6 +2966,47 @@ class ClickGateTests(unittest.TestCase):
         self.assertEqual(actual, expected)
         self.assertEqual(actual["CLICK_TEST_ENVIRONMENT"], "stable")
 
+    def test_windows_environment_binding_is_case_insensitive(self) -> None:
+        token = "runner-token"
+        executables = [
+            {
+                "name": "python.exe",
+                "path": "C:\\Python\\python.exe",
+                "size": 1,
+                "mtime_ns": 1,
+                "content_digest": "1" * 64,
+            }
+        ]
+        with mock.patch.object(CLICK_GATE.os, "name", "nt"):
+            binding = CLICK_GATE._verification_environment_binding(
+                {"Path": "C:\\Python", "Click_Test": "stable"}, token
+            )
+            projected, error = CLICK_GATE._verification_environment_from_binding(
+                binding,
+                token,
+                {
+                    "PATH": "C:\\Python",
+                    "CLICK_TEST": "stable",
+                    "RUNNER_ONLY": "ignored",
+                },
+            )
+            first_digest = CLICK_GATE._verification_environment_digest_from_records(
+                executables,
+                cwd=self.workspace,
+                environment={"Path": "C:\\Python", "Click_Test": "stable"},
+            )
+            second_digest = CLICK_GATE._verification_environment_digest_from_records(
+                executables,
+                cwd=self.workspace,
+                environment={"PATH": "C:\\Python", "CLICK_TEST": "stable"},
+            )
+
+        self.assertEqual(error, "")
+        self.assertEqual(
+            projected, {"PATH": "C:\\Python", "CLICK_TEST": "stable"}
+        )
+        self.assertEqual(first_digest, second_digest)
+
     def test_receipt_fingerprint_resolves_relative_path_from_runner_cwd(self) -> None:
         tools = self.workspace / "tools"
         tools.mkdir()
@@ -2870,6 +3024,64 @@ class ClickGateTests(unittest.TestCase):
         )
 
         self.assertRegex(digest, r"^[0-9a-f]{64}$")
+
+    def test_relative_verifier_selection_uses_explicit_workspace(self) -> None:
+        executable = self.workspace / "gradlew"
+        executable.write_bytes(b"verification launcher\n")
+        executable.chmod(0o755)
+        relative = ".\\gradlew" if os.name == "nt" else "./gradlew"
+        with mock.patch.object(CLICK_GATE.shutil, "which", return_value=relative):
+            records = CLICK_GATE._verification_executable_records(
+                [{"argv": [relative], "class": "targeted"}],
+                cwd=self.workspace,
+                environment={"PATH": os.environ.get("PATH", os.defpath)},
+            )
+
+        self.assertIsNotNone(records)
+        assert records is not None
+        self.assertEqual(records[0]["_execution_path"], str(executable.absolute()))
+
+    @unittest.skipIf(os.name == "nt", "symlink launcher semantics are POSIX-specific")
+    def test_verification_pins_selected_symlink_launcher_not_its_target(self) -> None:
+        tools = self.workspace / "tools"
+        tools.mkdir()
+        launcher = tools / "python3"
+        launcher.symlink_to(Path(sys.executable).resolve())
+        self.approve_contract()
+        argv = [
+            launcher.name,
+            "-m",
+            "unittest",
+            "verification_fixture.VerificationFixture.test_pass",
+        ]
+        with mock.patch.dict(os.environ, {"PATH": str(tools)}):
+            payload = self.verify_gate([argv])
+        tokens = split_runner_command(
+            payload["hookSpecificOutput"]["updatedInput"]["command"]
+        )
+        raw, error = CLICK_GATE._decode_encoded_request(tokens[8], "verification")
+        self.assertEqual(error, "")
+        environment = {
+            "PLUGIN_DATA": str(self.plugin_data),
+            "CLICK_CONFIG_HOME": str(self.plugin_data),
+            "PATH": str(tools),
+        }
+        with (
+            mock.patch.dict(os.environ, environment),
+            mock.patch.object(CLICK_GATE.Path, "cwd", return_value=self.workspace),
+        ):
+            batch, claim_error = CLICK_GATE._claim_verification_run(
+                Path(tokens[5]), raw, tokens[6], tokens[7]
+            )
+        self.assertEqual(claim_error, "")
+        self.assertIsNotNone(batch)
+        assert batch is not None
+        self.assertEqual(
+            batch["checks"][0]["argv"][0], str(launcher.absolute())
+        )
+        self.assertNotEqual(
+            batch["checks"][0]["argv"][0], str(Path(sys.executable).resolve())
+        )
 
     def test_rewritten_verification_runner_is_claimed_before_execution(self) -> None:
         self.approve_contract()
@@ -2889,6 +3101,7 @@ class ClickGateTests(unittest.TestCase):
         }
         with (
             mock.patch.dict(os.environ, environment),
+            mock.patch.object(CLICK_GATE.Path, "cwd", return_value=self.workspace),
             mock.patch.object(CLICK_GATE, "_git_workspace_snapshot", return_value=None),
             mock.patch.object(CLICK_GATE, "_git_metadata_present", return_value=False),
             mock.patch.object(
@@ -2898,6 +3111,90 @@ class ClickGateTests(unittest.TestCase):
             self.assertEqual(CLICK_GATE._run_verification(tokens[5:]), 0)
             self.assertEqual(CLICK_GATE._run_verification(tokens[5:]), 2)
         self.assertEqual(execute.call_count, 1)
+
+    def test_verification_runner_rejects_executable_change_before_execution(self) -> None:
+        self.approve_contract()
+        payload = self.verify_gate([self.verification_argv()])
+        tokens = split_runner_command(
+            payload["hookSpecificOutput"]["updatedInput"]["command"]
+        )
+        environment = {
+            "PLUGIN_DATA": str(self.plugin_data),
+            "CLICK_CONFIG_HOME": str(self.plugin_data),
+        }
+        with (
+            mock.patch.dict(os.environ, environment),
+            mock.patch.object(CLICK_GATE.Path, "cwd", return_value=self.workspace),
+            mock.patch.object(CLICK_GATE, "_file_content_digest", return_value="0" * 64),
+            mock.patch.object(
+                CLICK_GATE, "_execute_argv_commands", return_value=0
+            ) as execute,
+        ):
+            self.assertEqual(CLICK_GATE._run_verification(tokens[5:]), 2)
+        execute.assert_not_called()
+
+        state_path = next(
+            (self.plugin_data / "gate-state").glob("session-contract-*.json")
+        )
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        self.assertEqual(state["verification"]["runner_claimed_at"], 0)
+
+    def test_verification_result_rejects_lost_context_digest_maps(self) -> None:
+        for field in (
+            "running_environment_digests",
+            "running_executable_digests",
+        ):
+            with self.subTest(field=field):
+                self.plugin_data = Path(self.temporary.name) / f"plugin-{field}"
+                self.submitted_turns.clear()
+                self.approve_contract()
+                payload = self.verify_gate([self.verification_argv()])
+                tokens = split_runner_command(
+                    payload["hookSpecificOutput"]["updatedInput"]["command"]
+                )
+                raw, error = CLICK_GATE._decode_encoded_request(
+                    tokens[8], "verification"
+                )
+                self.assertEqual(error, "")
+                environment = {
+                    "PLUGIN_DATA": str(self.plugin_data),
+                    "CLICK_CONFIG_HOME": str(self.plugin_data),
+                }
+                with (
+                    mock.patch.dict(CLICK_GATE.os.environ, environment),
+                    mock.patch.object(
+                        CLICK_GATE.Path, "cwd", return_value=self.workspace
+                    ),
+                ):
+                    batch, claim_error = CLICK_GATE._claim_verification_run(
+                        Path(tokens[5]), raw, tokens[6], tokens[7]
+                    )
+                self.assertEqual(claim_error, "")
+                self.assertIsNotNone(batch)
+                assert batch is not None
+                batch.pop("_click_verification_environment")
+
+                state_path = Path(tokens[5])
+                state = json.loads(state_path.read_text(encoding="utf-8"))
+                state["verification"][field] = {}
+                state_path.write_text(json.dumps(state), encoding="utf-8")
+                with (
+                    mock.patch.dict(CLICK_GATE.os.environ, environment),
+                    mock.patch.object(
+                        CLICK_GATE.Path, "cwd", return_value=self.workspace
+                    ),
+                ):
+                    recorded = CLICK_GATE._record_verification_result(
+                        state_path,
+                        batch,
+                        tokens[6],
+                        tokens[7],
+                        0,
+                        1,
+                        workspace_root=str(self.workspace),
+                        workspace_digest="1" * 64,
+                    )
+                self.assertFalse(recorded)
 
     def test_verification_runner_rejects_tampered_source_reservation(self) -> None:
         self.approve_contract()
@@ -2911,11 +3208,13 @@ class ClickGateTests(unittest.TestCase):
         source["reserved_check_digest"] = "0" * 64
         state_path.write_text(json.dumps(state), encoding="utf-8")
 
+        environment = {
+            "PLUGIN_DATA": str(self.plugin_data),
+            "CLICK_CONFIG_HOME": str(self.plugin_data),
+        }
         with (
-            mock.patch.dict(
-                CLICK_GATE.os.environ,
-                {"PLUGIN_DATA": str(self.plugin_data)},
-            ),
+            mock.patch.dict(CLICK_GATE.os.environ, environment),
+            mock.patch.object(CLICK_GATE.Path, "cwd", return_value=self.workspace),
             mock.patch.object(CLICK_GATE, "_execute_argv_commands") as execute,
         ):
             self.assertEqual(CLICK_GATE._run_verification(tokens[5:]), 2)
@@ -3005,11 +3304,13 @@ class ClickGateTests(unittest.TestCase):
         tokens = split_runner_command(
             payload["hookSpecificOutput"]["updatedInput"]["command"]
         )
+        environment = {
+            "PLUGIN_DATA": str(self.plugin_data),
+            "CLICK_CONFIG_HOME": str(self.plugin_data),
+        }
         with (
-            mock.patch.dict(
-                CLICK_GATE.os.environ,
-                {"PLUGIN_DATA": str(self.plugin_data)},
-            ),
+            mock.patch.dict(CLICK_GATE.os.environ, environment),
+            mock.patch.object(CLICK_GATE.Path, "cwd", return_value=self.workspace),
             mock.patch.object(CLICK_GATE, "_git_workspace_snapshot", return_value=None),
             mock.patch.object(CLICK_GATE, "_git_metadata_present", return_value=True),
             mock.patch.object(CLICK_GATE, "_execute_argv_commands") as execute,
@@ -3808,6 +4109,8 @@ class ClickGateTests(unittest.TestCase):
         ]
         reserved_digest = original_source["reserved_check_digest"]
         reserved_units = original_source["reserved_units"]
+        original_binding = state["verification"]["running_environment_binding"]
+        original_token_digest = state["verification"]["runner_token_digest"]
         state_path.write_text(json.dumps(state), encoding="utf-8")
 
         retry = self.verify_gate([self.verification_argv()])
@@ -3819,6 +4122,18 @@ class ClickGateTests(unittest.TestCase):
         self.assertEqual(source["unchanged_failure_retries"], 0)
         self.assertEqual(source["reserved_check_digest"], reserved_digest)
         self.assertEqual(source["reserved_units"], reserved_units)
+        verification = state["verification"]
+        source_key = CLICK_GATE._evidence_key("E1")
+        for field in (
+            "running_environment_digests",
+            "running_executable_digests",
+        ):
+            self.assertEqual(set(verification[field]), {source_key})
+            self.assertRegex(verification[field][source_key], r"^[0-9a-f]{64}$")
+        self.assertNotEqual(
+            verification["running_environment_binding"], original_binding
+        )
+        self.assertNotEqual(verification["runner_token_digest"], original_token_digest)
 
     def test_failed_batch_allows_one_unchanged_retry_then_requires_mutation(self) -> None:
         contract = self.contract()
