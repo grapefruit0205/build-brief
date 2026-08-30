@@ -20,7 +20,7 @@ class RepositoryPolicyTests(unittest.TestCase):
             (ROOT / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8")
         )
         self.assertEqual(manifest["name"], "click")
-        self.assertEqual(manifest["version"], "0.24.3")
+        self.assertEqual(manifest["version"], "0.24.4")
         self.assertEqual(manifest["license"], "MIT")
         self.assertIn("always on", manifest["description"].lower())
         self.assertIn("manual", manifest["description"].lower())
@@ -152,6 +152,9 @@ class RepositoryPolicyTests(unittest.TestCase):
 
     def test_plain_language_stays_digest_bound_and_is_rendered_once(self) -> None:
         hook = (ROOT / "hooks" / "click_gate.py").read_text(encoding="utf-8")
+        contract_runtime = (ROOT / "hooks" / "click_contract.py").read_text(
+            encoding="utf-8"
+        )
         documents = (
             (ROOT / "skills" / "click" / "SKILL.md").read_text(encoding="utf-8"),
             (ROOT / "skills" / "fix" / "SKILL.md").read_text(encoding="utf-8"),
@@ -169,7 +172,10 @@ class RepositoryPolicyTests(unittest.TestCase):
             (ROOT / "evals" / "golden-prompts.yaml").read_text(encoding="utf-8"),
         )
 
-        self.assertIn('STRING_FIELDS = ("outcome", "plain_language")', hook)
+        self.assertIn(
+            'STRING_FIELDS = ("outcome", "plain_language")', contract_runtime
+        )
+        self.assertIn("STRING_FIELDS = click_contract.STRING_FIELDS", hook)
         for document in documents:
             with self.subTest(document=document[:40]):
                 self.assertIn("digest-bound", document)
@@ -250,7 +256,7 @@ class RepositoryPolicyTests(unittest.TestCase):
         self.assertEqual(marketplace["name"], "click")
         self.assertEqual(marketplace["plugins"][0]["name"], "click")
         self.assertEqual(
-            marketplace["plugins"][0]["source"]["ref"], "v0.24.3"
+            marketplace["plugins"][0]["source"]["ref"], "v0.24.4"
         )
 
     def test_ci_enforces_distribution_compilation_and_diff_validation(self) -> None:
@@ -265,10 +271,11 @@ class RepositoryPolicyTests(unittest.TestCase):
         self.assertIn("workflow_dispatch:", workflow)
         self.assertTrue((ROOT / "scripts" / "validate_distribution.py").is_file())
 
-    def test_release_documents_identify_v0242_and_preserve_release_history(self) -> None:
+    def test_release_documents_identify_v0244_and_preserve_release_history(self) -> None:
         for readme_name in README_NAMES:
             with self.subTest(readme=readme_name):
                 readme = (ROOT / readme_name).read_text(encoding="utf-8")
+                self.assertIn("v0.24.4", readme)
                 self.assertIn("v0.24.3", readme)
                 self.assertIn("v0.24.1", readme)
                 self.assertIn("v0.24.0", readme)
@@ -276,6 +283,7 @@ class RepositoryPolicyTests(unittest.TestCase):
                 self.assertIn("v0.21.0", readme)
                 self.assertIn("version-18", readme)
         notes = (ROOT / "RELEASE_NOTES.md").read_text(encoding="utf-8")
+        self.assertIn("## v0.24.4", notes)
         self.assertIn("## v0.24.3", notes)
         self.assertIn("## v0.24.1", notes)
         self.assertIn("## v0.24.0", notes)
@@ -429,6 +437,7 @@ class RepositoryPolicyTests(unittest.TestCase):
         sources = {
             name: (ROOT / "hooks" / name).read_text(encoding="utf-8")
             for name in (
+                "click_contract.py",
                 "click_evidence.py",
                 "click_gate.py",
                 "click_process.py",

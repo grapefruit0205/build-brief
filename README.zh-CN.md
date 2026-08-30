@@ -60,7 +60,7 @@ launcher 只接受一条不含展开的 Bash 命令；命令串联、重定向�
 [`platforms/antigravity/README.md`](platforms/antigravity/README.md)了解准确
 限制，不要假设宿主功能完全等价。
 
-## 更新到 v0.24.3
+## 更新到 v0.24.4
 
 如果已经安装 Click，需要明确刷新 Git marketplace 快照并重新安装插件，才能加载本版本。
 
@@ -69,7 +69,7 @@ codex plugin marketplace upgrade click
 codex plugin add click@click
 ```
 
-重新启动 ChatGPT 桌面应用，检查并信任更新后的 Click Hook，然后开始一个新任务。现有模式偏好仍保存在目标仓库之外。v0.24.3 会在结构化读取真正执行之前以原子方式 claim 它。只有尚未开始执行的预约会在 30 秒后过期；一旦读取已被 claim，它会持续阻止 mutation 和最终验证，直到同步结果被记录，或用户明确取消契约。能够确定未创建子进程的启动失败会记录为失败并释放 claim。验证会把 Hook 专用的 `PLUGIN_ROOT` 视为 launcher bookkeeping，同时继续绑定项目与 toolchain 环境；如果 admission 在任何 check 执行前失败，只有通过准确认证且尚未执行的预约会恢复为 `ready`。契约格式、evidence 协议、模式行为、v0.24.2 的 Windows `${PLUGIN_ROOT}` 修复以及 v0.24.1 的 SessionEnd 三秒限制均保持不变。该补丁不声称修复宿主根本没有分发相应 PreToolUse 事件的路径，因此 issue #25 仍保持打开。不要重复使用旧安装留下的待执行 runner 命令；应让更新后的 Hook 签发一条新命令。
+重新启动 ChatGPT 桌面应用，检查并信任更新后的 Click Hook，然后开始一个新任务。现有模式偏好仍保存在目标仓库之外。v0.24.4 将契约验证提取到叶子模块 `hooks/click_contract.py`，同时把 `click_gate._validate_contract` 保留为直接兼容别名，并精确保留验证顺序和错误消息。若准备阶段与 runner 启动阶段之间的项目、用户、PATH 或 toolchain 环境值发生变化，验证现在会自动恢复：经过认证的聚合 binding 会把当前值投影到准备好的键集合，忽略仅由 runner 添加的键，并在无需再次批准的情况下把实际重新绑定的环境 digest 写入 receipt。精确的可执行文件指纹仍保持固定，格式错误或被篡改的 binding 仍会 fail closed。契约格式、evidence 协议、模式行为、v0.24.3 的 runner claim 与 admission 清理规则、v0.24.2 的 Windows `${PLUGIN_ROOT}` 修复以及 v0.24.1 的 SessionEnd 三秒限制均保持不变。该补丁不声称修复宿主根本没有分发相应 PreToolUse 事件的路径，因此 issue #25 仍保持打开。不要重复使用旧安装留下的待执行 runner 命令；应让更新后的 Hook 签发一条新命令。
 
 之后你可以说“Set Click to Always ON”或“Set Click to Manual”，这些偏好会持久保存在目标仓库之外。若只想绕过一个 turn，请把用户提示的第一行写成 `@Click bypass`，或使用自动补全形式 `[@Click](plugin://click@click) bypass`；Hook 只授权同一 turn 的一次 `click-gate bypass`，并保留活动契约。要丢弃活动契约，请使用对应的 `cancel` 形式来授权一次 `click-gate cancel`。`@Click` 标签和动作不区分大小写，但 plugin URI 必须完全匹配，指令行不能包含其他文字；实际任务可以从第二行继续。两种授权都不能重复使用或带到下一个 turn。Click 不会把偏好或契约文件放进你的项目。
 
