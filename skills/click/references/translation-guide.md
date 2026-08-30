@@ -26,7 +26,7 @@ Build top-down:
 2. Map those obligations onto the smallest concrete approach that fits the current system.
 3. Add `build.semantics` only for material state, failure, security, compatibility, concurrency, migration, or operational meaning.
 4. Add `build.order` only where sequence affects safe completion.
-5. Choose a verification scale, assign each completion condition one typed primary source, and place only declared argv checks in one final batch when argv evidence exists.
+5. Choose a verification scale, assign each completion condition one typed primary source, and submit only nonempty unresolved argv subsets within the contract's cumulative reserved budget. Prefer one coalesced request when practical, but never rerun a current source merely to keep every check in one batch.
 
 An implementation agent may change low-level tactics, dependencies, tools, files, or internal sequencing without reapproval when the result remains inside the contract's outcome, boundary, must-hold behavior, material semantics, and verification commitment.
 
@@ -40,4 +40,4 @@ After approval, keep the staged contract unchanged and finish within its semanti
 
 Stop only for new authority, an uncovered irreversible or paid external action, or a necessary change to the approved outcome, user-visible behavior, boundary, must-hold condition, or verification commitment. A blocker is not permission to widen the contract silently.
 
-Implementation is complete when every declared source is current for the final mutation revision and no managed service remains active, or failures are reported without claiming success.
+Implementation is complete when every declared source is current for the final mutation revision and no managed service remains active, or failures are reported without claiming success. Reuse exact successful argv evidence only inside the same active contract and mutation revision when the protected Git tree, normalized check, execution environment, and executable fingerprint still match; a new mutation revision always requires fresh evidence.

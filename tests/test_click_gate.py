@@ -1136,6 +1136,15 @@ class ClickGateTests(unittest.TestCase):
         self.assertEqual(run.call_args.args[0], prepared)
         self.assertFalse(run.call_args.kwargs["check"])
 
+        pinned_ssh = (
+            r"C:\trusted\ssh.exe" if os.name == "nt" else "/trusted/bin/ssh"
+        )
+        pinned_argv = [pinned_ssh, "example-host", *remote_argv]
+        pinned = CLICK_GATE._execution_argv(pinned_argv)
+        self.assertEqual(pinned[0], pinned_ssh)
+        self.assertIn("BatchMode=yes", pinned)
+        self.assertIsNotNone(CLICK_GATE._structured_ssh_parts(pinned_argv))
+
     def test_structured_ssh_execution_keeps_mutations_explicit(self) -> None:
         remote_argv = ["python3", "tool.py", "--value", "literal|value"]
         argv = ["ssh", "example-host", *remote_argv]
@@ -1177,18 +1186,39 @@ class ClickGateTests(unittest.TestCase):
         self.assertNotIn(b"secret", output)
 
     def test_structured_ssh_remote_url_is_redacted_before_output(self) -> None:
-        argv = ["ssh", "example-host", "git", "remote", "get-url", "origin"]
-        with tempfile.TemporaryFile() as stdout_file, tempfile.TemporaryFile() as stderr_file:
-            with mock.patch.object(CLICK_GATE.subprocess, "run") as run:
-                run.return_value.returncode = 0
-                run.return_value.stdout = b"https://user:secret@example.com/repo.git\n"
-                run.return_value.stderr = b""
-                self.assertEqual(
-                    CLICK_GATE._execute_argv_commands([argv], stdout_file, stderr_file),
-                    0,
-                )
-            stdout_file.seek(0)
-            self.assertEqual(stdout_file.read(), b"https://example.com/repo.git\n")
+        pinned_ssh = (
+            r"C:\trusted\ssh.exe" if os.name == "nt" else "/trusted/bin/ssh"
+        )
+        for executable in ("ssh", pinned_ssh):
+            with self.subTest(executable=executable):
+                argv = [
+                    executable,
+                    "example-host",
+                    "git",
+                    "remote",
+                    "get-url",
+                    "origin",
+                ]
+                with (
+                    tempfile.TemporaryFile() as stdout_file,
+                    tempfile.TemporaryFile() as stderr_file,
+                ):
+                    with mock.patch.object(CLICK_GATE.subprocess, "run") as run:
+                        run.return_value.returncode = 0
+                        run.return_value.stdout = (
+                            b"https://user:secret@example.com/repo.git\n"
+                        )
+                        run.return_value.stderr = b""
+                        self.assertEqual(
+                            CLICK_GATE._execute_argv_commands(
+                                [argv], stdout_file, stderr_file
+                            ),
+                            0,
+                        )
+                    stdout_file.seek(0)
+                    self.assertEqual(
+                        stdout_file.read(), b"https://example.com/repo.git\n"
+                    )
 
     def test_structured_inspection_emulates_get_content_cross_platform(self) -> None:
         (self.workspace / "native.txt").write_text(
@@ -1737,18 +1767,34 @@ class ClickGateTests(unittest.TestCase):
         self.assertEqual(state["contract_id"], contract_id)
         self.assertEqual(state["approved_turn_id"], "turn-2")
 
-    def test_incomplete_approved_contract_blocks_later_turn_root_inventory(self) -> None:
+    def test_incomplete_approved_contract_allows_one_later_turn_root_inventory(self) -> None:
+        self.initialize_git("verification_fixture.py")
         self.set_default("manual", "turn-0")
         self.arm_gate("turn-1")
         self.stage_gate(turn_id="turn-1")
         self.arm_gate("turn-2")
         self.pass_gate(turn_id="turn-2")
 
-        payload = self.pre_tool("Bash", "rg --files", turn_id="turn-3")
-        self.assertEqual(payload["hookSpecificOutput"]["permissionDecision"], "deny")
+        first = self.pre_tool("Bash", "git ls-files", turn_id="turn-3")
+        self.assertEqual(first["hookSpecificOutput"]["permissionDecision"], "allow")
+        parallel = self.pre_tool(
+            "Bash", "find . -maxdepth 2 -type f", turn_id="turn-3"
+        )
+        self.assertEqual(
+            parallel["hookSpecificOutput"]["permissionDecision"], "deny"
+        )
         self.assertIn(
-            "repository-wide inventory rescan",
-            payload["hookSpecificOutput"]["permissionDecisionReason"],
+            "already running",
+            parallel["hookSpecificOutput"]["permissionDecisionReason"],
+        )
+        self.assertEqual(self.run_rewritten(first).returncode, 0)
+        repeated = self.pre_tool("Bash", "git ls-files", turn_id="turn-3")
+        self.assertEqual(
+            repeated["hookSpecificOutput"]["permissionDecision"], "deny"
+        )
+        self.assertIn(
+            "already completed one successful repository-wide inventory",
+            repeated["hookSpecificOutput"]["permissionDecisionReason"],
         )
 
     def test_incomplete_approved_contract_tracks_later_turn_direct_reads(self) -> None:
@@ -1944,7 +1990,7 @@ class ClickGateTests(unittest.TestCase):
         self.assertEqual(error, "")
         self.assertEqual(value, contract)
 
-    def test_contract_rejects_more_argv_sources_than_scale_can_execute(self) -> None:
+    def test_contract_rejects_more_argv_reservations_than_scale_can_hold(self) -> None:
         contract = self.contract()
         contract["verification"]["scale"] = "quick"
         contract["verification"]["evidence"].append(
@@ -1968,8 +2014,20 @@ class ClickGateTests(unittest.TestCase):
                 {"condition": f"condition {index}", "primary_evidence": evidence_id}
             )
         value, error = CLICK_GATE._validate_contract(json.dumps(full))
+        self.assertEqual(error, "")
+        self.assertEqual(value, full)
+
+        for index in range(10, 12):
+            evidence_id = f"E{index}"
+            full["verification"]["evidence"].append(
+                {"id": evidence_id, "kind": "argv", "description": f"check {index}"}
+            )
+            full["verification"]["done_when"].append(
+                {"condition": f"condition {index}", "primary_evidence": evidence_id}
+            )
+        value, error = CLICK_GATE._validate_contract(json.dumps(full))
         self.assertIsNone(value)
-        self.assertIn("cannot fit 9 argv evidence sources", error)
+        self.assertIn("cannot fit 11 argv evidence sources", error)
 
     def test_verification_check_requires_a_declared_argv_evidence_id(self) -> None:
         self.approve_contract()
@@ -2038,7 +2096,11 @@ class ClickGateTests(unittest.TestCase):
         self.assertIsNone(value)
         self.assertIn("not `argv`", error)
 
-    def test_one_batch_covers_every_unresolved_argv_evidence_source(self) -> None:
+    def test_verification_batches_may_cover_unresolved_sources_incrementally(self) -> None:
+        (self.workspace / ".gitignore").write_text(
+            "__pycache__/\n", encoding="utf-8"
+        )
+        self.initialize_git(".gitignore", "verification_fixture.py")
         contract = self.contract()
         contract["verification"]["evidence"].append(
             {"id": "E2", "kind": "argv", "description": "compatibility check"}
@@ -2051,13 +2113,29 @@ class ClickGateTests(unittest.TestCase):
         self.arm_gate("turn-2")
         self.pass_gate(turn_id="turn-2")
 
-        missing = self.verify_gate([self.verification_argv()])
+        first = self.verify_gate([self.verification_argv()])
+        self.assertEqual(self.run_rewritten(first).returncode, 0)
+        state_path = next(
+            (self.plugin_data / "gate-state").glob("session-contract-*.json")
+        )
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        sources = state["evidence_state"]["sources"]
         self.assertEqual(
-            missing["hookSpecificOutput"]["permissionDecision"], "deny"
+            sources[CLICK_GATE._evidence_key("E1")]["status"], "passed"
+        )
+        self.assertEqual(
+            sources[CLICK_GATE._evidence_key("E2")]["status"], "ready"
+        )
+        self.assertEqual(state["verification"]["status"], "ready")
+        self.assertFalse(CLICK_GATE._contract_is_completed(state))
+
+        reused = self.verify_gate([self.verification_argv()])
+        self.assertEqual(
+            reused["hookSpecificOutput"]["permissionDecision"], "allow"
         )
         self.assertIn(
-            "unresolved argv source",
-            missing["hookSpecificOutput"]["permissionDecisionReason"],
+            "reused 1 current unchanged-tree",
+            reused["hookSpecificOutput"]["updatedInput"]["command"],
         )
 
         non_adjacent = self.verify_gate(
@@ -2076,18 +2154,8 @@ class ClickGateTests(unittest.TestCase):
             non_adjacent["hookSpecificOutput"]["permissionDecisionReason"],
         )
 
-        batch = self.verify_gate(
-            [
-                self.verification_argv(),
-                self.verification_argv(),
-                self.verification_argv(),
-            ],
-            evidence_ids=["E1", "E1", "E2"],
-        )
+        batch = self.verify_gate([self.verification_argv()], evidence_ids=["E2"])
         self.assertEqual(self.run_rewritten(batch).returncode, 0)
-        state_path = next(
-            (self.plugin_data / "gate-state").glob("session-contract-*.json")
-        )
         state = json.loads(state_path.read_text(encoding="utf-8"))
         revision = state["verification"]["mutation_revision"]
         sources = state["evidence_state"]["sources"]
@@ -2453,6 +2521,58 @@ class ClickGateTests(unittest.TestCase):
             ),
         )
 
+    def test_split_argv_batches_share_one_cumulative_budget(self) -> None:
+        (self.workspace / "empty_tests").mkdir()
+        (self.workspace / "empty_tests" / "test_pass.py").write_text(
+            "import unittest\n\n"
+            "class PassingTest(unittest.TestCase):\n"
+            "    def test_pass(self):\n"
+            "        self.assertTrue(True)\n",
+            encoding="utf-8",
+        )
+        contract = self.contract()
+        contract["verification"]["evidence"].append(
+            {"id": "E2", "kind": "argv", "description": "second broad check"}
+        )
+        contract["verification"]["done_when"].append(
+            {"condition": "second broad check passes", "primary_evidence": "E2"}
+        )
+        self.arm_gate("turn-1")
+        self.stage_gate(contract, "turn-1")
+        self.arm_gate("turn-2")
+        self.pass_gate(turn_id="turn-2")
+        broad_argv = [
+            sys.executable,
+            "-m",
+            "unittest",
+            "discover",
+            "-s",
+            "empty_tests",
+        ]
+
+        first = self.verify_gate([broad_argv], evidence_ids=["E1"])
+        self.assertEqual(self.run_rewritten(first).returncode, 0)
+        second = self.verify_gate([broad_argv], evidence_ids=["E2"])
+        self.assertEqual(
+            second["hookSpecificOutput"]["permissionDecision"], "deny"
+        )
+        self.assertIn(
+            "reservations would total 6",
+            second["hookSpecificOutput"]["permissionDecisionReason"],
+        )
+
+        state_path = next(
+            (self.plugin_data / "gate-state").glob("session-contract-*.json")
+        )
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        sources = state["evidence_state"]["sources"]
+        self.assertEqual(
+            sources[CLICK_GATE._evidence_key("E1")]["reserved_units"], 3
+        )
+        self.assertEqual(
+            sources[CLICK_GATE._evidence_key("E2")]["reserved_units"], 0
+        )
+
     def test_broad_and_expensive_checks_consume_more_budget(self) -> None:
         quick = self.contract()
         quick["verification"]["scale"] = "quick"
@@ -2643,6 +2763,10 @@ class ClickGateTests(unittest.TestCase):
         )
 
     def test_successful_final_batch_is_not_repeated_until_code_changes(self) -> None:
+        (self.workspace / ".gitignore").write_text(
+            "__pycache__/\n", encoding="utf-8"
+        )
+        self.initialize_git(".gitignore", "verification_fixture.py")
         contract = self.contract()
         contract["verification"]["scale"] = "quick"
         self.arm_gate("turn-1")
@@ -2661,11 +2785,11 @@ class ClickGateTests(unittest.TestCase):
         self.assertNotIn("raise SystemExit", state_text)
         repeated = self.verify_gate([command])
         self.assertEqual(
-            repeated["hookSpecificOutput"]["permissionDecision"], "deny"
+            repeated["hookSpecificOutput"]["permissionDecision"], "allow"
         )
         self.assertIn(
-            "already passed",
-            repeated["hookSpecificOutput"]["permissionDecisionReason"],
+            "reused 1 current unchanged-tree",
+            repeated["hookSpecificOutput"]["updatedInput"]["command"],
         )
 
         self.assertIsNone(
@@ -2674,6 +2798,289 @@ class ClickGateTests(unittest.TestCase):
         stale_retry = self.verify_gate([command])
         self.assertEqual(
             stale_retry["hookSpecificOutput"]["permissionDecision"], "allow"
+        )
+        self.assertIn(
+            "run-verification",
+            split_runner_command(
+                stale_retry["hookSpecificOutput"]["updatedInput"]["command"]
+            ),
+        )
+
+    def test_runner_only_environment_noise_does_not_invalidate_receipt(self) -> None:
+        (self.workspace / ".gitignore").write_text(
+            "__pycache__/\n", encoding="utf-8"
+        )
+        self.initialize_git(".gitignore", "verification_fixture.py")
+        self.approve_contract()
+        command = self.verification_argv()
+        first = self.verify_gate([command])
+        state_path = next(
+            (self.plugin_data / "gate-state").glob("session-contract-*.json")
+        )
+        prepared = json.loads(state_path.read_text(encoding="utf-8"))
+        source_key = CLICK_GATE._evidence_key("E1")
+        prepared_digest = prepared["verification"][
+            "running_environment_digests"
+        ][source_key]
+
+        rewritten = first["hookSpecificOutput"]["updatedInput"]["command"]
+        environment = os.environ.copy()
+        environment["PLUGIN_DATA"] = str(self.plugin_data)
+        environment["CLICK_CONFIG_HOME"] = str(self.plugin_data)
+        environment["CLICK_RUNNER_ONLY_NOISE"] = "launcher-added"
+        completed = subprocess.run(
+            rewritten,
+            shell=True,
+            cwd=self.workspace,
+            env=environment,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        recorded = json.loads(state_path.read_text(encoding="utf-8"))
+        source = recorded["evidence_state"]["sources"][source_key]
+        self.assertEqual(source["verified_environment_digest"], prepared_digest)
+
+        repeated = self.verify_gate([command])
+        self.assertEqual(
+            repeated["hookSpecificOutput"]["permissionDecision"], "allow"
+        )
+        self.assertIn(
+            "reused 1 current unchanged-tree",
+            repeated["hookSpecificOutput"]["updatedInput"]["command"],
+        )
+
+    def test_prepared_environment_value_change_is_rejected_before_execution(self) -> None:
+        (self.workspace / ".gitignore").write_text(
+            "__pycache__/\n", encoding="utf-8"
+        )
+        self.initialize_git(".gitignore", "verification_fixture.py")
+        self.approve_contract()
+        with mock.patch.dict(
+            os.environ, {"CLICK_TEST_ENVIRONMENT": "prepared-value"}
+        ):
+            first = self.verify_gate([self.verification_argv()])
+
+        rewritten = first["hookSpecificOutput"]["updatedInput"]["command"]
+        environment = os.environ.copy()
+        environment["PLUGIN_DATA"] = str(self.plugin_data)
+        environment["CLICK_CONFIG_HOME"] = str(self.plugin_data)
+        environment["CLICK_TEST_ENVIRONMENT"] = "changed-before-runner"
+        rejected = subprocess.run(
+            rewritten,
+            shell=True,
+            cwd=self.workspace,
+            env=environment,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(rejected.returncode, 2)
+        self.assertIn(
+            "environment changed after preparation", rejected.stderr
+        )
+        state_path = next(
+            (self.plugin_data / "gate-state").glob("session-contract-*.json")
+        )
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        self.assertEqual(state["verification"]["runner_claimed_at"], 0)
+        serialized = state_path.read_text(encoding="utf-8")
+        self.assertNotIn("CLICK_TEST_ENVIRONMENT", serialized)
+        self.assertNotIn("prepared-value", serialized)
+
+    def test_current_receipt_reruns_when_the_git_tree_changes_out_of_band(self) -> None:
+        (self.workspace / ".gitignore").write_text(
+            "__pycache__/\n", encoding="utf-8"
+        )
+        self.initialize_git(".gitignore", "verification_fixture.py")
+        self.approve_contract()
+        command = self.verification_argv()
+        first = self.verify_gate([command])
+        self.assertEqual(self.run_rewritten(first).returncode, 0)
+
+        with (self.workspace / "verification_fixture.py").open(
+            "a", encoding="utf-8"
+        ) as handle:
+            handle.write("\n# changed outside the matched mutation tools\n")
+
+        repeated = self.verify_gate([command])
+        self.assertEqual(
+            repeated["hookSpecificOutput"]["permissionDecision"], "allow"
+        )
+        self.assertIn(
+            "run-verification",
+            split_runner_command(
+                repeated["hookSpecificOutput"]["updatedInput"]["command"]
+            ),
+        )
+        state_path = next(
+            (self.plugin_data / "gate-state").glob("session-contract-*.json")
+        )
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        self.assertEqual(state["verification"]["mutation_revision"], 1)
+
+    def test_current_receipt_reruns_when_the_execution_environment_changes(self) -> None:
+        (self.workspace / ".gitignore").write_text(
+            "__pycache__/\n", encoding="utf-8"
+        )
+        self.initialize_git(".gitignore", "verification_fixture.py")
+        self.approve_contract()
+        command = self.verification_argv()
+        first = self.verify_gate([command])
+        self.assertEqual(self.run_rewritten(first).returncode, 0)
+
+        with mock.patch.dict(os.environ, {"CLICK_TEST_ENVIRONMENT": "changed"}):
+            repeated = self.verify_gate([command])
+        self.assertEqual(
+            repeated["hookSpecificOutput"]["permissionDecision"], "allow"
+        )
+        self.assertIn(
+            "run-verification",
+            split_runner_command(
+                repeated["hookSpecificOutput"]["updatedInput"]["command"]
+            ),
+        )
+
+    def test_verification_environment_ignores_shell_bookkeeping(self) -> None:
+        stable = {
+            "PATH": os.environ.get("PATH", os.defpath),
+            "CLICK_TEST_ENVIRONMENT": "stable",
+        }
+        with mock.patch.object(CLICK_GATE.os, "environ", stable):
+            expected = CLICK_GATE._verification_environment(cwd=self.workspace)
+        noisy = {
+            **stable,
+            "_": "launcher",
+            "__CF_USER_TEXT_ENCODING": "0x1F5:0x0:0x0",
+            "CMDCMDLINE": "cmd.exe /c runner",
+            "COMMAND_MODE": "unix2003",
+            "LC_CTYPE": "UTF-8",
+            "PROMPT": "$P$G",
+            "SHLVL": "2",
+            "=C:": "C:\\runner",
+        }
+        with mock.patch.object(CLICK_GATE.os, "environ", noisy):
+            actual = CLICK_GATE._verification_environment(cwd=self.workspace)
+
+        self.assertEqual(actual, expected)
+        self.assertEqual(actual["CLICK_TEST_ENVIRONMENT"], "stable")
+
+    def test_windows_environment_binding_is_case_insensitive(self) -> None:
+        reservation_nonce = "runner-nonce"
+        executables = [
+            {
+                "name": "python.exe",
+                "path": "C:\\Python\\python.exe",
+                "size": 1,
+                "mtime_ns": 1,
+                "content_digest": "1" * 64,
+            }
+        ]
+        with mock.patch.object(CLICK_GATE.os, "name", "nt"):
+            binding = CLICK_GATE._verification_environment_binding(
+                {"Path": "C:\\Python", "Click_Test": "stable"}, reservation_nonce
+            )
+            projected, error = CLICK_GATE._verification_environment_from_binding(
+                binding,
+                reservation_nonce,
+                {
+                    "PATH": "C:\\Python",
+                    "CLICK_TEST": "stable",
+                    "RUNNER_ONLY": "ignored",
+                },
+            )
+            first_digest = CLICK_GATE._verification_environment_digest_from_records(
+                executables,
+                cwd=self.workspace,
+                environment={"Path": "C:\\Python", "Click_Test": "stable"},
+            )
+            second_digest = CLICK_GATE._verification_environment_digest_from_records(
+                executables,
+                cwd=self.workspace,
+                environment={"PATH": "C:\\Python", "CLICK_TEST": "stable"},
+            )
+
+        self.assertEqual(error, "")
+        self.assertEqual(
+            projected, {"PATH": "C:\\Python", "CLICK_TEST": "stable"}
+        )
+        self.assertEqual(first_digest, second_digest)
+
+    def test_receipt_fingerprint_resolves_relative_path_from_runner_cwd(self) -> None:
+        tools = self.workspace / "tools"
+        tools.mkdir()
+        executable_name = "receipt-check.exe" if os.name == "nt" else "receipt-check"
+        executable = tools / executable_name
+        executable.write_bytes(b"receipt-check executable\n")
+        executable.chmod(0o755)
+        environment = os.environ.copy()
+        environment["PATH"] = "tools"
+
+        digest = CLICK_GATE._verification_environment_digest(
+            [{"argv": [executable_name], "class": "targeted"}],
+            cwd=self.workspace,
+            environment=environment,
+        )
+
+        self.assertRegex(digest, r"^[0-9a-f]{64}$")
+
+    def test_relative_verifier_selection_uses_explicit_workspace(self) -> None:
+        executable = self.workspace / "gradlew"
+        executable.write_bytes(b"verification launcher\n")
+        executable.chmod(0o755)
+        relative = ".\\gradlew" if os.name == "nt" else "./gradlew"
+        with mock.patch.object(CLICK_GATE.shutil, "which", return_value=relative):
+            records = CLICK_GATE._verification_executable_records(
+                [{"argv": [relative], "class": "targeted"}],
+                cwd=self.workspace,
+                environment={"PATH": os.environ.get("PATH", os.defpath)},
+            )
+
+        self.assertIsNotNone(records)
+        assert records is not None
+        self.assertEqual(records[0]["_execution_path"], str(executable.absolute()))
+
+    @unittest.skipIf(os.name == "nt", "symlink launcher semantics are POSIX-specific")
+    def test_verification_pins_selected_symlink_launcher_not_its_target(self) -> None:
+        tools = self.workspace / "tools"
+        tools.mkdir()
+        launcher = tools / "python3"
+        launcher.symlink_to(Path(sys.executable).resolve())
+        self.approve_contract()
+        argv = [
+            launcher.name,
+            "-m",
+            "unittest",
+            "verification_fixture.VerificationFixture.test_pass",
+        ]
+        with mock.patch.dict(os.environ, {"PATH": str(tools)}):
+            payload = self.verify_gate([argv])
+        tokens = split_runner_command(
+            payload["hookSpecificOutput"]["updatedInput"]["command"]
+        )
+        raw, error = CLICK_GATE._decode_encoded_request(tokens[8], "verification")
+        self.assertEqual(error, "")
+        environment = {
+            "PLUGIN_DATA": str(self.plugin_data),
+            "CLICK_CONFIG_HOME": str(self.plugin_data),
+            "PATH": str(tools),
+        }
+        with (
+            mock.patch.dict(os.environ, environment),
+            mock.patch.object(CLICK_GATE.Path, "cwd", return_value=self.workspace),
+        ):
+            batch, claim_error = CLICK_GATE._claim_verification_run(
+                Path(tokens[5]), raw, tokens[6], tokens[7]
+            )
+        self.assertEqual(claim_error, "")
+        self.assertIsNotNone(batch)
+        assert batch is not None
+        self.assertTrue(
+            os.path.samefile(batch["checks"][0]["argv"][0], launcher)
+        )
+        self.assertNotEqual(
+            batch["checks"][0]["argv"][0], str(Path(sys.executable).resolve())
         )
 
     def test_rewritten_verification_runner_is_claimed_before_execution(self) -> None:
@@ -2694,6 +3101,7 @@ class ClickGateTests(unittest.TestCase):
         }
         with (
             mock.patch.dict(os.environ, environment),
+            mock.patch.object(CLICK_GATE.Path, "cwd", return_value=self.workspace),
             mock.patch.object(CLICK_GATE, "_git_workspace_snapshot", return_value=None),
             mock.patch.object(CLICK_GATE, "_git_metadata_present", return_value=False),
             mock.patch.object(
@@ -2703,6 +3111,131 @@ class ClickGateTests(unittest.TestCase):
             self.assertEqual(CLICK_GATE._run_verification(tokens[5:]), 0)
             self.assertEqual(CLICK_GATE._run_verification(tokens[5:]), 2)
         self.assertEqual(execute.call_count, 1)
+
+    def test_verification_runner_rejects_executable_change_before_execution(self) -> None:
+        self.approve_contract()
+        payload = self.verify_gate([self.verification_argv()])
+        tokens = split_runner_command(
+            payload["hookSpecificOutput"]["updatedInput"]["command"]
+        )
+        environment = {
+            "PLUGIN_DATA": str(self.plugin_data),
+            "CLICK_CONFIG_HOME": str(self.plugin_data),
+        }
+        with (
+            mock.patch.dict(os.environ, environment),
+            mock.patch.object(CLICK_GATE.Path, "cwd", return_value=self.workspace),
+            mock.patch.object(CLICK_GATE, "_file_content_digest", return_value="0" * 64),
+            mock.patch.object(
+                CLICK_GATE, "_execute_argv_commands", return_value=0
+            ) as execute,
+        ):
+            self.assertEqual(CLICK_GATE._run_verification(tokens[5:]), 2)
+        execute.assert_not_called()
+
+        state_path = next(
+            (self.plugin_data / "gate-state").glob("session-contract-*.json")
+        )
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        self.assertEqual(state["verification"]["runner_claimed_at"], 0)
+
+    def test_verification_result_rejects_lost_context_digest_maps(self) -> None:
+        for field in (
+            "running_environment_digests",
+            "running_executable_digests",
+        ):
+            with self.subTest(field=field):
+                self.plugin_data = Path(self.temporary.name) / f"plugin-{field}"
+                self.submitted_turns.clear()
+                self.approve_contract()
+                payload = self.verify_gate([self.verification_argv()])
+                tokens = split_runner_command(
+                    payload["hookSpecificOutput"]["updatedInput"]["command"]
+                )
+                raw, error = CLICK_GATE._decode_encoded_request(
+                    tokens[8], "verification"
+                )
+                self.assertEqual(error, "")
+                environment = {
+                    "PLUGIN_DATA": str(self.plugin_data),
+                    "CLICK_CONFIG_HOME": str(self.plugin_data),
+                }
+                with (
+                    mock.patch.dict(CLICK_GATE.os.environ, environment),
+                    mock.patch.object(
+                        CLICK_GATE.Path, "cwd", return_value=self.workspace
+                    ),
+                ):
+                    batch, claim_error = CLICK_GATE._claim_verification_run(
+                        Path(tokens[5]), raw, tokens[6], tokens[7]
+                    )
+                self.assertEqual(claim_error, "")
+                self.assertIsNotNone(batch)
+                assert batch is not None
+                batch.pop("_click_verification_environment")
+
+                state_path = Path(tokens[5])
+                state = json.loads(state_path.read_text(encoding="utf-8"))
+                state["verification"][field] = {}
+                state_path.write_text(json.dumps(state), encoding="utf-8")
+                with (
+                    mock.patch.dict(CLICK_GATE.os.environ, environment),
+                    mock.patch.object(
+                        CLICK_GATE.Path, "cwd", return_value=self.workspace
+                    ),
+                ):
+                    recorded = CLICK_GATE._record_verification_result(
+                        state_path,
+                        batch,
+                        tokens[6],
+                        tokens[7],
+                        0,
+                        1,
+                        workspace_root=str(self.workspace),
+                        workspace_digest="1" * 64,
+                    )
+                self.assertFalse(recorded)
+
+    def test_verification_runner_rejects_tampered_source_reservation(self) -> None:
+        self.approve_contract()
+        payload = self.verify_gate([self.verification_argv()])
+        tokens = split_runner_command(
+            payload["hookSpecificOutput"]["updatedInput"]["command"]
+        )
+        state_path = Path(tokens[5])
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        source = state["evidence_state"]["sources"][CLICK_GATE._evidence_key("E1")]
+        source["reserved_check_digest"] = "0" * 64
+        state_path.write_text(json.dumps(state), encoding="utf-8")
+
+        environment = {
+            "PLUGIN_DATA": str(self.plugin_data),
+            "CLICK_CONFIG_HOME": str(self.plugin_data),
+        }
+        with (
+            mock.patch.dict(CLICK_GATE.os.environ, environment),
+            mock.patch.object(CLICK_GATE.Path, "cwd", return_value=self.workspace),
+            mock.patch.object(CLICK_GATE, "_execute_argv_commands") as execute,
+        ):
+            self.assertEqual(CLICK_GATE._run_verification(tokens[5:]), 2)
+        execute.assert_not_called()
+
+    def test_source_reservation_survives_mutation_and_prevents_check_swapping(self) -> None:
+        self.approve_contract()
+        first = self.verify_gate([self.verification_argv(1)])
+        self.assertEqual(self.run_rewritten(first).returncode, 1)
+        self.assertIsNone(
+            self.pre_tool("apply_patch", "*** Begin Patch\n*** End Patch", "turn-2")
+        )
+
+        changed = self.verify_gate([self.verification_argv()])
+        self.assertEqual(
+            changed["hookSpecificOutput"]["permissionDecision"], "deny"
+        )
+        self.assertIn(
+            "reserved to a different exact check set",
+            changed["hookSpecificOutput"]["permissionDecisionReason"],
+        )
 
     def test_rewritten_verification_uses_bound_root_not_ambient_plugin_data(self) -> None:
         self.approve_contract()
@@ -2771,11 +3304,13 @@ class ClickGateTests(unittest.TestCase):
         tokens = split_runner_command(
             payload["hookSpecificOutput"]["updatedInput"]["command"]
         )
+        environment = {
+            "PLUGIN_DATA": str(self.plugin_data),
+            "CLICK_CONFIG_HOME": str(self.plugin_data),
+        }
         with (
-            mock.patch.dict(
-                CLICK_GATE.os.environ,
-                {"PLUGIN_DATA": str(self.plugin_data)},
-            ),
+            mock.patch.dict(CLICK_GATE.os.environ, environment),
+            mock.patch.object(CLICK_GATE.Path, "cwd", return_value=self.workspace),
             mock.patch.object(CLICK_GATE, "_git_workspace_snapshot", return_value=None),
             mock.patch.object(CLICK_GATE, "_git_metadata_present", return_value=True),
             mock.patch.object(CLICK_GATE, "_execute_argv_commands") as execute,
@@ -3424,39 +3959,60 @@ class ClickGateTests(unittest.TestCase):
             blocked_large["hookSpecificOutput"]["permissionDecision"], "deny"
         )
 
-    def test_approved_boundary_blocks_repository_wide_inventory_rescans(self) -> None:
+    def test_approved_boundary_allows_one_inventory_then_blocks_rescans(self) -> None:
+        (self.workspace / "threshold.txt").write_text(
+            "threshold\n", encoding="utf-8"
+        )
+        self.initialize_git("threshold.txt", "verification_fixture.py")
         self.approve_contract()
-        for command in (
-            "rg --files",
-            "find . -maxdepth 2 -type f",
-            "tree",
-            "ls -R",
-            "git ls-files",
-            "rg --files . src",
-        ):
-            with self.subTest(command=command):
-                payload = self.pre_tool("Bash", command, "turn-2")
-                self.assertEqual(
-                    payload["hookSpecificOutput"]["permissionDecision"], "deny"
-                )
-                self.assertIn(
-                    "repository-wide inventory rescan",
-                    payload["hookSpecificOutput"]["permissionDecisionReason"],
-                )
+        first = self.pre_tool("Bash", "git ls-files", "turn-2")
+        self.assertEqual(first["hookSpecificOutput"]["permissionDecision"], "allow")
+        parallel = self.pre_tool(
+            "Bash", "find . -maxdepth 2 -type f", "turn-2"
+        )
+        self.assertEqual(
+            parallel["hookSpecificOutput"]["permissionDecision"], "deny"
+        )
+        self.assertIn(
+            "already running",
+            parallel["hookSpecificOutput"]["permissionDecisionReason"],
+        )
+        self.assertEqual(self.run_rewritten(first).returncode, 0)
+
+        repeated = self.pre_tool("Bash", "ls -R", "turn-2")
+        self.assertEqual(
+            repeated["hookSpecificOutput"]["permissionDecision"], "deny"
+        )
+        self.assertIn(
+            "already completed one successful repository-wide inventory",
+            repeated["hookSpecificOutput"]["permissionDecisionReason"],
+        )
 
         for command in (
-            "rg --files src",
-            "find src -type f",
+            "git ls-files -- src",
+            "git ls-tree -r HEAD -- src",
         ):
             with self.subTest(command=command):
                 payload = self.pre_tool("Bash", command, "turn-2")
                 self.assertEqual(
                     payload["hookSpecificOutput"]["permissionDecision"], "allow"
                 )
+                self.run_rewritten(payload)
 
-        targeted = self.pre_tool("Bash", "rg threshold .", "turn-2")
+        targeted = self.pre_tool(
+            "Bash", "Get-Content -Raw threshold.txt", "turn-2"
+        )
         self.assertEqual(
             targeted["hookSpecificOutput"]["permissionDecision"], "allow"
+        )
+        self.assertEqual(self.run_rewritten(targeted).returncode, 0)
+
+        self.assertIsNone(
+            self.pre_tool("apply_patch", "*** Begin Patch\n*** End Patch", "turn-2")
+        )
+        after_mutation = self.pre_tool("Bash", "git ls-files", "turn-2")
+        self.assertEqual(
+            after_mutation["hookSpecificOutput"]["permissionDecision"], "allow"
         )
 
     def test_approved_contract_blocks_new_plan_tool_calls(self) -> None:
@@ -3548,6 +4104,13 @@ class ClickGateTests(unittest.TestCase):
             int(time.time()) - CLICK_GATE.VERIFY_RUNNING_TTL_SECONDS - 1
         )
         self.assertEqual(state["verification"]["runner_claimed_at"], 0)
+        original_source = state["evidence_state"]["sources"][
+            CLICK_GATE._evidence_key("E1")
+        ]
+        reserved_digest = original_source["reserved_check_digest"]
+        reserved_units = original_source["reserved_units"]
+        original_binding = state["verification"]["running_environment_binding"]
+        original_token_digest = state["verification"]["runner_token_digest"]
         state_path.write_text(json.dumps(state), encoding="utf-8")
 
         retry = self.verify_gate([self.verification_argv()])
@@ -3557,6 +4120,20 @@ class ClickGateTests(unittest.TestCase):
         self.assertEqual(source["status"], "running")
         self.assertEqual(source["attempts"], 0)
         self.assertEqual(source["unchanged_failure_retries"], 0)
+        self.assertEqual(source["reserved_check_digest"], reserved_digest)
+        self.assertEqual(source["reserved_units"], reserved_units)
+        verification = state["verification"]
+        source_key = CLICK_GATE._evidence_key("E1")
+        for field in (
+            "running_environment_digests",
+            "running_executable_digests",
+        ):
+            self.assertEqual(set(verification[field]), {source_key})
+            self.assertRegex(verification[field][source_key], r"^[0-9a-f]{64}$")
+        self.assertNotEqual(
+            verification["running_environment_binding"], original_binding
+        )
+        self.assertNotEqual(verification["runner_token_digest"], original_token_digest)
 
     def test_failed_batch_allows_one_unchanged_retry_then_requires_mutation(self) -> None:
         contract = self.contract()
@@ -4706,7 +5283,7 @@ class ClickGateTests(unittest.TestCase):
         )
         self.assertFalse(CLICK_GATE._browser_evidence_required(non_browser))
 
-    def test_browser_evidence_is_bounded_and_long_timers_are_denied(self) -> None:
+    def test_browser_evidence_deduplicates_success_without_a_three_call_cap(self) -> None:
         contract = self.contract()
         contract["verification"]["evidence"] = [
             {
@@ -4734,13 +5311,50 @@ class ClickGateTests(unittest.TestCase):
         self.assertEqual(timed["hookSpecificOutput"]["permissionDecision"], "deny")
         self.assertIn("timeouts may not exceed", timed["hookSpecificOutput"]["permissionDecisionReason"])
 
-        for index in range(1, 4):
+        self.assertIsNone(
+            self.tool_hook(
+                "pre-tool",
+                "mcp__node_repl__js",
+                {"code": "await page.title()", "timeout_ms": 5000},
+                tool_use_id="browser-1",
+            )
+        )
+        self.assertIsNone(
+            self.tool_hook(
+                "post-tool",
+                "mcp__node_repl__js",
+                {"code": "await page.title()", "timeout_ms": 5000},
+                tool_use_id="browser-1",
+                tool_response={"status": "success"},
+            )
+        )
+
+        duplicate = self.tool_hook(
+            "pre-tool",
+            "mcp__node_repl__js",
+            {
+                "code": "  await page.title()\r\n",
+                "timeout_ms": 12000,
+                "_meta": {"trace": "different bookkeeping"},
+            },
+            tool_use_id="browser-duplicate",
+        )
+        self.assertEqual(
+            duplicate["hookSpecificOutput"]["permissionDecision"], "deny"
+        )
+        self.assertIn(
+            "already collected this successful Browser interaction",
+            duplicate["hookSpecificOutput"]["permissionDecisionReason"],
+        )
+
+        for index in range(2, 7):
             tool_id = f"browser-{index}"
+            code = f"await page.locator('main').count(); // {index}"
             self.assertIsNone(
                 self.tool_hook(
                     "pre-tool",
                     "mcp__node_repl__js",
-                    {"code": "await page.title()", "timeout_ms": 5000},
+                    {"code": code, "timeout_ms": 5000},
                     tool_use_id=tool_id,
                 )
             )
@@ -4748,25 +5362,94 @@ class ClickGateTests(unittest.TestCase):
                 self.tool_hook(
                     "post-tool",
                     "mcp__node_repl__js",
-                    {"code": "await page.title()", "timeout_ms": 5000},
+                    {"code": code, "timeout_ms": 5000},
                     tool_use_id=tool_id,
                     tool_response={"status": "success"},
                 )
             )
 
-        exhausted = self.tool_hook(
+    def test_browser_failure_retry_is_per_input_and_observed_is_monotonic(self) -> None:
+        contract = self.contract()
+        contract["verification"]["evidence"] = [
+            {
+                "id": "E-browser",
+                "kind": "browser",
+                "description": "one representative browser session",
+            }
+        ]
+        contract["verification"]["done_when"] = [
+            {
+                "condition": "the representative session works",
+                "primary_evidence": "E-browser",
+            }
+        ]
+        self.arm_gate("turn-1")
+        self.stage_gate(contract, "turn-1")
+        self.arm_gate("turn-2")
+        self.pass_gate(turn_id="turn-2")
+
+        successful_input = {"code": "await page.title()", "timeout_ms": 5000}
+        self.assertIsNone(
+            self.tool_hook(
+                "pre-tool",
+                "mcp__node_repl__js",
+                successful_input,
+                tool_use_id="browser-success",
+            )
+        )
+        self.assertIsNone(
+            self.tool_hook(
+                "post-tool",
+                "mcp__node_repl__js",
+                successful_input,
+                tool_use_id="browser-success",
+                tool_response={"status": "success"},
+            )
+        )
+
+        failing_input = {"code": "await missing.locator()", "timeout_ms": 5000}
+        for attempt in range(2):
+            tool_id = f"browser-failure-{attempt}"
+            self.assertIsNone(
+                self.tool_hook(
+                    "pre-tool",
+                    "mcp__node_repl__js",
+                    failing_input,
+                    tool_use_id=tool_id,
+                )
+            )
+            self.assertIsNone(
+                self.tool_hook(
+                    "post-tool",
+                    "mcp__node_repl__js",
+                    failing_input,
+                    tool_use_id=tool_id,
+                    tool_response={"status": "error", "isError": True},
+                )
+            )
+
+        blocked = self.tool_hook(
             "pre-tool",
             "mcp__node_repl__js",
-            {"code": "await page.title()", "timeout_ms": 5000},
-            tool_use_id="browser-4",
+            failing_input,
+            tool_use_id="browser-failure-blocked",
         )
         self.assertEqual(
-            exhausted["hookSpecificOutput"]["permissionDecision"], "deny"
+            blocked["hookSpecificOutput"]["permissionDecision"], "deny"
         )
         self.assertIn(
-            "browser evidence budget is exhausted",
-            exhausted["hookSpecificOutput"]["permissionDecisionReason"],
+            "already failed twice",
+            blocked["hookSpecificOutput"]["permissionDecisionReason"],
         )
+        state_path = next(
+            (self.plugin_data / "gate-state").glob("session-contract-*.json")
+        )
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        source = state["evidence_state"]["sources"][
+            CLICK_GATE._evidence_key("E-browser")
+        ]
+        self.assertEqual(state["external_evidence"]["browser_status"], "observed")
+        self.assertEqual(source["status"], "observed")
 
     def test_browser_primary_source_is_required_for_contract_completion(self) -> None:
         contract = self.contract()

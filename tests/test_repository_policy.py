@@ -20,7 +20,7 @@ class RepositoryPolicyTests(unittest.TestCase):
             (ROOT / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8")
         )
         self.assertEqual(manifest["name"], "click")
-        self.assertEqual(manifest["version"], "0.23.0")
+        self.assertEqual(manifest["version"], "0.24.0")
         self.assertEqual(manifest["license"], "MIT")
         self.assertIn("always on", manifest["description"].lower())
         self.assertIn("manual", manifest["description"].lower())
@@ -143,9 +143,12 @@ class RepositoryPolicyTests(unittest.TestCase):
             self.assertIn("click-gate evidence", readme)
 
         hook = (ROOT / "hooks" / "click_gate.py").read_text(encoding="utf-8")
+        evidence_runtime = (ROOT / "hooks" / "click_evidence.py").read_text(
+            encoding="utf-8"
+        )
         self.assertNotIn("BROWSER_SOURCE_MARKERS", hook)
         self.assertNotIn("BROWSER_SOURCE_TERMS", hook)
-        self.assertIn('source.get("kind") == "browser"', hook)
+        self.assertIn('source.get("kind") == "browser"', evidence_runtime)
 
     def test_plain_language_stays_digest_bound_and_is_rendered_once(self) -> None:
         hook = (ROOT / "hooks" / "click_gate.py").read_text(encoding="utf-8")
@@ -251,7 +254,7 @@ class RepositoryPolicyTests(unittest.TestCase):
         self.assertEqual(marketplace["name"], "click")
         self.assertEqual(marketplace["plugins"][0]["name"], "click")
         self.assertEqual(
-            marketplace["plugins"][0]["source"]["ref"], "v0.23.0"
+            marketplace["plugins"][0]["source"]["ref"], "v0.24.0"
         )
 
     def test_ci_enforces_distribution_compilation_and_diff_validation(self) -> None:
@@ -266,20 +269,22 @@ class RepositoryPolicyTests(unittest.TestCase):
         self.assertIn("workflow_dispatch:", workflow)
         self.assertTrue((ROOT / "scripts" / "validate_distribution.py").is_file())
 
-    def test_release_documents_identify_v0230_and_preserve_release_history(self) -> None:
+    def test_release_documents_identify_v0240_and_preserve_release_history(self) -> None:
         for readme_name in README_NAMES:
             with self.subTest(readme=readme_name):
                 readme = (ROOT / readme_name).read_text(encoding="utf-8")
+                self.assertIn("v0.24.0", readme)
                 self.assertIn("v0.23.0", readme)
                 self.assertIn("v0.21.0", readme)
                 self.assertIn("version-18", readme)
         notes = (ROOT / "RELEASE_NOTES.md").read_text(encoding="utf-8")
+        self.assertIn("## v0.24.0", notes)
         self.assertIn("## v0.23.0", notes)
         self.assertIn("## v0.22.0", notes)
         self.assertIn("## v0.21.1", notes)
         self.assertIn("## v0.21.0", notes)
         self.assertIn("## v0.20.0", notes)
-        self.assertNotIn("Unreleased v0.23", notes)
+        self.assertNotIn("Unreleased v0.24", notes)
         self.assertIn(
             "## Evidence-bound completion in v0.21.0",
             (ROOT / "README.md").read_text(encoding="utf-8"),
@@ -423,7 +428,12 @@ class RepositoryPolicyTests(unittest.TestCase):
     def test_runtime_hook_has_no_external_python_dependency(self) -> None:
         sources = {
             name: (ROOT / "hooks" / name).read_text(encoding="utf-8")
-            for name in ("click_gate.py", "click_process.py", "click_state.py")
+            for name in (
+                "click_evidence.py",
+                "click_gate.py",
+                "click_process.py",
+                "click_state.py",
+            )
         }
         for name, source in sources.items():
             for forbidden in ("requests", "yaml", "pydantic", "openai"):
@@ -443,6 +453,18 @@ class RepositoryPolicyTests(unittest.TestCase):
             with self.subTest(forbidden=forbidden):
                 self.assertNotIn(f"import {forbidden}", process)
                 self.assertNotIn(f"from {forbidden}", process)
+
+    def test_evidence_ledger_is_isolated_from_gate_state_and_process(self) -> None:
+        gate = (ROOT / "hooks" / "click_gate.py").read_text(encoding="utf-8")
+        evidence = (ROOT / "hooks" / "click_evidence.py").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("click_evidence", gate)
+        for forbidden in ("click_gate", "click_state", "click_process"):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(f"import {forbidden}", evidence)
+                self.assertNotIn(f"from {forbidden}", evidence)
 
     def test_compact_contract_replaces_the_verbose_execution_fields(self) -> None:
         hook = (ROOT / "hooks" / "click_gate.py").read_text(encoding="utf-8")

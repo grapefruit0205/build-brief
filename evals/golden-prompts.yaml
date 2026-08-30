@@ -29,7 +29,7 @@ evaluation_dimensions:
   - verification_definition
   - verification_scale
   - verification_evidence_economy
-  - final_verification_batch
+  - verification_subset_budget
   - one_shot_execution
   - default_mode_selection
   - always_on_mutation_routing
@@ -91,10 +91,13 @@ global_invariants:
   - "Treats required behavior as a hard gate, then selects the smallest justified design delta among passing candidates"
   - "Reuses existing boundaries and mechanisms unless current evidence proves they cannot preserve an invariant"
   - "Rejects material additions only when they are out of scope, speculative, or disproportionate; it does not ban a technology category"
-  - "Includes verification with one quick, focused, or full scale, structured evidence sources, and observable done_when conditions; only declared argv sources require one final local batch"
+  - "Includes verification with one quick, focused, or full scale, structured evidence sources, and observable done_when conditions; only declared argv sources require local verification requests"
   - "Declares each evidence source once with a unique id and supported kind, assigns every done_when condition one primary_evidence id, allows one id to cover several conditions, and does not duplicate proof through another tool or surface"
-  - "Binds every final argv check to a declared argv source through evidence_id, requires the declared argv set and inferred costs to fit the chosen scale and batch limit, records completion per id and mutation revision, and does not require an unrelated local batch when no argv source exists"
-  - "Finalizes observed Browser evidence explicitly and treats hosted, manual, and existing completion as attestations rather than claiming independently observed execution"
+  - "Binds every final argv check to a declared argv source through evidence_id, permits any nonempty unresolved subset, reserves each source's exact check group and inferred units for the active contract, enforces one cumulative scale ceiling, records completion per id and mutation revision, and does not require an unrelated local batch when no argv source exists"
+  - "Finalizes observed Browser evidence explicitly, keeps observed status monotonic until mutation, and treats hosted, manual, and existing completion as attestations rather than claiming independently observed execution"
+  - "Allows the first broad repository inventory for an approved or review current revision, then blocks concurrent or later broad inventory after success even when the argv differs"
+  - "Skips an exact successful argv check only for the same active contract and mutation revision when its check group, protected Git tree, canonical execution environment, and executable fingerprint match; a new mutation revision never auto-promotes stale evidence"
+  - "Deduplicates Browser work by normalized input: success blocks repetition, failure gets one identical retry, different input remains available, and serial 30-second-call and five-second-wait limits stay enforced without a normal three-call or 90-second cap"
   - "Uses browser, manual, hosted, broad-suite, or timed end-to-end evidence only when cheaper evidence cannot prove the condition, then stops when all conditions have current evidence"
   - "Does not create parallel verification ceremonies or include an intermediate gate without an irreversible boundary"
   - "Avoids serial technical preference questions by exposing consequential assumptions in the single contract review"
@@ -405,7 +408,7 @@ cases:
     directive_semantics:
       - "Uses the read-only review guard without a build contract or approval prompt"
       - "Allows initial repository context through structured inspection, then narrows inspection and reuses successful evidence"
-      - "Blocks repeated successful structured reads, a second successful root inventory, plan churn, and mutation"
+      - "Blocks repeated successful structured reads, concurrent or post-success root inventory, plan churn, and mutation"
       - "Reports only evidence-backed findings"
     minimality_expectations:
       reuse: "The first useful inventory and focused authentication evidence"
@@ -443,11 +446,11 @@ cases:
     expected_mutation_gate: structured-after-approval
     directive_semantics:
       - "Uses a versioned mutate argv request for the write-capable generator after a later approval passes the emitted contract_id bound to the staged semantic contract"
-      - "Uses one protocol-v2 verify batch with every check bound to a declared argv evidence_id and an explicit targeted, broad, or deep class"
+      - "Uses protocol-v2 verify requests whose checks bind to declared argv evidence_ids, may cover nonempty unresolved subsets, and reserve inferred targeted, broad, or deep units against one cumulative contract budget"
       - "Does not guess command intent from an ambiguous active shell string or hide a shell interpreter inside argv"
       - "Keeps the approved outcome and boundary fixed while the structured mutation invalidates stale evidence"
     minimality_expectations:
-      reuse: "The existing generator, tests, compact contract, and one final verification budget"
+      reuse: "The existing generator, tests, compact contract, and one cumulative verification budget"
       reject_without_evidence:
         - "A new task runner, MCP server, sandbox, or dependency"
 
@@ -508,7 +511,7 @@ cases:
     expected_mutation_gate: none-before-approval
     directive_semantics:
       - "Rejects Python -c and direct Python scripts from the verification capability"
-      - "Snapshots protected Git content before and after the final batch"
+      - "Snapshots protected Git content before and after each verification request"
       - "Records the batch failed and stale when tracked or pre-existing non-ignored untracked content changes"
       - "Reports and fails stale for every new non-ignored path, using source or configuration classification only to clarify the warning"
       - "Documents that Git-ignored paths are outside the protected snapshot"
@@ -575,7 +578,7 @@ cases:
       - "Classifies filters, regexes, multiple targets, directories, and suites as at least broad"
       - "Classifies one exact integration or security node as broad and the whole corresponding suite as deep"
       - "Recognizes py -3 -m, uv, lint, build, typecheck, Cargo check/clippy, and Go vet forms"
-      - "Preserves one verification request and one-shot implementation"
+      - "Preserves one cumulative verification budget and one-shot implementation"
     minimality_expectations:
       reuse: "The existing argv validator and verification class table"
       reject_without_evidence:
@@ -607,7 +610,7 @@ cases:
       - "Declares each evidence source once and assigns every done_when condition one cheapest sufficient primary_evidence id while allowing one id to cover several conditions"
       - "Uses deterministic game-logic tests for waves, rewards, damage, victory, and defeat instead of replaying the whole timed campaign"
       - "Uses one representative browser session only for integration, input, responsive layout, and visual behavior that logic tests cannot prove"
-      - "Declares one referenced evidence source with kind browser and stays within three serial calls, 90 measured seconds, and five-second explicit waits"
+      - "Declares one referenced evidence source with kind browser, keeps calls serial, blocks successful normalized-input repetition, permits one identical retry after failure, and keeps 30-second call and five-second explicit-wait bounds"
       - "Does not duplicate the same rule through both automated and browser evidence or add a shadow verification suite"
       - "Stops verification as soon as every declared primary source has current evidence"
     minimality_expectations:
@@ -615,4 +618,4 @@ cases:
       reject_without_evidence:
         - "A natural ten-wave victory playthrough followed by a separate full defeat playthrough"
         - "Repeated desktop and mobile checks of rules already proven by automated tests"
-        - "More than three Browser calls, a Browser timeout above 30 seconds, or a timed wait above five seconds"
+        - "Repeated successful Browser input, a third identical failed attempt, a Browser timeout above 30 seconds, a timed wait above five seconds, or treating the 256-unique-input safety ceiling as a target"

@@ -60,7 +60,7 @@ launcher 只接受一条不含展开的 Bash 命令；命令串联、重定向�
 [`platforms/antigravity/README.md`](platforms/antigravity/README.md)了解准确
 限制，不要假设宿主功能完全等价。
 
-## 更新到 v0.23.0
+## 更新到 v0.24.0
 
 如果已经安装 Click，需要明确刷新 Git marketplace 快照并重新安装插件，才能加载本版本。
 
@@ -69,7 +69,7 @@ codex plugin marketplace upgrade click
 codex plugin add click@click
 ```
 
-重新启动 ChatGPT 桌面应用，检查并信任更新后的 Click Hook，然后开始一个新任务。现有模式偏好仍保存在目标仓库之外。v0.23.0 把共享的无 shell 进程执行、子进程组隔离与终止以及有界输出复制移入 `click_process.py`；可执行文件信任、Git/SSH 策略、契约和证据语义仍留在 gate 中。直接调用 `click-gate` 时，继续使用 verify 协议版本 `2`，为每项检查提供已批准的 argv `evidence_id`，让 `pass` 只传递已签发的 `contract_id`，并使用结构化 `done_when` 证据引用。不要重复使用旧安装留下的待执行 runner 命令；应让更新后的 Hook 签发一条新命令。
+重新启动 ChatGPT 桌面应用，检查并信任更新后的 Click Hook，然后开始一个新任务。现有模式偏好仍保存在目标仓库之外。v0.24.0 在 v0.23.0 引入的共享 `click_process.py` 边界之上，把不保存内容的 evidence registry 与 ledger 机制提取到 `click_evidence.py`，并同时用于 Codex 与生成的 Antigravity 分发包。常规防循环许可也改为依据当前 revision 的证据：允许一次必要的全仓库清单读取；将每个 evidence 的准确 argv 检查组预约到同一累计预算；仅当活动契约、revision、受保护 Git tree、检查、环境和可执行文件指纹全部一致时复用成功 receipt；并去重规范化后的 Browser 输入。直接调用 `click-gate` 时，继续使用 verify 协议版本 `2`，为每项检查提供已批准的 argv `evidence_id`，让 `pass` 只传递已签发的 `contract_id`，并使用结构化 `done_when` 证据引用。不要重复使用旧安装留下的待执行 runner 命令；应让更新后的 Hook 签发一条新命令。
 
 之后你可以说“Set Click to Always ON”或“Set Click to Manual”，这些偏好会持久保存在目标仓库之外。若只想绕过一个 turn，请把用户提示的第一行写成 `@Click bypass`，或使用自动补全形式 `[@Click](plugin://click@click) bypass`；Hook 只授权同一 turn 的一次 `click-gate bypass`，并保留活动契约。要丢弃活动契约，请使用对应的 `cancel` 形式来授权一次 `click-gate cancel`。`@Click` 标签和动作不区分大小写，但 plugin URI 必须完全匹配，指令行不能包含其他文字；实际任务可以从第二行继续。两种授权都不能重复使用或带到下一个 turn。Click 不会把偏好或契约文件放进你的项目。
 
@@ -92,6 +92,10 @@ codex plugin add click@click
 ## v0.21.0 的逐证据完成判定
 
 v0.21 将契约声明的每个完成证据与当前代码 revision 的 Hook 状态连接起来。local argv check 必须指定它所证明的已批准 evidence ID；成功的 Browser 工作先被观察，再显式 finalize；hosted、manual 与 existing 仍是诚实的 attestation，而不是 Hook 对外部事实的独立证明。当所有声明来源都为 current 且没有受管服务仍处于活动状态时，契约立即完成，因此没有 argv 来源的契约不需要无关的本地验证命令。
+
+## v0.24.0 的证据驱动防循环
+
+v0.24 不再主要根据原始调用次数，而是根据当前 revision 已成功的证据判断是否允许常规重复。已批准的实现与代码审查可以建立一次必要的全仓库清单，随后必须缩小范围。验证可以分批提交尚未完成的 argv 证据，但每个 evidence 的准确检查与成本会在整个契约期间保留，因此无法通过拆分 batch 绕过预算。Browser 不再采用常规三次调用、90 秒上限，而是按规范化输入阻止成功重复和反复失败。不保存内容的 evidence registry 与 ledger 机制位于专用 `click_evidence.py` 模块中，verify 协议版本仍为 `2`。历史上的 v0.23.0 引入了共享 process 边界，但不包含这些 evidence-state 规则。
 
 ## 工作原理
 
@@ -208,7 +212,7 @@ stage 会返回 `CLICK_CONTRACT_ID=ctr_0123456789abcdef0123456789abcdef`。随�
 | 第一行是普通或自动补全的 `@Click bypass` | 只在当前 turn 绕过 Click，并保留活动契约 |
 | 第一行是普通或自动补全的 `@Click cancel` | 清除活动契约一次 |
 
-代码审查期间，Click 会在需要时允许一次有用的全仓库清单读取。清单读取成功后，它会要求使用更窄范围的检查，阻止完全相同的成功读取或搜索，拒绝 plan 工具反复变动，并在审查守卫活动期间阻止项目 mutation。之后若要求修复发现的问题，则会启动一份独立的精简构建契约。
+代码审查期间，Click 会在需要时允许一次有用的全仓库清单读取，例如 `rg --files`。清单读取成功后，它会要求使用更窄范围的检查，阻止完全相同的成功读取或搜索，拒绝 plan 工具反复变动，并在审查守卫活动期间阻止项目 mutation。之后若要求修复发现的问题，则会启动一份独立的精简构建契约。
 
 识别明确的直接读取仍然很方便。对于含义不明确或需要追踪的工作，Click 使用带有程序与参数数组的 `click-gate inspect`，而不是从 shell 字符串猜测。审查守卫覆盖受支持的本地 Hook 路径；它无法去重隐藏推理、hosted search、未匹配的 connector 或自定义 wrapper。
 
@@ -220,10 +224,10 @@ stage 会返回 `CLICK_CONTRACT_ID=ctr_0123456789abcdef0123456789abcdef`。随�
 | --- | --- |
 | 复用证据 | 已成功的相同结构化读取或搜索会被阻止，直到范围内 mutation 使证据失效。 |
 | 不并行规划 | 当工作流处于 armed、staged、approved 但未完成，或 review 状态时，匹配的 `update_plan` 调用会被拒绝，即使来自后续 turn 也一样。只有 bypass，或当前 revision 的全部证据 id 已完成且没有受管服务仍处于活动状态时，普通的后续规划才会恢复。 |
-| 不重置全仓库清单 | 根级清单命令（如 `rg --files`、`find .`、递归根目录列表及等价的 Git 清单扫描）会被拒绝；仍可使用限定路径的检查。 |
+| 不重复全仓库清单 | 当前代码 revision 在确有需要时可执行第一次全仓库清单；同类清单正在运行或已有一次成功后，会拒绝后续全仓库扫描，只允许缩小范围的检查。 |
 | 明确命令意图 | 活动状态下，含义不明确的 Bash 会被拒绝，并提示读取使用结构化 `inspect`、实现使用 `mutate`、最终检查使用 `verify`。 |
-| 检查必须在预算内 | `argv` 主证据必须通过协议版本 `2` 的结构化 `click-gate verify` batch 运行；每项检查绑定一个已声明的 `evidence_id`，并符合已批准的规模。 |
-| 限定 Browser 证据 | Browser MCP 只有被明确指定为主要证据时，才获得三次调用、90 秒的代表性 session；成功调用先把来源记为 `observed`，随后必须用 `click-gate evidence` 明确完成该 id。长时间推进和完成后重放会被拒绝。 |
+| 检查必须在预算内 | `argv` 证据可以按尚未完成 id 的非空子集执行；每个 id 的准确检查 digest 与成本会在整个契约期间保留，所有 batch 的累计预约不得超过批准规模。 |
+| 限定 Browser 重复 | Browser MCP 只有被明确指定为主要证据时才能使用。相同成功输入不会重跑；相同失败只允许重试一次；不同输入仍可继续。调用保持串行，并保留 30 秒 timeout、5 秒 wait 与 256 个唯一输入的状态安全上限。 |
 | 持有本地服务器生命周期 | 可识别的开发服务器通过 `click-gate service` 启停，由 Click 清理准确的隔离子进程。 |
 | 提案与批准分离 | stage 会签发绑定 digest 的不透明 id。同 turn pass 和替换 stage 会被拒绝；后续批准只 pass 该 id。 |
 
@@ -253,7 +257,7 @@ Click 根据当前风险和仓库证据选择最小且足够的规模。用户�
 
 每个证据源只在 `verification.evidence` 中声明一次，包含 id、类型化的 `kind` 和说明。每个 `done_when` 条件通过 `primary_evidence` 引用一个充分且成本最低的证据 id；一个 id 可以覆盖多个条件。Click 优先复用当前 revision 仍然有效的证据和范围最窄的自动检查；只有更便宜的来源无法证明条件时，才使用浏览器、人工、hosted、完整 suite 或耗时的 end-to-end 证据。它不会通过另一个界面重复证明自动检查已经证明的结果，并会在所有声明来源都针对当前 revision 完成且没有受管服务仍处于活动状态后立即停止。任一 mutation 都会使这些完成状态失效。
 
-Hook 不再把“本地 final batch 成功”当作所有契约的固定完成条件。`argv` 来源由真实运行结果逐 id 记录；只包含 Browser、hosted、manual 或 existing 来源的契约不需要为了形式再运行一个空洞的本地检查。语义上的充分性仍由 Skill 和 grader 判断。Hook 会结构化计量标准 Browser MCP 路径：只有一个被引用证据源的 `kind` 为 `browser` 时，才允许一个串行代表性 session，最多三次调用、90 秒实测时间；单次 tool timeout 不得超过 30 秒，明确 wait 不得超过五秒。成功的 Browser 调用只把分配的来源记为 `observed`，之后 `click-gate evidence` 才会把该 id finalize 为 current/passed。完成后不能重放，后续 mutation 会重置该来源，matcher 之外的 connector 仍不在此计量范围内。
+Hook 不再把“本地 final batch 成功”当作所有契约的固定完成条件。`argv` 来源由真实运行结果逐 id 记录；只包含 Browser、hosted、manual 或 existing 来源的契约不需要为了形式再运行一个空洞的本地检查。语义上的充分性仍由 Skill 和 grader 判断。Hook 会结构化计量标准 Browser MCP 路径：只有一个被引用证据源的 `kind` 为 `browser` 时才允许串行调用，并会把代码的换行、首尾空白以及 timeout 等非语义元数据规范化后判断输入是否相同。成功输入不会重跑；相同失败只允许重试一次；仍未满足证据的不同输入可以继续。普通流程不再有三次调用、90 秒总量上限，但单次 tool timeout 不得超过 30 秒、明确 wait 不得超过五秒，活动契约最多保留 256 个唯一输入的哈希状态。一个输入成功后，即使另一个输入失败，来源的 `observed` 状态也不会倒退。之后用 `click-gate evidence` 把该 id finalize 为 current/passed。
 
 | 规模 | 典型用途 | 自动上限 |
 | --- | --- | ---: |
@@ -263,13 +267,15 @@ Hook 不再把“本地 final batch 成功”当作所有契约的固定完成�
 
 一项 `targeted` 检查花费 1 unit，`broad` 花费 3，`deep` 花费 5。提交的值不会被直接信任为成本：Hook 会先识别 runner，再估算实际范围。一个明确文件或测试节点可以是 targeted；`-k` 或正则筛选、多个文件或 package、目录以及完整套件至少是 broad。一个明确的集成或安全测试节点是 broad，而完整的集成或安全套件是 deep。Hook 会在计算总量前自动提高被低报的检查等级。这些数值是上限，不是目标。
 
-每项 `argv` 检查都必须通过 `evidence_id` 指向一个已声明且 `kind: "argv"` 的来源。一次 final batch 必须覆盖所有尚未完成的 argv 来源，不得重复已经 current 的来源；同一个 id 需要多项检查时，这些条目必须相邻：
+每项 `argv` 检查都必须通过 `evidence_id` 指向一个已声明且 `kind: "argv"` 的来源。每个 batch 可以只覆盖尚未完成来源的一个非空子集；同一个 id 第一次提交时会锁定规范化后的准确检查集合和成本，后续 batch 的累计预约仍必须符合契约规模。同一个 id 需要多项检查时，这些条目必须相邻：
 
 ```text
 click-gate verify '{"version":2,"checks":[{"evidence_id":"E1","argv":["python3","-m","unittest","discover","-s","tests","-q"],"class":"broad"},{"evidence_id":"E2","argv":["git","diff","--check"],"class":"targeted"}]}'
 ```
 
-Hook 会验证 id、kind 和 class，在不使用 shell 的情况下执行已接受的最终 batch，并按来源记录真实退出码；部分失败不会把其他来源的成功抹掉。对于 Python，只允许明确的 pytest、unittest 和 coverage 模块 runner，包括 Windows 的 `py -3 -m ...`；Python `-c` 和直接执行 Python 脚本会被拒绝。指定一个准确文件的 `node --check`、`node --test`，以及 `uv run pytest`、`npm run lint`、`npm run build`、`ruff check`、`mypy`、`tsc --noEmit`、`cargo check`、`cargo clippy` 和 `go vet`，会被识别并按推断范围计费。项目级 `node --test` 是 broad，Node eval/print 不属于验证能力。旧版 version `1` verify 和 shell-string `commands` batch 会被拒绝，同时给出迁移提示。失败来源可因临时故障原样重试一次；之后必须先进行范围内 mutation。后续 mutation 会使之前的成功结果 stale，并允许再次运行同一检查集。
+Hook 会验证 id、kind 和 class，在不使用 shell 的情况下执行已接受的 batch，并按来源记录真实退出码；部分失败不会把其他来源的成功抹掉。对于 Python，只允许明确的 pytest、unittest 和 coverage 模块 runner，包括 Windows 的 `py -3 -m ...`；Python `-c` 和直接执行 Python 脚本会被拒绝。指定一个准确文件的 `node --check`、`node --test`，以及 `uv run pytest`、`npm run lint`、`npm run build`、`ruff check`、`mypy`、`tsc --noEmit`、`cargo check`、`cargo clippy` 和 `go vet`，会被识别并按推断范围计费。项目级 `node --test` 是 broad，Node eval/print 不属于验证能力。旧版 version `1` verify 和 shell-string `commands` batch 会被拒绝，同时给出迁移提示。失败来源可因临时故障原样重试一次；之后必须先进行范围内 mutation。后续 mutation 会使之前的成功结果 stale；即使树碰巧相同，也不会把旧证据自动提升到新 revision。
+
+已经成功的同一检查再次提交时，Click 会在启动进程前先查看 receipt。只有活动 mutation revision、契约 digest、检查 digest、预约成本、Git root、受保护 Git tree、Hook 在签发 runner 前固定的执行 context 和可执行文件内容指纹全部相同，才会把 runner 替换成 `echo` 并跳过重跑。Click 用 keyed content-free hash 绑定准备好的每个环境键和值；runner 要求这些值全部一致，将 launcher 新增的值排除在 child check 之外，然后为 resolved target 建立指纹，并在执行前固定所选择的 launcher 路径。这样既保留 virtual environment 与 shim 语义，也让结构化 SSH hardening 和 remote URL redaction 在固定路径后继续生效。因此 macOS 或 Windows shell bookkeeping 不会造成错误重跑，而准备值或可执行文件变化会 fail closed。非 Git 工作区、缺失 receipt 或任一字段不同都会真正重新执行检查。该优化只覆盖 Git 可见的 tracked 与 non-ignored untracked 代码状态；它不能证明 ignored dependency、外部服务或人工状态没有变化，也绝不会复活不同 revision 的 stale 证据。
 
 Browser 先经过一次成功的受计量 session，再显式 finalize 分配给它的 id：
 
@@ -279,7 +285,7 @@ click-gate evidence '{"version":1,"evidence_id":"E-browser"}'
 
 `hosted`、`manual` 和 `existing` 来源也使用同一命令记录完成，但这是显式 attestation，不是 Hook 对外部事实的独立验证。Hook 只能确认声明的 id、kind、当前 revision 和调用顺序，无法检查 hosted 系统的真实状态、人工是否真的完成步骤，或 existing 证据在语义上是否仍然充分。`kind: "argv"` 绝不允许通过 attestation 完成；它必须由 `click-gate verify` 实际执行并记录结果。
 
-只有尚未 claim 的 verification 预约可以在过期后重试；已经 claim 的 batch 会保持 running，直到记录结果或用户取消。在 Git worktree 中，runner 会在 batch 前快照 tracked 内容以及既有的 **non-ignored untracked** 内容；如果无法建立初始快照，则不会执行任何 check。受保护内容变化或出现新的 non-ignored untracked 路径时，batch 会 stale 失败并推进 mutation revision，而不是记录错误成功。预期产物应被 Git ignore，或在已批准的 mutation 阶段生成。在 Git 之外，这一内容差异守卫不可用；argv 验证、无 shell 执行和 revision 状态仍然有效。
+只有尚未 claim 的 verification 预约可以在过期后重试；已经 claim 的 batch 会保持 running，直到记录结果或用户取消。在 Git worktree 中，runner 会在 batch 前快照 tracked 内容以及既有的 **non-ignored untracked** 内容；如果无法建立初始快照，则不会执行任何 check。受保护内容变化或出现新的 non-ignored untracked 路径时，batch 会 stale 失败并推进 mutation revision，而不是记录错误成功。预期产物应被 Git ignore，或在已批准的 mutation 阶段生成。Git-ignored 路径以及外部 dependency、service 不属于该 tree digest。在 Git 之外，内容差异守卫和 receipt 复用都不可用；argv 验证、无 shell 执行和 revision 状态仍然有效。
 
 最低 class 推断可以防住简单的低报。未知但看起来用于验证的 wrapper 名称会被保守地计为 `deep`，无法识别的命令会被拒绝，但一个获准程序仍可能在内部隐藏昂贵工作。这里不是安全或资源 sandbox，也不能证明所选测试在语义上足够。
 
@@ -318,7 +324,7 @@ Click 面向两类用户：
 
 ## 证据与诚实边界
 
-当前公开版本 v0.23.0 使用确定性 suite 作为 release gate，验证持久模式、跨 turn 批准、active-contract 锁、读取与 plan 防循环、verify v2 的 evidence-id 绑定、逐来源 completion ledger、Browser observe-then-finalize、非 argv attestation 边界、受管服务器的一次性 launch claim 与清理、排除仓库路径的可执行程序解析、state-root binding、runner 执行前 claim、加固的 Git 读取、Git snapshot fail-closed、process 隔离、验证期间 workspace mutation 检测、共享状态存储与 process mechanics 边界、源代码与分发版本的 sibling-only 启动、分发一致性和仓库策略。
+发布 v0.24.0 前，确定性 suite 必须覆盖持久模式、跨 turn 批准、active-contract 锁、读取与 plan 防循环、verify v2 的 evidence-id 绑定、逐来源当前 revision 完成、首次成功的全仓库清单许可、逐 evidence 的累计预约、当前 revision 的准确 receipt 复用、Browser 输入去重、非 argv attestation 边界、受管服务器的一次性 launch claim 与清理、排除仓库路径的可执行程序解析、state-root binding、runner 执行前 claim、加固的 Git 读取、Git snapshot fail-closed、process 隔离、验证期间 workspace mutation 检测、共享状态存储、process mechanics 与不保存内容的 evidence-ledger 边界、源代码与分发版本的 sibling-only 启动、分发一致性和仓库策略。必需 CI 已配置为在 Linux、macOS 和 Windows 上运行该 suite；Ubuntu 还会验证 plugin、marketplace、Click/Fix Skill、Python compilation 和 whitespace 错误。
 
 仓库还包含用于确定性 fixture 策略审查的 version-18 golden cases 和 semantic grader。这些资料检查契约结构与预期行为，并不测量 runtime 生产力。
 
@@ -340,6 +346,7 @@ skills/click/references/capability-protocol.md  结构化 runner schema
 skills/fix/                           精简修复 Skill
 hooks/click_state.py                  状态路径、原子持久化与锁
 hooks/click_process.py                无 shell 的进程执行、隔离与终止
+hooks/click_evidence.py               不保存内容的 evidence registry 与 ledger 机制
 hooks/click_gate.py                   契约策略、capability 编排、防循环与预算
 hooks/hooks.json                      生命周期 Hook 配置
 evals/                                Golden cases 和 semantic grader

@@ -1,5 +1,72 @@
 # Release notes
 
+## v0.24.0 — 2026-08-30
+
+Click v0.24.0 changes normal anti-loop decisions from raw call counts to
+current, revision-bound evidence. Authorization, process claims, concurrent
+execution guards, and verification-time mutation detection remain fail-closed.
+
+### Content-free evidence boundary
+
+- `click_evidence.py` now owns deterministic evidence-ID hashing, registry
+  digests, initial source and Browser-session state, ledger-shape validation,
+  and pure current-revision and kind lookups.
+- `click_gate.py` retains contract and protocol validation, transition timing,
+  verification budgets and retries, Browser admission, completion policy,
+  persistence, and runner orchestration. Dependency direction remains
+  `click_gate → click_evidence`.
+- Compatibility aliases preserve direct callers and legacy state keeps its
+  distinct fail-closed migration path. Codex and Antigravity bundle the same
+  standard-library-only evidence module.
+
+### Evidence-driven inspection and verification
+
+- Approved implementation and read-only review may perform the first broad
+  repository inventory for the current mutation revision. A concurrent broad
+  inventory, or any later broad inventory after success, is blocked even when
+  it uses different argv; narrower inspection remains available.
+- Verification protocol v2 may submit any nonempty subset of unresolved argv
+  sources. The first accepted check group for each source reserves its exact
+  normalized digest and Hook-inferred units for the active contract, and the
+  cumulative reservations must fit the approved scale. Partial requests cannot
+  split around the budget.
+- A current successful exact argv check is skipped only when the same active
+  contract and mutation revision, check group, protected Git tree digest,
+  Hook-prepared execution context, and resolved executable fingerprint still
+  match. A new mutation revision never auto-promotes stale evidence; non-Git
+  worktrees and missing or mismatched receipts rerun the check.
+- Click binds every prepared environment key and value with keyed content-free
+  hashes before issuing the rewritten runner. The runner requires every bound
+  value to match, excludes launcher-only additions from the child check, then
+  fingerprints the resolved target and pins the selected launcher path
+  immediately before execution, preserving virtual-environment and shim
+  semantics. Hardened structured SSH policy and remote-URL redaction also
+  remain active after executable pinning.
+  macOS and Windows shell bookkeeping therefore cannot invalidate an unchanged
+  receipt, while a changed prepared value or executable fails closed.
+
+### Browser input deduplication
+
+- Assigned Browser work remains serial but no longer uses a normal three-call
+  or 90-second session cap. A normalized input that succeeds is blocked on
+  repetition for the current revision. A failed input gets one identical retry
+  and is then blocked, while a different input remains available.
+- The 30-second per-call timeout and five-second explicit-wait maximum remain.
+  A 256-unique-input ceiling protects state growth and is not an expected usage
+  target. Once a source is observed, a later distinct failure does not demote
+  it before finalization.
+- These receipts and counters remain workflow guardrails, not a sandbox.
+  Protected Git snapshots exclude ignored content and do not prove external
+  dependencies, services, or semantic sufficiency.
+
+### Distribution and release gate
+
+- Codex and the generated Antigravity distribution bundle byte-equivalent gate,
+  evidence, and policy sources where their host capabilities overlap.
+- The exact release candidate is gated by the deterministic suite on Linux,
+  macOS, and Windows plus plugin, marketplace, skill, compilation, whitespace,
+  distribution-consistency, and Plugin Security Scan checks.
+
 ## v0.23.0 — 2026-08-30
 
 Click v0.23.0 extracts the shared shell-free process mechanics into a small,

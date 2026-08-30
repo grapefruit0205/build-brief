@@ -14,8 +14,10 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import hmac
 import json
 import os
+import platform
 from pathlib import Path
 import re
 import secrets
@@ -30,7 +32,7 @@ from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 if __package__:
-    from . import click_process
+    from . import click_evidence, click_process
     from .click_state import (
         STATE_LOCK_STALE_SECONDS,
         STATE_LOCK_TIMEOUT_SECONDS,
@@ -48,6 +50,7 @@ if __package__:
     )
     from .platform_protocol import CodexOutputAdapter, HookOutputAdapter
 else:  # Executed directly from the bundled hooks directory.
+    import click_evidence
     import click_process
     from click_state import (
         STATE_LOCK_STALE_SECONDS,
@@ -73,6 +76,18 @@ _copy_limited_output = click_process.copy_limited_output
 _isolated_subprocess_kwargs = click_process.isolated_subprocess_kwargs
 _terminate_managed_child = click_process.terminate_process_group
 
+# Compatibility aliases for direct callers and the deterministic suite. The
+# gate owns policy and transition timing; content-free registry mechanics live
+# in the one-way click_evidence boundary.
+_evidence_key = click_evidence.evidence_key
+_evidence_registry_digest = click_evidence.registry_digest
+_fresh_evidence_state = click_evidence.fresh_state
+_evidence_is_current = click_evidence.is_current
+_evidence_keys_for_kind = click_evidence.keys_for_kind
+_browser_evidence_source_id = click_evidence.browser_source_id
+_browser_evidence_required = click_evidence.browser_required
+_fresh_external_evidence_state = click_evidence.fresh_external_state
+
 
 CONTROL_COMMAND = "click-gate"
 CLICK_AUTHORIZATION_PATTERNS = (
@@ -90,8 +105,8 @@ BUILD_FIELDS = {"approach", "semantics", "order"}
 VERIFICATION_FIELDS = {"scale", "evidence", "done_when", "intermediate_gate"}
 EVIDENCE_SOURCE_FIELDS = {"id", "kind", "description"}
 DONE_WHEN_FIELDS = {"condition", "primary_evidence"}
-EVIDENCE_KINDS = ("argv", "browser", "hosted", "manual", "existing")
-EVIDENCE_STATUSES = {"ready", "running", "observed", "passed", "failed", "stale"}
+EVIDENCE_KINDS = click_evidence.EVIDENCE_KINDS
+EVIDENCE_STATUSES = click_evidence.EVIDENCE_STATUSES
 EVIDENCE_ID_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9_-]{0,31}$")
 CONTRACT_ID_PATTERN = re.compile(r"^ctr_[0-9a-f]{32}$")
 VERIFICATION_SCALES = ("quick", "focused", "full")
@@ -139,8 +154,7 @@ MAX_CAPABILITY_REQUEST_CHARS = 6_000
 MAX_VERIFICATION_BATCH_CHARS = 6_000
 MAX_OBSERVATION_OUTPUT_BYTES = 48_000
 MAX_OBSERVATION_ENTRIES = 64
-MAX_BROWSER_EVIDENCE_CALLS = 3
-MAX_BROWSER_EVIDENCE_SECONDS = 90
+MAX_BROWSER_UNIQUE_INPUTS = 256
 MAX_BROWSER_TOOL_TIMEOUT_MS = 30_000
 MAX_BROWSER_WAIT_MS = 5_000
 BROWSER_RUNNING_TTL_SECONDS = 40
@@ -560,170 +574,20 @@ def _fresh_verification_state(contract: dict[str, Any]) -> dict[str, Any]:
         "runner_token_digest": "",
         "runner_claimed_at": 0,
         "running_evidence_keys": [],
+        "running_environment_digests": {},
+        "running_environment_binding": [],
+        "running_executable_digests": {},
         "workspace_changed": False,
         "started_at": 0,
     }
 
 
-def _evidence_key(evidence_id: str) -> str:
-    return hashlib.sha256(evidence_id.encode()).hexdigest()
-
-
-def _evidence_registry_digest(sources: dict[str, Any]) -> str:
-    registry = sorted(
-        (key, str(source.get("kind", "")))
-        for key, source in sources.items()
-        if isinstance(key, str) and isinstance(source, dict)
-    )
-    payload = json.dumps(registry, separators=(",", ":"))
-    return hashlib.sha256(payload.encode()).hexdigest()
-
-
-def _fresh_evidence_state(contract: dict[str, Any]) -> dict[str, Any]:
-    verification = contract.get("verification")
-    declared = verification.get("evidence") if isinstance(verification, dict) else []
-    sources: dict[str, Any] = {}
-    if isinstance(declared, list):
-        for source in declared:
-            if not isinstance(source, dict):
-                continue
-            source_id = source.get("id")
-            kind = source.get("kind")
-            if not isinstance(source_id, str) or kind not in EVIDENCE_KINDS:
-                continue
-            sources[_evidence_key(source_id)] = {
-                "kind": kind,
-                "status": "ready",
-                "verified_revision": -1,
-                "attempts": 0,
-                "unchanged_failure_retries": 0,
-                "last_exit_code": None,
-                "last_check_digest": "",
-                "locked_check_digest": "",
-            }
-    return {
-        "version": 1,
-        "source_count": len(sources),
-        "registry_digest": _evidence_registry_digest(sources),
-        "sources": sources,
-    }
-
-
 def _evidence_sources(state: dict[str, Any]) -> dict[str, Any] | None:
     """Return the v1 content-free evidence ledger, or None for legacy state."""
-    if (
-        "state_schema_version" in state
-        and state.get("state_schema_version") != CONTRACT_STATE_SCHEMA_VERSION
-    ):
-        return {}
-    if "evidence_state" not in state:
-        if "state_schema_version" in state:
-            return {}
-        return None
-    evidence_state = state.get("evidence_state")
-    if not isinstance(evidence_state, dict) or evidence_state.get("version") != 1:
-        return {}
-    sources = evidence_state.get("sources")
-    if not isinstance(sources, dict):
-        return {}
-    for key, source in sources.items():
-        if (
-            not isinstance(key, str)
-            or not re.fullmatch(r"[0-9a-f]{64}", key)
-            or not isinstance(source, dict)
-            or source.get("kind") not in EVIDENCE_KINDS
-            or source.get("status") not in EVIDENCE_STATUSES
-            or not isinstance(source.get("verified_revision"), int)
-            or isinstance(source.get("verified_revision"), bool)
-            or not isinstance(source.get("attempts"), int)
-            or isinstance(source.get("attempts"), bool)
-            or not isinstance(source.get("unchanged_failure_retries"), int)
-            or isinstance(source.get("unchanged_failure_retries"), bool)
-            or source.get("attempts", -1) < 0
-            or source.get("unchanged_failure_retries", -1) < 0
-            or source.get("last_exit_code") is not None
-            and (
-                not isinstance(source.get("last_exit_code"), int)
-                or isinstance(source.get("last_exit_code"), bool)
-            )
-            or not isinstance(source.get("last_check_digest"), str)
-            or not isinstance(source.get("locked_check_digest"), str)
-        ):
-            return {}
-    source_count = evidence_state.get("source_count")
-    registry_digest = evidence_state.get("registry_digest")
-    if (
-        not isinstance(source_count, int)
-        or isinstance(source_count, bool)
-        or source_count != len(sources)
-        or not isinstance(registry_digest, str)
-        or not re.fullmatch(r"[0-9a-f]{64}", registry_digest)
-        or not secrets.compare_digest(
-            registry_digest, _evidence_registry_digest(sources)
-        )
-    ):
-        return {}
-    return sources
-
-
-def _evidence_is_current(source: Any, revision: int) -> bool:
-    return bool(
-        isinstance(source, dict)
-        and source.get("status") == "passed"
-        and int(source.get("verified_revision", -1)) == revision
+    return click_evidence.sources_from_state(
+        state,
+        expected_contract_schema_version=CONTRACT_STATE_SCHEMA_VERSION,
     )
-
-
-def _evidence_keys_for_kind(
-    sources: dict[str, Any], kind: str
-) -> set[str]:
-    return {
-        key
-        for key, source in sources.items()
-        if isinstance(source, dict) and source.get("kind") == kind
-    }
-
-
-def _browser_evidence_source_id(contract: dict[str, Any]) -> str:
-    verification = contract.get("verification")
-    evidence = verification.get("evidence") if isinstance(verification, dict) else []
-    if not isinstance(evidence, list):
-        return ""
-    for source in evidence:
-        if isinstance(source, dict) and source.get("kind") == "browser":
-            source_id = source.get("id")
-            return source_id if isinstance(source_id, str) else ""
-    return ""
-
-
-def _browser_evidence_required(contract: dict[str, Any]) -> bool:
-    return bool(_browser_evidence_source_id(contract))
-
-
-def _fresh_external_evidence_state(
-    contract: dict[str, Any] | None = None,
-    *,
-    required: bool | None = None,
-    source_key: str | None = None,
-) -> dict[str, Any]:
-    browser_source_id = _browser_evidence_source_id(contract or {})
-    browser_source_key = (
-        _evidence_key(browser_source_id)
-        if source_key is None and browser_source_id
-        else (source_key or "")
-    )
-    browser_required = (
-        bool(browser_source_key) if required is None else required
-    )
-    return {
-        "browser_required": browser_required,
-        "browser_source_key": browser_source_key,
-        "browser_status": "ready" if browser_required else "not-required",
-        "browser_calls": 0,
-        "browser_seconds": 0.0,
-        "browser_running": {},
-        "last_browser_error": "",
-    }
 
 
 def _fresh_service_state() -> dict[str, Any]:
@@ -1237,17 +1101,12 @@ def _validate_contract(raw: str) -> tuple[dict[str, Any] | None, str]:
             "across every condition covered by the representative session.",
         )
     minimum_argv_units = argv_source_count * VERIFICATION_CLASSES["targeted"]
-    maximum_argv_sources = min(
-        VERIFICATION_UNIT_LIMITS[str(scale)], MAX_CAPABILITY_COMMANDS
-    )
-    if minimum_argv_units > VERIFICATION_UNIT_LIMITS[str(scale)] or (
-        argv_source_count > maximum_argv_sources
-    ):
+    if minimum_argv_units > VERIFICATION_UNIT_LIMITS[str(scale)]:
         return (
             None,
             f"Verification scale `{scale}` cannot fit {argv_source_count} argv evidence "
-            "sources in the required single batch within its unit and check-count limits; "
-            "deduplicate the sources or choose a sufficient scale before approval.",
+            "sources within its cumulative reservation limit; deduplicate the "
+            "sources or choose a sufficient scale before approval.",
         )
 
     done_when = verification.get("done_when")
@@ -1616,6 +1475,335 @@ def _validate_evidence_result(raw: str) -> tuple[str, str]:
     ):
         return "", "Evidence completion `evidence_id` must name one declared source."
     return evidence_id, ""
+
+
+def _verification_groups(
+    batch: dict[str, Any],
+) -> tuple[dict[str, list[dict[str, Any]]], str]:
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    completed_groups: set[str] = set()
+    active_group = ""
+    for check in batch["checks"]:
+        source_key = _evidence_key(str(check["evidence_id"]))
+        if source_key != active_group:
+            if source_key in completed_groups:
+                return {}, (
+                    "Checks for one argv evidence id must be adjacent in a verification "
+                    "batch so partial failure can be recorded deterministically."
+                )
+            if active_group:
+                completed_groups.add(active_group)
+            active_group = source_key
+        grouped.setdefault(source_key, []).append(check)
+    return grouped, ""
+
+
+def _verification_group_digest(checks: list[dict[str, Any]]) -> str:
+    payload = [
+        {"argv": check["argv"], "class": check["class"]} for check in checks
+    ]
+    return _capability_digest({"checks": payload})
+
+
+def _verification_group_units(checks: list[dict[str, Any]]) -> int:
+    return sum(VERIFICATION_CLASSES[str(check["class"])] for check in checks)
+
+
+def _file_content_digest(path: Path) -> str:
+    hasher = hashlib.sha256()
+    try:
+        with path.open("rb") as handle:
+            while True:
+                chunk = handle.read(1024 * 1024)
+                if not chunk:
+                    break
+                hasher.update(chunk)
+    except OSError:
+        return ""
+    return hasher.hexdigest()
+
+
+def _verification_environment(*, cwd: Path) -> dict[str, str]:
+    # Shell launchers add bookkeeping variables that do not change check
+    # semantics and are not stable across the Hook process and its rewritten
+    # runner. Keep user/project variables fingerprinted, but canonicalize these
+    # launcher-owned values so an unchanged receipt remains portable.
+    volatile = {
+        "_",
+        "__CF_USER_TEXT_ENCODING",
+        "CMDCMDLINE",
+        "CLICK_CONFIG_HOME",
+        "COMMAND_MODE",
+        "LC_CTYPE",
+        "OLDPWD",
+        "PROMPT",
+        "PROMPT_COMMAND",
+        "PS1",
+        "PS2",
+        "PLUGIN_DATA",
+        "SHLVL",
+    }
+    environment = {
+        str(key): str(value)
+        for key, value in os.environ.items()
+        if str(key).upper() not in volatile and not str(key).startswith("=")
+    }
+    environment["PWD"] = str(cwd.resolve())
+    return environment
+
+
+def _verification_environment_key(key: str) -> str:
+    return key.upper() if os.name == "nt" else key
+
+
+def _verification_environment_hmac(
+    runner_token: str, domain: str, value: str
+) -> str:
+    secret = hashlib.sha256(runner_token.encode()).digest()
+    message = f"click-verification-{domain}\0{value}".encode()
+    return hmac.new(secret, message, hashlib.sha256).hexdigest()
+
+
+def _verification_environment_binding(
+    environment: dict[str, str], runner_token: str
+) -> list[dict[str, str]]:
+    records = []
+    for key, value in environment.items():
+        normalized_key = _verification_environment_key(str(key))
+        records.append(
+            {
+                "key_digest": _verification_environment_hmac(
+                    runner_token, "key", normalized_key
+                ),
+                "value_digest": _verification_environment_hmac(
+                    runner_token, "value", f"{normalized_key}\0{value}"
+                ),
+            }
+        )
+    return sorted(records, key=lambda item: item["key_digest"])
+
+
+def _verification_environment_from_binding(
+    binding: Any,
+    runner_token: str,
+    current_environment: dict[str, str],
+) -> tuple[dict[str, str] | None, str]:
+    if not isinstance(binding, list) or not binding or len(binding) > 4096:
+        return None, "Click verification runner environment binding was malformed."
+    expected: dict[str, str] = {}
+    for record in binding:
+        if not isinstance(record, dict) or set(record) != {
+            "key_digest",
+            "value_digest",
+        }:
+            return None, "Click verification runner environment binding was malformed."
+        key_digest = record.get("key_digest")
+        value_digest = record.get("value_digest")
+        if (
+            not isinstance(key_digest, str)
+            or not re.fullmatch(r"[0-9a-f]{64}", key_digest)
+            or not isinstance(value_digest, str)
+            or not re.fullmatch(r"[0-9a-f]{64}", value_digest)
+            or key_digest in expected
+        ):
+            return None, "Click verification runner environment binding was malformed."
+        expected[key_digest] = value_digest
+
+    projected: dict[str, str] = {}
+    matched: set[str] = set()
+    for key, value in current_environment.items():
+        normalized_key = _verification_environment_key(str(key))
+        key_digest = _verification_environment_hmac(
+            runner_token, "key", normalized_key
+        )
+        expected_value = expected.get(key_digest)
+        if expected_value is None:
+            continue
+        current_value = _verification_environment_hmac(
+            runner_token, "value", f"{normalized_key}\0{value}"
+        )
+        if not secrets.compare_digest(expected_value, current_value):
+            return None, (
+                "Click verification runner environment changed after preparation."
+            )
+        projected[str(key)] = str(value)
+        matched.add(key_digest)
+    if matched != set(expected):
+        return None, "Click verification runner environment changed after preparation."
+    return projected, ""
+
+
+def _executable_search_path(environment: dict[str, str], *, cwd: Path) -> str:
+    """Resolve relative PATH entries as the verification child will from its cwd."""
+    entries: list[str] = []
+    for raw_entry in environment.get("PATH", os.defpath).split(os.pathsep):
+        entry = Path(raw_entry) if raw_entry else cwd
+        if not entry.is_absolute():
+            entry = cwd / entry
+        entries.append(str(entry.resolve()))
+    return os.pathsep.join(entries)
+
+
+def _verification_executable_records(
+    checks: list[dict[str, Any]], *, cwd: Path, environment: dict[str, str] | None = None
+) -> list[dict[str, Any]] | None:
+    effective_environment = environment or _verification_environment(cwd=cwd)
+    search_path = _executable_search_path(effective_environment, cwd=cwd)
+    executables: list[dict[str, Any]] = []
+    for check in checks:
+        argv = check.get("argv")
+        executable = str(argv[0]) if isinstance(argv, list) and argv else ""
+        candidate = Path(executable)
+        if executable and (
+            candidate.is_absolute() or _is_path_qualified_executable(executable)
+        ):
+            selected = candidate if candidate.is_absolute() else cwd / candidate
+            resolved = shutil.which(str(selected))
+        else:
+            resolved = shutil.which(executable, path=search_path)
+        item: dict[str, Any] = {"name": Path(executable).name.lower()}
+        if resolved:
+            try:
+                resolved_candidate = Path(resolved)
+                if not resolved_candidate.is_absolute():
+                    resolved_candidate = cwd / resolved_candidate
+                execution_path = Path(os.path.abspath(resolved_candidate))
+                path = execution_path.resolve(strict=True)
+                metadata = path.stat()
+                item.update(
+                    {
+                        "selected_path": os.path.normcase(str(execution_path)),
+                        "path": os.path.normcase(str(path)),
+                        "size": int(metadata.st_size),
+                        "mtime_ns": int(metadata.st_mtime_ns),
+                        "content_digest": _file_content_digest(path),
+                        "_execution_path": str(execution_path),
+                    }
+                )
+            except (OSError, RuntimeError):
+                item["path"] = "unresolved"
+        else:
+            item["path"] = "missing"
+        executables.append(item)
+    if any(
+        not isinstance(item.get("content_digest"), str)
+        or not item.get("content_digest")
+        for item in executables
+    ):
+        return None
+    return executables
+
+
+def _verification_executable_payload(
+    executables: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    return [
+        {
+            key: value
+            for key, value in executable.items()
+            if key != "_execution_path"
+        }
+        for executable in executables
+    ]
+
+
+def _verification_executable_digest(
+    checks: list[dict[str, Any]], *, cwd: Path, environment: dict[str, str] | None = None
+) -> str:
+    executables = _verification_executable_records(
+        checks, cwd=cwd, environment=environment
+    )
+    if executables is None:
+        return ""
+    return _capability_digest(
+        {"executables": _verification_executable_payload(executables)}
+    )
+
+
+def _verification_environment_digest_from_records(
+    executables: list[dict[str, Any]],
+    *,
+    cwd: Path,
+    environment: dict[str, str],
+) -> str:
+    environment_payload = json.dumps(
+        sorted(
+            (
+                _verification_environment_key(str(key)),
+                str(value),
+            )
+            for key, value in environment.items()
+        ),
+        ensure_ascii=False,
+        separators=(",", ":"),
+    ).encode()
+    payload = {
+        "cwd": os.path.normcase(str(cwd.resolve())),
+        "os_name": os.name,
+        "platform": sys.platform,
+        "machine": platform.machine(),
+        "python": list(sys.version_info[:3]),
+        "executables": _verification_executable_payload(executables),
+        "environment_digest": hashlib.sha256(environment_payload).hexdigest(),
+    }
+    return _capability_digest(payload)
+
+
+def _verification_environment_digest(
+    checks: list[dict[str, Any]], *, cwd: Path, environment: dict[str, str] | None = None
+) -> str:
+    effective_environment = environment or _verification_environment(cwd=cwd)
+    executables = _verification_executable_records(
+        checks, cwd=cwd, environment=effective_environment
+    )
+    if executables is None:
+        return ""
+    return _verification_environment_digest_from_records(
+        executables, cwd=cwd, environment=effective_environment
+    )
+
+
+def _verification_receipt_matches(
+    source: dict[str, Any],
+    *,
+    contract_digest: str,
+    revision: int,
+    group_digest: str,
+    units: int,
+    git_root: str,
+    tree_digest: str,
+    environment_digest: str,
+) -> bool:
+    if not all(
+        isinstance(value, str) and re.fullmatch(r"[0-9a-f]{64}", value)
+        for value in (
+            contract_digest,
+            group_digest,
+            tree_digest,
+            environment_digest,
+        )
+    ):
+        return False
+    verified_at = source.get("verified_at", 0)
+    verified_units = source.get("verified_units", -1)
+    if (
+        not isinstance(verified_at, int)
+        or isinstance(verified_at, bool)
+        or verified_at <= 0
+        or not isinstance(verified_units, int)
+        or isinstance(verified_units, bool)
+    ):
+        return False
+    return bool(
+        source.get("status") == "passed"
+        and int(source.get("verified_revision", -1)) == revision
+        and source.get("verified_contract_digest") == contract_digest
+        and source.get("verified_check_digest") == group_digest
+        and verified_units == units
+        and source.get("verified_root") == git_root
+        and source.get("verified_tree_digest") == tree_digest
+        and source.get("verified_environment_digest") == environment_digest
+    )
 
 
 def _control_request(command: str) -> tuple[str | None, str, str]:
@@ -2284,14 +2472,6 @@ def _observation_runner_command(
 def _prepare_observation(
     event: dict[str, Any], request: dict[str, Any], broad_inventory: bool, *, review: bool = False
 ) -> tuple[str, str]:
-    if broad_inventory and not review:
-        return (
-            "",
-            "Click blocked a repository-wide inventory rescan after approval. Narrow "
-            "the read or search to the approved area. If the approved boundary must "
-            "expand, stop and ask the user instead of reopening the whole repository.",
-        )
-
     state_path = _review_path(event) if review else _contract_path(event)
     if review:
         state = _read_review_state(event)
@@ -2322,19 +2502,34 @@ def _prepare_observation(
         entries = {}
 
     digest = _capability_digest(request)
-    if review and broad_inventory:
+    if broad_inventory:
         for existing in entries.values():
-            if (
+            if not (
                 isinstance(existing, dict)
                 and existing.get("broad_inventory") is True
-                and existing.get("status") == "success"
+                and int(existing.get("revision", -1)) == revision
             ):
+                continue
+            existing_status = str(existing.get("status", ""))
+            if existing_status == "success":
                 return (
                     "",
-                    "Click review already completed one successful repository-wide "
+                    "Click already completed one successful repository-wide "
                     "inventory. Narrow the next read or search instead of rescanning "
                     "the whole repository.",
                 )
+            if existing_status == "running":
+                started_at = int(existing.get("started_at", 0))
+                if (
+                    started_at
+                    and time.time() - started_at <= OBSERVATION_RUNNING_TTL_SECONDS
+                ):
+                    return (
+                        "",
+                        "One repository-wide inventory is already running for the "
+                        "current revision. Wait for it instead of starting a parallel "
+                        "rescan.",
+                    )
 
     prior = entries.get(digest)
     unchanged_retries = 0
@@ -2606,6 +2801,13 @@ def _record_evidence_completion(event: dict[str, Any], raw: str) -> tuple[str, s
         )
     if kind == "browser":
         external = state.get("external_evidence")
+        browser_running = (
+            external.get("browser_running")
+            if isinstance(external, dict)
+            else None
+        )
+        if isinstance(browser_running, dict) and browser_running:
+            return "", "Wait for the running Browser interaction before finalizing evidence."
         if (
             not isinstance(external, dict)
             or external.get("browser_source_key") != source_key
@@ -2697,59 +2899,39 @@ def _prepare_verification(
                 source["status"] = "ready"
                 source["last_exit_code"] = None
         verification["running_evidence_keys"] = []
+        verification["running_environment_digests"] = {}
+        verification["running_environment_binding"] = []
+        verification["running_executable_digests"] = {}
         verification["runner_claimed_at"] = 0
 
     revision = int(verification.get("mutation_revision", 0))
     argv_keys = _evidence_keys_for_kind(sources, "argv")
-    unresolved_keys = {
-        key for key in argv_keys if not _evidence_is_current(sources.get(key), revision)
-    }
-    if not unresolved_keys:
-        return (
-            "",
-            "Every declared argv evidence source already passed for the current code. "
-            "Click blocks needless successful repetition.",
-        )
-
-    grouped_checks: dict[str, list[dict[str, Any]]] = {}
-    completed_groups: set[str] = set()
-    active_group = ""
-    for check in batch["checks"]:
-        source_key = _evidence_key(str(check["evidence_id"]))
-        if source_key != active_group:
-            if source_key in completed_groups:
-                return (
-                    "",
-                    "Checks for one argv evidence id must be adjacent in the final "
-                    "batch so partial failure can be recorded deterministically.",
-                )
-            if active_group:
-                completed_groups.add(active_group)
-            active_group = source_key
-        grouped_checks.setdefault(source_key, []).append(check)
+    grouped_checks, grouping_error = _verification_groups(batch)
+    if grouping_error:
+        return "", grouping_error
     requested_keys = set(grouped_checks)
-    if requested_keys != unresolved_keys:
-        missing_count = len(unresolved_keys - requested_keys)
-        repeated_count = len(requested_keys - unresolved_keys)
-        details: list[str] = []
-        if missing_count:
-            details.append(f"{missing_count} unresolved argv source(s) are missing")
-        if repeated_count:
-            details.append(f"{repeated_count} current or unassigned source(s) were repeated")
+    unassigned_keys = requested_keys - argv_keys
+    if unassigned_keys:
         return (
             "",
-            "The one final verification batch must cover every unresolved declared argv "
-            "evidence source and no current source; " + "; ".join(details) + ".",
+            "A verification batch may contain only declared argv evidence; "
+            f"{len(unassigned_keys)} source(s) were unassigned or non-argv.",
         )
 
     group_digests: dict[str, str] = {}
+    group_units: dict[str, int] = {}
     for source_key, checks in grouped_checks.items():
-        digest_payload = [
-            {"argv": check["argv"], "class": check["class"]} for check in checks
-        ]
-        group_digest = _capability_digest({"checks": digest_payload})
+        group_digest = _verification_group_digest(checks)
         group_digests[source_key] = group_digest
+        group_units[source_key] = _verification_group_units(checks)
         source = sources[source_key]
+        reserved_digest = str(source.get("reserved_check_digest", ""))
+        if reserved_digest and reserved_digest != group_digest:
+            return (
+                "",
+                "An argv evidence source is already reserved to a different exact "
+                "check set for this contract. Reuse that set or stage a new contract.",
+            )
         locked_digest = str(source.get("locked_check_digest", ""))
         if locked_digest and locked_digest != group_digest:
             return (
@@ -2758,13 +2940,171 @@ def _prepare_verification(
                 "check set. Re-run that set after the relevant mutation.",
             )
         last_digest = str(source.get("last_check_digest", ""))
-        source_status = str(source.get("status", "ready"))
         if last_digest and last_digest != group_digest:
             return (
                 "",
                 "An argv evidence source changed its check set without an intervening "
                 "mutation. Fix the implementation or reuse the original check set.",
             )
+
+    reserved_total = sum(
+        int(source.get("reserved_units", 0))
+        for key, source in sources.items()
+        if key in argv_keys and isinstance(source, dict)
+    )
+    projected_units = reserved_total
+    for source_key, requested_units in group_units.items():
+        source = sources[source_key]
+        reserved_units = int(source.get("reserved_units", 0))
+        if reserved_units and reserved_units != requested_units:
+            return (
+                "",
+                "An argv evidence source changed its reserved verification breadth. "
+                "Reuse the approved check set or stage a sufficient verification scale.",
+            )
+        if not reserved_units:
+            projected_units += requested_units
+    limit = VERIFICATION_UNIT_LIMITS[scale]
+    if projected_units > limit:
+        return (
+            "",
+            f"The {scale} verification budget allows {limit} unit(s), but the source "
+            f"reservations would total {projected_units}. Remove duplicate evidence or "
+            "stage a sufficient scale instead of splitting the work across batches.",
+        )
+
+    for source_key, requested_units in group_units.items():
+        source = sources[source_key]
+        if not int(source.get("reserved_units", 0)):
+            source["reserved_units"] = requested_units
+            source["reserved_check_digest"] = group_digests[source_key]
+        elif not str(source.get("reserved_check_digest", "")):
+            source["reserved_check_digest"] = group_digests[source_key]
+
+    current_requested = {
+        source_key
+        for source_key in requested_keys
+        if _evidence_is_current(sources.get(source_key), revision)
+    }
+    reused_keys: set[str] = set()
+    if current_requested:
+        workspace = Path(str(event.get("cwd", ""))).resolve()
+        snapshot = _git_workspace_snapshot(workspace)
+        if snapshot is None:
+            for source_key in current_requested:
+                source = sources[source_key]
+                source["status"] = "ready"
+                source["verified_revision"] = -1
+        else:
+            contract_digest = str(state.get("contract_digest", ""))
+            git_root = os.path.normcase(str(snapshot.get("root", "")))
+            tree_digest = str(snapshot.get("digest", ""))
+            tree_changed = any(
+                isinstance(sources[source_key].get("verified_root"), str)
+                and bool(sources[source_key].get("verified_root"))
+                and (
+                    sources[source_key].get("verified_root") != git_root
+                    or sources[source_key].get("verified_tree_digest") != tree_digest
+                )
+                for source_key in current_requested
+            )
+            if tree_changed:
+                revision += 1
+                verification["mutation_revision"] = revision
+                verification["status"] = "ready"
+                verification["verified_revision"] = -1
+                verification["failed_revision"] = -1
+                verification["workspace_changed"] = True
+                for source in sources.values():
+                    if not isinstance(source, dict):
+                        continue
+                    if source.get("status") in {"passed", "observed"}:
+                        source["status"] = "stale"
+                    else:
+                        source["status"] = "ready"
+                    source["verified_revision"] = -1
+                    source["unchanged_failure_retries"] = 0
+                    source["last_exit_code"] = None
+                external = state.get("external_evidence")
+                browser_required = bool(
+                    isinstance(external, dict)
+                    and external.get("browser_required") is True
+                )
+                browser_source_key = (
+                    str(external.get("browser_source_key", ""))
+                    if isinstance(external, dict)
+                    else ""
+                )
+                state["external_evidence"] = _fresh_external_evidence_state(
+                    required=browser_required,
+                    source_key=browser_source_key,
+                )
+                state["observations"] = _fresh_observation_state()
+            else:
+                for source_key in current_requested:
+                    source = sources[source_key]
+                    environment_digest = _verification_environment_digest(
+                        grouped_checks[source_key], cwd=workspace
+                    )
+                    if _verification_receipt_matches(
+                        source,
+                        contract_digest=contract_digest,
+                        revision=revision,
+                        group_digest=group_digests[source_key],
+                        units=group_units[source_key],
+                        git_root=git_root,
+                        tree_digest=tree_digest,
+                        environment_digest=environment_digest,
+                    ):
+                        reused_keys.add(source_key)
+                    else:
+                        source["status"] = "ready"
+                        source["verified_revision"] = -1
+                        source["last_exit_code"] = None
+
+    unresolved_keys = {
+        key for key in argv_keys if not _evidence_is_current(sources.get(key), revision)
+    }
+    pending_keys = requested_keys - reused_keys
+    repeated_keys = pending_keys - unresolved_keys
+    if repeated_keys:
+        return (
+            "",
+            "A verification batch may contain only unresolved declared argv evidence or "
+            "an exact reusable success receipt.",
+        )
+
+    if not pending_keys:
+        all_argv_current = bool(argv_keys) and all(
+            _evidence_is_current(sources.get(source_key), revision)
+            for source_key in argv_keys
+        )
+        verification["status"] = "passed" if all_argv_current else "ready"
+        verification["verified_revision"] = revision if all_argv_current else -1
+        verification["failed_revision"] = -1
+        verification["last_exit_code"] = 0
+        verification["last_units"] = 0
+        state["verification"] = verification
+        _save_contract_state(event, state)
+        return (
+            f"echo Click reused {len(reused_keys)} current unchanged-tree verification receipt(s)",
+            "",
+        )
+
+    batch = {
+        "version": VERIFICATION_PROTOCOL_VERSION,
+        "checks": [
+            check
+            for check in batch["checks"]
+            if _evidence_key(str(check["evidence_id"])) in pending_keys
+        ],
+    }
+    units = sum(group_units[source_key] for source_key in pending_keys)
+    requested_keys = pending_keys
+
+    for source_key in requested_keys:
+        source = sources[source_key]
+        source_status = str(source.get("status", "ready"))
         if source_status == "failed":
             retries = int(source.get("unchanged_failure_retries", 0))
             if retries >= 1:
@@ -2777,12 +3117,46 @@ def _prepare_verification(
 
     canonical = json.dumps(batch, sort_keys=True, separators=(",", ":"))
     batch_digest = hashlib.sha256(canonical.encode()).hexdigest()
-    for source_key, group_digest in group_digests.items():
+    workspace = Path(str(event.get("cwd", ""))).resolve()
+    prepared_environment = _verification_environment(cwd=workspace)
+    runner_token = secrets.token_urlsafe(24)
+    running_environment_binding = _verification_environment_binding(
+        prepared_environment, runner_token
+    )
+    running_environment_digests: dict[str, str] = {}
+    running_executable_digests: dict[str, str] = {}
+    for source_key in requested_keys:
+        executable_records = _verification_executable_records(
+            grouped_checks[source_key],
+            cwd=workspace,
+            environment=prepared_environment,
+        )
+        if executable_records is None:
+            return (
+                "",
+                "Click could not resolve and fingerprint every verification "
+                "executable before issuing the runner.",
+            )
+        running_environment_digests[source_key] = (
+            _verification_environment_digest_from_records(
+                executable_records,
+                cwd=workspace,
+                environment=prepared_environment,
+            )
+        )
+        running_executable_digests[source_key] = _capability_digest(
+            {
+                "executables": _verification_executable_payload(
+                    executable_records
+                )
+            }
+        )
+    for source_key in requested_keys:
+        group_digest = group_digests[source_key]
         source = sources[source_key]
         source["status"] = "running"
         source["last_check_digest"] = group_digest
 
-    runner_token = secrets.token_urlsafe(24)
     verification.update(
         {
             "status": "running",
@@ -2792,6 +3166,9 @@ def _prepare_verification(
             "runner_token_digest": hashlib.sha256(runner_token.encode()).hexdigest(),
             "runner_claimed_at": 0,
             "running_evidence_keys": sorted(requested_keys),
+            "running_environment_digests": running_environment_digests,
+            "running_environment_binding": running_environment_binding,
+            "running_executable_digests": running_executable_digests,
             "started_at": int(time.time()),
         }
     )
@@ -2853,7 +3230,7 @@ def _get_content_paths(tokens: list[str]) -> list[str] | None:
 
 
 def _structured_ssh_parts(tokens: list[str]) -> tuple[str, list[str]] | None:
-    if len(tokens) < 4 or tokens[0].lower() not in {"ssh", "ssh.exe"}:
+    if len(tokens) < 4 or Path(tokens[0]).name.lower() not in {"ssh", "ssh.exe"}:
         return None
     target = tokens[1]
     remote_argv = tokens[2:]
@@ -3052,6 +3429,20 @@ def _browser_input_error(tool_input: Any) -> str:
     return ""
 
 
+def _browser_attempt_digest(tool_input: Any) -> str:
+    if isinstance(tool_input, dict) and isinstance(tool_input.get("code"), str):
+        code = str(tool_input["code"]).replace("\r\n", "\n").strip()
+        return _capability_digest({"code": code})
+    if isinstance(tool_input, dict):
+        semantic = {
+            key: value
+            for key, value in tool_input.items()
+            if key not in {"_meta", "annotations", "timeout", "timeout_ms"}
+        }
+        return _capability_digest({"tool_input": semantic})
+    return _capability_digest({"tool_input": tool_input})
+
+
 def _tool_response_failed(response: Any) -> bool:
     if not isinstance(response, dict):
         return True
@@ -3152,42 +3543,110 @@ def _prepare_browser_evidence(event: dict[str, Any]) -> tuple[bool, str]:
         )
     running = external.get("browser_running")
     if isinstance(running, dict) and running:
+        already_observed = bool(
+            external.get("browser_status") == "observed"
+            or source.get("status") == "observed"
+        )
         started_values = [
-            float(value)
+            float(value.get("started_at", 0.0))
+            if isinstance(value, dict)
+            else float(value)
             for value in running.values()
-            if isinstance(value, (int, float)) and not isinstance(value, bool)
+            if (
+                isinstance(value, (int, float))
+                and not isinstance(value, bool)
+            )
+            or (
+                isinstance(value, dict)
+                and isinstance(value.get("started_at"), (int, float))
+                and not isinstance(value.get("started_at"), bool)
+            )
         ]
         started_at = min(started_values) if started_values else 0.0
         if started_at and time.time() - started_at <= BROWSER_RUNNING_TTL_SECONDS:
             return True, "One browser evidence call is already running; keep the session serial."
+        attempts = external.get("browser_attempts")
+        if not isinstance(attempts, dict):
+            attempts = {}
+        for running_entry in running.values():
+            if not isinstance(running_entry, dict):
+                continue
+            attempt_digest = str(running_entry.get("attempt_digest", ""))
+            attempt = attempts.get(attempt_digest)
+            if isinstance(attempt, dict) and attempt.get("status") == "running":
+                attempt["status"] = "failed"
         external["browser_running"] = {}
-        external["browser_status"] = "failed"
+        external["browser_attempts"] = attempts
+        external["browser_status"] = "observed" if already_observed else "failed"
         external["last_browser_error"] = "post-tool-timeout"
-        source["status"] = "failed"
-        source["verified_revision"] = -1
-        source["last_exit_code"] = 124
+        if not already_observed:
+            source["status"] = "failed"
+            source["verified_revision"] = -1
+            source["last_exit_code"] = 124
         state["external_evidence"] = external
         _save_contract_state(event, state)
-    calls = int(external.get("browser_calls", 0))
-    seconds = float(external.get("browser_seconds", 0.0))
-    if calls >= MAX_BROWSER_EVIDENCE_CALLS or seconds >= MAX_BROWSER_EVIDENCE_SECONDS:
-        return (
-            True,
-            "The one-session browser evidence budget is exhausted. Reuse the collected "
-            "result or report that the assigned source was insufficient; do not open a "
-            "shadow verification run.",
-        )
     input_error = _browser_input_error(event.get("tool_input"))
     if input_error:
         return True, input_error
     tool_use_id = str(event.get("tool_use_id", ""))
     if not tool_use_id:
         return True, "Browser evidence requires a stable tool_use_id for PostToolUse accounting."
+    attempt_digest = _browser_attempt_digest(event.get("tool_input"))
+    attempts = external.get("browser_attempts")
+    if not isinstance(attempts, dict):
+        attempts = {}
+    prior_attempt = attempts.get(attempt_digest)
+    unchanged_retries = 0
+    if isinstance(prior_attempt, dict):
+        prior_status = str(prior_attempt.get("status", ""))
+        unchanged_retries = int(prior_attempt.get("unchanged_retries", 0))
+        if prior_status == "success":
+            return (
+                True,
+                "Click already collected this successful Browser interaction for the "
+                "current revision. Reuse it, collect a materially different interaction, "
+                "or finalize the assigned evidence source.",
+            )
+        if prior_status in {"failed", "incomplete"}:
+            if unchanged_retries >= 1:
+                return (
+                    True,
+                    "The identical Browser interaction already failed twice without a "
+                    "mutation or changed input. Repair the implementation or collect a "
+                    "materially different interaction instead of replaying it.",
+                )
+            unchanged_retries += 1
+    if not isinstance(prior_attempt, dict) and len(attempts) >= MAX_BROWSER_UNIQUE_INPUTS:
+        return (
+            True,
+            "Click reached its Browser evidence state-safety limit for unique "
+            "interactions. Finalize the representative evidence already collected or "
+            "mutate the implementation before collecting a new session.",
+        )
+    already_observed = bool(
+        external.get("browser_status") == "observed"
+        or source.get("status") == "observed"
+    )
+    attempts[attempt_digest] = {
+        "status": "running",
+        "attempts": int(prior_attempt.get("attempts", 0)) + 1
+        if isinstance(prior_attempt, dict)
+        else 1,
+        "unchanged_retries": unchanged_retries,
+    }
+    calls = int(external.get("browser_calls", 0))
     external["browser_calls"] = calls + 1
-    external["browser_status"] = "running"
-    external["browser_running"] = {tool_use_id: time.time()}
+    external["browser_status"] = "observed" if already_observed else "running"
+    external["browser_running"] = {
+        tool_use_id: {
+            "started_at": time.time(),
+            "attempt_digest": attempt_digest,
+        }
+    }
+    external["browser_attempts"] = attempts
     external["last_browser_error"] = ""
-    source["status"] = "running"
+    if not already_observed:
+        source["status"] = "running"
     state["external_evidence"] = external
     _save_contract_state(event, state)
     return True, ""
@@ -3206,7 +3665,13 @@ def _handle_post_tool(event: dict[str, Any]) -> None:
     tool_use_id = str(event.get("tool_use_id", ""))
     if not isinstance(running, dict) or tool_use_id not in running:
         return
-    started_at = float(running.pop(tool_use_id))
+    running_entry = running.pop(tool_use_id)
+    if isinstance(running_entry, dict):
+        started_at = float(running_entry.get("started_at", 0.0))
+        attempt_digest = str(running_entry.get("attempt_digest", ""))
+    else:
+        started_at = float(running_entry)
+        attempt_digest = _browser_attempt_digest(event.get("tool_input"))
     duration = max(0.0, time.time() - started_at)
     total = float(external.get("browser_seconds", 0.0)) + duration
     external["browser_seconds"] = round(total, 3)
@@ -3220,27 +3685,35 @@ def _handle_post_tool(event: dict[str, Any]) -> None:
         if isinstance(verification, dict)
         else 0
     )
-    if total > MAX_BROWSER_EVIDENCE_SECONDS:
-        external["browser_status"] = "failed"
-        external["last_browser_error"] = "time-budget-exceeded"
-        if isinstance(source, dict):
-            source["status"] = "failed"
-            source["verified_revision"] = -1
-            source["last_exit_code"] = 124
-    elif _tool_response_failed(event.get("tool_response")):
-        external["browser_status"] = "failed"
+    attempts = external.get("browser_attempts")
+    if not isinstance(attempts, dict):
+        attempts = {}
+    attempt = attempts.get(attempt_digest)
+    if not isinstance(attempt, dict):
+        attempt = {"attempts": 1, "unchanged_retries": 0}
+        attempts[attempt_digest] = attempt
+    if _tool_response_failed(event.get("tool_response")):
+        attempt["status"] = "failed"
+        already_observed = bool(
+            external.get("browser_status") == "observed"
+            or isinstance(source, dict)
+            and source.get("status") == "observed"
+        )
+        external["browser_status"] = "observed" if already_observed else "failed"
         external["last_browser_error"] = "tool-error"
-        if isinstance(source, dict):
+        if isinstance(source, dict) and not already_observed:
             source["status"] = "failed"
             source["verified_revision"] = -1
             source["last_exit_code"] = 1
     else:
+        attempt["status"] = "success"
         external["browser_status"] = "observed"
         external["last_browser_error"] = ""
         if isinstance(source, dict):
             source["status"] = "observed"
             source["verified_revision"] = revision
             source["last_exit_code"] = 0
+    external["browser_attempts"] = attempts
     state["external_evidence"] = external
     _save_contract_state(event, state)
 
@@ -3265,7 +3738,7 @@ def _handle_prompt_submit(event: dict[str, Any]) -> None:
             "Browser source or attest a collected hosted, manual, or existing source; use "
             "`click-gate service` start/stop for a recognizable long-running local server. "
             "Browser MCP work requires one referenced verification evidence source with "
-            "kind `browser` and must fit its representative-session budget. Use "
+            "kind `browser` and must follow its serial input-deduplication policy. Use "
             "`click-gate bypass` only when the user explicitly opts out for the current turn."
         )
     elif default_mode == "manual":
@@ -3829,6 +4302,9 @@ def _record_verification_result(
     exit_code: int,
     succeeded_count: int,
     workspace_changed: bool = False,
+    workspace_root: str = "",
+    workspace_digest: str = "",
+    environment_digests: dict[str, str] | None = None,
 ) -> bool:
     try:
         state = json.loads(path.read_text(encoding="utf-8"))
@@ -3868,6 +4344,39 @@ def _record_verification_result(
         for key in verification.get("running_evidence_keys", [])
         if isinstance(key, str)
     }
+    prepared_environment_digests = verification.get(
+        "running_environment_digests"
+    )
+    prepared_executable_digests = verification.get(
+        "running_executable_digests"
+    )
+    for prepared in (
+        prepared_environment_digests,
+        prepared_executable_digests,
+    ):
+        if (
+            not isinstance(prepared, dict)
+            or set(prepared) != running_keys
+            or any(
+                not isinstance(value, str)
+                or not re.fullmatch(r"[0-9a-f]{64}", value)
+                for value in prepared.values()
+            )
+        ):
+            return False
+    _, binding_error = _verification_environment_from_binding(
+        verification.get("running_environment_binding"),
+        runner_token,
+        _verification_environment(cwd=Path.cwd()),
+    )
+    if binding_error:
+        return False
+    if (
+        environment_digests is not None
+        and environment_digests != prepared_environment_digests
+    ):
+        return False
+    environment_digests = prepared_environment_digests
     checks = batch.get("checks")
     if not isinstance(checks, list):
         return False
@@ -3880,6 +4389,9 @@ def _record_verification_result(
     if set(positions) != running_keys:
         return False
     verification["running_evidence_keys"] = []
+    verification["running_environment_digests"] = {}
+    verification["running_environment_binding"] = []
+    verification["running_executable_digests"] = {}
     if workspace_changed:
         previous_revision = revision
         revision += 1
@@ -3947,6 +4459,35 @@ def _record_verification_result(
                 source["locked_check_digest"] = str(
                     source.get("last_check_digest", "")
                 )
+                environment_digest = str(
+                    environment_digests.get(source_key, "")
+                )
+                check_digest = str(source.get("last_check_digest", ""))
+                reserved_units = int(source.get("reserved_units", 0))
+                if (
+                    workspace_root
+                    and workspace_digest
+                    and environment_digest
+                    and check_digest
+                    and reserved_units > 0
+                ):
+                    source["verified_contract_digest"] = str(
+                        state.get("contract_digest", "")
+                    )
+                    source["verified_check_digest"] = check_digest
+                    source["verified_units"] = reserved_units
+                    source["verified_root"] = os.path.normcase(workspace_root)
+                    source["verified_tree_digest"] = workspace_digest
+                    source["verified_environment_digest"] = environment_digest
+                    source["verified_at"] = int(time.time())
+                else:
+                    source["verified_contract_digest"] = ""
+                    source["verified_check_digest"] = ""
+                    source["verified_units"] = 0
+                    source["verified_root"] = ""
+                    source["verified_tree_digest"] = ""
+                    source["verified_environment_digest"] = ""
+                    source["verified_at"] = 0
             elif source_ran:
                 source["status"] = "failed"
                 source["verified_revision"] = -1
@@ -3967,9 +4508,9 @@ def _record_verification_result(
             verification["unchanged_failure_retries"] = 0
             verification["locked_batch_digest"] = batch_digest
         else:
-            verification["status"] = "failed"
+            verification["status"] = "failed" if exit_code != 0 else "ready"
             verification["verified_revision"] = -1
-            verification["failed_revision"] = revision
+            verification["failed_revision"] = revision if exit_code != 0 else -1
     state["verification"] = verification
     state["updated_at"] = int(time.time())
     _write_json(path, state)
@@ -4195,7 +4736,7 @@ def _execution_argv(argv: list[str]) -> list[str]:
     if error or safe_git_argv is None:
         return argv
     return [
-        "ssh",
+        argv[0],
         "-n",
         "-F",
         "none",
@@ -4272,6 +4813,7 @@ def _execute_argv_commands(
     *,
     trusted_read_only: bool = False,
     workspace: Path | None = None,
+    environment: dict[str, str] | None = None,
 ) -> int:
     exit_code = 0
     for argv in commands:
@@ -4300,7 +4842,7 @@ def _execute_argv_commands(
                 env=(
                     _sanitized_read_only_environment(workspace=workspace)
                     if trusted_read_only
-                    else None
+                    else environment
                 ),
             )
             if redact:
@@ -5184,10 +5726,91 @@ def _claim_verification_run(
     if not running_keys or batch_keys != running_keys:
         return None, "Click verification runner evidence binding did not match active state."
 
+    grouped_checks, grouping_error = _verification_groups(batch)
+    if grouping_error:
+        return None, grouping_error
+    prepared_environment_digests = verification.get("running_environment_digests")
+    prepared_executable_digests = verification.get("running_executable_digests")
+    for prepared in (prepared_environment_digests, prepared_executable_digests):
+        if (
+            not isinstance(prepared, dict)
+            or set(prepared) != running_keys
+            or any(
+                not isinstance(value, str)
+                or not re.fullmatch(r"[0-9a-f]{64}", value)
+                for value in prepared.values()
+            )
+        ):
+            return None, "Click verification runner context binding was malformed."
+    verification_environment, binding_error = _verification_environment_from_binding(
+        verification.get("running_environment_binding"),
+        runner_token,
+        _verification_environment(cwd=Path.cwd()),
+    )
+    if binding_error:
+        return None, binding_error
+    assert verification_environment is not None
+    for source_key, checks in grouped_checks.items():
+        source = sources.get(source_key)
+        if not isinstance(source, dict):
+            return None, "Click verification runner source reservation is unavailable."
+        expected_digest = _verification_group_digest(checks)
+        expected_units = _verification_group_units(checks)
+        if (
+            source.get("reserved_check_digest") != expected_digest
+            or source.get("reserved_units") != expected_units
+        ):
+            return None, "Click verification runner source reservation did not match."
+        executable_records = _verification_executable_records(
+            checks,
+            cwd=Path.cwd(),
+            environment=verification_environment,
+        )
+        if executable_records is None:
+            return None, "Click verification executable changed before execution."
+        current_executable_digest = _capability_digest(
+            {
+                "executables": _verification_executable_payload(
+                    executable_records
+                )
+            }
+        )
+        current_environment_digest = _verification_environment_digest_from_records(
+            executable_records,
+            cwd=Path.cwd(),
+            environment=verification_environment,
+        )
+        if not secrets.compare_digest(
+            str(prepared_executable_digests.get(source_key, "")),
+            current_executable_digest,
+        ):
+            return None, "Click verification executable changed before execution."
+        if not secrets.compare_digest(
+            str(prepared_environment_digests.get(source_key, "")),
+            current_environment_digest,
+        ):
+            return None, "Click verification runner context changed before execution."
+        for check, record in zip(checks, executable_records):
+            execution_path = record.get("_execution_path")
+            if not isinstance(execution_path, str) or not execution_path:
+                return None, "Click verification executable binding was malformed."
+            execution_argv = list(check["argv"])
+            execution_argv[0] = execution_path
+            check["argv"] = execution_argv
+    reserved_total = sum(
+        int(source.get("reserved_units", 0))
+        for key, source in sources.items()
+        if key in _evidence_keys_for_kind(sources, "argv")
+        and isinstance(source, dict)
+    )
+    if reserved_total > VERIFICATION_UNIT_LIMITS[scale]:
+        return None, "Click verification runner cumulative source budget was exceeded."
+
     verification["runner_claimed_at"] = int(time.time()) or 1
     state["verification"] = verification
     state["updated_at"] = int(time.time())
     _write_json(state_path, state)
+    batch["_click_verification_environment"] = verification_environment
     return batch, ""
 
 
@@ -5212,6 +5835,16 @@ def _run_verification(arguments: list[str]) -> int:
         return 2
     assert batch is not None
     checks = batch["checks"]
+    grouped_checks, grouping_error = _verification_groups(batch)
+    if grouping_error:
+        sys.stderr.write(f"{grouping_error}\n")
+        return 2
+    verification_environment = batch.pop("_click_verification_environment", None)
+    if not isinstance(verification_environment, dict):
+        sys.stderr.write(
+            "Click verification runner lost its prepared environment binding.\n"
+        )
+        return 2
     before = _git_workspace_snapshot(Path.cwd())
     snapshot_failed = before is None and _git_metadata_present(Path.cwd())
     if snapshot_failed:
@@ -5233,18 +5866,24 @@ def _run_verification(arguments: list[str]) -> int:
                 f"{check['class']}] {rendered}",
                 flush=True,
             )
-            exit_code = _execute_argv_commands([argv])
+            exit_code = _execute_argv_commands(
+                [argv], environment=verification_environment
+            )
             if exit_code != 0:
                 break
             succeeded_count += 1
 
     workspace_changed = False
+    workspace_root = ""
+    workspace_digest = ""
     if before is not None:
         after = _git_workspace_snapshot(
             Path.cwd(), list(before["protected_untracked"])
         )
         new_untracked: list[str] = []
         if after is not None:
+            workspace_root = str(after.get("root", ""))
+            workspace_digest = str(after.get("digest", ""))
             new_untracked = sorted(
                 set(after["current_untracked"]) - set(before["current_untracked"])
             )
@@ -5288,6 +5927,8 @@ def _run_verification(arguments: list[str]) -> int:
             exit_code,
             succeeded_count,
             workspace_changed=workspace_changed,
+            workspace_root=workspace_root if not workspace_changed else "",
+            workspace_digest=workspace_digest if not workspace_changed else "",
         )
     if not recorded:
         sys.stderr.write("Click could not record the verification result safely.\n")
