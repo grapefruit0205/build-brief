@@ -28,7 +28,11 @@ HOOK_CONFIG = Path(
 CLICK_GATE_SPEC = importlib.util.spec_from_file_location("click_gate_under_test", SCRIPT)
 assert CLICK_GATE_SPEC is not None and CLICK_GATE_SPEC.loader is not None
 CLICK_GATE = importlib.util.module_from_spec(CLICK_GATE_SPEC)
-CLICK_GATE_SPEC.loader.exec_module(CLICK_GATE)
+sys.path.insert(0, str(SCRIPT.parent.resolve()))
+try:
+    CLICK_GATE_SPEC.loader.exec_module(CLICK_GATE)
+finally:
+    sys.path.pop(0)
 
 
 def mark_git_boundary(root: Path) -> None:

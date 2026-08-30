@@ -13,7 +13,6 @@ and executed without a shell by inspect, mutate, and verify runners.
 from __future__ import annotations
 
 import base64
-from contextlib import contextmanager
 import hashlib
 import json
 import os
@@ -31,10 +30,40 @@ import zlib
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
-try:
+if __package__:
+    from .click_state import (
+        STATE_LOCK_STALE_SECONDS,
+        STATE_LOCK_TIMEOUT_SECONDS,
+        contract_path as _contract_path,
+        identity_path as _identity_path,
+        managed_state_path as _managed_state_path,
+        mode_path as _mode_path,
+        preference_path as _preference_path,
+        prompt_path as _prompt_path,
+        review_path as _review_path,
+        state_lock as _state_lock,
+        state_path as _state_path,
+        state_root as _state_root,
+        write_json as _write_json,
+    )
+    from .platform_protocol import CodexOutputAdapter, HookOutputAdapter
+else:  # Executed directly from the bundled hooks directory.
+    from click_state import (
+        STATE_LOCK_STALE_SECONDS,
+        STATE_LOCK_TIMEOUT_SECONDS,
+        contract_path as _contract_path,
+        identity_path as _identity_path,
+        managed_state_path as _managed_state_path,
+        mode_path as _mode_path,
+        preference_path as _preference_path,
+        prompt_path as _prompt_path,
+        review_path as _review_path,
+        state_lock as _state_lock,
+        state_path as _state_path,
+        state_root as _state_root,
+        write_json as _write_json,
+    )
     from platform_protocol import CodexOutputAdapter, HookOutputAdapter
-except ModuleNotFoundError:  # Imported as hooks.click_gate by tests or adapters.
-    from hooks.platform_protocol import CodexOutputAdapter, HookOutputAdapter
 
 
 CONTROL_COMMAND = "click-gate"
@@ -112,8 +141,6 @@ MUTATION_RUNNING_TTL_SECONDS = 10 * 60
 VERIFY_RUNNING_TTL_SECONDS = 60 * 60
 EPHEMERAL_STATE_TTL_SECONDS = 7 * 24 * 60 * 60
 COMPLETED_CONTRACT_TTL_SECONDS = 30 * 24 * 60 * 60
-STATE_LOCK_TIMEOUT_SECONDS = 5
-STATE_LOCK_STALE_SECONDS = 30
 DEFAULT_MODES = {"on", "manual"}
 SHELL_EXECUTABLES = {
     "bash",
@@ -451,125 +478,6 @@ def _read_event() -> dict[str, Any]:
     if not isinstance(value, dict):
         raise ValueError("hook input must be a JSON object")
     return value
-
-
-def _state_root() -> Path:
-    configured = os.environ.get("PLUGIN_DATA")
-    if configured:
-        return Path(configured) / "gate-state"
-    return Path(tempfile.gettempdir()) / "click-plugin-data" / "gate-state"
-
-
-def _preference_path() -> Path:
-    configured = os.environ.get("CLICK_CONFIG_HOME")
-    if configured:
-        return Path(configured) / "preferences.json"
-    if os.name == "nt":
-        base = os.environ.get("LOCALAPPDATA") or os.environ.get("APPDATA")
-        if base:
-            return Path(base) / "Click" / "preferences.json"
-    base = os.environ.get("XDG_CONFIG_HOME")
-    if base:
-        return Path(base) / "click" / "preferences.json"
-    return Path.home() / ".config" / "click" / "preferences.json"
-
-
-def _identity_path(event: dict[str, Any], scope: str) -> Path:
-    identity = {
-        "session_id": str(event.get("session_id", "")),
-        "cwd": str(event.get("cwd", "")),
-    }
-    if scope in {"turn", "review"}:
-        identity["turn_id"] = str(event.get("turn_id", ""))
-    encoded = json.dumps(identity, sort_keys=True, separators=(",", ":")).encode()
-    name = f"{scope}-{hashlib.sha256(encoded).hexdigest()}.json"
-    return _state_root() / name
-
-
-def _state_path(event: dict[str, Any]) -> Path:
-    return _identity_path(event, "turn")
-
-
-def _mode_path(event: dict[str, Any]) -> Path:
-    return _identity_path(event, "session")
-
-
-def _contract_path(event: dict[str, Any]) -> Path:
-    return _identity_path(event, "session-contract")
-
-
-def _prompt_path(event: dict[str, Any]) -> Path:
-    return _identity_path(event, "session-prompt")
-
-
-def _review_path(event: dict[str, Any]) -> Path:
-    return _identity_path(event, "review")
-
-
-def _write_json(path: Path, payload: dict[str, Any]) -> None:
-    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-    with tempfile.NamedTemporaryFile(
-        mode="w",
-        encoding="utf-8",
-        dir=path.parent,
-        prefix=".gate-",
-        delete=False,
-    ) as handle:
-        json.dump(payload, handle, ensure_ascii=False, separators=(",", ":"))
-        temporary = Path(handle.name)
-    temporary.chmod(0o600)
-    os.replace(temporary, path)
-
-
-@contextmanager
-def _state_lock() -> Any:
-    root = _state_root()
-    root.mkdir(mode=0o700, parents=True, exist_ok=True)
-    lock_path = root / ".state.lock"
-    deadline = time.monotonic() + STATE_LOCK_TIMEOUT_SECONDS
-    descriptor: int | None = None
-    while descriptor is None:
-        try:
-            descriptor = os.open(
-                lock_path,
-                os.O_CREAT | os.O_EXCL | os.O_WRONLY,
-                0o600,
-            )
-            os.write(descriptor, str(os.getpid()).encode())
-        except (FileExistsError, PermissionError) as exc:
-            # Windows can report an O_EXCL collision as EACCES while another
-            # process still owns the lock file. Treat that specific shape as
-            # contention and retry instead of failing the observation runner.
-            if (
-                isinstance(exc, PermissionError)
-                and os.name != "nt"
-                and not lock_path.exists()
-            ):
-                raise
-            try:
-                stale = time.time() - lock_path.stat().st_mtime > STATE_LOCK_STALE_SECONDS
-            except OSError:
-                stale = False
-            if stale:
-                try:
-                    lock_path.unlink()
-                except OSError:
-                    pass
-                else:
-                    continue
-            if time.monotonic() >= deadline:
-                raise OSError("timed out waiting for Click state lock")
-            time.sleep(0.025)
-    try:
-        yield
-    finally:
-        try:
-            os.close(descriptor)
-        finally:
-            try:
-                lock_path.unlink()
-            except OSError:
-                pass
 
 
 def _write_state(event: dict[str, Any], status: str, contract_digest: str = "") -> None:
@@ -4774,23 +4682,6 @@ def _managed_contract_path(path: Path) -> bool:
 
 def _managed_observation_path(path: Path) -> bool:
     return _managed_state_path(path, ("session-contract-", "review-"))
-
-
-def _managed_state_path(path: Path, prefixes: tuple[str, ...]) -> bool:
-    try:
-        if not path.is_absolute():
-            return False
-        resolved_path = path.resolve(strict=True)
-        lexical_path = Path(os.path.abspath(path))
-        resolved_root = _state_root().resolve(strict=True)
-        return (
-            lexical_path == resolved_path
-            and resolved_path.parent == resolved_root
-            and resolved_path.name.startswith(prefixes)
-            and resolved_path.suffix == ".json"
-        )
-    except (OSError, RuntimeError):
-        return False
 
 
 def _service_snapshot(path: Path, service_id: str) -> dict[str, Any] | None:

@@ -1,6 +1,12 @@
 # Release notes
 
-## Unreleased v0.22 candidate
+## v0.22.0 — 2026-08-30
+
+Click v0.22.0 hardens the experimental Antigravity adapter and extracts the
+shared runtime state-storage boundary into a dedicated module. Contract JSON,
+evidence protocol, modes, and the one-approval workflow remain unchanged.
+
+### Antigravity launcher boundary
 
 - The experimental Antigravity adapter accepts only the exact absolute Python
   and adapter paths injected by its current `PreInvocation`; basename lookalikes,
@@ -14,6 +20,26 @@
   file/search tools and unrelated MCP, Skill, and Plugin tools remain available.
 - Antigravity parses Click's encoded Windows runner command with the native
   Windows argv parser and still executes the resulting argv without a shell.
+
+### Shared state-storage boundary
+
+- `click_state.py` now owns configuration and state paths, hashed workspace and
+  thread identities, canonical managed-state validation, atomic JSON writes,
+  and the cross-process state lock used by both Codex and Antigravity adapters.
+- Contract policy, capability classification, process execution, and evidence
+  semantics remain in `click_gate.py`; this release intentionally moves only
+  storage primitives so the refactor does not change authorization behavior.
+- Source and Antigravity distribution tests launch each gate with only its
+  sibling runtime modules available, preventing accidental imports from the
+  repository source tree. Existing managed state remains compatible.
+
+### Compatibility and release gate
+
+- Direct `click-gate` integrations continue to use verification protocol
+  version `2`; no contract or evidence migration is required.
+- The exact release candidate is gated by the deterministic suite on Linux,
+  macOS, and Windows plus plugin, marketplace, skill, compilation, whitespace,
+  distribution-consistency, and Plugin Security Scan checks.
 
 ## v0.21.1 — 2026-08-30
 
