@@ -60,7 +60,7 @@ launcher 只接受一条不含展开的 Bash 命令；命令串联、重定向�
 [`platforms/antigravity/README.md`](platforms/antigravity/README.md)了解准确
 限制，不要假设宿主功能完全等价。
 
-## 更新到 v0.24.1
+## 更新到 v0.24.2
 
 如果已经安装 Click，需要明确刷新 Git marketplace 快照并重新安装插件，才能加载本版本。
 
@@ -69,7 +69,7 @@ codex plugin marketplace upgrade click
 codex plugin add click@click
 ```
 
-重新启动 ChatGPT 桌面应用，检查并信任更新后的 Click Hook，然后开始一个新任务。现有模式偏好仍保存在目标仓库之外。v0.24.1 仅把 SessionEnd lifecycle 命令限制为宿主支持的三秒上限，从而消除 clamping 警告。UserPromptSubmit、PreToolUse 和 PostToolUse 仍保持七秒；Hook 命令、契约格式、验证协议、模式和授权行为与 v0.24.0 相同。不要重复使用旧安装留下的待执行 runner 命令；应让更新后的 Hook 签发一条新命令。
+重新启动 ChatGPT 桌面应用，检查并信任更新后的 Click Hook，然后开始一个新任务。现有模式偏好仍保存在目标仓库之外。v0.24.2 将 Windows lifecycle hook 命令从 cmd 风格的 `%PLUGIN_ROOT%` 改为 Codex 的 `${PLUGIN_ROOT}` 模板，并增加 Windows PowerShell 回归测试，覆盖普通 plugin root 和包含空格的 plugin root。SessionEnd 继续沿用 v0.24.1 的宿主支持三秒上限；契约格式、evidence 协议、模式和 runtime 授权规则均未改变。该补丁不声称修复宿主根本没有分发对应 PreToolUse 事件的调用路径。不要重复使用旧安装留下的待执行 runner 命令；应让更新后的 Hook 签发一条新命令。
 
 之后你可以说“Set Click to Always ON”或“Set Click to Manual”，这些偏好会持久保存在目标仓库之外。若只想绕过一个 turn，请把用户提示的第一行写成 `@Click bypass`，或使用自动补全形式 `[@Click](plugin://click@click) bypass`；Hook 只授权同一 turn 的一次 `click-gate bypass`，并保留活动契约。要丢弃活动契约，请使用对应的 `cancel` 形式来授权一次 `click-gate cancel`。`@Click` 标签和动作不区分大小写，但 plugin URI 必须完全匹配，指令行不能包含其他文字；实际任务可以从第二行继续。两种授权都不能重复使用或带到下一个 turn。Click 不会把偏好或契约文件放进你的项目。
 

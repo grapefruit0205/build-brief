@@ -65,7 +65,7 @@ deduplicated. Browser evidence is not currently supported. See
 [`platforms/antigravity/README.md`](platforms/antigravity/README.md) for the
 exact limits instead of assuming full host parity.
 
-## Update to v0.24.1
+## Update to v0.24.2
 
 If Click is already installed, explicitly refresh its Git marketplace snapshot and reinstall the plugin to load this release:
 
@@ -74,7 +74,7 @@ codex plugin marketplace upgrade click
 codex plugin add click@click
 ```
 
-Restart the ChatGPT desktop app, review and trust the updated Click Hook, and start a new task. Existing mode preferences remain outside the target repository. v0.24.1 caps only the SessionEnd lifecycle command at the host-supported three-second maximum, removing the clamping warning. UserPromptSubmit, PreToolUse, and PostToolUse remain at seven seconds; hook commands, contract shape, verification protocol, modes, and authorization behavior are unchanged from v0.24.0. Do not reuse a pending runner command created by an older installation; let the updated Hook issue a fresh rewritten command.
+Restart the ChatGPT desktop app, review and trust the updated Click Hook, and start a new task. Existing mode preferences remain outside the target repository. v0.24.2 changes the Windows lifecycle hook commands to use Codex's `${PLUGIN_ROOT}` template instead of the cmd-style `%PLUGIN_ROOT%` form and adds Windows PowerShell regressions for ordinary plugin roots and roots containing spaces. SessionEnd remains capped at the host-supported three seconds from v0.24.1; contract shape, evidence protocol, modes, and runtime authorization behavior remain unchanged. This patch does not claim to repair a host path that fails to dispatch the matching PreToolUse event at all. Do not reuse a pending runner command created by an older installation; let the updated Hook issue a fresh rewritten command.
 
 You can later say “Set Click to Always ON” or “Set Click to Manual.” Those preferences persist outside the target repository. To bypass Click for exactly one turn, make the first line of that user prompt either `@Click bypass` or the autocomplete form `[@Click](plugin://click@click) bypass`; the Hook authorizes one same-turn `click-gate bypass` and keeps any active contract intact. Use the corresponding `cancel` form to authorize one same-turn `click-gate cancel` and discard the active contract. The `@Click` label and action are case-insensitive, but the plugin URI must match exactly and the directive line cannot contain extra text. The task may continue on later lines. Neither authorization is reusable or carries across turns. Click does not place preference or contract files in your project.
 

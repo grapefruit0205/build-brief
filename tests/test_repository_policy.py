@@ -20,7 +20,7 @@ class RepositoryPolicyTests(unittest.TestCase):
             (ROOT / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8")
         )
         self.assertEqual(manifest["name"], "click")
-        self.assertEqual(manifest["version"], "0.24.1")
+        self.assertEqual(manifest["version"], "0.24.2")
         self.assertEqual(manifest["license"], "MIT")
         self.assertIn("always on", manifest["description"].lower())
         self.assertIn("manual", manifest["description"].lower())
@@ -163,11 +163,7 @@ class RepositoryPolicyTests(unittest.TestCase):
                 / "translation-guide.md"
             ).read_text(encoding="utf-8"),
             (
-                ROOT
-                / "skills"
-                / "click"
-                / "references"
-                / "directive-format.md"
+                ROOT / "skills" / "click" / "references" / "directive-format.md"
             ).read_text(encoding="utf-8"),
             (ROOT / "evals" / "SEMANTIC_GRADER.md").read_text(encoding="utf-8"),
             (ROOT / "evals" / "golden-prompts.yaml").read_text(encoding="utf-8"),
@@ -254,7 +250,7 @@ class RepositoryPolicyTests(unittest.TestCase):
         self.assertEqual(marketplace["name"], "click")
         self.assertEqual(marketplace["plugins"][0]["name"], "click")
         self.assertEqual(
-            marketplace["plugins"][0]["source"]["ref"], "v0.24.1"
+            marketplace["plugins"][0]["source"]["ref"], "v0.24.2"
         )
 
     def test_ci_enforces_distribution_compilation_and_diff_validation(self) -> None:
@@ -269,16 +265,18 @@ class RepositoryPolicyTests(unittest.TestCase):
         self.assertIn("workflow_dispatch:", workflow)
         self.assertTrue((ROOT / "scripts" / "validate_distribution.py").is_file())
 
-    def test_release_documents_identify_v0241_and_preserve_release_history(self) -> None:
+    def test_release_documents_identify_v0242_and_preserve_release_history(self) -> None:
         for readme_name in README_NAMES:
             with self.subTest(readme=readme_name):
                 readme = (ROOT / readme_name).read_text(encoding="utf-8")
+                self.assertIn("v0.24.2", readme)
                 self.assertIn("v0.24.1", readme)
                 self.assertIn("v0.24.0", readme)
                 self.assertIn("v0.23.0", readme)
                 self.assertIn("v0.21.0", readme)
                 self.assertIn("version-18", readme)
         notes = (ROOT / "RELEASE_NOTES.md").read_text(encoding="utf-8")
+        self.assertIn("## v0.24.2", notes)
         self.assertIn("## v0.24.1", notes)
         self.assertIn("## v0.24.0", notes)
         self.assertIn("## v0.23.0", notes)
