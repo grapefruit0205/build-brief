@@ -3076,8 +3076,8 @@ class ClickGateTests(unittest.TestCase):
         self.assertEqual(claim_error, "")
         self.assertIsNotNone(batch)
         assert batch is not None
-        self.assertEqual(
-            batch["checks"][0]["argv"][0], str(launcher.absolute())
+        self.assertTrue(
+            os.path.samefile(batch["checks"][0]["argv"][0], launcher)
         )
         self.assertNotEqual(
             batch["checks"][0]["argv"][0], str(Path(sys.executable).resolve())
