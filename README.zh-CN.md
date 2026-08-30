@@ -1,19 +1,117 @@
-# Click
+# Click — 由 Hook 强制执行的 Codex 编码代理工作流
 
 [English](README.md) | [한국어](README.ko.md) | 简体中文
+
+社区：[LINUX DO](https://linux.do/)
 
 [![CI](https://github.com/grapefruit0205/click/actions/workflows/ci.yml/badge.svg)](https://github.com/grapefruit0205/click/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-> 一次约定要改什么、必须守住什么，然后在这个边界内完成实现和必要验证。
+### 只靠提示词控制编码工作流的时代已经结束。
 
-Click 是一款面向 Codex 的插件，适合希望与编码代理只约定一次软件变更，然后不再反复改写计划、重新扫描整个仓库或用不同工具重复证明同一结果的用户。它会把请求和相关仓库上下文整理成一份简短契约——要改什么、必须保持什么、什么证据算完成——用易懂语言解释并等待批准，随后让实现和验证始终留在这个边界内。
+> **提示词可以建议行为。Hook 可以强制执行工作流。**
 
-若希望默认应用于软件变更，请选择 **Always ON（推荐）**；若只想在提及 `@Click` 的任务中使用，请选择 **Manual**。提问、解释、简单查询和只读代码审查仍保持轻量。
+**Click 是一款 Codex 插件：它把软件变更请求转换成一份精简 contract，再通过持久化的 Hook 状态机，把可观察的执行路径保持在用户批准的边界内。**
 
-## 核心目的
+大多数编码代理工作流仍然只是要求模型记住这些规则：
 
-Click 的核心目的是让用户批准的一条变更边界，从提案一直保持到实现和必要验证完成。它不是用来制造更大的规格，也不会代替用户选择架构模式。Click 会明确要改什么、必须保持什么、什么证据已经足够，并限制可观察到的重复规划、全仓库重复探索和重复验证，同时保留批准范围内必要的实现选择。
+```text
+只规划一次。
+不要超出范围。
+不要重新扫描整个仓库。
+不要反复改写计划。
+只运行真正需要的验证。
+```
+
+当上下文变长、任务开始分叉时，模型仍可能重新规划、重新探索仓库，或者再次证明已经证明过的结果。
+
+Click 不再只把这些规则当作**提示词里的要求**，而是把它们移到受支持的**工具执行边界**中。
+
+```text
+请求
+ ↓
+精简 contract
+ ↓
+后续用户 turn 批准
+ ↓
+实现
+ ↓
+当前 revision 的完成证据
+ ↓
+完成
+```
+
+> **如何实现，由模型决定。工作流是否允许进入下一阶段，由 Hook 决定。**
+
+**一份 contract。一次批准。一条实现边界。一组完成证据。**
+
+## 为什么需要 Click？
+
+提示词可以告诉代理它*应该做什么*。Click 则在可观察的 tool path 上，为代理当前*被允许做什么*增加持久状态。
+
+| 只靠提示词的工作流 | Click |
+| --- | --- |
+| 希望模型一直记住计划 | 持久保存已批准的 workflow 状态 |
+| 希望批准恰好发生在正确时机 | stage 一个绑定 digest 的 `contract_id`，并要求后续用户 turn |
+| 要求代理不要重新扫描 | 允许第一次有价值的 root inventory，之后强制缩小范围 |
+| 要求代理不要重新规划 | workflow active 时拒绝匹配到的 `update_plan` churn |
+| 要求代理不要重复同一验证 | 复用 current structured evidence 与 receipt |
+| 任务越做越大，验证也越做越大 | 把完成证据绑定到批准的验证预算 |
+| “看起来完成了”就结束 | 声明证据必须对最新 mutation revision 保持 current |
+
+核心思想很简单：
+
+> **不要一直要求编码代理记住流程。把流程放进执行边界。**
+
+## Hook 实际会强制什么
+
+在 stage、implementation、review 和 verification 期间，Click 可以强制以下**可观察 workflow 规则**：
+
+- **提案与批准分离。** stage 后签发不透明的 `contract_id`；同一个用户 turn 不能同时 stage 和 pass。
+- **批准前阻止 mutation。** active contract 会保持锁定，直到准确的 staged ID 被批准并 pass。
+- **限制重新规划。** Click workflow active 时，匹配到的 `update_plan` 调用会被拒绝；用户明确授权的单 turn bypass 除外。
+- **仓库探索必须逐渐收窄。** 当前 revision 第一次有用的 root inventory 可以执行；之后的 broad inventory 必须缩小到 path-scoped inspection。
+- **复用已经成功的观察。** 在范围内 mutation 使其 stale 之前，不重复相同的 structured read。
+- **验证绑定 evidence。** local check 必须指定它所证明的已批准 `evidence_id`，累计验证必须处于批准规模内。
+- **完成状态跟随代码。** mutation 会推进 revision，使旧完成证据 stale，而不是静默复用。
+- **持有本地服务器生命周期。** 可识别开发服务器使用 Click 的 managed service 路径，以便清理准确的隔离子进程。
+
+Hook 控制的是**可观察的 tool path**。它不会读取隐藏推理，不会单独证明语义正确性，也不是操作系统 sandbox。
+
+## 精简 contract
+
+Click 会把请求和相关仓库上下文整理成一份小型执行 contract：
+
+| 字段 | 固定的内容 |
+| --- | --- |
+| `outcome` | 具体结果和用户可见行为 |
+| `boundary` | 可以改变什么，以及哪些内容不属于本次工作 |
+| `must_hold` | 可观察的安全性、兼容性和正确性承诺 |
+| `build` | 最小且符合仓库现状的实现路径 |
+| `verification` | 基于风险的验证规模，以及完成所需证据 |
+| `plain_language` | 用非专业人士也能理解的方式解释同一 contract |
+
+contract 锁定的是**语义、边界和完成承诺**，而不是每个文件、依赖、库或底层实现选择。
+
+如果代理发现批准范围内需要新的文件、工具或依赖，仍然可以使用。只有已批准结果、边界、must-hold 行为或验证承诺发生实质变化时，才需要重新批准。
+
+## 工作原理
+
+```mermaid
+flowchart TB
+    A["软件变更请求"] --> B["精简 contract<br/>+ 通俗解释"]
+    B --> C["只 stage 一次<br/>签发 contract_id"]
+    C --> D{"后续用户 turn 批准：<br/>批准？"}
+    D -->|修改| B
+    D -->|取消| X["停止"]
+    D -->|批准准确 id| E["在批准边界内实现"]
+    E --> F["当前 revision 的证据"]
+    F --> G["完成"]
+```
+
+最初的请求**不等于**批准一份尚未展示的设计。Click 只 stage 一次 canonical contract，获得一个不透明的 `contract_id`，展示 contract，然后停止。后续批准只 pass 该 ID，不再次发送整个 JSON。
+
+当最新 mutation revision 的所有声明 evidence source 都为 current，且没有 Click managed service 仍处于活动状态时，contract 完成，下一个变更可以从干净 workflow 状态开始。
 
 ## 快速开始
 
@@ -22,114 +120,20 @@ codex plugin marketplace add grapefruit0205/click
 codex plugin add click@click
 ```
 
-重启 ChatGPT 桌面应用，检查并信任随附的 Click Hook，然后新建一个任务。首次提出会修改代码的请求前，Click 只询问一次：
+重启 ChatGPT 桌面应用，检查并信任随附的 Click Hook，然后开始新任务。
+
+首次使用时，可以选择 **Always ON**，让 Click 默认应用于软件变更；也可以选择 **Manual**，只在你提到 `@Click` 时启用。
 
 ```text
-Use Always ON for future software changes (recommended), or Manual only when I mention @Click?
+@Click 添加订单取消功能。
+防止重复退款，并保持现有 API 兼容。
 ```
 
-若想获得默认体验，请选择 Always ON。若希望显式调用，请选择 Manual：
+之后可以说“Set Click to Always ON”或“Set Click to Manual”来切换模式。也支持单 turn 的 `@Click bypass` 和清除 active contract 的 `@Click cancel`。
 
-```text
-@Click 添加订单取消功能。防止重复退款，并保持现有 API 兼容。
-```
+## contract 示例
 
-## Google Antigravity 适配器（实验性源码构建）
-
-此仓库还可以生成一个独立的 Google Antigravity 插件。它与 Codex 插件
-共享 Click 的契约状态机、evidence ledger、验证预算和 shell-free runner。
-
-```bash
-python3 scripts/build_antigravity_distribution.py
-agy plugin install ./dist/antigravity
-```
-
-Antigravity IDE 用户也可以把 `dist/antigravity` 复制到工作区的
-`.agents/plugins/click`，或复制到全局的
-`~/.gemini/config/plugins/click`。Codex 仍继续使用现有的
-`.codex-plugin/plugin.json` 和 Codex Hook 适配器；支持一个平台不会替换
-另一个平台。
-
-Antigravity 的 Hook 契约与 Codex 不同。因此，结构化命令通过运行时注入的
-精确绝对路径 launcher 运行，并要求依次出现完全 idle 的 `model_stop`、
-新的可读取用户 transcript 条目和下一次 `PreInvocation`，以此作为提案与
-批准之间的执行边界。只读 `run_command` 也使用同一个 control launcher。
-launcher 只接受一条不含展开的 Bash 命令；命令串联、重定向、替换、glob
-和多行后缀都会 fail closed。原生文件/搜索工具以及其他 MCP、Skill 工具仍可使用，但目前还不支持这些工具
-之间的重复阻止，也不支持 Browser evidence。请查看
-[`platforms/antigravity/README.md`](platforms/antigravity/README.md)了解准确
-限制，不要假设宿主功能完全等价。
-
-## 更新到 v0.24.4
-
-如果已经安装 Click，需要明确刷新 Git marketplace 快照并重新安装插件，才能加载本版本。
-
-```bash
-codex plugin marketplace upgrade click
-codex plugin add click@click
-```
-
-重新启动 ChatGPT 桌面应用，检查并信任更新后的 Click Hook，然后开始一个新任务。现有模式偏好仍保存在目标仓库之外。v0.24.4 将契约验证提取到叶子模块 `hooks/click_contract.py`，同时把 `click_gate._validate_contract` 保留为直接兼容别名，并精确保留验证顺序和错误消息。若准备阶段与 runner 启动阶段之间的项目、用户、PATH 或 toolchain 环境值发生变化，验证现在会自动恢复：经过认证的聚合 binding 会把当前值投影到准备好的键集合，忽略仅由 runner 添加的键，并在无需再次批准的情况下把实际重新绑定的环境 digest 写入 receipt。精确的可执行文件指纹仍保持固定，格式错误或被篡改的 binding 仍会 fail closed。契约格式、evidence 协议、模式行为、v0.24.3 的 runner claim 与 admission 清理规则、v0.24.2 的 Windows `${PLUGIN_ROOT}` 修复以及 v0.24.1 的 SessionEnd 三秒限制均保持不变。该补丁不声称修复宿主根本没有分发相应 PreToolUse 事件的路径，因此 issue #25 仍保持打开。不要重复使用旧安装留下的待执行 runner 命令；应让更新后的 Hook 签发一条新命令。
-
-之后你可以说“Set Click to Always ON”或“Set Click to Manual”，这些偏好会持久保存在目标仓库之外。若只想绕过一个 turn，请把用户提示的第一行写成 `@Click bypass`，或使用自动补全形式 `[@Click](plugin://click@click) bypass`；Hook 只授权同一 turn 的一次 `click-gate bypass`，并保留活动契约。要丢弃活动契约，请使用对应的 `cancel` 形式来授权一次 `click-gate cancel`。`@Click` 标签和动作不区分大小写，但 plugin URI 必须完全匹配，指令行不能包含其他文字；实际任务可以从第二行继续。两种授权都不能重复使用或带到下一个 turn。Click 不会把偏好或契约文件放进你的项目。
-
-<details>
-<summary>从 Build Brief 或旧版 Click 升级</summary>
-
-对于 `click@build-brief` 0.9.0：
-
-```bash
-codex plugin remove click@build-brief
-codex plugin marketplace remove build-brief
-codex plugin marketplace add grapefruit0205/click
-codex plugin add click@click
-```
-
-对于 Build Brief 0.8，请将第一条命令替换为 `codex plugin remove build-brief@build-brief`。
-
-</details>
-
-## v0.21.0 的逐证据完成判定
-
-v0.21 将契约声明的每个完成证据与当前代码 revision 的 Hook 状态连接起来。local argv check 必须指定它所证明的已批准 evidence ID；成功的 Browser 工作先被观察，再显式 finalize；hosted、manual 与 existing 仍是诚实的 attestation，而不是 Hook 对外部事实的独立证明。当所有声明来源都为 current 且没有受管服务仍处于活动状态时，契约立即完成，因此没有 argv 来源的契约不需要无关的本地验证命令。
-
-## v0.24.0 的证据驱动防循环
-
-v0.24 不再主要根据原始调用次数，而是根据当前 revision 已成功的证据判断是否允许常规重复。已批准的实现与代码审查可以建立一次必要的全仓库清单，随后必须缩小范围。验证可以分批提交尚未完成的 argv 证据，但每个 evidence 的准确检查与成本会在整个契约期间保留，因此无法通过拆分 batch 绕过预算。Browser 不再采用常规三次调用、90 秒上限，而是按规范化输入阻止成功重复和反复失败。不保存内容的 evidence registry 与 ledger 机制位于专用 `click_evidence.py` 模块中，verify 协议版本仍为 `2`。历史上的 v0.23.0 引入了共享 process 边界，但不包含这些 evidence-state 规则。
-
-## 工作原理
-
-```mermaid
-flowchart TB
-    A["首次使用"] --> B{"选择一次"}
-    B -->|Always ON| C["软件变更<br/>自动使用 Click"]
-    B -->|Manual| D["需要时<br/>使用 @Click"]
-    C --> E["精简契约<br/>+ 通俗解释"]
-    D --> E
-    E --> F["只 stage 一次 JSON<br/>获取 contract_id"]
-    F --> I{"后续用户 turn：<br/>批准一次？"}
-    I -->|修改或取消| E
-    I -->|批准| G["One-shot 实现"]
-    G --> H["按来源收集一次<br/>当前完成证据"]
-```
-
-最初的请求并不等于批准一份尚未展示的设计。Click 只 stage 一次契约 JSON，获取一个不透明的 `contract_id`，展示从 `outcome` 到 `verification` 的开发者字段，再把 canonical JSON 中与 digest 绑定的 `plain_language` 原值作为单独的通俗视图准确展示一次，然后停止。Hook 会记录 `staged_turn_id`，拒绝同一个 `UserPromptSubmit` turn 中的 pass 或替换 stage。后续 turn 的明确批准只传递已签发的 id，不再传递 JSON；Hook 将它与 staged digest 匹配后记录 `approved_turn_id`。修改并重新 stage 提案会签发新 id，使旧 handle 失效。这能证明期间发生了另一次用户回复；由于 Hook 不会判断自然语言是否表示同意，Skill 仍负责解释该回复是否真的意味着批准。
-
-只有对已批准结果、边界、must-hold 行为或验证承诺的实质性变更才需要停止。在已批准边界内所需的文件、库、工具、服务和实现策略，不需要替换契约。
-
-在 Manual 模式下，fail-open 行为只适用于没有活动 Click 契约的情况。一旦契约已 staged，或已经 approved 但当前 revision 所需的全部证据 id 尚未完成，该会话状态会在后续 turn 中继续阻止普通 mutation。这可以防止在批准 turn 中、绑定契约的 `contract_id` 尚未 pass 前就开始编辑。如果已批准的实现被中断并在另一个 turn 中恢复，Click 会重新 arm 并 pass 同一个 id；它不会再次发送 JSON，也不会编造替代契约。
-
-只有当每个声明的证据源都针对当前代码 revision 处于 current/passed 状态，且没有 Click 管理的服务仍处于活动状态时，契约才完成，下一个变更请求才可以正常 stage 一份新契约。Click 不再无条件要求一次本地 `verify` batch：如果所有主证据都是 Browser、hosted、manual 或仍然有效的 existing 证据，完成这些来源即可；存在 `argv` 来源时，才需要执行与其 id 绑定的检查。尚未收集、正在运行、失败，或在另一次 mutation 后变为 stale 的任一来源，都不会解锁替换。新契约会从干净的 inspection、mutation 和 evidence 状态开始，并需要自己的批准；无需 `bypass` 或手动删除状态。升级前留下的未完成契约无法安全补造逐 id ledger，必须明确 cancel、重新 stage 并再次批准。
-
-## 示例：从请求到批准
-
-给出以下请求：
-
-```text
-@Click 添加订单取消功能。防止重复退款，并保持现有 API 兼容。
-```
-
-在 Click 分别呈现开发者视图和通俗视图之前，canonical staged JSON 采用如下精简结构：
+对于上面的订单取消请求，根据仓库证据可能得到类似下面的 contract：
 
 ```json
 {
@@ -140,104 +144,57 @@ flowchart TB
   },
   "must_hold": [
     "并发或重复请求不能产生第二次退款。",
-    "现有请求字段、响应字段和状态含义保持兼容。",
-    "支付服务商失败时，订单不能被标记为已退款。"
+    "现有请求字段、响应字段和状态含义保持兼容。"
   ],
   "build": {
-    "approach": [
-      "复用当前取消路径，增加幂等退款记录，并使退款状态转换具备原子性。"
-    ],
-    "semantics": [
-      "退款结果只记录一次，重复请求返回已记录的结果。"
-    ]
+    "approach": ["复用当前取消路径，并让退款转换具备幂等性和原子性。"]
   },
   "verification": {
     "scale": "full",
     "evidence": [
-      {
-        "id": "E1",
-        "kind": "argv",
-        "description": "覆盖成功、重复、并发和支付服务商失败的取消测试"
-      },
-      {
-        "id": "E2",
-        "kind": "argv",
-        "description": "现有 API 回归测试套件"
-      }
+      {"id": "E1", "kind": "argv", "description": "订单取消与重复退款测试"},
+      {"id": "E2", "kind": "argv", "description": "现有 API 回归测试"}
     ],
     "done_when": [
-      {
-        "condition": "退款行为正确。",
-        "primary_evidence": "E1"
-      },
-      {
-        "condition": "公共 API 保持兼容。",
-        "primary_evidence": "E2"
-      }
+      {"condition": "退款行为正确。", "primary_evidence": "E1"},
+      {"condition": "公共 API 保持兼容。", "primary_evidence": "E2"}
     ]
   },
-  "plain_language": "客户可以取消符合条件的订单，但重试或同时发出的请求不能导致重复退款。公共 API 保持不变，支付调用失败也不能错误地完成退款。由于此变更涉及支付和并发，Click 推荐 full 验证。"
+  "plain_language": "客户可以取消符合条件的订单，但重试或同时发出的请求不能导致重复退款。现有 API 兼容性保持不变。"
 }
 ```
 
-stage 会返回 `CLICK_CONTRACT_ID=ctr_0123456789abcdef0123456789abcdef`。随后 Click 展示该 id 并只问一个问题：批准该契约及其验证规模、修改，还是取消？批准意味着授权契约中的开发者语义，而不仅是通俗摘要；后续 turn 只 pass 该 id 来启动实现。
+具体设计取决于仓库。此示例展示的是 contract 结构，而不是通用退款架构。
 
-具体设计取决于仓库。此示例展示的是契约结构，而不是通用的退款架构。
-
-## 精简执行契约
-
-| 字段 | 它固定的内容 |
-| --- | --- |
-| `outcome` | 具体结果和用户可见行为 |
-| `boundary` | 可以改变什么，以及哪些内容不在工作范围内 |
-| `must_hold` | 可观察的安全性、兼容性和正确性承诺 |
-| `build` | 最小且符合仓库现状的实现路径 |
-| `verification` | 一种基于风险的规模，以及完成所需的证据 |
-| `plain_language` | 用非专业人士也能理解的方式解释同一契约 |
-
-`plain_language` 仍是 canonical JSON 的必填字段，并包含在 staged digest 中。呈现给用户时，开发者视图不重复该值；Click 只在单独的通俗视图中展示完全相同的值一次，因此批准 fidelity 不变，也不会把同一说明输出两遍。
-
-只有当状态含义、安全顺序或不可逆边界确实需要时，才会出现 `build.semantics`、`build.order` 和 `verification.intermediate_gate`。Click 不会把同一工作重复展开为不同的 phases、steps、tasks 和 plans。
-
-契约固定结果及其边界，而不会锁死每一个底层实现选择。因此 Click 可以保持精简，也不会因为实现需要范围内的依赖、文件或工具就强制重新批准。
-
-## Always ON，但不打扰
-
-| 请求 | Always ON 的行为 |
-| --- | --- |
-| 创建、修改、删除、重构或修复软件 | 展示一份精简契约和通俗解释，然后等待一次批准 |
-| 只做代码审查、不修复 | 不需要构建契约或批准；使用只读防循环守卫 |
-| 提问或解释 | 正常回答 |
-| 简单的只读查询 | 正常检查，不创建 observation ledger |
-| 第一行是普通或自动补全的 `@Click bypass` | 只在当前 turn 绕过 Click，并保留活动契约 |
-| 第一行是普通或自动补全的 `@Click cancel` | 清除活动契约一次 |
-
-代码审查期间，Click 会在需要时允许一次有用的全仓库清单读取，例如 `rg --files`。清单读取成功后，它会要求使用更窄范围的检查，阻止完全相同的成功读取或搜索，拒绝 plan 工具反复变动，并在审查守卫活动期间阻止项目 mutation。之后若要求修复发现的问题，则会启动一份独立的精简构建契约。
-
-识别明确的直接读取仍然很方便。对于含义不明确或需要追踪的工作，Click 使用带有程序与参数数组的 `click-gate inspect`，而不是从 shell 字符串猜测。审查守卫覆盖受支持的本地 Hook 路径；它无法去重隐藏推理、hosted search、未匹配的 connector 或自定义 wrapper。
-
-## 无循环实现
-
-在 staging、review、implementation 和 verification 期间，Hook 会执行以下可观察规则：
+## 证据驱动的 anti-loop
 
 | 防护规则 | 行为 |
 | --- | --- |
-| 复用证据 | 已成功的相同结构化读取或搜索会被阻止，直到范围内 mutation 使证据失效。 |
-| 不并行规划 | 当工作流处于 armed、staged、approved 但未完成，或 review 状态时，匹配的 `update_plan` 调用会被拒绝，即使来自后续 turn 也一样。只有 bypass，或当前 revision 的全部证据 id 已完成且没有受管服务仍处于活动状态时，普通的后续规划才会恢复。 |
-| 不重复全仓库清单 | 当前代码 revision 在确有需要时可执行第一次全仓库清单；同类清单正在运行或已有一次成功后，会拒绝后续全仓库扫描，只允许缩小范围的检查。 |
-| 明确命令意图 | 活动状态下，含义不明确的 Bash 会被拒绝，并提示读取使用结构化 `inspect`、实现使用 `mutate`、最终检查使用 `verify`。 |
-| 检查必须在预算内 | `argv` 证据可以按尚未完成 id 的非空子集执行；每个 id 的准确检查 digest 与成本会在整个契约期间保留，所有 batch 的累计预约不得超过批准规模。 |
-| 限定 Browser 重复 | Browser MCP 只有被明确指定为主要证据时才能使用。相同成功输入不会重跑；相同失败只允许重试一次；不同输入仍可继续。调用保持串行，并保留 30 秒 timeout、5 秒 wait 与 256 个唯一输入的状态安全上限。 |
-| 持有本地服务器生命周期 | 可识别的开发服务器通过 `click-gate service` 启停，由 Click 清理准确的隔离子进程。 |
-| 提案与批准分离 | stage 会签发绑定 digest 的不透明 id。同 turn pass 和替换 stage 会被拒绝；后续批准只 pass 该 id。 |
+| 复用已有证据 | 已成功的相同 structured read/search 在范围内 mutation 使其 stale 前不会重复执行 |
+| 阻止 plan churn | workflow 处于 armed、staged、approved-but-incomplete 或 review 状态时，匹配的 `update_plan` 会被拒绝 |
+| 第一次 inventory 后缩小范围 | 当前 revision 第一次有价值的 root inventory 可以执行，之后拒绝 broad inventory |
+| 明确命令意图 | active 状态下含义不明确的 shell 工作改用 structured `inspect`、`mutate`、`service` 或 `verify` |
+| 所有检查共享一个预算 | 每项 local check 指定已注册的 `argv` source，累计预约必须符合批准规模 |
+| 按 source 跟踪完成 | 所有声明 source 必须 current；没有 `argv` source 时不会为了形式制造 local check |
+| 去重 Browser evidence | 成功的规范化输入不会重复；相同失败只允许原样再试一次 |
 
-失败的 observation，或输出超过 48,000 字节的 observation，可以原样重试一次。受追踪的读取会在执行前以原子方式 claim 当前 revision、digest、一次性 token、重放状态与 freshness。只有尚未开始的预约会在 30 秒后过期；已 claim 的读取会保持 active，直到同步结果被记录或用户明确取消，因此时间经过本身不会解除 mutation 或最终验证。源代码 mutation 会把所有完成来源变为 stale 或 ready，因为证据可能已经失效。Hook 状态变更使用跨平台锁，因此并行结果记录不会遗留错误的“running” observation。证据 ledger 以确定性的 SHA-256 哈希键保存 id，只存储 kind、状态、revision、尝试次数和 digest 等不含内容的元数据；不会保存原始 evidence id、描述、条件、命令正文或输出，但这并不为可预测的短 id 提供保密性。
+## 自动验证预算
 
-这些是工具层面的 guardrail，不是推理 token 上限，也不是操作系统 sandbox。Hook 无法检查隐藏推理、识别只写在自然语言中的计划、观察未匹配的 connector 或 hosted tools、证明是否遵守语义边界，或阻止被允许的自定义代码在内部隐藏多项操作。
+Click 根据当前风险和仓库证据选择最小且足够的验证规模。用户把该规模作为 contract 的一部分批准。
 
-### 结构化能力
+| 规模 | 典型用途 | 自动上限 |
+| --- | --- | ---: |
+| `quick` | 小型、局部、可逆的变更 | 1 unit |
+| `focused` | 普通且边界清晰的功能或修复 | 4 units |
+| `full` | 支付、认证、删除、迁移、公共 contract 或跨边界并发 | 10 units |
 
-`inspect`、`mutate`、`service` 和显式 evidence completion 使用协议版本 `1`；`verify` 使用协议版本 `2`，以便每项检查都能绑定声明的 `evidence_id`。所有 argv capability 都将可执行程序与每个参数分离。获准的 argv 数组会在新的 POSIX session 或 Windows process group 中以 `shell=False` 运行，因此无法在请求中隐藏 pipeline、redirection、命令替换或 shell wrapper，而且子进程发往 group 的 signal 无法触及 Codex 父 group。
+一项 `targeted` check 花费 1 unit，`broad` 为 3，`deep` 为 5。这些数值是上限，不是目标。
+
+证据可以来自 local `argv` check，也可以来自显式声明的 Browser、hosted、manual 或 existing source。`argv` source 只能通过关联 local runner 的真实成功完成。non-argv completion 是显式 attestation；Hook 会记录已批准 source 与当前 revision，但不会独立证明 matcher 外部执行或人工步骤确实发生。
+
+## 结构化 capability
+
+Click 将可执行程序与参数分离，并使用结构化 capability 路径：
 
 ```text
 click-gate inspect '{"version":1,"commands":[["git","status","--short"],["sed","-n","1,160p","src/app.py"]]}'
@@ -245,139 +202,59 @@ click-gate mutate '{"version":1,"argv":["python3","scripts/generate.py","--targe
 click-gate service '{"version":1,"action":"start","argv":["python3","-m","http.server","4173","--bind","127.0.0.1"]}'
 click-gate service '{"version":1,"action":"stop"}'
 click-gate evidence '{"version":1,"evidence_id":"E-browser"}'
+click-gate verify '{"version":2,"checks":[{"evidence_id":"E1","argv":["python3","-m","pytest","tests/test_cancellation.py"],"class":"targeted"}]}'
 ```
 
-`inspect` 只接受 Hook 限定的只读操作。只读可执行程序必须使用 bare name；带分隔符的名称、Windows drive-prefix 名称、仓库内的 PATH shadow，以及解析到仓库的 symlink 都会 fail closed。边界是最近的上级 Git 仓库；不在 Git 中时则是当前工作目录。识别出的直接读取会改写到无 shell 的 runner，删除 PATH 中的空项、相对路径和仓库项，再执行解析后的绝对程序；读取子进程还会删除 `LD_*`、`DYLD_*`、`GCONV_PATH`、`LOCPATH` 等 loader 注入变量，Git 读取另外忽略 `GIT_*` 与 system/global Git config。`mutate` 在执行前原子 claim 已批准状态、准确 digest、一次性 token、重放状态和启动前过期状态。claim 之后，它会保持 active，直到记录结果或用户取消，不会只因时间经过就允许并行 runner。所有有状态 runner 都携带 canonical `gate-state` root 和 state path，而不信任环境中的 `PLUGIN_DATA`。长时服务器使用 `service`；start runner 与 detached supervisor 在 spawn 前分别完成 digest-bound one-use claim，然后只管理准确的子进程组。格式错误的请求、shell interpreter 和 `pkill` 等直接 process-control 名称仍会 fail closed。Click 是 workflow guardrail，而不是操作系统 sandbox；它不保护 secret、network、外部路径、仓库外已接受程序被同一用户并发替换，或获准程序内部隐藏的行为。精确 schema 和执行边界请参阅[能力协议](skills/click/references/capability-protocol.md)。
+识别出的读取受 Hook 的只读 capability 策略约束。准确 schema、可信可执行程序规则、无 shell 执行、snapshot、claim 与 process 边界请参阅[能力协议](skills/click/references/capability-protocol.md)。
 
-SSH Git 读取是 **Experimental，并且只支持远端 POSIX shell**。它只允许受限的 `git status`、`git rev-parse HEAD`、`git merge-base` 和 `git remote get-url`，不接受用户提供的 SSH option。它要求 host key 已知，关闭交互式 password、host-key 更新、forwarding、local command 和 TTY，并通过 connection 与 keepalive 限制快速失败。未知 host、非 POSIX 远端 shell 和无响应 server 都会 fail closed。这不是通用远程执行器或安全 sandbox。
+Click 是 **workflow guardrail**，不是 OS 安全 sandbox。
 
-## 自动验证预算
+## Google Antigravity 适配器 — 实验性
 
-Click 根据当前风险和仓库证据选择最小且足够的规模。用户会把它作为契约的一部分批准，不会出现第二次预算提示。
+此仓库还可以生成一个独立的 Google Antigravity 插件，它与 Click 共享 contract 状态机、evidence ledger、验证预算和 shell-free runner。
 
-每个证据源只在 `verification.evidence` 中声明一次，包含 id、类型化的 `kind` 和说明。每个 `done_when` 条件通过 `primary_evidence` 引用一个充分且成本最低的证据 id；一个 id 可以覆盖多个条件。Click 优先复用当前 revision 仍然有效的证据和范围最窄的自动检查；只有更便宜的来源无法证明条件时，才使用浏览器、人工、hosted、完整 suite 或耗时的 end-to-end 证据。它不会通过另一个界面重复证明自动检查已经证明的结果，并会在所有声明来源都针对当前 revision 完成且没有受管服务仍处于活动状态后立即停止。任一 mutation 都会使这些完成状态失效。
-
-Hook 不再把“本地 final batch 成功”当作所有契约的固定完成条件。`argv` 来源由真实运行结果逐 id 记录；只包含 Browser、hosted、manual 或 existing 来源的契约不需要为了形式再运行一个空洞的本地检查。语义上的充分性仍由 Skill 和 grader 判断。Hook 会结构化计量标准 Browser MCP 路径：只有一个被引用证据源的 `kind` 为 `browser` 时才允许串行调用，并会把代码的换行、首尾空白以及 timeout 等非语义元数据规范化后判断输入是否相同。成功输入不会重跑；相同失败只允许重试一次；仍未满足证据的不同输入可以继续。普通流程不再有三次调用、90 秒总量上限，但单次 tool timeout 不得超过 30 秒、明确 wait 不得超过五秒，活动契约最多保留 256 个唯一输入的哈希状态。一个输入成功后，即使另一个输入失败，来源的 `observed` 状态也不会倒退。之后用 `click-gate evidence` 把该 id finalize 为 current/passed。
-
-| 规模 | 典型用途 | 自动上限 |
-| --- | --- | ---: |
-| `quick` | 小型、局部、可逆的变更 | 1 unit |
-| `focused` | 普通且边界明确的功能或修复 | 4 units |
-| `full` | 支付、认证、删除、迁移、公共契约或跨边界并发 | 10 units |
-
-一项 `targeted` 检查花费 1 unit，`broad` 花费 3，`deep` 花费 5。提交的值不会被直接信任为成本：Hook 会先识别 runner，再估算实际范围。一个明确文件或测试节点可以是 targeted；`-k` 或正则筛选、多个文件或 package、目录以及完整套件至少是 broad。一个明确的集成或安全测试节点是 broad，而完整的集成或安全套件是 deep。Hook 会在计算总量前自动提高被低报的检查等级。这些数值是上限，不是目标。
-
-每项 `argv` 检查都必须通过 `evidence_id` 指向一个已声明且 `kind: "argv"` 的来源。每个 batch 可以只覆盖尚未完成来源的一个非空子集；同一个 id 第一次提交时会锁定规范化后的准确检查集合和成本，后续 batch 的累计预约仍必须符合契约规模。同一个 id 需要多项检查时，这些条目必须相邻：
-
-```text
-click-gate verify '{"version":2,"checks":[{"evidence_id":"E1","argv":["python3","-m","unittest","discover","-s","tests","-q"],"class":"broad"},{"evidence_id":"E2","argv":["git","diff","--check"],"class":"targeted"}]}'
+```bash
+python3 scripts/build_antigravity_distribution.py
+agy plugin install ./dist/antigravity
 ```
 
-Hook 会验证 id、kind 和 class，在不使用 shell 的情况下执行已接受的 batch，并按来源记录真实退出码；部分失败不会把其他来源的成功抹掉。对于 Python，只允许明确的 pytest、unittest 和 coverage 模块 runner，包括 Windows 的 `py -3 -m ...`；Python `-c` 和直接执行 Python 脚本会被拒绝。指定一个准确文件的 `node --check`、`node --test`，以及 `uv run pytest`、`npm run lint`、`npm run build`、`ruff check`、`mypy`、`tsc --noEmit`、`cargo check`、`cargo clippy` 和 `go vet`，会被识别并按推断范围计费。项目级 `node --test` 是 broad，Node eval/print 不属于验证能力。旧版 version `1` verify 和 shell-string `commands` batch 会被拒绝，同时给出迁移提示。失败来源可因临时故障原样重试一次；之后必须先进行范围内 mutation。后续 mutation 会使之前的成功结果 stale；即使树碰巧相同，也不会把旧证据自动提升到新 revision。
+Antigravity IDE 用户也可以把 `dist/antigravity` 复制到工作区的 `.agents/plugins/click`，或复制到全局 `~/.gemini/config/plugins/click`。
 
-已经成功的同一检查再次提交时，Click 会在启动进程前先查看 receipt。只有活动 mutation revision、契约 digest、检查 digest、预约成本、Git root、受保护 Git tree、Hook 在签发 runner 前固定的执行 context 和可执行文件内容指纹全部相同，才会把 runner 替换成 `echo` 并跳过重跑。Click 用 keyed content-free hash 绑定准备好的每个环境键和值；runner 要求这些值全部一致，将 launcher 新增的值排除在 child check 之外，然后为 resolved target 建立指纹，并在执行前固定所选择的 launcher 路径。这样既保留 virtual environment 与 shim 语义，也让结构化 SSH hardening 和 remote URL redaction 在固定路径后继续生效。因此 macOS 或 Windows shell bookkeeping 不会造成错误重跑，而准备值或可执行文件变化会 fail closed。非 Git 工作区、缺失 receipt 或任一字段不同都会真正重新执行检查。该优化只覆盖 Git 可见的 tracked 与 non-ignored untracked 代码状态；它不能证明 ignored dependency、外部服务或人工状态没有变化，也绝不会复活不同 revision 的 stale 证据。
+Antigravity 的 Hook contract 与 Codex 不同。native file/search 和其他 MCP、Skill 工具仍可使用，但目前还不支持 cross-tool 去重和 Browser evidence。准确限制请参阅 [`platforms/antigravity/README.md`](platforms/antigravity/README.md)。
 
-Browser 先经过一次成功的受计量 session，再显式 finalize 分配给它的 id：
+## 更新现有安装 — v0.24.4
 
-```text
-click-gate evidence '{"version":1,"evidence_id":"E-browser"}'
+当前版本是 **v0.24.4**。
+
+```bash
+codex plugin marketplace upgrade click
+codex plugin add click@click
 ```
 
-`hosted`、`manual` 和 `existing` 来源也使用同一命令记录完成，但这是显式 attestation，不是 Hook 对外部事实的独立验证。Hook 只能确认声明的 id、kind、当前 revision 和调用顺序，无法检查 hosted 系统的真实状态、人工是否真的完成步骤，或 existing 证据在语义上是否仍然充分。`kind: "argv"` 绝不允许通过 attestation 完成；它必须由 `click-gate verify` 实际执行并记录结果。
+重启 ChatGPT 桌面应用并检查、信任更新后的 Hook。不要复用旧安装留下的待执行 runner 命令；让更新后的 Hook 重新签发。
 
-只有尚未 claim 的 verification 预约可以在过期后重试；已经 claim 的 batch 会保持 running，直到记录结果或用户取消。在 Git worktree 中，runner 会在 batch 前快照 tracked 内容以及既有的 **non-ignored untracked** 内容；如果无法建立初始快照，则不会执行任何 check。受保护内容变化或出现新的 non-ignored untracked 路径时，batch 会 stale 失败并推进 mutation revision，而不是记录错误成功。预期产物应被 Git ignore，或在已批准的 mutation 阶段生成。Git-ignored 路径以及外部 dependency、service 不属于该 tree digest。在 Git 之外，内容差异守卫和 receipt 复用都不可用；argv 验证、无 shell 执行和 revision 状态仍然有效。
-
-最低 class 推断可以防住简单的低报。未知但看起来用于验证的 wrapper 名称会被保守地计为 `deep`，无法识别的命令会被拒绝，但一个获准程序仍可能在内部隐藏昂贵工作。这里不是安全或资源 sandbox，也不能证明所选测试在语义上足够。
-
-## 最小设计仍保护重要事项
-
-最小设计去掉的是仪式，不是必要的防护。
-
-| 关注点 | 相关时契约会保护的内容 |
-| --- | --- |
-| 并发 | 竞态行为、重复执行、幂等性 |
-| 状态 | 有效转换、持久化点、所有权 |
-| 失败 | 部分失败、重试、恢复、外部错误 |
-| 安全 | 身份认证、授权、密钥、隐私边界 |
-| 兼容性 | 现有 API、数据、状态和用户可见行为 |
-
-重要条件属于 `must_hold`；具体的状态或失败含义属于可选的 `build.semantics`。证据源在 `verification.evidence` 中声明，可观察的完成条件从 `verification.done_when` 引用其 id。Hook 会保护契约结构、批准顺序、digest 一致性、可见循环和可见的验证范围，但它本身无法证明实现的架构正确性或语义忠实度。
-
-更准确地说，Click 不会从语义上判断一个新微服务、queue 或 abstraction 是否属于过度设计。Skill 和 semantic grader 倾向于选择最小且有证据支持的设计；Hook 则阻止经常导致设计膨胀的重复规划、全仓库重新发现和重复验证循环。产品声明仅限于这个可观察的执行边界。
-
-## Click 适合谁
-
-Click 面向两类用户：
-
-- 厌倦高能力模型反复规划、探索仓库和过度验证的用户；
-- 构建 MVP、内部工具、自动化和边界清晰功能，并希望最小设计后连续实现的人。
-
-它尤其适合：
-
-- 必须保持现有 API 的 brownfield 功能；
-- 幂等性、并发、状态转换或失败恢复；
-- 边界清晰且影响较大的迁移或其他变更；
-- 需要另一个人或 agent 实现同一含义的交接；
-- 希望少量规划后连续实现的 MVP、内部工具或自动化。
-
-对于微小、显而易见、可逆或探索性变更，如果不需要持久的批准边界，Manual 模式或按 turn bypass 通常更合适。对于法律、受监管、安全关键或运营上不可逆的工作，Click 不能替代专家审查、授权或部署控制。
+详细发布历史见 [RELEASE_NOTES.md](RELEASE_NOTES.md)。
 
 ## 证据与诚实边界
 
-发布 v0.24.0 前，确定性 suite 必须覆盖持久模式、跨 turn 批准、active-contract 锁、读取与 plan 防循环、verify v2 的 evidence-id 绑定、逐来源当前 revision 完成、首次成功的全仓库清单许可、逐 evidence 的累计预约、当前 revision 的准确 receipt 复用、Browser 输入去重、非 argv attestation 边界、受管服务器的一次性 launch claim 与清理、排除仓库路径的可执行程序解析、state-root binding、runner 执行前 claim、加固的 Git 读取、Git snapshot fail-closed、process 隔离、验证期间 workspace mutation 检测、共享状态存储、process mechanics 与不保存内容的 evidence-ledger 边界、源代码与分发版本的 sibling-only 启动、分发一致性和仓库策略。必需 CI 已配置为在 Linux、macOS 和 Windows 上运行该 suite；Ubuntu 还会验证 plugin、marketplace、Click/Fix Skill、Python compilation 和 whitespace 错误。
+Click 只在 Hook 真正可以观察并强制执行的范围内做强声明。
 
-仓库还包含用于确定性 fixture 策略审查的 version-18 golden cases 和 semantic grader。这些资料检查契约结构与预期行为，并不测量 runtime 生产力。
+它不会声称 Hook 能够：
 
-这些 gate 只证明可观察的 Hook 与契约行为。在多个无关真实仓库中完成独立测量之前，Click 不会声称能跨项目提高成功率、准确性、速度、token 使用效率或减少过度设计。
+- 检查隐藏推理或只写在自然语言中的计划；
+- 观察所有 matcher 外的 connector 或 hosted tool；
+- 单独证明语义边界合规或架构正确性；
+- 独立证明 matcher 外部人工或外部 attestation 真实发生；
+- 阻止已允许自定义程序内部隐藏多项操作；
+- 替代专家审查、授权、部署控制或 OS sandbox。
 
-Click 并不声称自己是该领域的第一个或唯一工作流。它与 spec-driven、autonomous-loop 和 approval-gated 工具有重叠；其刻意收窄的重点是：一次持久选择、一份精简契约、一次批准、One-shot 实现、可观察的防循环守卫，以及只使用必要完成证据的预算。
+仓库的确定性测试 suite 会在 Linux、macOS 和 Windows 上检查可观察的 Hook 与 contract 行为。在多个无关真实仓库中完成独立测量之前，Click 不声称能在项目层面提高成功率、准确性、速度、token 使用效率或减少过度设计。
 
-[COMMUNITY_POSTS.md](COMMUNITY_POSTS.md) 中提供了可编辑的开发者社区发布文案。
+## 相关方案
 
-<details>
-<summary>仓库结构与本地验证</summary>
+Click 与 spec-driven、autonomous-loop、approval-gated 工具有部分重叠，但刻意保持狭窄：**一份精简 contract、一次批准、一条实现边界、可观察的 anti-loop guard，以及一个有界 evidence commitment。**
 
-```text
-.codex-plugin/plugin.json             插件 manifest
-.agents/plugins/marketplace.json      GitHub marketplace 条目
-skills/click/                         One-shot 设计与构建 Skill
-skills/click/references/modes.md      持久模式与代码审查行为
-skills/click/references/capability-protocol.md  结构化 runner schema
-skills/fix/                           精简修复 Skill
-hooks/click_state.py                  状态路径、原子持久化与锁
-hooks/click_process.py                无 shell 的进程执行、隔离与终止
-hooks/click_evidence.py               不保存内容的 evidence registry 与 ledger 机制
-hooks/click_gate.py                   契约策略、capability 编排、防循环与预算
-hooks/hooks.json                      生命周期 Hook 配置
-evals/                                Golden cases 和 semantic grader
-tests/                                确定性 Hook、grader 和策略测试
-scripts/validate_distribution.py     仓库自带的 release validator
-COMMUNITY_POSTS.md                    可编辑的英文和韩文发布文案
-LICENSE                               MIT License
-```
-
-```bash
-python3 scripts/validate_distribution.py
-python3 -m compileall -q hooks evals scripts tests
-python3 -m unittest discover -s tests -v
-git diff --check
-```
-
-</details>
-
-<details>
-<summary>相关方案</summary>
-
-| 项目 | 重叠部分 | Click 更窄的重点 |
-| --- | --- | --- |
-| [GitHub Spec Kit](https://github.com/github/spec-kit) | 规格、规划、任务、实现 | 使用一份精简契约和一次批准，而不是持久的多命令规格流程 |
-| [OpenSpec](https://github.com/Fission-AI/OpenSpec) | AI 辅助编码前先达成一致 | 不使用项目内规格存储；Hook 只在目标仓库外保存 digest 和不含正文的 lifecycle metadata |
-| [Kiro Specs](https://kiro.dev/docs/cli/v3/specs/) | 需求、设计、任务、验证执行 | 审阅一份完整契约后进行 One-shot 实现 |
-| [Agentic SDLC Codex Plugin](https://github.com/aantenore/agentic-sdlc-codex-plugin) | hash 绑定的提案与批准 | 使用更小的编码前边界，而不是更广泛的 SDLC 治理 |
-
-这是有限范围的比较，不是详尽的新颖性检索。
-
-</details>
+社区发布文案见 [COMMUNITY_POSTS.md](COMMUNITY_POSTS.md)。
 
 ## 许可证
 
