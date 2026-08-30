@@ -6,6 +6,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import secrets
 import shutil
 import subprocess
 import sys
@@ -59,13 +60,13 @@ class RunnerStateRecoveryTests(unittest.TestCase):
         }
         canonical = json.dumps(request, sort_keys=True, separators=(",", ":"))
         request_digest = hashlib.sha256(canonical.encode()).hexdigest()
-        runner_token = "runner-recovery-token"
+        runner_token = secrets.token_urlsafe(32)
         now = int(time.time())
         state: dict[str, object] = {
             "state_schema_version": 2,
             "status": "approved",
-            "contract_digest": "a" * 64,
-            "contract_id": "ctr_" + "b" * 32,
+            "contract_digest": hashlib.sha256(b"recovery-contract").hexdigest(),
+            "contract_id": "ctr_" + hashlib.md5(b"recovery-contract").hexdigest(),
             "mutation": {
                 "status": "running",
                 "request_digest": request_digest,
@@ -80,7 +81,6 @@ class RunnerStateRecoveryTests(unittest.TestCase):
         }
         state_path = CLICK_STATE.contract_path(self.event)
         CLICK_STATE.write_json(state_path, state)
-        bound_state = Path(str(state_path.resolve(strict=True)))
         bound_root = Path(str(state_path.parent.resolve(strict=True)))
         encoded_request = base64.urlsafe_b64encode(
             json.dumps(request, separators=(",", ":")).encode()
@@ -172,7 +172,7 @@ class RunnerStateRecoveryTests(unittest.TestCase):
                 bound_state,
                 bound_root,
                 digest,
-                "wrong-runner-token",
+                secrets.token_urlsafe(32),
                 encoded_request,
             )
         )
