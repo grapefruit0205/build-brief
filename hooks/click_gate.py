@@ -5309,10 +5309,20 @@ def _managed_observation_path(path: Path) -> bool:
 def _service_snapshot(path: Path, service_id: str) -> dict[str, Any] | None:
     if not _managed_contract_path(path):
         return None
-    try:
-        state = json.loads(path.read_text(encoding="utf-8"))
-    except (FileNotFoundError, json.JSONDecodeError, OSError):
-        return None
+    state: Any = None
+    for attempt in range(5):
+        try:
+            state = json.loads(path.read_text(encoding="utf-8"))
+            break
+        except PermissionError:
+            # Windows may briefly deny a reader while another process replaces
+            # the state file. Do not mistake that sharing collision for a
+            # missing or stopped managed service.
+            if attempt == 4:
+                return None
+            time.sleep(0.02)
+        except (FileNotFoundError, json.JSONDecodeError, OSError):
+            return None
     if not isinstance(state, dict) or state.get("status") != "approved":
         return None
     service = state.get("service")
@@ -5603,7 +5613,11 @@ def _run_service_stop(arguments: list[str]) -> int:
     deadline = time.monotonic() + SERVICE_STOP_TIMEOUT_SECONDS
     while time.monotonic() < deadline:
         snapshot = _service_snapshot(state_path, service_id)
-        if snapshot is None or snapshot.get("status") in {"failed", "idle", "stopped"}:
+        if snapshot is not None and snapshot.get("status") in {
+            "failed",
+            "idle",
+            "stopped",
+        }:
             sys.stdout.write("Click managed service stopped\n")
             return 0
         time.sleep(0.05)

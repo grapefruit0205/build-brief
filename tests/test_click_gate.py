@@ -6250,6 +6250,54 @@ class ClickGateTests(unittest.TestCase):
             time.sleep(0.05)
         self.assertEqual(state["service"]["status"], "stopped")
 
+    def test_service_snapshot_retries_windows_sharing_collision(self) -> None:
+        self.approve_contract()
+        state_path = next(
+            (self.plugin_data / "gate-state").glob("session-contract-*.json")
+        )
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        state["service"] = {
+            **CLICK_GATE._fresh_service_state(),
+            "status": "stopped",
+            "service_id": "service-1",
+        }
+        state_path.write_text(json.dumps(state), encoding="utf-8")
+        original_read_text = Path.read_text
+
+        def transient_read(path: Path, *args: object, **kwargs: object) -> str:
+            if path == state_path and transient_read.attempts == 0:
+                transient_read.attempts += 1
+                raise PermissionError("sharing violation")
+            return original_read_text(path, *args, **kwargs)
+
+        transient_read.attempts = 0
+        with (
+            mock.patch.dict(
+                CLICK_GATE.os.environ,
+                {"PLUGIN_DATA": str(self.plugin_data)},
+            ),
+            mock.patch.object(Path, "read_text", transient_read),
+        ):
+            snapshot = CLICK_GATE._service_snapshot(state_path, "service-1")
+        self.assertIsNotNone(snapshot)
+        assert snapshot is not None
+        self.assertEqual(snapshot["status"], "stopped")
+
+    def test_service_stop_does_not_treat_unreadable_state_as_stopped(self) -> None:
+        with (
+            mock.patch.object(
+                CLICK_GATE,
+                "_service_snapshot",
+                side_effect=[None, {"status": "stopped"}],
+            ) as snapshot,
+            mock.patch.object(CLICK_GATE.time, "sleep"),
+        ):
+            result = CLICK_GATE._run_service_stop(
+                [str(self.plugin_data / "state.json"), "service-1"]
+            )
+        self.assertEqual(result, 0)
+        self.assertEqual(snapshot.call_count, 2)
+
     def test_verification_root_main_py_fails_stale(self) -> None:
         self.assertTrue(CLICK_GATE._new_untracked_is_suspicious("main.py"))
         self.assert_verification_new_path_behavior("main.py", suspicious=True)
