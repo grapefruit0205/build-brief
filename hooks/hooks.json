@@ -47,7 +47,7 @@
             "type": "command",
             "command": "python3 \"${PLUGIN_ROOT}/hooks/click_gate.py\" session-end",
             "commandWindows": "py -3 \"%PLUGIN_ROOT%\\hooks\\click_gate.py\" session-end",
-            "timeout": 7
+            "timeout": 3
           }
         ]
       }

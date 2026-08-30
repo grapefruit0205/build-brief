@@ -59,17 +59,17 @@ class DistributionValidationTests(unittest.TestCase):
                     self.assertIsInstance(json.loads(result.stdout), dict)
 
     def test_release_notes_allow_only_the_explicit_next_minor_candidate(self) -> None:
-        stable = "## v0.24.0 — 2026-08-30\n"
-        self.assertEqual(_release_notes_error(stable, "0.24.0"), "")
-        current = "## Unreleased v0.25 candidate — evidence\n\n## v0.24.0\n"
-        self.assertEqual(_release_notes_error(current, "0.24.0"), "")
+        stable = "## v0.24.1 — 2026-08-30\n"
+        self.assertEqual(_release_notes_error(stable, "0.24.1"), "")
+        current = "## Unreleased v0.25 candidate — evidence\n\n## v0.24.1\n"
+        self.assertEqual(_release_notes_error(current, "0.24.1"), "")
         for invalid in (
-            "## Unreleased — evidence\n\n## v0.24.0\n",
-            "## Unreleased v0.26 candidate\n\n## v0.24.0\n",
-            "## Unreleased v0.25 candidate\n## Unreleased v0.25 candidate — two\n## v0.24.0\n",
+            "## Unreleased — evidence\n\n## v0.24.1\n",
+            "## Unreleased v0.26 candidate\n\n## v0.24.1\n",
+            "## Unreleased v0.25 candidate\n## Unreleased v0.25 candidate — two\n## v0.24.1\n",
         ):
             with self.subTest(invalid=invalid):
-                self.assertIn("next-minor candidate", _release_notes_error(invalid, "0.24.0"))
+                self.assertIn("next-minor candidate", _release_notes_error(invalid, "0.24.1"))
 
 
 if __name__ == "__main__":
