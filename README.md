@@ -65,7 +65,7 @@ deduplicated. Browser evidence is not currently supported. See
 [`platforms/antigravity/README.md`](platforms/antigravity/README.md) for the
 exact limits instead of assuming full host parity.
 
-## Update to v0.22.0
+## Update to v0.23.0
 
 If Click is already installed, explicitly refresh its Git marketplace snapshot and reinstall the plugin to load this release:
 
@@ -74,7 +74,7 @@ codex plugin marketplace upgrade click
 codex plugin add click@click
 ```
 
-Restart the ChatGPT desktop app, review and trust the updated Click Hook, and start a new task. Existing mode preferences remain outside the target repository. v0.22.0 hardens the experimental Antigravity launcher boundary and moves shared state-storage primitives into `click_state.py`; it does not change the contract or evidence schema. Direct `click-gate` callers continue to use verification protocol version `2`, include an approved argv `evidence_id` on every check, pass only the emitted `contract_id`, and use structured `done_when` evidence references. Do not reuse a pending runner command created by an older installation; let the updated Hook issue a fresh rewritten command.
+Restart the ChatGPT desktop app, review and trust the updated Click Hook, and start a new task. Existing mode preferences remain outside the target repository. v0.23.0 moves shared shell-free process execution, child-group isolation and termination, and bounded output copying into `click_process.py`; executable trust, Git/SSH policy, contracts, and evidence semantics remain in the gate. Direct `click-gate` callers continue to use verification protocol version `2`, include an approved argv `evidence_id` on every check, pass only the emitted `contract_id`, and use structured `done_when` evidence references. Do not reuse a pending runner command created by an older installation; let the updated Hook issue a fresh rewritten command.
 
 You can later say “Set Click to Always ON” or “Set Click to Manual.” Those preferences persist outside the target repository. To bypass Click for exactly one turn, make the first line of that user prompt either `@Click bypass` or the autocomplete form `[@Click](plugin://click@click) bypass`; the Hook authorizes one same-turn `click-gate bypass` and keeps any active contract intact. Use the corresponding `cancel` form to authorize one same-turn `click-gate cancel` and discard the active contract. The `@Click` label and action are case-insensitive, but the plugin URI must match exactly and the directive line cannot contain extra text. The task may continue on later lines. Neither authorization is reusable or carries across turns. Click does not place preference or contract files in your project.
 
@@ -314,7 +314,7 @@ Manual mode or a per-turn bypass is usually better for tiny, obvious, reversible
 
 ## Evidence and honest limits
 
-The v0.22.0 source is release-gated by the deterministic suite. It covers persistent modes, distinct-turn approval, active-contract locking, read and plan anti-loops, evidence-bound argv verification, per-source current-revision completion, Browser observe-then-finalize behavior, explicit non-argv attestation limits, managed-service one-use launch claims and cleanup, repository-excluded executable resolution, state-root binding, pre-execution runner claims, hardened Git inspection, fail-closed Git snapshots, process isolation, verification-time workspace mutation detection, the shared state-storage boundary, sibling-only source/distribution startup, distribution consistency, and repository policy. Required CI runs the suite on Linux, macOS, and Windows; Ubuntu also validates the plugin, marketplace, Click/Fix skills, Python compilation, and whitespace errors.
+The v0.23.0 source is release-gated by the deterministic suite. It covers persistent modes, distinct-turn approval, active-contract locking, read and plan anti-loops, evidence-bound argv verification, per-source current-revision completion, Browser observe-then-finalize behavior, explicit non-argv attestation limits, managed-service one-use launch claims and cleanup, repository-excluded executable resolution, state-root binding, pre-execution runner claims, hardened Git inspection, fail-closed Git snapshots, process isolation, verification-time workspace mutation detection, the shared state-storage and process-mechanics boundaries, sibling-only source/distribution startup, distribution consistency, and repository policy. Required CI runs the suite on Linux, macOS, and Windows; Ubuntu also validates the plugin, marketplace, Click/Fix skills, Python compilation, and whitespace errors.
 
 The repository also includes version-18 golden cases and a semantic grader for deterministic fixture-based policy review. These artifacts check contract shape and expected behavior; they are not runtime productivity measurements.
 
@@ -335,7 +335,8 @@ skills/click/references/modes.md      Persistent mode and code-review behavior
 skills/click/references/capability-protocol.md  Structured runner schemas
 skills/fix/                           Compact repair Skill
 hooks/click_state.py                  State paths, atomic persistence, and locking
-hooks/click_gate.py                   Contract, capability, anti-loop, and budget semantics
+hooks/click_process.py                Shell-free process execution, isolation, and termination
+hooks/click_gate.py                   Contract policy, capability orchestration, anti-loop, and budgets
 hooks/hooks.json                      Lifecycle Hook configuration
 evals/                                Golden cases and semantic grader
 tests/                                Deterministic Hook, grader, and policy tests

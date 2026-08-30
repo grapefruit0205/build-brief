@@ -60,7 +60,7 @@ launcher 只接受一条不含展开的 Bash 命令；命令串联、重定向�
 [`platforms/antigravity/README.md`](platforms/antigravity/README.md)了解准确
 限制，不要假设宿主功能完全等价。
 
-## 更新到 v0.22.0
+## 更新到 v0.23.0
 
 如果已经安装 Click，需要明确刷新 Git marketplace 快照并重新安装插件，才能加载本版本。
 
@@ -69,7 +69,7 @@ codex plugin marketplace upgrade click
 codex plugin add click@click
 ```
 
-重新启动 ChatGPT 桌面应用，检查并信任更新后的 Click Hook，然后开始一个新任务。现有模式偏好仍保存在目标仓库之外。v0.22.0 加固了实验性 Antigravity launcher 边界，并把共享状态存储 primitive 分离到 `click_state.py`，但不改变契约或证据 schema。直接调用 `click-gate` 时，继续使用 verify 协议版本 `2`，为每项检查提供已批准的 argv `evidence_id`，让 `pass` 只传递已签发的 `contract_id`，并使用结构化 `done_when` 证据引用。不要重复使用旧安装留下的待执行 runner 命令；应让更新后的 Hook 签发一条新命令。
+重新启动 ChatGPT 桌面应用，检查并信任更新后的 Click Hook，然后开始一个新任务。现有模式偏好仍保存在目标仓库之外。v0.23.0 把共享的无 shell 进程执行、子进程组隔离与终止以及有界输出复制移入 `click_process.py`；可执行文件信任、Git/SSH 策略、契约和证据语义仍留在 gate 中。直接调用 `click-gate` 时，继续使用 verify 协议版本 `2`，为每项检查提供已批准的 argv `evidence_id`，让 `pass` 只传递已签发的 `contract_id`，并使用结构化 `done_when` 证据引用。不要重复使用旧安装留下的待执行 runner 命令；应让更新后的 Hook 签发一条新命令。
 
 之后你可以说“Set Click to Always ON”或“Set Click to Manual”，这些偏好会持久保存在目标仓库之外。若只想绕过一个 turn，请把用户提示的第一行写成 `@Click bypass`，或使用自动补全形式 `[@Click](plugin://click@click) bypass`；Hook 只授权同一 turn 的一次 `click-gate bypass`，并保留活动契约。要丢弃活动契约，请使用对应的 `cancel` 形式来授权一次 `click-gate cancel`。`@Click` 标签和动作不区分大小写，但 plugin URI 必须完全匹配，指令行不能包含其他文字；实际任务可以从第二行继续。两种授权都不能重复使用或带到下一个 turn。Click 不会把偏好或契约文件放进你的项目。
 
@@ -318,7 +318,7 @@ Click 面向两类用户：
 
 ## 证据与诚实边界
 
-当前公开版本 v0.22.0 使用确定性 suite 作为 release gate，验证持久模式、跨 turn 批准、active-contract 锁、读取与 plan 防循环、verify v2 的 evidence-id 绑定、逐来源 completion ledger、Browser observe-then-finalize、非 argv attestation 边界、受管服务器的一次性 launch claim 与清理、排除仓库路径的可执行程序解析、state-root binding、runner 执行前 claim、加固的 Git 读取、Git snapshot fail-closed、process 隔离、验证期间 workspace mutation 检测、共享状态存储边界、源代码与分发版本的 sibling-only 启动、分发一致性和仓库策略。
+当前公开版本 v0.23.0 使用确定性 suite 作为 release gate，验证持久模式、跨 turn 批准、active-contract 锁、读取与 plan 防循环、verify v2 的 evidence-id 绑定、逐来源 completion ledger、Browser observe-then-finalize、非 argv attestation 边界、受管服务器的一次性 launch claim 与清理、排除仓库路径的可执行程序解析、state-root binding、runner 执行前 claim、加固的 Git 读取、Git snapshot fail-closed、process 隔离、验证期间 workspace mutation 检测、共享状态存储与 process mechanics 边界、源代码与分发版本的 sibling-only 启动、分发一致性和仓库策略。
 
 仓库还包含用于确定性 fixture 策略审查的 version-18 golden cases 和 semantic grader。这些资料检查契约结构与预期行为，并不测量 runtime 生产力。
 
@@ -339,7 +339,8 @@ skills/click/references/modes.md      持久模式与代码审查行为
 skills/click/references/capability-protocol.md  结构化 runner schema
 skills/fix/                           精简修复 Skill
 hooks/click_state.py                  状态路径、原子持久化与锁
-hooks/click_gate.py                   契约、capability、防循环和预算语义
+hooks/click_process.py                无 shell 的进程执行、隔离与终止
+hooks/click_gate.py                   契约策略、capability 编排、防循环与预算
 hooks/hooks.json                      生命周期 Hook 配置
 evals/                                Golden cases 和 semantic grader
 tests/                                确定性 Hook、grader 和策略测试

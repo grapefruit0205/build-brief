@@ -60,7 +60,7 @@ launcher를 사용합니다. launcher는 확장 없는 단일 Bash 명령만 허
 가정하지 말고 정확한 제한은
 [`platforms/antigravity/README.md`](platforms/antigravity/README.md)를 확인하세요.
 
-## v0.22.0으로 업데이트
+## v0.23.0으로 업데이트
 
 Click을 이미 설치했다면 Git 마켓플레이스 스냅샷을 명시적으로 갱신하고 플러그인을 다시 설치해야 이번 버전이 적용됩니다.
 
@@ -69,7 +69,7 @@ codex plugin marketplace upgrade click
 codex plugin add click@click
 ```
 
-ChatGPT 데스크톱 앱을 다시 시작하고 갱신된 Click Hook을 검토해 신뢰한 뒤 새 작업을 시작합니다. 기존 모드 설정은 대상 저장소 밖에 그대로 유지됩니다. v0.22.0은 실험적인 Antigravity launcher 경계를 강화하고 공통 state 저장 primitive를 `click_state.py`로 분리하지만 계약이나 증거 schema는 바꾸지 않습니다. `click-gate`를 직접 호출한다면 계속 verify 프로토콜 버전 `2`를 사용하고 모든 check에 승인된 argv `evidence_id`를 넣으며, `pass`에는 발급된 `contract_id`만 전달하고 `done_when`은 구조화된 증거 참조를 사용합니다. 예전 설치가 만든 실행 대기 중 runner 명령은 재사용하지 말고, 갱신된 Hook이 새 명령을 발급하게 합니다.
+ChatGPT 데스크톱 앱을 다시 시작하고 갱신된 Click Hook을 검토해 신뢰한 뒤 새 작업을 시작합니다. 기존 모드 설정은 대상 저장소 밖에 그대로 유지됩니다. v0.23.0은 공통 shell-free 프로세스 실행, child group 격리·종료, 제한된 출력 복사를 `click_process.py`로 옮기며, 실행 파일 신뢰·Git/SSH 정책·계약·증거 의미는 gate에 그대로 둡니다. `click-gate`를 직접 호출한다면 계속 verify 프로토콜 버전 `2`를 사용하고 모든 check에 승인된 argv `evidence_id`를 넣으며, `pass`에는 발급된 `contract_id`만 전달하고 `done_when`은 구조화된 증거 참조를 사용합니다. 예전 설치가 만든 실행 대기 중 runner 명령은 재사용하지 말고, 갱신된 Hook이 새 명령을 발급하게 합니다.
 
 나중에 “Click을 Always ON으로 설정해줘” 또는 “Click을 Manual로 설정해줘”라고 바꿀 수 있고, 이 설정은 대상 저장소 밖에 유지됩니다. 정확히 한 turn만 우회하려면 사용자 프롬프트 첫 줄에 `@Click bypass` 또는 자동완성 형식인 `[@Click](plugin://click@click) bypass`를 씁니다. Hook은 같은 turn의 `click-gate bypass` 한 번만 승인하고 active 계약은 그대로 보존합니다. active 계약을 버릴 때는 같은 형식의 `cancel` 명령으로 `click-gate cancel` 한 번을 승인합니다. `@Click` 이름과 명령의 대소문자는 구분하지 않지만 plugin URI는 정확히 일치해야 하며, 명령 줄에 다른 문구를 붙일 수 없습니다. 실제 작업 내용은 둘째 줄부터 이어서 쓸 수 있습니다. 두 권한은 재사용하거나 다음 turn으로 가져갈 수 없습니다. Click은 프로젝트 안에 설정이나 계약 파일을 만들지 않습니다.
 
@@ -311,7 +311,7 @@ Click의 핵심 대상은 다음 두 그룹입니다.
 
 ## 근거와 솔직한 한계
 
-현재 공개 릴리스 v0.22.0은 결정적 suite를 release gate로 사용합니다. 영구 모드, turn 분리 승인, active-contract 잠금, 읽기·계획 anti-loop, ID가 결합된 argv 검증, 증거별 현재 revision 완료, Browser 수집 후 finalize, 외부 attestation의 정직한 한계, 관리형 서버 one-use launch claim과 종료, 저장소 제외 실행 파일 해석, state-root binding, 실행 전 runner claim, 강화된 Git 조회, Git snapshot fail-closed, process 격리, 검증 중 workspace 변경 감지, 공통 state 저장 경계, source·배포본의 sibling-only 시작, 배포 일관성, 저장소 정책을 검증 대상으로 둡니다.
+현재 공개 릴리스 v0.23.0은 결정적 suite를 release gate로 사용합니다. 영구 모드, turn 분리 승인, active-contract 잠금, 읽기·계획 anti-loop, ID가 결합된 argv 검증, 증거별 현재 revision 완료, Browser 수집 후 finalize, 외부 attestation의 정직한 한계, 관리형 서버 one-use launch claim과 종료, 저장소 제외 실행 파일 해석, state-root binding, 실행 전 runner claim, 강화된 Git 조회, Git snapshot fail-closed, process 격리, 검증 중 workspace 변경 감지, 공통 state 저장·process mechanics 경계, source·배포본의 sibling-only 시작, 배포 일관성, 저장소 정책을 검증 대상으로 둡니다.
 
 저장소에는 결정적 fixture 기반 정책 검토를 위한 version-18 golden case와 의미 grader도 포함되어 있습니다. 이 자료는 계약 형식과 기대 동작을 검사하며 runtime 생산성을 측정하지 않습니다.
 
@@ -332,7 +332,8 @@ skills/click/references/modes.md      영구 모드와 코드 리뷰 동작
 skills/click/references/capability-protocol.md  구조화 runner schema
 skills/fix/                           축약 수정 Skill
 hooks/click_state.py                  상태 경로·원자적 저장·잠금
-hooks/click_gate.py                   계약·capability·anti-loop·예산 의미 규칙
+hooks/click_process.py                shell-free 프로세스 실행·격리·종료
+hooks/click_gate.py                   계약 정책·capability 조율·anti-loop·예산
 hooks/hooks.json                      라이프사이클 Hook 설정
 evals/                                golden case·의미 grader
 tests/                                Hook·grader·정책 결정적 테스트

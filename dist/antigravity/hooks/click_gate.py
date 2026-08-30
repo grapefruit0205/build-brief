@@ -21,7 +21,6 @@ import re
 import secrets
 import shlex
 import shutil
-import signal
 import subprocess
 import sys
 import tempfile
@@ -31,6 +30,7 @@ from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 if __package__:
+    from . import click_process
     from .click_state import (
         STATE_LOCK_STALE_SECONDS,
         STATE_LOCK_TIMEOUT_SECONDS,
@@ -48,6 +48,7 @@ if __package__:
     )
     from .platform_protocol import CodexOutputAdapter, HookOutputAdapter
 else:  # Executed directly from the bundled hooks directory.
+    import click_process
     from click_state import (
         STATE_LOCK_STALE_SECONDS,
         STATE_LOCK_TIMEOUT_SECONDS,
@@ -64,6 +65,13 @@ else:  # Executed directly from the bundled hooks directory.
         write_json as _write_json,
     )
     from platform_protocol import CodexOutputAdapter, HookOutputAdapter
+
+
+# Compatibility aliases for direct callers and the existing deterministic
+# suite. Runtime process mechanics live in the one-way click_process boundary.
+_copy_limited_output = click_process.copy_limited_output
+_isolated_subprocess_kwargs = click_process.isolated_subprocess_kwargs
+_terminate_managed_child = click_process.terminate_process_group
 
 
 CONTROL_COMMAND = "click-gate"
@@ -4017,18 +4025,6 @@ def _record_observation_result(
     return True
 
 
-def _copy_limited_output(handle: Any, target: Any, remaining: int) -> int:
-    copied = 0
-    while copied < remaining:
-        chunk = handle.read(min(16_384, remaining - copied))
-        if not chunk:
-            break
-        target.write(chunk)
-        target.flush()
-        copied += len(chunk)
-    return copied
-
-
 def _decode_encoded_request(encoded: str, label: str) -> tuple[str, str]:
     try:
         return base64.urlsafe_b64decode(encoded.encode()).decode(), ""
@@ -4238,12 +4234,6 @@ def _execution_argv(argv: list[str]) -> list[str]:
     ]
 
 
-def _isolated_subprocess_kwargs() -> dict[str, Any]:
-    if os.name == "nt":
-        return {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
-    return {"start_new_session": True}
-
-
 def _is_git_remote_output_request(argv: list[str]) -> bool:
     parts = _structured_ssh_parts(argv)
     git_argv = parts[1] if parts is not None else argv
@@ -4303,7 +4293,7 @@ def _execute_argv_commands(
                     )
                     return 2
                 execution_argv[0] = executable
-            result = subprocess.run(
+            result = click_process.run_argv(
                 execution_argv,
                 stdout=subprocess.PIPE if redact else stdout_file,
                 stderr=subprocess.PIPE if redact else stderr_file,
@@ -4312,8 +4302,6 @@ def _execute_argv_commands(
                     if trusted_read_only
                     else None
                 ),
-                check=False,
-                **_isolated_subprocess_kwargs(),
             )
             if redact:
                 _write_runner_stream(
@@ -4404,13 +4392,11 @@ def _execute_read_only_git(
     safe_argv[0] = executable
     try:
         redact = _is_git_remote_output_request(argv)
-        result = subprocess.run(
+        result = click_process.run_argv(
             safe_argv,
             stdout=subprocess.PIPE if redact else stdout_file,
             stderr=subprocess.PIPE if redact else stderr_file,
             env=_sanitized_git_environment(workspace=workspace),
-            check=False,
-            **_isolated_subprocess_kwargs(),
         )
         if redact:
             _write_runner_stream(
@@ -4788,30 +4774,6 @@ def _claim_service_runner(
     return ""
 
 
-def _terminate_managed_child(child: subprocess.Popen[Any]) -> int:
-    if child.poll() is not None:
-        return int(child.returncode or 0)
-    try:
-        if os.name == "nt":
-            ctrl_break = getattr(signal, "CTRL_BREAK_EVENT", None)
-            if ctrl_break is not None:
-                child.send_signal(ctrl_break)
-            else:
-                child.terminate()
-        else:
-            os.killpg(child.pid, signal.SIGTERM)
-        return int(child.wait(timeout=3))
-    except (OSError, subprocess.TimeoutExpired):
-        try:
-            if os.name == "nt":
-                child.kill()
-            else:
-                os.killpg(child.pid, signal.SIGKILL)
-            return int(child.wait(timeout=3))
-        except (OSError, subprocess.TimeoutExpired):
-            return 1
-
-
 def _run_service_supervisor(arguments: list[str]) -> int:
     if len(arguments) != 5:
         return 2
@@ -4846,14 +4808,13 @@ def _run_service_supervisor(arguments: list[str]) -> int:
             )
         return 2
     try:
-        child = subprocess.Popen(
+        child = click_process.spawn_argv(
             _execution_argv(request["argv"]),
             cwd=cwd,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             close_fds=True,
-            **_isolated_subprocess_kwargs(),
         )
     except OSError:
         with _state_lock():
@@ -4953,13 +4914,12 @@ def _run_service_start(arguments: list[str]) -> int:
         encoded,
     ]
     try:
-        subprocess.Popen(
+        click_process.spawn_argv(
             supervisor,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             close_fds=True,
-            **_isolated_subprocess_kwargs(),
         )
     except OSError as exc:
         with _state_lock():
@@ -5020,7 +4980,7 @@ def _git_capture(cwd: Path, arguments: list[str]) -> bytes | None:
     if error or executable is None:
         return None
     try:
-        result = subprocess.run(
+        result = click_process.run_argv(
             [
                 executable,
                 "--no-pager",
@@ -5033,8 +4993,6 @@ def _git_capture(cwd: Path, arguments: list[str]) -> bytes | None:
             env=_sanitized_git_environment(workspace=cwd),
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
-            check=False,
-            **_isolated_subprocess_kwargs(),
         )
     except OSError:
         return None
