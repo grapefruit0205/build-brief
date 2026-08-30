@@ -1,6 +1,6 @@
 {
   "name": "click",
-  "version": "0.21.1",
+  "version": "0.22.0",
   "description": "Choose Always ON or @Click Manual. Click turns a software change into one compact plain-language execution contract, waits for approval, then keeps Codex inside that boundary with structured commands and only the primary evidence needed for completion—without repeated planning or repository-wide rescans.",
   "author": {
     "name": "Junseok Pak",

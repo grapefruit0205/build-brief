@@ -18,12 +18,13 @@ import sys
 import time
 from typing import Any, Callable
 
-try:
+if __package__:
+    from . import click_gate, click_state
+    from .platform_protocol import AntigravityOutputAdapter, CodexOutputAdapter
+else:  # Executed directly from the bundled hooks directory.
     import click_gate
+    import click_state
     from platform_protocol import AntigravityOutputAdapter, CodexOutputAdapter
-except ModuleNotFoundError:  # Imported as hooks.antigravity_gate in tests.
-    from hooks import click_gate
-    from hooks.platform_protocol import AntigravityOutputAdapter, CodexOutputAdapter
 
 
 ANTIGRAVITY_TOOL_MAP = {
@@ -90,14 +91,14 @@ def _context_digest(value: str) -> str:
 
 
 def _lifecycle_path(conversation_id: str) -> Path:
-    return click_gate._state_root() / (
+    return click_state.state_root() / (
         f"antigravity-lifecycle-{_context_digest(conversation_id)}.json"
     )
 
 
 def _workspace_context_path(workspace: str) -> Path:
     normalized = str(Path(workspace).expanduser().resolve())
-    return click_gate._state_root() / (
+    return click_state.state_root() / (
         f"antigravity-workspace-{_context_digest(normalized)}.json"
     )
 
@@ -212,7 +213,7 @@ def _record_pre_invocation(raw: dict[str, Any]) -> dict[str, Any]:
     conversation_id = _conversation_id(raw)
     workspace = _workspace(raw)
     lifecycle_path = _lifecycle_path(conversation_id)
-    with click_gate._state_lock():
+    with click_state.state_lock():
         lifecycle = _read_json(lifecycle_path)
         prompt, prompt_fingerprint = _latest_user_prompt(raw.get("transcriptPath"))
         epoch = int(lifecycle.get("execution_epoch", 0))
@@ -239,8 +240,8 @@ def _record_pre_invocation(raw: dict[str, Any]) -> dict[str, Any]:
             "awaiting_next_execution": awaiting_next,
             "updated_at": int(time.time()),
         }
-        click_gate._write_json(lifecycle_path, context)
-        click_gate._write_json(_workspace_context_path(workspace), context)
+        click_state.write_json(lifecycle_path, context)
+        click_state.write_json(_workspace_context_path(workspace), context)
         event = _canonical_event(context, prompt=prompt)
         payload = _capture(
             AntigravityOutputAdapter(), click_gate._handle_prompt_submit, event
@@ -436,7 +437,7 @@ def _pre_tool(raw: dict[str, Any]) -> dict[str, Any]:
             return {"decision": "allow"}
         if click_gate._is_read_only_bash(command):
             return _native_run_command_read_denial()
-    with click_gate._state_lock():
+    with click_state.state_lock():
         payload = _capture(
             AntigravityOutputAdapter(), click_gate._handle_pre_tool, event
         )
@@ -452,7 +453,7 @@ def _post_tool(raw: dict[str, Any]) -> dict[str, Any]:
 def _stop(raw: dict[str, Any]) -> dict[str, Any]:
     context = _context_for_raw(raw)
     if context:
-        with click_gate._state_lock():
+        with click_state.state_lock():
             _capture(
                 AntigravityOutputAdapter(),
                 click_gate._handle_session_end,
@@ -465,10 +466,10 @@ def _stop(raw: dict[str, Any]) -> dict[str, Any]:
                 context["awaiting_next_execution"] = True
                 context["last_stop_execution_num"] = raw.get("executionNum")
                 context["updated_at"] = int(time.time())
-                click_gate._write_json(
+                click_state.write_json(
                     _lifecycle_path(str(context["conversation_id"])), context
                 )
-                click_gate._write_json(
+                click_state.write_json(
                     _workspace_context_path(str(context["workspace"])), context
                 )
     return {"decision": "allow"}
@@ -493,7 +494,7 @@ def _control(arguments: list[str]) -> int:
             "tool_input": {"command": shlex.join(["click-gate", *arguments])},
         }
     )
-    with click_gate._state_lock():
+    with click_state.state_lock():
         payload = _capture(CodexOutputAdapter(), click_gate._handle_pre_tool, event)
     output = payload.get("hookSpecificOutput") if isinstance(payload, dict) else None
     if not isinstance(output, dict):

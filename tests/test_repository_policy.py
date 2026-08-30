@@ -20,7 +20,7 @@ class RepositoryPolicyTests(unittest.TestCase):
             (ROOT / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8")
         )
         self.assertEqual(manifest["name"], "click")
-        self.assertEqual(manifest["version"], "0.21.1")
+        self.assertEqual(manifest["version"], "0.22.0")
         self.assertEqual(manifest["license"], "MIT")
         self.assertIn("always on", manifest["description"].lower())
         self.assertIn("manual", manifest["description"].lower())
@@ -251,7 +251,7 @@ class RepositoryPolicyTests(unittest.TestCase):
         self.assertEqual(marketplace["name"], "click")
         self.assertEqual(marketplace["plugins"][0]["name"], "click")
         self.assertEqual(
-            marketplace["plugins"][0]["source"]["ref"], "v0.21.1"
+            marketplace["plugins"][0]["source"]["ref"], "v0.22.0"
         )
 
     def test_ci_enforces_distribution_compilation_and_diff_validation(self) -> None:
@@ -266,14 +266,15 @@ class RepositoryPolicyTests(unittest.TestCase):
         self.assertIn("workflow_dispatch:", workflow)
         self.assertTrue((ROOT / "scripts" / "validate_distribution.py").is_file())
 
-    def test_release_documents_identify_v0211_and_preserve_v021_history(self) -> None:
+    def test_release_documents_identify_v0220_and_preserve_release_history(self) -> None:
         for readme_name in README_NAMES:
             with self.subTest(readme=readme_name):
                 readme = (ROOT / readme_name).read_text(encoding="utf-8")
-                self.assertIn("v0.21.1", readme)
+                self.assertIn("v0.22.0", readme)
                 self.assertIn("v0.21.0", readme)
                 self.assertIn("version-18", readme)
         notes = (ROOT / "RELEASE_NOTES.md").read_text(encoding="utf-8")
+        self.assertIn("## v0.22.0", notes)
         self.assertIn("## v0.21.1", notes)
         self.assertIn("## v0.21.0", notes)
         self.assertIn("## v0.20.0", notes)
@@ -419,11 +420,15 @@ class RepositoryPolicyTests(unittest.TestCase):
         self.assertIn("UserPromptSubmit", hook_config["hooks"])
 
     def test_runtime_hook_has_no_external_python_dependency(self) -> None:
-        source = (ROOT / "hooks" / "click_gate.py").read_text(encoding="utf-8")
-        for forbidden in ("requests", "yaml", "pydantic", "openai"):
-            with self.subTest(forbidden=forbidden):
-                self.assertNotIn(f"import {forbidden}", source)
-                self.assertNotIn(f"from {forbidden}", source)
+        sources = {
+            name: (ROOT / "hooks" / name).read_text(encoding="utf-8")
+            for name in ("click_gate.py", "click_state.py")
+        }
+        for name, source in sources.items():
+            for forbidden in ("requests", "yaml", "pydantic", "openai"):
+                with self.subTest(name=name, forbidden=forbidden):
+                    self.assertNotIn(f"import {forbidden}", source)
+                    self.assertNotIn(f"from {forbidden}", source)
 
     def test_compact_contract_replaces_the_verbose_execution_fields(self) -> None:
         hook = (ROOT / "hooks" / "click_gate.py").read_text(encoding="utf-8")
