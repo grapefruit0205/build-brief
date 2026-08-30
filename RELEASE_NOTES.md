@@ -1,5 +1,45 @@
 # Release notes
 
+## v0.24.4 — 2026-08-31
+
+Click v0.24.4 is a focused contract-boundary extraction and verification
+environment recovery release. Existing contract shape, evidence protocol,
+mode behavior, and the v0.24.3 runner-claim lifecycle remain unchanged.
+
+### Contract validation leaf extraction
+
+- Contract constants and pure validation now live in `hooks/click_contract.py`,
+  which has no upward runtime dependency on `click_gate` or state/process
+  modules.
+- `click_gate._validate_contract` remains the exact validator function through
+  a direct compatibility alias. Validation order, accepted values, returned
+  contract objects, and error messages are unchanged.
+- Focused unit and architecture-policy tests pin the new leaf boundary and
+  compatibility surface.
+
+### Self-healing verification environment admission
+
+- Prepared environment key/value HMAC records now carry an authenticated
+  aggregate binding tied to the one-use runner token.
+- If a prepared project, user, PATH, or toolchain value changes or disappears
+  before runner claim, Click projects current values onto the prepared key
+  set, ignores runner-only additions, and rebinds the canonical environment
+  digest automatically without another approval.
+- Successful evidence receipts store the actual rebound environment digest.
+  Exact executable fingerprints remain fixed; changed executables and
+  malformed or tampered bindings still fail closed before any check executes.
+
+### Compatibility and release gate
+
+- The source and Antigravity distribution share the extracted validator and
+  verification recovery behavior; unrelated adapter behavior is unchanged.
+- Focused regressions cover changed and missing environment values,
+  runner-only additions, Windows case-insensitive keys, tampered bindings,
+  executable changes, receipt identity, and exact contract errors.
+- The exact merged-main commit must pass the deterministic suite on Linux,
+  macOS, and Windows plus Plugin Security Scan before the immutable `v0.24.4`
+  tag and GitHub Release are published and reinstalled.
+
 ## v0.24.3 — 2026-08-30
 
 Click v0.24.3 is a focused observation-runner lifecycle hardening patch.
