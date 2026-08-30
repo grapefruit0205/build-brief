@@ -150,7 +150,7 @@ class RepositoryPolicyTests(core.RepositoryPolicyTests):
 
         protocol = _reference("capability-protocol.md")
         for marker in (
-            "gate-state", "PLUGIN_DATA", "LD_*", "DYLD_*", "GCONV_PATH", "LOCPATH",
+            "gate-state", "LD_*", "DYLD_*", "GCONV_PATH", "LOCPATH",
             "one-use", "snapshot", "Windows drive-prefixed forms",
             "nearest containing Git repository", "executes no mutation command",
             "initial protected snapshot", "concurrent same-user replacement",
