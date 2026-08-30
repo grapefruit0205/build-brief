@@ -80,14 +80,23 @@ def _lexical_absolute(path: Path) -> Path | None:
     return lexical if path == lexical else None
 
 
+def _canonical_recovery_state_path(path: Path) -> Path:
+    """Canonicalize existing aliases without requiring the state file to exist."""
+    lexical = _lexical_absolute(path) or Path(os.path.abspath(path))
+    try:
+        return lexical.resolve(strict=False)
+    except (OSError, RuntimeError):
+        return lexical
+
+
 def _recovery_root_for_state(path: Path) -> Path:
     return path.parent.parent / RECOVERY_DIR_NAME
 
 
 def _recovery_snapshot_path(path: Path) -> Path:
-    lexical = _lexical_absolute(path) or Path(os.path.abspath(path))
-    key = hashlib.sha256(os.path.normcase(str(lexical)).encode()).hexdigest()
-    return _recovery_root_for_state(lexical) / f"{key}.json"
+    canonical = _canonical_recovery_state_path(path)
+    key = hashlib.sha256(os.path.normcase(str(canonical)).encode()).hexdigest()
+    return _recovery_root_for_state(canonical) / f"{key}.json"
 
 
 def _remove_recovery_snapshot(path: Path) -> None:
@@ -201,13 +210,14 @@ def _sync_recovery_snapshot(path: Path, payload: dict[str, Any]) -> None:
         and path.suffix == ".json"
     ):
         return
-    recovery_path = _recovery_snapshot_path(path)
+    canonical_path = _canonical_recovery_state_path(path)
+    recovery_path = _recovery_snapshot_path(canonical_path)
     if not _approved_state_has_recoverable_runner(payload):
-        _remove_recovery_snapshot(path)
+        _remove_recovery_snapshot(canonical_path)
         return
     snapshot = {
         "schema_version": RECOVERY_SCHEMA_VERSION,
-        "state_path": str(_lexical_absolute(path) or Path(os.path.abspath(path))),
+        "state_path": str(canonical_path),
         "state": payload,
         "updated_at": int(time.time()),
     }
@@ -415,12 +425,13 @@ def _restore_runner_state_if_authorized(expected_path: Path | None = None) -> bo
         return False
     root, state_path_value, action, arguments = binding
     if expected_path is not None:
-        expected = _lexical_absolute(expected_path)
-        if expected is None or expected != state_path_value:
+        expected = _canonical_recovery_state_path(expected_path)
+        if expected != _canonical_recovery_state_path(state_path_value):
             return False
     if state_path_value.exists():
         return True
-    recovery_path = _recovery_snapshot_path(state_path_value)
+    canonical_state_path = _canonical_recovery_state_path(state_path_value)
+    recovery_path = _recovery_snapshot_path(canonical_state_path)
     try:
         if recovery_path.is_symlink():
             return False
@@ -432,7 +443,7 @@ def _restore_runner_state_if_authorized(expected_path: Path | None = None) -> bo
         return False
     if not isinstance(snapshot, dict) or snapshot.get("schema_version") != RECOVERY_SCHEMA_VERSION:
         return False
-    if snapshot.get("state_path") != str(state_path_value):
+    if snapshot.get("state_path") != str(canonical_state_path):
         return False
     payload = snapshot.get("state")
     if not isinstance(payload, dict) or not _runner_binding_matches(payload, action, arguments):
@@ -444,7 +455,7 @@ def _restore_runner_state_if_authorized(expected_path: Path | None = None) -> bo
         or updated_at <= 0
         or time.time() - updated_at > RECOVERY_SNAPSHOT_MAX_AGE_SECONDS
     ):
-        _remove_recovery_snapshot(state_path_value)
+        _remove_recovery_snapshot(canonical_state_path)
         return False
     try:
         root.mkdir(mode=0o700, parents=False, exist_ok=True)
