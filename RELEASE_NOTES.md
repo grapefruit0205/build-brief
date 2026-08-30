@@ -1,5 +1,20 @@
 # Release notes
 
+## Unreleased v0.22 candidate
+
+- The experimental Antigravity adapter accepts only the exact absolute Python
+  and adapter paths injected by its current `PreInvocation`; basename lookalikes,
+  relative launchers, and substituted interpreters cannot authorize a Click
+  control command.
+- The accepted launcher is parsed as one expansion-free Bash command before its
+  absolute argv prefix is compared. Appended or glued shell operators,
+  redirects, substitutions, globs, and multiline suffixes fail closed.
+- Because Antigravity cannot rewrite `run_command` argv, direct read-only
+  `run_command` calls now fail closed and use `control inspect` instead. Native
+  file/search tools and unrelated MCP, Skill, and Plugin tools remain available.
+- Antigravity parses Click's encoded Windows runner command with the native
+  Windows argv parser and still executes the resulting argv without a shell.
+
 ## v0.21.1 — 2026-08-30
 
 Click v0.21.1 is a focused workflow-security maintenance release. It closes executable-resolution and runner-authorization gaps without changing the compact contract schema or one-approval workflow.

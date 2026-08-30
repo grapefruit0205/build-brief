@@ -49,11 +49,14 @@ Antigravity IDE에서는 `dist/antigravity`를 워크스페이스의
 수도 있습니다. Codex는 기존 `.codex-plugin/plugin.json`과 Codex Hook
 어댑터를 계속 사용하므로 한 플랫폼 지원이 다른 플랫폼을 대체하지 않습니다.
 
-Antigravity의 Hook 계약은 Codex와 다릅니다. 따라서 구조화 명령은 번들
-launcher를 사용하고, 완전히 idle인 `model_stop`, 새로 읽을 수 있는 사용자
-transcript 항목, 다음 `PreInvocation`을 제안과 승인 사이의 실행 경계로
-취급합니다. Antigravity native read 사이의
-중복 차단과 Browser evidence는 아직 지원하지 않습니다. 완전 동등성을
+Antigravity의 Hook 계약은 Codex와 다릅니다. 따라서 구조화 명령은 런타임이
+주입한 정확한 절대경로 launcher를 사용하고, 완전히 idle인 `model_stop`,
+새로 읽을 수 있는 사용자 transcript 항목, 다음 `PreInvocation`을 제안과
+승인 사이의 실행 경계로 취급합니다. 읽기 전용 `run_command`도 같은 control
+launcher를 사용합니다. launcher는 확장 없는 단일 Bash 명령만 허용하며,
+명령 연결·리다이렉션·치환·glob·여러 줄 suffix는 fail-closed로 거부합니다.
+별도 파일·검색 도구와 다른 MCP·Skill 도구는 계속
+사용할 수 있지만 이들 사이의 중복 차단과 Browser evidence는 아직 지원하지 않습니다. 완전 동등성을
 가정하지 말고 정확한 제한은
 [`platforms/antigravity/README.md`](platforms/antigravity/README.md)를 확인하세요.
 

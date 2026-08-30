@@ -53,11 +53,15 @@ Antigravity IDE users may instead copy `dist/antigravity` to
 `.codex-plugin/plugin.json` and Codex Hook adapter; installing one target does
 not replace the other.
 
-Antigravity's Hook contract differs from Codex. Click therefore uses a bundled
-launcher for structured commands and requires a fully idle `model_stop`, a new
-readable user transcript entry, and the next `PreInvocation` for the
-proposal/approval execution boundary. Native
-Antigravity reads are not cross-tool deduplicated, and Browser evidence is not currently supported. See
+Antigravity's Hook contract differs from Codex. Click therefore uses an exact
+absolute launcher injected at runtime for structured commands and requires a
+fully idle `model_stop`, a new readable user transcript entry, and the next
+`PreInvocation` for the proposal/approval execution boundary. Direct read-only
+`run_command` calls also use that control launcher. The launcher accepts one
+expansion-free Bash command; chaining, redirects, substitutions, globs, and
+multiline suffixes fail closed. Native file/search and
+unrelated MCP or Skill tools remain available but are not cross-tool
+deduplicated. Browser evidence is not currently supported. See
 [`platforms/antigravity/README.md`](platforms/antigravity/README.md) for the
 exact limits instead of assuming full host parity.
 

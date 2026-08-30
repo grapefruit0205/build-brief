@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -95,6 +96,15 @@ class AntigravityAdapterTests(unittest.TestCase):
             env=self.environment,
             check=False,
         )
+
+    def launcher_command(self, *arguments: str) -> str:
+        argv = [
+            str(Path(sys.executable).resolve()),
+            str(SCRIPT.resolve()),
+            "control",
+            *arguments,
+        ]
+        return shlex.join(argv)
 
     def contract(self) -> dict:
         return {
@@ -209,7 +219,7 @@ class AntigravityAdapterTests(unittest.TestCase):
         self.assertEqual(payload.get("decision"), "deny")
         self.assertIn("execution contract", payload.get("reason", ""))
 
-    def test_missing_pre_invocation_context_denies_mutation_but_allows_read(self) -> None:
+    def test_missing_context_denies_run_command_but_allows_native_read_tool(self) -> None:
         mutation = self.pre_tool(
             "write_to_file", {"TargetFile": str(self.workspace / "app.py")}
         )
@@ -218,7 +228,127 @@ class AntigravityAdapterTests(unittest.TestCase):
             "run_command",
             {"CommandLine": "git status --short", "Cwd": str(self.workspace)},
         )
-        self.assertEqual(read.get("decision"), "allow")
+        self.assertEqual(read.get("decision"), "deny")
+        self.assertIn("control launcher", read.get("reason", ""))
+        native_read = self.pre_tool(
+            "view_file", {"AbsolutePath": str(self.workspace / "app.py")}
+        )
+        self.assertEqual(native_read.get("decision"), "allow")
+
+    def test_pre_invocation_injects_only_the_exact_absolute_control_launcher(self) -> None:
+        payload = self.pre_invocation("inspect the project")
+        message = payload["injectSteps"][0]["ephemeralMessage"]
+        self.assertIn("exact absolute Click control launcher", message)
+        self.assertIn(self.launcher_command(), message)
+
+        exact = self.pre_tool(
+            "run_command",
+            {
+                "CommandLine": self.launcher_command("default", "on"),
+                "Cwd": str(self.workspace),
+            },
+        )
+        self.assertEqual(exact.get("decision"), "allow")
+
+        for executable in ("python3", "./python3", str(self.workspace / "python3")):
+            with self.subTest(executable=executable):
+                shadow = shlex.join(
+                    [
+                        executable,
+                        str(SCRIPT.resolve()),
+                        "control",
+                        "default",
+                        "on",
+                    ]
+                )
+                denied = self.pre_tool(
+                    "run_command",
+                    {"CommandLine": shadow, "Cwd": str(self.workspace)},
+                )
+                self.assertEqual(denied.get("decision"), "deny")
+
+        valid = self.launcher_command("default", "on")
+        malicious_suffixes = (
+            "&&touch unexpected",
+            ";touch unexpected",
+            " & touch unexpected",
+            "|touch unexpected",
+            " || touch unexpected",
+            ">unexpected",
+            " < unexpected",
+            " (touch unexpected)",
+            "\ntouch unexpected",
+            "\rtouch unexpected",
+            " $(touch unexpected)",
+            " <(printf unexpected)",
+            " $CLICK_ACTION",
+            " ${CLICK_ACTION}",
+            " $((1 + 1))",
+            " `touch unexpected`",
+            " !-1",
+            ' "!!"',
+            " *",
+            " ?",
+            " [ab]",
+            " {a,b}",
+            " ~",
+            " # ignored",
+            "\0",
+            " '",
+            ' "',
+            " \\",
+        )
+        for suffix in malicious_suffixes:
+            with self.subTest(suffix=repr(suffix)):
+                denied = self.pre_tool(
+                    "run_command",
+                    {
+                        "CommandLine": valid + suffix,
+                        "Cwd": str(self.workspace),
+                    },
+                )
+                self.assertEqual(denied.get("decision"), "deny")
+
+        literal = "literal $HOME $(not-run) `not-run`; & | < > ! * ? [x] {a,b} ~ #"
+        quoted = self.launcher_command("stage", literal)
+        accepted = self.pre_tool(
+            "run_command",
+            {"CommandLine": quoted, "Cwd": str(self.workspace)},
+        )
+        self.assertEqual(accepted.get("decision"), "allow")
+
+    @unittest.skipUnless(os.name == "nt", "Windows argv parser regression")
+    def test_windows_encoded_runner_round_trips_without_shell_expansion(self) -> None:
+        from hooks import antigravity_gate, click_gate
+
+        arguments = [
+            str(Path(sys.executable).resolve()),
+            str((ROOT / "hooks" / "click_gate.py").resolve()),
+            "--state-root",
+            r"C:\work space\%PATH%!CLICK!\끝\\",
+            "run-verification",
+            "encoded-payload",
+        ]
+        command = click_gate._runner_shell_command(arguments)
+        parsed = antigravity_gate._command_argv(command)
+        self.assertEqual(parsed[:2], arguments[:2])
+        self.assertEqual(parsed[2], "--encoded-runner")
+        decoded, error = click_gate._decode_runner_transport(parsed[3])
+        self.assertEqual(error, "")
+        self.assertEqual(decoded, arguments[2:])
+
+    def test_context_denies_native_run_command_reads_but_leaves_hosted_tools_unmatched(self) -> None:
+        self.pre_invocation("inspect the project")
+        denied = self.pre_tool(
+            "run_command",
+            {"CommandLine": "git status --short", "Cwd": str(self.workspace)},
+        )
+        self.assertEqual(denied.get("decision"), "deny")
+        self.assertIn("trusted inspection runner", denied.get("reason", ""))
+
+        hooks = json.loads((PLATFORM / "hooks.json").read_text(encoding="utf-8"))
+        matcher = hooks["click-tools"]["PreToolUse"][0]["matcher"]
+        self.assertIsNone(re.search(matcher, "mcp__example__read"))
 
     def test_plain_cancel_is_recovered_from_the_transcript(self) -> None:
         self.pre_invocation("build this")

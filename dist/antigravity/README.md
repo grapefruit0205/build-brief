@@ -27,8 +27,15 @@ Antigravity lifecycle and mutation tools onto that common runtime.
   readable user entry in `transcript.jsonl`; if it cannot be recovered, those
   actions fail closed.
 - Antigravity `PreToolUse` cannot rewrite tool arguments. Structured Click
-  commands therefore run through the bundled `antigravity_gate.py control`
-  launcher.
+  commands therefore run through the exact absolute `antigravity_gate.py
+  control` launcher injected at each `PreInvocation`. Bare, relative, or
+  lookalike Python launchers are rejected. The accepted launcher is one
+  expansion-free Bash command; shell chaining, redirects, substitutions, globs,
+  and multiline suffixes fail closed.
+- Direct read-only `run_command` calls are denied because the Hook cannot replace
+  their argv with Click's trusted executable. Use `control inspect` instead.
+  Native file/search tools and unrelated MCP, Skill, and Plugin tools remain
+  available.
 - Native Antigravity file/search tools are not routed through Click's local
   observation runner, so cross-tool duplicate-read blocking is not claimed.
 - No Antigravity Browser tool is currently bound to Click's Browser evidence

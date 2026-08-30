@@ -8,19 +8,24 @@ Locate the installed plugin root once from the active installation:
 - global IDE: `~/.gemini/config/plugins/click`
 - Antigravity CLI: `~/.gemini/antigravity-cli/plugins/click`
 
-Whenever the shared Click instructions say `click-gate`, invoke the bundled
-launcher instead:
+At every `PreInvocation`, the adapter injects the exact absolute launcher for
+that installation. Copy that injected prefix exactly whenever the shared Click
+instructions say `click-gate`. Do not replace its Python executable or script
+path with `python3`, `py`, a relative path, or a similarly named executable.
+The launcher accepts exactly one expansion-free Bash command: never append a
+pipeline, redirect, command separator, command/parameter substitution, glob, or
+another command. Quote JSON and other structured values as one literal argument.
 
 ```text
-python3 "<plugin-root>/hooks/antigravity_gate.py" control <action> [value]
+<exact injected launcher> <action> [value]
 ```
 
 For example:
 
 ```text
-python3 "<plugin-root>/hooks/antigravity_gate.py" control stage '<contract JSON>'
-python3 "<plugin-root>/hooks/antigravity_gate.py" control pass ctr_<32hex>
-python3 "<plugin-root>/hooks/antigravity_gate.py" control verify '<request JSON>'
+<exact injected launcher> stage '<contract JSON>'
+<exact injected launcher> pass ctr_<32hex>
+<exact injected launcher> verify '<request JSON>'
 ```
 
 The adapter keeps one execution epoch stable across Antigravity's repeated model
@@ -31,10 +36,12 @@ and pass fails closed. Never pass a contract before that boundary. As with
 Codex, the Hook proves separation but the Skill remains responsible for
 interpreting whether the user's response is approval.
 
-Antigravity's documented Hook output cannot rewrite tool input, so use the
-launcher for structured inspect, mutate, service, evidence, and verify
-capabilities. Native file and search tools may still be used when relevant, but
-their successful reads are not deduplicated by Click's local observation runner.
+Antigravity's documented Hook output cannot rewrite `run_command` input, so use
+the launcher for structured inspect, mutate, service, evidence, and verify
+capabilities. Direct read-only `run_command` calls are denied rather than trusted
+by executable basename. Native file and search tools plus unrelated MCP, Skill,
+and Plugin tools may still be used when relevant, but their successful reads are
+not deduplicated by Click's local observation runner.
 Do not declare Browser evidence: no Antigravity Browser tool is currently bound
 to Click's Browser meter. Use the cheapest sufficient argv, hosted, manual, or
 existing source instead.
