@@ -65,8 +65,8 @@ class RunnerStateRecoveryTests(unittest.TestCase):
         state: dict[str, object] = {
             "state_schema_version": 2,
             "status": "approved",
-            "contract_digest": hashlib.sha256(b"recovery-contract").hexdigest(),
-            "contract_id": "ctr_" + hashlib.md5(b"recovery-contract").hexdigest(),
+            "contract_digest": secrets.token_hex(32),
+            "contract_id": "ctr_" + secrets.token_hex(16),
             "mutation": {
                 "status": "running",
                 "request_digest": request_digest,
