@@ -1,5 +1,45 @@
 # Release notes
 
+## v0.24.5 — 2026-08-31
+
+Click v0.24.5 is a focused Windows internal-runner shell compatibility
+release. Contract shape, evidence transport, approval behavior, and
+non-Windows runner rendering remain unchanged from v0.24.4.
+
+### Cross-shell Windows runner launch
+
+- Rewritten `inspect`, observation, mutation, service, and verification
+  runners now reuse the bare `py -3` launcher already required by the Windows
+  lifecycle hooks.
+- The generated command no longer places a quoted absolute `sys.executable`
+  path in command position, where PowerShell treats it as a string expression
+  unless an incompatible shell-specific call operator is added.
+- The resolved Click script path remains quoted, while every action, state
+  path, token, and request stays inside the bounded encoded-runner transport.
+
+### End-to-end Windows regression
+
+- The Windows integration suite now asks the real PreToolUse hook to rewrite
+  a structured `click-gate inspect` request, then executes the returned
+  command through both PowerShell and `cmd.exe`.
+- Normal and space-containing plugin roots are covered, and the runner must
+  return the inspected file contents successfully from both shells.
+- Platform-independent tests pin the bare `py -3` prefix, exclude the
+  interpreter's absolute path from the emitted command, and retain expansion-
+  token hiding, launcher-path rejection, payload bounds, and decode fidelity.
+
+### Compatibility and release gate
+
+- POSIX rendering still uses `shlex.join`; Windows command-length limits and
+  fail-closed launcher-path checks are unchanged.
+- The shared source hook and generated Antigravity distribution remain byte-
+  equivalent. On Windows, the Antigravity adapter translates the portable
+  launcher back to its active interpreter argv before direct shell-free
+  execution, avoiding a new launcher dependency or behavior change.
+- The exact merged-main commit must pass the deterministic suite on Linux,
+  macOS, and Windows plus Plugin Security Scan before the immutable `v0.24.5`
+  tag and GitHub Release are published and reinstalled.
+
 ## v0.24.4 — 2026-08-31
 
 Click v0.24.4 is a focused contract-boundary extraction and verification

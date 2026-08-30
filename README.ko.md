@@ -222,9 +222,9 @@ Antigravity IDE에서는 `dist/antigravity`를 워크스페이스의 `.agents/pl
 
 Antigravity의 Hook contract는 Codex와 다릅니다. native file/search와 별도 MCP·Skill 도구는 계속 사용할 수 있지만 cross-tool 중복 제거와 Browser evidence는 아직 지원하지 않습니다. 정확한 제한은 [`platforms/antigravity/README.md`](platforms/antigravity/README.md)를 확인하세요.
 
-## 기존 설치 업데이트 — v0.24.4
+## 기존 설치 업데이트 — v0.24.5
 
-현재 릴리스는 **v0.24.4**입니다.
+현재 릴리스는 **v0.24.5**입니다.
 
 ```bash
 codex plugin marketplace upgrade click

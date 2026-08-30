@@ -759,6 +759,8 @@ class ClickGateTests(unittest.TestCase):
         ]
         with mock.patch.object(CLICK_GATE.os, "name", "nt"):
             command = CLICK_GATE._runner_shell_command(arguments)
+        self.assertTrue(command.startswith('py -3 "C:\\Users\\safe user'))
+        self.assertNotIn(arguments[0], command)
         self.assertIn('"--encoded-runner"', command)
         self.assertNotIn("%PATH%", command)
         self.assertNotIn("!CLICK!", command)

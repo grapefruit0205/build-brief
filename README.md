@@ -222,9 +222,9 @@ Antigravity IDE users may also copy `dist/antigravity` into `.agents/plugins/cli
 
 Antigravity's Hook contract differs from Codex. Native file/search and unrelated MCP or Skill tools remain available, but cross-tool deduplication and Browser evidence are not currently supported. See [`platforms/antigravity/README.md`](platforms/antigravity/README.md) for the exact limits.
 
-## Update an existing installation — v0.24.4
+## Update an existing installation — v0.24.5
 
-The current release is **v0.24.4**.
+The current release is **v0.24.5**.
 
 ```bash
 codex plugin marketplace upgrade click

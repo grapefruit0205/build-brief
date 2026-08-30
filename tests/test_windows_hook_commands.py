@@ -76,6 +76,8 @@ class WindowsHookCommandTests(unittest.TestCase):
     def test_commands_execute_in_powershell_from_normal_and_spaced_roots(self) -> None:
         powershell = shutil.which("pwsh")
         self.assertIsNotNone(powershell, "pwsh is required on the Windows CI runner")
+        command_prompt = shutil.which("cmd.exe")
+        self.assertIsNotNone(command_prompt, "cmd.exe is required on Windows")
         commands = windows_commands()
 
         with tempfile.TemporaryDirectory() as temporary:
@@ -135,6 +137,81 @@ class WindowsHookCommandTests(unittest.TestCase):
                                 payload = json.loads(result.stdout)
                                 updated = payload["hookSpecificOutput"]["updatedInput"]
                                 self.assertIn("Click default mode:", updated["command"])
+
+                    probe = workspace / "runner probe.txt"
+                    probe.write_text("portable Windows runner\n", encoding="utf-8")
+                    request = {
+                        "version": 1,
+                        "commands": [["Get-Content", "-Raw", probe.name]],
+                    }
+                    inspect_event = synthetic_event(
+                        "PreToolUse",
+                        workspace,
+                        f"{root_name}-inspect".replace(" ", "-"),
+                    )
+                    inspect_event["tool_input"] = {
+                        "command": (
+                            "click-gate inspect '"
+                            + json.dumps(request, separators=(",", ":"))
+                            + "'"
+                        )
+                    }
+                    rendered_hook = commands["PreToolUse"].replace(
+                        "${PLUGIN_ROOT}", str(plugin_root)
+                    )
+                    hook_result = subprocess.run(
+                        [
+                            powershell,
+                            "-NoProfile",
+                            "-NonInteractive",
+                            "-Command",
+                            rendered_hook,
+                        ],
+                        input=json.dumps(inspect_event) + "\n",
+                        capture_output=True,
+                        text=True,
+                        cwd=workspace,
+                        env=environment,
+                        check=False,
+                    )
+                    self.assertEqual(
+                        hook_result.returncode,
+                        0,
+                        f"inspect hook failed:\n{hook_result.stderr}\n{hook_result.stdout}",
+                    )
+                    payload = json.loads(hook_result.stdout)
+                    runner = payload["hookSpecificOutput"]["updatedInput"]["command"]
+                    self.assertTrue(runner.startswith("py -3 "), runner)
+
+                    shells = {
+                        "PowerShell": [
+                            powershell,
+                            "-NoProfile",
+                            "-NonInteractive",
+                            "-Command",
+                            runner,
+                        ],
+                        "cmd.exe": [command_prompt, "/d", "/s", "/c", runner],
+                    }
+                    for shell_name, invocation in shells.items():
+                        with self.subTest(plugin_root=root_name, shell=shell_name):
+                            runner_result = subprocess.run(
+                                invocation,
+                                capture_output=True,
+                                text=True,
+                                cwd=workspace,
+                                env=environment,
+                                check=False,
+                            )
+                            self.assertEqual(
+                                runner_result.returncode,
+                                0,
+                                f"{shell_name} runner failed:\n"
+                                f"{runner_result.stderr}\n{runner_result.stdout}",
+                            )
+                            self.assertEqual(
+                                runner_result.stdout, "portable Windows runner\n"
+                            )
 
 
 if __name__ == "__main__":

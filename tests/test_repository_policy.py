@@ -126,14 +126,23 @@ class RepositoryPolicyTests(core.RepositoryPolicyTests):
         for marker in ("shell=False", "process group", "process-control", "pkill"):
             self.assertIn(marker, protocol)
 
-    def test_release_documents_identify_v0244_and_preserve_release_history(self) -> None:
+    def test_release_documents_identify_v0245_and_preserve_release_history(self) -> None:
         for readme in _readmes().values():
+            self.assertIn("v0.24.5", readme)
             self.assertIn("codex plugin marketplace upgrade click", readme)
             self.assertIn("codex plugin add click@click", readme)
         notes = (ROOT / "RELEASE_NOTES.md").read_text(encoding="utf-8")
         for marker in (
-            "## v0.24.4", "## v0.24.3", "## v0.24.1", "## v0.24.0",
-            "## v0.23.0", "## v0.22.0", "## v0.21.1", "## v0.21.0", "## v0.20.0",
+            "## v0.24.5",
+            "## v0.24.4",
+            "## v0.24.3",
+            "## v0.24.1",
+            "## v0.24.0",
+            "## v0.23.0",
+            "## v0.22.0",
+            "## v0.21.1",
+            "## v0.21.0",
+            "## v0.20.0",
         ):
             self.assertIn(marker, notes)
         self.assertNotIn("Unreleased v0.24", notes)
