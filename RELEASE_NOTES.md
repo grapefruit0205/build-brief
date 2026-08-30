@@ -1,5 +1,40 @@
 # Release notes
 
+## v0.23.0 — 2026-08-30
+
+Click v0.23.0 extracts the shared shell-free process mechanics into a small,
+standard-library-only module. Contract JSON, evidence protocol, modes, approval
+behavior, executable trust, and Git/SSH policy remain unchanged.
+
+### Shared process boundary
+
+- `click_process.py` now owns synchronous argv execution, managed-process
+  spawning, platform-specific child-process-group isolation and termination,
+  and bounded runner-output copying.
+- Every shared runner still executes an already-authorized argv with
+  `shell=False`; synchronous execution also remains `check=False`. The gate
+  continues to resolve trusted executables and construct sanitized environments
+  before invoking this process layer.
+- `click_gate.py` retains contract and capability policy, state transitions,
+  one-use runner claims, Git/SSH restrictions, service and verification
+  orchestration, workspace snapshots, budgets, and evidence semantics.
+  Compatibility aliases preserve the existing internal test and direct-caller
+  surface while modularization proceeds incrementally.
+- Evidence-ledger modularization is intentionally not included in this release;
+  verification protocol version `2` and its stored completion state are unchanged.
+
+### Distribution and release gate
+
+- Codex and the generated Antigravity distribution bundle the same
+  `click_process.py` and `click_gate.py` sources. Antigravity's adapter-specific
+  host launcher remains separate because its lifecycle semantics differ.
+- Dedicated regressions cover POSIX and Windows isolation, graceful and forced
+  termination paths, shell-free run/spawn calls, bounded output, one-way module
+  dependencies, and sibling-only distribution startup.
+- The exact release candidate is gated by the deterministic suite on Linux,
+  macOS, and Windows plus plugin, marketplace, skill, compilation, whitespace,
+  distribution-consistency, and Plugin Security Scan checks.
+
 ## v0.22.0 — 2026-08-30
 
 Click v0.22.0 hardens the experimental Antigravity adapter and extracts the

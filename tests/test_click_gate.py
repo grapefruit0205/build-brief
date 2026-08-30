@@ -34,6 +34,8 @@ try:
 finally:
     sys.path.pop(0)
 
+CLICK_PROCESS = CLICK_GATE.click_process
+
 
 def mark_git_boundary(root: Path) -> None:
     marker = root / ".git"
@@ -1256,15 +1258,15 @@ class ClickGateTests(unittest.TestCase):
         self.assertEqual(error, "")
 
     def test_subprocess_isolation_kwargs_are_platform_specific(self) -> None:
-        with mock.patch.object(CLICK_GATE.os, "name", "posix"):
+        with mock.patch.object(CLICK_PROCESS.os, "name", "posix"):
             self.assertEqual(
                 CLICK_GATE._isolated_subprocess_kwargs(),
                 {"start_new_session": True},
             )
         with (
-            mock.patch.object(CLICK_GATE.os, "name", "nt"),
+            mock.patch.object(CLICK_PROCESS.os, "name", "nt"),
             mock.patch.object(
-                CLICK_GATE.subprocess,
+                CLICK_PROCESS.subprocess,
                 "CREATE_NEW_PROCESS_GROUP",
                 512,
                 create=True,
@@ -1279,9 +1281,11 @@ class ClickGateTests(unittest.TestCase):
         isolated = {"start_new_session": True}
         with (
             mock.patch.object(
-                CLICK_GATE, "_isolated_subprocess_kwargs", return_value=isolated
+                CLICK_PROCESS,
+                "isolated_subprocess_kwargs",
+                return_value=isolated,
             ) as isolation,
-            mock.patch.object(CLICK_GATE.subprocess, "run") as run,
+            mock.patch.object(CLICK_PROCESS.subprocess, "run") as run,
         ):
             run.return_value.returncode = 0
             run.return_value.stdout = b"captured\n"
@@ -4961,8 +4965,8 @@ class ClickGateTests(unittest.TestCase):
                 {"PLUGIN_DATA": str(self.plugin_data)},
             ),
             mock.patch.object(
-                CLICK_GATE.subprocess,
-                "Popen",
+                CLICK_PROCESS,
+                "spawn_argv",
                 side_effect=launch_supervisor,
             ) as popen,
         ):
@@ -5026,7 +5030,7 @@ class ClickGateTests(unittest.TestCase):
                         CLICK_GATE.os.environ,
                         {"PLUGIN_DATA": str(self.plugin_data)},
                     ),
-                    mock.patch.object(CLICK_GATE.subprocess, "Popen") as popen,
+                    mock.patch.object(CLICK_PROCESS, "spawn_argv") as popen,
                 ):
                     self.assertEqual(CLICK_GATE._run_service_start(arguments), 2)
                 popen.assert_not_called()
@@ -5091,7 +5095,9 @@ class ClickGateTests(unittest.TestCase):
                 CLICK_GATE.os.environ,
                 {"PLUGIN_DATA": str(self.plugin_data)},
             ),
-            mock.patch.object(CLICK_GATE.subprocess, "Popen", return_value=child) as popen,
+            mock.patch.object(
+                CLICK_PROCESS, "spawn_argv", return_value=child
+            ) as popen,
             mock.patch.object(CLICK_GATE.time, "sleep"),
         ):
             self.assertEqual(CLICK_GATE._run_service_supervisor(arguments), 2)
@@ -5160,7 +5166,7 @@ class ClickGateTests(unittest.TestCase):
                 CLICK_GATE.os.environ,
                 {"PLUGIN_DATA": str(self.plugin_data)},
             ),
-            mock.patch.object(CLICK_GATE.subprocess, "Popen") as popen,
+            mock.patch.object(CLICK_PROCESS, "spawn_argv") as popen,
         ):
             self.assertEqual(CLICK_GATE._run_service_supervisor(arguments), 2)
         popen.assert_not_called()
@@ -5204,7 +5210,7 @@ class ClickGateTests(unittest.TestCase):
                 CLICK_GATE.os.environ,
                 {"PLUGIN_DATA": str(self.plugin_data)},
             ),
-            mock.patch.object(CLICK_GATE.subprocess, "Popen") as popen,
+            mock.patch.object(CLICK_PROCESS, "spawn_argv") as popen,
         ):
             self.assertEqual(CLICK_GATE._run_service_start(arguments), 2)
         popen.assert_not_called()
