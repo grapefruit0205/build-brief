@@ -340,6 +340,7 @@ skills/click/references/capability-protocol.md  结构化 runner schema
 skills/fix/                           精简修复 Skill
 hooks/click_state.py                  状态路径、原子持久化与锁
 hooks/click_process.py                无 shell 的进程执行、隔离与终止
+hooks/click_evidence.py               不保存内容的 evidence registry 与 ledger 机制
 hooks/click_gate.py                   契约策略、capability 编排、防循环与预算
 hooks/hooks.json                      生命周期 Hook 配置
 evals/                                Golden cases 和 semantic grader

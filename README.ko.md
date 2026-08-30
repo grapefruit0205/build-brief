@@ -333,6 +333,7 @@ skills/click/references/capability-protocol.md  구조화 runner schema
 skills/fix/                           축약 수정 Skill
 hooks/click_state.py                  상태 경로·원자적 저장·잠금
 hooks/click_process.py                shell-free 프로세스 실행·격리·종료
+hooks/click_evidence.py               내용 비저장 evidence registry·ledger 동작
 hooks/click_gate.py                   계약 정책·capability 조율·anti-loop·예산
 hooks/hooks.json                      라이프사이클 Hook 설정
 evals/                                golden case·의미 grader

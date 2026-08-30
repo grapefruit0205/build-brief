@@ -30,7 +30,7 @@ from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 if __package__:
-    from . import click_process
+    from . import click_evidence, click_process
     from .click_state import (
         STATE_LOCK_STALE_SECONDS,
         STATE_LOCK_TIMEOUT_SECONDS,
@@ -48,6 +48,7 @@ if __package__:
     )
     from .platform_protocol import CodexOutputAdapter, HookOutputAdapter
 else:  # Executed directly from the bundled hooks directory.
+    import click_evidence
     import click_process
     from click_state import (
         STATE_LOCK_STALE_SECONDS,
@@ -73,6 +74,18 @@ _copy_limited_output = click_process.copy_limited_output
 _isolated_subprocess_kwargs = click_process.isolated_subprocess_kwargs
 _terminate_managed_child = click_process.terminate_process_group
 
+# Compatibility aliases for direct callers and the deterministic suite. The
+# gate owns policy and transition timing; content-free registry mechanics live
+# in the one-way click_evidence boundary.
+_evidence_key = click_evidence.evidence_key
+_evidence_registry_digest = click_evidence.registry_digest
+_fresh_evidence_state = click_evidence.fresh_state
+_evidence_is_current = click_evidence.is_current
+_evidence_keys_for_kind = click_evidence.keys_for_kind
+_browser_evidence_source_id = click_evidence.browser_source_id
+_browser_evidence_required = click_evidence.browser_required
+_fresh_external_evidence_state = click_evidence.fresh_external_state
+
 
 CONTROL_COMMAND = "click-gate"
 CLICK_AUTHORIZATION_PATTERNS = (
@@ -90,8 +103,8 @@ BUILD_FIELDS = {"approach", "semantics", "order"}
 VERIFICATION_FIELDS = {"scale", "evidence", "done_when", "intermediate_gate"}
 EVIDENCE_SOURCE_FIELDS = {"id", "kind", "description"}
 DONE_WHEN_FIELDS = {"condition", "primary_evidence"}
-EVIDENCE_KINDS = ("argv", "browser", "hosted", "manual", "existing")
-EVIDENCE_STATUSES = {"ready", "running", "observed", "passed", "failed", "stale"}
+EVIDENCE_KINDS = click_evidence.EVIDENCE_KINDS
+EVIDENCE_STATUSES = click_evidence.EVIDENCE_STATUSES
 EVIDENCE_ID_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9_-]{0,31}$")
 CONTRACT_ID_PATTERN = re.compile(r"^ctr_[0-9a-f]{32}$")
 VERIFICATION_SCALES = ("quick", "focused", "full")
@@ -565,165 +578,12 @@ def _fresh_verification_state(contract: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _evidence_key(evidence_id: str) -> str:
-    return hashlib.sha256(evidence_id.encode()).hexdigest()
-
-
-def _evidence_registry_digest(sources: dict[str, Any]) -> str:
-    registry = sorted(
-        (key, str(source.get("kind", "")))
-        for key, source in sources.items()
-        if isinstance(key, str) and isinstance(source, dict)
-    )
-    payload = json.dumps(registry, separators=(",", ":"))
-    return hashlib.sha256(payload.encode()).hexdigest()
-
-
-def _fresh_evidence_state(contract: dict[str, Any]) -> dict[str, Any]:
-    verification = contract.get("verification")
-    declared = verification.get("evidence") if isinstance(verification, dict) else []
-    sources: dict[str, Any] = {}
-    if isinstance(declared, list):
-        for source in declared:
-            if not isinstance(source, dict):
-                continue
-            source_id = source.get("id")
-            kind = source.get("kind")
-            if not isinstance(source_id, str) or kind not in EVIDENCE_KINDS:
-                continue
-            sources[_evidence_key(source_id)] = {
-                "kind": kind,
-                "status": "ready",
-                "verified_revision": -1,
-                "attempts": 0,
-                "unchanged_failure_retries": 0,
-                "last_exit_code": None,
-                "last_check_digest": "",
-                "locked_check_digest": "",
-            }
-    return {
-        "version": 1,
-        "source_count": len(sources),
-        "registry_digest": _evidence_registry_digest(sources),
-        "sources": sources,
-    }
-
-
 def _evidence_sources(state: dict[str, Any]) -> dict[str, Any] | None:
     """Return the v1 content-free evidence ledger, or None for legacy state."""
-    if (
-        "state_schema_version" in state
-        and state.get("state_schema_version") != CONTRACT_STATE_SCHEMA_VERSION
-    ):
-        return {}
-    if "evidence_state" not in state:
-        if "state_schema_version" in state:
-            return {}
-        return None
-    evidence_state = state.get("evidence_state")
-    if not isinstance(evidence_state, dict) or evidence_state.get("version") != 1:
-        return {}
-    sources = evidence_state.get("sources")
-    if not isinstance(sources, dict):
-        return {}
-    for key, source in sources.items():
-        if (
-            not isinstance(key, str)
-            or not re.fullmatch(r"[0-9a-f]{64}", key)
-            or not isinstance(source, dict)
-            or source.get("kind") not in EVIDENCE_KINDS
-            or source.get("status") not in EVIDENCE_STATUSES
-            or not isinstance(source.get("verified_revision"), int)
-            or isinstance(source.get("verified_revision"), bool)
-            or not isinstance(source.get("attempts"), int)
-            or isinstance(source.get("attempts"), bool)
-            or not isinstance(source.get("unchanged_failure_retries"), int)
-            or isinstance(source.get("unchanged_failure_retries"), bool)
-            or source.get("attempts", -1) < 0
-            or source.get("unchanged_failure_retries", -1) < 0
-            or source.get("last_exit_code") is not None
-            and (
-                not isinstance(source.get("last_exit_code"), int)
-                or isinstance(source.get("last_exit_code"), bool)
-            )
-            or not isinstance(source.get("last_check_digest"), str)
-            or not isinstance(source.get("locked_check_digest"), str)
-        ):
-            return {}
-    source_count = evidence_state.get("source_count")
-    registry_digest = evidence_state.get("registry_digest")
-    if (
-        not isinstance(source_count, int)
-        or isinstance(source_count, bool)
-        or source_count != len(sources)
-        or not isinstance(registry_digest, str)
-        or not re.fullmatch(r"[0-9a-f]{64}", registry_digest)
-        or not secrets.compare_digest(
-            registry_digest, _evidence_registry_digest(sources)
-        )
-    ):
-        return {}
-    return sources
-
-
-def _evidence_is_current(source: Any, revision: int) -> bool:
-    return bool(
-        isinstance(source, dict)
-        and source.get("status") == "passed"
-        and int(source.get("verified_revision", -1)) == revision
+    return click_evidence.sources_from_state(
+        state,
+        expected_contract_schema_version=CONTRACT_STATE_SCHEMA_VERSION,
     )
-
-
-def _evidence_keys_for_kind(
-    sources: dict[str, Any], kind: str
-) -> set[str]:
-    return {
-        key
-        for key, source in sources.items()
-        if isinstance(source, dict) and source.get("kind") == kind
-    }
-
-
-def _browser_evidence_source_id(contract: dict[str, Any]) -> str:
-    verification = contract.get("verification")
-    evidence = verification.get("evidence") if isinstance(verification, dict) else []
-    if not isinstance(evidence, list):
-        return ""
-    for source in evidence:
-        if isinstance(source, dict) and source.get("kind") == "browser":
-            source_id = source.get("id")
-            return source_id if isinstance(source_id, str) else ""
-    return ""
-
-
-def _browser_evidence_required(contract: dict[str, Any]) -> bool:
-    return bool(_browser_evidence_source_id(contract))
-
-
-def _fresh_external_evidence_state(
-    contract: dict[str, Any] | None = None,
-    *,
-    required: bool | None = None,
-    source_key: str | None = None,
-) -> dict[str, Any]:
-    browser_source_id = _browser_evidence_source_id(contract or {})
-    browser_source_key = (
-        _evidence_key(browser_source_id)
-        if source_key is None and browser_source_id
-        else (source_key or "")
-    )
-    browser_required = (
-        bool(browser_source_key) if required is None else required
-    )
-    return {
-        "browser_required": browser_required,
-        "browser_source_key": browser_source_key,
-        "browser_status": "ready" if browser_required else "not-required",
-        "browser_calls": 0,
-        "browser_seconds": 0.0,
-        "browser_running": {},
-        "last_browser_error": "",
-    }
 
 
 def _fresh_service_state() -> dict[str, Any]:

@@ -1,0 +1,177 @@
+from __future__ import annotations
+
+import ast
+import copy
+import json
+from pathlib import Path
+import unittest
+
+from hooks import click_evidence, click_gate
+
+
+class ClickEvidenceTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.contract = {
+            "verification": {
+                "evidence": [
+                    {"id": "E1", "kind": "argv", "description": "tests pass"},
+                    {
+                        "id": "E-browser",
+                        "kind": "browser",
+                        "description": "render is usable",
+                    },
+                ]
+            }
+        }
+
+    def test_evidence_module_has_no_gate_state_or_process_dependency(self) -> None:
+        source = Path(click_evidence.__file__).read_text(encoding="utf-8")
+        imported: set[str] = set()
+        for node in ast.walk(ast.parse(source)):
+            if isinstance(node, ast.Import):
+                imported.update(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom):
+                module = node.module or ""
+                imported.add(module)
+                imported.update(
+                    f"{module}.{alias.name}".strip(".") for alias in node.names
+                )
+
+        for forbidden in ("click_gate", "click_state", "click_process"):
+            with self.subTest(forbidden=forbidden):
+                self.assertFalse(
+                    any(forbidden in name.split(".") for name in imported),
+                    imported,
+                )
+
+    def test_gate_keeps_compatibility_aliases_for_evidence_primitives(self) -> None:
+        aliases = {
+            "_evidence_key": click_evidence.evidence_key,
+            "_evidence_registry_digest": click_evidence.registry_digest,
+            "_fresh_evidence_state": click_evidence.fresh_state,
+            "_evidence_is_current": click_evidence.is_current,
+            "_evidence_keys_for_kind": click_evidence.keys_for_kind,
+            "_browser_evidence_source_id": click_evidence.browser_source_id,
+            "_browser_evidence_required": click_evidence.browser_required,
+            "_fresh_external_evidence_state": click_evidence.fresh_external_state,
+        }
+        for name, expected in aliases.items():
+            with self.subTest(name=name):
+                self.assertIs(getattr(click_gate, name), expected)
+
+    def test_fresh_state_hashes_ids_and_omits_descriptions(self) -> None:
+        ledger = click_evidence.fresh_state(self.contract)
+        serialized = json.dumps(ledger, sort_keys=True)
+
+        self.assertEqual(ledger["version"], 1)
+        self.assertEqual(ledger["source_count"], 2)
+        self.assertNotIn("E-browser", serialized)
+        self.assertNotIn("tests pass", serialized)
+        self.assertNotIn("render is usable", serialized)
+        self.assertEqual(
+            set(ledger["sources"]),
+            {
+                click_evidence.evidence_key("E1"),
+                click_evidence.evidence_key("E-browser"),
+            },
+        )
+        self.assertEqual(
+            ledger["registry_digest"],
+            click_evidence.registry_digest(ledger["sources"]),
+        )
+
+    def test_browser_registry_and_external_state_remain_content_free(self) -> None:
+        self.assertEqual(
+            click_evidence.browser_source_id(self.contract), "E-browser"
+        )
+        self.assertTrue(click_evidence.browser_required(self.contract))
+        external = click_evidence.fresh_external_state(self.contract)
+
+        self.assertTrue(external["browser_required"])
+        self.assertEqual(external["browser_status"], "ready")
+        self.assertEqual(
+            external["browser_source_key"],
+            click_evidence.evidence_key("E-browser"),
+        )
+        self.assertNotIn("E-browser", json.dumps(external, sort_keys=True))
+
+    def test_sources_from_state_preserves_legacy_and_malformed_distinction(self) -> None:
+        self.assertIsNone(
+            click_evidence.sources_from_state(
+                {}, expected_contract_schema_version=2
+            )
+        )
+        self.assertEqual(
+            click_evidence.sources_from_state(
+                {"state_schema_version": 2},
+                expected_contract_schema_version=2,
+            ),
+            {},
+        )
+        self.assertEqual(
+            click_evidence.sources_from_state(
+                {
+                    "state_schema_version": 3,
+                    "evidence_state": click_evidence.fresh_state(self.contract),
+                },
+                expected_contract_schema_version=2,
+            ),
+            {},
+        )
+
+    def test_sources_from_state_rejects_registry_tampering(self) -> None:
+        valid = {
+            "state_schema_version": 2,
+            "evidence_state": click_evidence.fresh_state(self.contract),
+        }
+        sources = click_evidence.sources_from_state(
+            valid, expected_contract_schema_version=2
+        )
+        self.assertIsInstance(sources, dict)
+        self.assertEqual(len(sources or {}), 2)
+
+        wrong_count = copy.deepcopy(valid)
+        wrong_count["evidence_state"]["source_count"] = 1
+        wrong_digest = copy.deepcopy(valid)
+        wrong_digest["evidence_state"]["registry_digest"] = "0" * 64
+        wrong_kind = copy.deepcopy(valid)
+        first = next(iter(wrong_kind["evidence_state"]["sources"].values()))
+        first["kind"] = "unknown"
+
+        for state in (wrong_count, wrong_digest, wrong_kind):
+            with self.subTest(state=state):
+                self.assertEqual(
+                    click_evidence.sources_from_state(
+                        state, expected_contract_schema_version=2
+                    ),
+                    {},
+                )
+
+    def test_current_revision_and_kind_queries_are_pure(self) -> None:
+        ledger = click_evidence.fresh_state(self.contract)
+        sources = ledger["sources"]
+        argv_key = click_evidence.evidence_key("E1")
+        browser_key = click_evidence.evidence_key("E-browser")
+        sources[argv_key]["status"] = "passed"
+        sources[argv_key]["verified_revision"] = 4
+
+        self.assertTrue(click_evidence.is_current(sources[argv_key], 4))
+        self.assertFalse(click_evidence.is_current(sources[argv_key], 5))
+        self.assertEqual(click_evidence.keys_for_kind(sources, "argv"), {argv_key})
+        self.assertEqual(
+            click_evidence.keys_for_kind(sources, "browser"), {browser_key}
+        )
+
+    def test_gate_sources_wrapper_passes_the_contract_schema_version(self) -> None:
+        state = {
+            "state_schema_version": click_gate.CONTRACT_STATE_SCHEMA_VERSION,
+            "evidence_state": click_evidence.fresh_state(self.contract),
+        }
+        self.assertEqual(
+            click_gate._evidence_sources(state),
+            state["evidence_state"]["sources"],
+        )
+
+
+if __name__ == "__main__":
+    unittest.main()

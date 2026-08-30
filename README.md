@@ -336,6 +336,7 @@ skills/click/references/capability-protocol.md  Structured runner schemas
 skills/fix/                           Compact repair Skill
 hooks/click_state.py                  State paths, atomic persistence, and locking
 hooks/click_process.py                Shell-free process execution, isolation, and termination
+hooks/click_evidence.py               Content-free evidence registry and ledger mechanics
 hooks/click_gate.py                   Contract policy, capability orchestration, anti-loop, and budgets
 hooks/hooks.json                      Lifecycle Hook configuration
 evals/                                Golden cases and semantic grader

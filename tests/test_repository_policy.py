@@ -143,9 +143,12 @@ class RepositoryPolicyTests(unittest.TestCase):
             self.assertIn("click-gate evidence", readme)
 
         hook = (ROOT / "hooks" / "click_gate.py").read_text(encoding="utf-8")
+        evidence_runtime = (ROOT / "hooks" / "click_evidence.py").read_text(
+            encoding="utf-8"
+        )
         self.assertNotIn("BROWSER_SOURCE_MARKERS", hook)
         self.assertNotIn("BROWSER_SOURCE_TERMS", hook)
-        self.assertIn('source.get("kind") == "browser"', hook)
+        self.assertIn('source.get("kind") == "browser"', evidence_runtime)
 
     def test_plain_language_stays_digest_bound_and_is_rendered_once(self) -> None:
         hook = (ROOT / "hooks" / "click_gate.py").read_text(encoding="utf-8")
@@ -423,7 +426,12 @@ class RepositoryPolicyTests(unittest.TestCase):
     def test_runtime_hook_has_no_external_python_dependency(self) -> None:
         sources = {
             name: (ROOT / "hooks" / name).read_text(encoding="utf-8")
-            for name in ("click_gate.py", "click_process.py", "click_state.py")
+            for name in (
+                "click_evidence.py",
+                "click_gate.py",
+                "click_process.py",
+                "click_state.py",
+            )
         }
         for name, source in sources.items():
             for forbidden in ("requests", "yaml", "pydantic", "openai"):
@@ -443,6 +451,18 @@ class RepositoryPolicyTests(unittest.TestCase):
             with self.subTest(forbidden=forbidden):
                 self.assertNotIn(f"import {forbidden}", process)
                 self.assertNotIn(f"from {forbidden}", process)
+
+    def test_evidence_ledger_is_isolated_from_gate_state_and_process(self) -> None:
+        gate = (ROOT / "hooks" / "click_gate.py").read_text(encoding="utf-8")
+        evidence = (ROOT / "hooks" / "click_evidence.py").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("click_evidence", gate)
+        for forbidden in ("click_gate", "click_state", "click_process"):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(f"import {forbidden}", evidence)
+                self.assertNotIn(f"from {forbidden}", evidence)
 
     def test_compact_contract_replaces_the_verbose_execution_fields(self) -> None:
         hook = (ROOT / "hooks" / "click_gate.py").read_text(encoding="utf-8")
