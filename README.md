@@ -2,7 +2,7 @@
 
 English | [한국어](README.ko.md) | [简体中文](README.zh-CN.md)
 
-Community link: [LINUX DO](https://linux.do/)
+Community: [LINUX DO](https://linux.do/)
 
 [![CI](https://github.com/grapefruit0205/click/actions/workflows/ci.yml/badge.svg)](https://github.com/grapefruit0205/click/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
@@ -11,9 +11,9 @@ Community link: [LINUX DO](https://linux.do/)
 
 > **Prompts can suggest behavior. Hooks can enforce the workflow.**
 
-**Click is a Codex plugin that turns a software-change request into a compact contract, then uses a persistent Hook state machine to keep the observable execution path inside that approved boundary.**
+**Click is a Codex plugin that turns a software-change request into one compact contract, then uses a persistent Hook state machine to keep the observable execution path inside the boundary you approved.**
 
-Most coding-agent workflows still ask the model to remember rules such as:
+Most coding-agent workflows still rely on the model remembering instructions such as:
 
 ```text
 Plan once.
@@ -25,14 +25,14 @@ Run only the checks that are actually needed.
 
 That works until context grows, the task branches, or the agent decides to plan and prove the same thing again.
 
-Click moves those workflow rules out of prompt-only convention and into the supported tool boundary.
+Click moves those rules out of prompt-only convention and into the supported tool boundary.
 
 ```text
 request
    ↓
 compact contract
    ↓
-later-turn approval
+Later user turn approval
    ↓
 implementation
    ↓
@@ -47,36 +47,36 @@ done
 
 ## Why Click?
 
-A prompt can tell an agent what it should do. Click adds state for what it is currently allowed to do.
+A prompt can tell an agent what it *should* do. Click adds persistent state around what the agent is *allowed* to do on the observable tool path.
 
 | Prompt-only workflow | Click |
 | --- | --- |
-| Ask the model to remember the plan | Persist the approved workflow state |
-| Hope approval happens at the right time | Stage a digest-bound contract ID and require a later user turn |
-| Ask the agent not to rescan | Allow the first useful broad inventory, then require narrower inspection |
-| Ask it not to re-plan | Reject matched plan-tool churn while the workflow is active |
-| Ask it not to rerun the same proof | Reuse current structured evidence and block duplicate successful checks |
-| Let verification expand as the task grows | Bind completion evidence to an approved verification budget |
-| Treat “looks done” as completion | Require declared evidence to be current for the latest mutation revision |
+| Hope the model remembers the plan | Persist the approved workflow state |
+| Hope approval happens at the right time | Stage a digest-bound `contract_id` and require a later user turn |
+| Ask the agent not to rescan | Allow one useful root inventory, then require narrower inspection |
+| Ask the agent not to replan | Reject matched `update_plan` churn while the workflow is active |
+| Ask the agent not to rerun proof | Reuse current structured evidence and receipts |
+| Let verification expand with the task | Bind completion evidence to an approved verification budget |
+| Stop when the agent says it is done | Require declared evidence to be current for the latest mutation revision |
 
-This is the core idea behind Click:
+The core idea is simple:
 
-> **Stop asking the coding agent to remember the process. Put the process in the execution boundary.**
+> **Do not keep asking the coding agent to remember the process. Put the process in the execution boundary.**
 
-## What the Hook enforces
+## What the Hook actually enforces
 
-Across staging, implementation, review, and verification, Click can enforce observable workflow rules such as:
+During staging, implementation, review, and verification, Click can enforce these **observable workflow rules**:
 
-- **Proposal and approval are separate.** A staged contract receives an opaque `contract_id`; the same user turn cannot both stage and pass it.
-- **Unapproved mutation stays blocked.** An active contract remains locked until the exact staged ID is approved and passed.
-- **Replanning is bounded.** Matched `update_plan` calls are rejected while the Click workflow is active, except for an explicit one-turn bypass.
-- **Repository rediscovery narrows.** One useful root inventory may establish context for the current revision; later broad inventories are rejected and inspection must narrow.
-- **Successful structured reads are reused.** Identical successful observations are not repeated until an in-scope mutation makes them stale.
-- **Verification is evidence-bound.** Local checks name the approved `evidence_id` they prove and stay inside the approved cumulative budget.
-- **Completion follows the latest code.** A mutation advances the revision and makes older completion evidence stale instead of silently reusing it.
-- **Managed local servers have an owner.** Recognized development servers run through Click's managed service path so their isolated child process can be cleaned up.
+- **Proposal and approval are separate.** Staging emits an opaque `contract_id`; the same user turn cannot both stage and pass it.
+- **Mutation waits for approval.** An active contract remains locked until the exact staged ID is approved and passed.
+- **Replanning is bounded.** Matched `update_plan` calls are rejected while the Click workflow is active, except for an explicitly authorized one-turn bypass.
+- **Repository exploration narrows.** One useful root inventory may run for the current revision; later broad inventories are rejected in favor of path-scoped inspection.
+- **Successful observations are reused.** The same successful structured read is not repeated until an in-scope mutation makes it stale.
+- **Verification is evidence-bound.** Local checks name the approved `evidence_id` they prove, and cumulative verification stays within the approved scale.
+- **Completion follows the code.** A mutation advances the revision and makes older completion evidence stale rather than silently reusing it.
+- **Local server lifecycle is owned.** Recognized development servers use Click's managed service path so the exact isolated child can be cleaned up.
 
-The Hook controls the **observable tool path**. It does not inspect hidden chain-of-thought, prove that a design is semantically correct, or act as an operating-system sandbox.
+The Hook controls the **observable tool path**. It does not inspect hidden reasoning, prove semantic correctness by itself, or act as an operating-system sandbox.
 
 ## The compact contract
 
@@ -91,29 +91,27 @@ Click turns the request and relevant repository context into one small execution
 | `verification` | One risk-based scale and the evidence that means done |
 | `plain_language` | The same contract explained for a non-specialist |
 
-The contract locks the **meaning, boundary, and completion commitment**. It does **not** freeze every file, dependency, library, or low-level implementation choice.
+The contract locks the **meaning, boundary, and completion commitment**. It does not freeze every file, dependency, library, or low-level implementation choice.
 
-If the agent discovers that an in-scope dependency, file, or tool is needed, it can still use it. Reapproval is required only when the approved result, boundary, must-hold behavior, or verification commitment materially changes.
+If the agent discovers that an in-scope file, tool, or dependency is necessary, it can still use it. Reapproval is needed only when the approved outcome, boundary, must-hold behavior, or verification commitment materially changes.
 
 ## How it works
 
 ```mermaid
 flowchart TB
-    A["Software-change request"] --> B["Compact contract<br/>+ plain-language view"]
-    B --> C["Stage once<br/>receive contract_id"]
+    A["Software change request"] --> B["Compact contract<br/>+ plain explanation"]
+    B --> C["Stage once<br/>issue contract_id"]
     C --> D{"Later user turn:<br/>approve?"}
     D -->|Revise| B
     D -->|Cancel| X["Stop"]
-    D -->|Approve exact id| E["Implementation inside boundary"]
+    D -->|Approve exact id| E["Implement inside boundary"]
     E --> F["Current-revision evidence"]
-    F --> G["Complete"]
+    F --> G["Done"]
 ```
 
-The initial request is **not** approval of an unseen design. Click stages the canonical JSON once, receives an opaque `contract_id`, shows the contract, and stops. The Hook records the staged turn and rejects same-turn pass or replacement staging.
+The initial request is **not** approval of an unseen design. Click stages the canonical contract once, receives an opaque `contract_id`, shows the contract, and stops. The next approval passes only that ID, not the JSON again.
 
-A later explicit approval passes only the emitted ID. The Hook matches it to the staged digest before implementation can proceed. Revising the proposal creates a new ID and invalidates the old handle.
-
-When all declared evidence is current for the latest mutation revision and no Click-managed service remains active, the contract completes and the next change can start cleanly.
+When every declared evidence source is current for the latest mutation revision and no managed service remains active, the contract is complete and the next change can start from clean workflow state.
 
 ## Quick start
 
@@ -124,51 +122,18 @@ codex plugin add click@click
 
 Restart the ChatGPT desktop app, inspect and trust the included Click Hook, then start a new task.
 
-On first use, choose:
-
-```text
-Always ON
-```
-
-for software-changing tasks by default, or:
-
-```text
-Manual
-```
-
-to activate Click only when you mention `@Click`.
-
-Example:
+On first use, choose **Always ON** to apply Click to software changes by default, or **Manual** to activate it only when you mention `@Click`.
 
 ```text
 @Click Add order cancellation.
 Prevent duplicate refunds and preserve the existing API.
 ```
 
-You can later say “Set Click to Always ON” or “Set Click to Manual.” Preferences persist outside the target repository.
-
-To bypass Click for exactly one turn, put `@Click bypass` on the first line. To discard the active contract, use `@Click cancel`. The autocomplete `plugin://click@click` forms are also supported. These authorizations are one-turn only and are not reusable.
-
-## Always ON without getting in the way
-
-| Request | Always ON behavior |
-| --- | --- |
-| Create, change, delete, refactor, or repair software | Show one compact contract and wait for one approval |
-| Code review without fixes | No build contract; use the read-only anti-loop guard |
-| Question or explanation | Answer normally |
-| Simple read-only lookup | Inspect normally without creating a full observation ledger |
-| `@Click bypass` on the first line | Authorize one bypass for that turn; keep the active contract |
-| `@Click cancel` on the first line | Authorize one cancel and clear the active contract |
+You can later say “Set Click to Always ON” or “Set Click to Manual.” A one-turn `@Click bypass` and `@Click cancel` are also available for explicit control.
 
 ## Example contract
 
-Given:
-
-```text
-@Click Add order cancellation. Prevent duplicate refunds and preserve the existing API.
-```
-
-Click may stage a repository-dependent contract shaped like this:
+For the cancellation request above, repository evidence might produce a contract like this:
 
 ```json
 {
@@ -179,8 +144,7 @@ Click may stage a repository-dependent contract shaped like this:
   },
   "must_hold": [
     "Concurrent or repeated requests cannot create a second refund.",
-    "Existing request fields, response fields, and status meanings remain compatible.",
-    "A payment-provider failure must not leave the order marked as refunded."
+    "Existing request fields, response fields, and status meanings remain compatible."
   ],
   "build": {
     "approach": ["Reuse the current cancellation path and make the refund transition idempotent and atomic."]
@@ -196,7 +160,7 @@ Click may stage a repository-dependent contract shaped like this:
       {"condition": "The public API remains compatible.", "primary_evidence": "E2"}
     ]
   },
-  "plain_language": "Customers can cancel an eligible order, but retries or simultaneous requests cannot refund it twice. The public API stays compatible."
+  "plain_language": "Customers can cancel an eligible order, but retries or simultaneous requests cannot refund it twice. Existing API compatibility is preserved."
 }
 ```
 
@@ -204,16 +168,15 @@ The exact design is repository-dependent. The example shows the contract shape, 
 
 ## Evidence-driven anti-loop behavior
 
-| Guard | What happens |
+| Guard | Behavior |
 | --- | --- |
-| Reuse evidence | An identical structured read or search that already succeeded is blocked until an in-scope mutation makes it stale. |
-| No plan churn | Matched `update_plan` calls are rejected while the workflow is armed, staged, approved-but-incomplete, or in review. |
-| Inventory once, then narrow | The first useful root inventory may run for the current revision; later broad inventory is rejected. |
-| Make command intent explicit | Ambiguous active Bash is rejected in favor of structured `inspect`, `mutate`, `service`, or `verify`. |
-| Keep checks in one budget | Each local final check names its registered `argv` evidence source, and cumulative reservations must fit the approved scale. |
-| Track completion by source | Every declared source must be current for the latest revision; Click does not invent a local check when no `argv` source was approved. |
-| Deduplicate Browser evidence | Successful normalized Browser input is not repeated; one identical retry is allowed after failure, while materially different input remains available. |
-| Separate proposal from approval | Same-turn stage/pass is rejected; later approval passes only the exact digest-bound ID. |
+| Reuse evidence | A successful identical structured read/search is not repeated until an in-scope mutation makes it stale |
+| Block plan churn | Matched `update_plan` calls are rejected while the workflow is armed, staged, approved-but-incomplete, or in review |
+| Inventory once, then narrow | The first useful root inventory may run for the current revision; later broad inventories are rejected |
+| Make command intent explicit | Ambiguous active shell work is replaced by structured `inspect`, `mutate`, `service`, or `verify` paths |
+| Keep verification in one budget | Each local check names its registered `argv` source and cumulative reservations must fit the approved scale |
+| Track completion by source | All declared sources must be current; no placeholder local check is invented when no `argv` source exists |
+| Deduplicate Browser evidence | Successful normalized Browser input is not repeated; one unchanged retry is allowed after failure |
 
 ## Automatic verification budget
 
@@ -225,13 +188,13 @@ Click chooses the smallest sufficient verification scale from the current risk a
 | `focused` | Ordinary bounded feature or repair | 4 units |
 | `full` | Payments, auth, deletion, migrations, public contracts, or cross-boundary concurrency | 10 units |
 
-A `targeted` check costs 1 unit, a `broad` check costs 3, and a `deep` check costs 5. The Hook infers a minimum scope instead of trusting an underdeclared class.
+A `targeted` check costs 1 unit, `broad` costs 3, and `deep` costs 5. These are ceilings, not targets.
 
-Evidence can be local `argv` checks or explicitly declared Browser, hosted, manual, or existing sources. `argv` evidence completes only through the linked local runner. Non-argv sources use explicit completion attestation; the Hook records the approved ID, kind, and current revision but does not independently prove an unmatched external or manual execution happened.
+Evidence may come from local `argv` checks or explicitly declared Browser, hosted, manual, or existing sources. An `argv` source completes only through the real success of its linked local runner. Non-argv completion is an explicit attestation; the Hook records the approved source identity and current revision but does not independently prove unmatched external or manual work.
 
 ## Structured capabilities
 
-Click separates executable programs from their arguments and runs accepted argv arrays without a shell.
+Click separates executables from arguments and uses structured capability paths:
 
 ```text
 click-gate inspect '{"version":1,"commands":[["git","status","--short"],["sed","-n","1,160p","src/app.py"]]}'
@@ -242,140 +205,56 @@ click-gate evidence '{"version":1,"evidence_id":"E-browser"}'
 click-gate verify '{"version":2,"checks":[{"evidence_id":"E1","argv":["python3","-m","pytest","tests/test_cancellation.py"],"class":"targeted"}]}'
 ```
 
-Recognized reads are constrained to the Hook's read-only capability policy. Verification recognizes common bounded forms for pytest/unittest/coverage, Node, `uv`, npm, Ruff, mypy, TypeScript, Cargo, and Go. Exact schemas and the enforcement boundary are documented in [the capability protocol](skills/click/references/capability-protocol.md).
+Recognized reads are constrained by the Hook's read-only capability policy. Exact schemas, trusted executable rules, shell-free execution details, snapshots, claims, and process boundaries live in the [capability protocol](skills/click/references/capability-protocol.md).
 
-Click is a workflow guardrail, **not** an operating-system sandbox. It does not cover secrets, arbitrary network access, external paths, or behavior hidden inside an approved custom program.
+Click is a **workflow guardrail**, not an OS security sandbox.
 
 ## Google Antigravity adapter — experimental
 
-The repository also builds a self-contained Google Antigravity plugin that shares Click's contract state machine, evidence ledger, verification budget, and shell-free runners:
+The repository also builds a self-contained Google Antigravity plugin that shares Click's contract state machine, evidence ledger, verification budget, and shell-free runners.
 
 ```bash
 python3 scripts/build_antigravity_distribution.py
 agy plugin install ./dist/antigravity
 ```
 
-Antigravity IDE users may instead copy `dist/antigravity` to `.agents/plugins/click` for one workspace or `~/.gemini/config/plugins/click` globally.
+Antigravity IDE users may also copy `dist/antigravity` into `.agents/plugins/click` for one workspace or `~/.gemini/config/plugins/click` globally.
 
-Antigravity's Hook contract differs from Codex. Native file/search and unrelated MCP or Skill tools remain available, but cross-tool deduplication and Browser evidence are not currently supported there. See [`platforms/antigravity/README.md`](platforms/antigravity/README.md) for the exact limits.
+Antigravity's Hook contract differs from Codex. Native file/search and unrelated MCP or Skill tools remain available, but cross-tool deduplication and Browser evidence are not currently supported. See [`platforms/antigravity/README.md`](platforms/antigravity/README.md) for the exact limits.
 
-## Updating an existing installation
+## Update an existing installation — v0.24.4
 
-For v0.24.3, refresh the Git marketplace snapshot and reinstall the plugin:
+The current release is **v0.24.4**.
 
 ```bash
 codex plugin marketplace upgrade click
 codex plugin add click@click
 ```
 
-Restart the ChatGPT desktop app and review/trust the updated Hook. Do not reuse a pending runner command created by an older installation; let the updated Hook issue a fresh rewritten command.
+Restart the ChatGPT desktop app and review/trust the updated Hook. Do not reuse a pending runner command created by an older installation; let the updated Hook issue a fresh one.
 
-<details>
-<summary>Upgrading from Build Brief</summary>
+Detailed release history is in [RELEASE_NOTES.md](RELEASE_NOTES.md).
 
-```bash
-codex plugin remove click@build-brief
-codex plugin marketplace remove build-brief
-codex plugin marketplace add grapefruit0205/click
-codex plugin add click@click
-```
+## Honest limits
 
-For Build Brief 0.8, replace the first command with `codex plugin remove build-brief@build-brief`.
+Click makes strong claims only where the Hook can observe and enforce behavior.
 
-</details>
-
-## Minimum design still protects the important parts
-
-Minimum design removes ceremony, not necessary safeguards.
-
-| Concern | What the contract preserves when relevant |
-| --- | --- |
-| Concurrency | Race behavior, duplicate execution, idempotency |
-| State | Valid transitions, persistence points, ownership |
-| Failure | Partial failure, retry, recovery, external errors |
-| Security | Authentication, authorization, secrets, privacy boundaries |
-| Compatibility | Existing API, data, statuses, and user-visible behavior |
-
-The Skill and semantic grader prefer the smallest evidence-backed design. The Hook does not decide whether a microservice, queue, or abstraction is semantically “overdesigned”; it blocks observable planning, rediscovery, and repeated-verification loops that can cause the design to keep expanding.
-
-## Who Click is for
-
-Click is especially useful for:
-
-- users of high-capability coding models who are tired of repeated planning, repository exploration, and excessive verification;
-- brownfield features that must preserve an existing API;
-- idempotency, concurrency, state transitions, and failure recovery;
-- migrations or other high-impact changes with a clear safe boundary;
-- handoffs where another person or agent must implement the same approved meaning;
-- MVPs, internal tools, and automations where you want minimum planning followed by continuous implementation.
-
-Manual mode or a one-turn bypass is usually better for tiny, obvious, reversible, or exploratory changes where no durable approval boundary is useful.
-
-## Evidence and honest limits
-
-Click's deterministic suite covers persistent modes, distinct-turn approval, active-contract locking, read and plan anti-loops, evidence-bound verification, current-revision completion, cumulative verification reservations, exact receipt reuse, Browser input deduplication, managed-service cleanup, process isolation, fail-closed Git snapshots, workspace-mutation detection, distribution consistency, and repository policy. Required CI runs across Linux, macOS, and Windows.
-
-These gates prove **observable Hook and contract behavior only**.
-
-Click does not claim that the Hook can:
+It does **not** claim that the Hook can:
 
 - inspect hidden reasoning or a plan written only in prose;
 - observe every unmatched connector or hosted tool;
-- prove semantic boundary compliance or architectural correctness by itself;
-- independently prove that manual or unmatched external evidence is true;
-- stop an allowed custom program from hiding several operations;
-- replace expert review, authorization, deployment controls, or an OS security sandbox.
+- independently prove semantic boundary compliance or architectural correctness;
+- prove that an unmatched manual or external attestation truly occurred;
+- stop allowed custom code from hiding multiple operations;
+- replace expert review, authorization, deployment controls, or an OS sandbox.
 
-Click also does not claim project-wide improvements in success rate, accuracy, time, token use, or overdesign without independent measurements on unrelated real repositories.
+The repository's deterministic suite tests the observable Hook and contract behavior across Linux, macOS, and Windows. Click does not claim project-wide improvements in success rate, accuracy, time, token use, or overdesign without independent measurements on unrelated real repositories.
 
-That boundary is intentional: **strong claims where the Hook can observe and enforce; honest limits everywhere else.**
+## Related approaches
 
-A ready-to-edit launch post is available in [COMMUNITY_POSTS.md](COMMUNITY_POSTS.md).
+Click overlaps with spec-driven, autonomous-loop, and approval-gated tools, but deliberately stays narrow: **one compact contract, one approval, one implementation boundary, observable anti-loop guards, and one bounded evidence commitment.**
 
-<details>
-<summary>Repository structure and local validation</summary>
-
-```text
-.codex-plugin/plugin.json             Plugin manifest
-.agents/plugins/marketplace.json      GitHub marketplace entry
-skills/click/                         One-shot design-and-build Skill
-skills/click/references/modes.md      Persistent mode and code-review behavior
-skills/click/references/capability-protocol.md  Structured runner schemas
-skills/fix/                           Compact repair Skill
-hooks/click_state.py                  State paths, atomic persistence, and locking
-hooks/click_process.py                Shell-free process execution, isolation, and termination
-hooks/click_evidence.py               Content-free evidence registry and ledger mechanics
-hooks/click_gate.py                   Contract policy, capability orchestration, anti-loop, and budgets
-hooks/hooks.json                      Lifecycle Hook configuration
-evals/                                Golden cases and semantic grader
-tests/                                Deterministic Hook, grader, and policy tests
-scripts/validate_distribution.py     Repository-owned release validator
-COMMUNITY_POSTS.md                    Ready-to-edit community launch posts
-LICENSE                               MIT License
-```
-
-```bash
-python3 scripts/validate_distribution.py
-python3 -m compileall -q hooks evals scripts tests
-python3 -m unittest discover -s tests -v
-git diff --check
-```
-
-</details>
-
-<details>
-<summary>Related approaches</summary>
-
-| Project | Overlap | Click's narrower emphasis |
-| --- | --- | --- |
-| [GitHub Spec Kit](https://github.com/github/spec-kit) | Specification, planning, tasks, implementation | One compact contract and one approval instead of a persistent multi-command specification process |
-| [OpenSpec](https://github.com/Fission-AI/OpenSpec) | Agreement before AI-assisted coding | No project-local specification store; the Hook keeps only content-free lifecycle metadata and a digest outside the target repository |
-| [Kiro Specs](https://kiro.dev/docs/cli/v3/specs/) | Requirements, design, tasks, verified execution | One complete contract review followed by one-shot implementation |
-| [Agentic SDLC Codex Plugin](https://github.com/aantenore/agentic-sdlc-codex-plugin) | Hash-bound proposals and approval | A smaller pre-code boundary rather than broader SDLC governance |
-
-This is a bounded comparison, not an exhaustive novelty search.
-
-</details>
+See [COMMUNITY_POSTS.md](COMMUNITY_POSTS.md) for ready-to-edit launch copy.
 
 ## License
 
