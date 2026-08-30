@@ -2281,12 +2281,15 @@ def _runner_shell_command(arguments: list[str]) -> str:
         ):
             return "exit 2"
         transported = [
-            arguments[0],
             arguments[1],
             "--encoded-runner",
             _encode_runner_transport(arguments[2:]),
         ]
-        command = " ".join(
+        # hooks.json already requires the Windows py launcher. Reuse its bare
+        # command form here so the rewritten runner is valid in both cmd.exe
+        # and PowerShell; a quoted executable path in command position is only
+        # an expression in PowerShell unless prefixed with its call operator.
+        command = "py -3 " + " ".join(
             _windows_shell_quote(argument) for argument in transported
         )
         if len(command) > WINDOWS_COMMAND_LINE_LIMIT:

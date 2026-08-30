@@ -316,6 +316,16 @@ def _command_argv(command: str) -> list[str]:
     return _windows_command_argv(command) if os.name == "nt" else shlex.split(command)
 
 
+def _runner_command_argv(command: str) -> list[str]:
+    argv = _command_argv(command)
+    if os.name == "nt" and argv[:2] == ["py", "-3"]:
+        # Codex needs a shell-portable bare launcher, while Antigravity runs
+        # the returned command directly without a shell. Preserve its active
+        # interpreter instead of adding a separate py-launcher dependency.
+        return [str(Path(sys.executable).resolve(strict=True)), *argv[2:]]
+    return argv
+
+
 def _antigravity_bash_tokens(command: str) -> list[str] | None:
     """Parse one expansion-free Antigravity Bash command.
 
@@ -507,8 +517,8 @@ def _control(arguments: list[str]) -> int:
     if not isinstance(command, str) or not command:
         return 0
     try:
-        argv = _command_argv(command)
-    except ValueError as exc:
+        argv = _runner_command_argv(command)
+    except (OSError, ValueError) as exc:
         sys.stderr.write(f"Click produced an invalid runner command: {exc}\n")
         return 2
     try:

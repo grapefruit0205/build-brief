@@ -68,11 +68,18 @@ def split_runner_command(command: str) -> list[str]:
         kernel32.LocalFree.argtypes = [ctypes.c_void_p]
         kernel32.LocalFree.restype = ctypes.c_void_p
         kernel32.LocalFree(ctypes.cast(argv, ctypes.c_void_p))
-    if len(parsed) == 4 and parsed[2] == "--encoded-runner":
-        decoded, error = CLICK_GATE._decode_runner_transport(parsed[3])
+    encoded_index = 3 if parsed[:2] == ["py", "-3"] else 2
+    if (
+        len(parsed) == encoded_index + 2
+        and parsed[encoded_index] == "--encoded-runner"
+    ):
+        decoded, error = CLICK_GATE._decode_runner_transport(
+            parsed[encoded_index + 1]
+        )
         if error or decoded is None:
             raise ValueError(error or "invalid runner transport")
-        return [*parsed[:2], *decoded]
+        script_index = encoded_index - 1
+        return [parsed[0], parsed[script_index], *decoded]
     return parsed
 
 
@@ -434,14 +441,29 @@ class ClickGateTests(unittest.TestCase):
         self.assertIsNotNone(payload)
         return payload
 
-    def run_rewritten(self, payload: dict) -> subprocess.CompletedProcess[str]:
+    def run_rewritten(
+        self,
+        payload: dict,
+        environment_updates: dict[str, str] | None = None,
+    ) -> subprocess.CompletedProcess[str]:
         command = payload["hookSpecificOutput"]["updatedInput"]["command"]
         environment = os.environ.copy()
         environment["PLUGIN_DATA"] = str(self.plugin_data)
         environment["CLICK_CONFIG_HOME"] = str(self.plugin_data)
+        if environment_updates:
+            environment.update(environment_updates)
+        invocation: str | list[str] = command
+        use_shell = True
+        if os.name == "nt" and command.startswith("py -3 "):
+            # Runner shell compatibility has dedicated PowerShell/cmd.exe
+            # integration coverage. Keep semantic unit tests on the same
+            # interpreter that prepared their environment fingerprints.
+            invocation = split_runner_command(command)
+            invocation[0] = sys.executable
+            use_shell = False
         return subprocess.run(
-            command,
-            shell=True,
+            invocation,
+            shell=use_shell,
             cwd=self.workspace,
             env=environment,
             capture_output=True,
@@ -759,6 +781,8 @@ class ClickGateTests(unittest.TestCase):
         ]
         with mock.patch.object(CLICK_GATE.os, "name", "nt"):
             command = CLICK_GATE._runner_shell_command(arguments)
+        self.assertTrue(command.startswith('py -3 "C:\\Users\\safe user'))
+        self.assertNotIn(arguments[0], command)
         self.assertIn('"--encoded-runner"', command)
         self.assertNotIn("%PATH%", command)
         self.assertNotIn("!CLICK!", command)
@@ -3016,19 +3040,9 @@ class ClickGateTests(unittest.TestCase):
             "running_environment_digests"
         ][source_key]
 
-        rewritten = first["hookSpecificOutput"]["updatedInput"]["command"]
-        environment = os.environ.copy()
-        environment["PLUGIN_DATA"] = str(self.plugin_data)
-        environment["CLICK_CONFIG_HOME"] = str(self.plugin_data)
-        environment["CLICK_RUNNER_ONLY_NOISE"] = "launcher-added"
-        completed = subprocess.run(
-            rewritten,
-            shell=True,
-            cwd=self.workspace,
-            env=environment,
-            capture_output=True,
-            text=True,
-            check=False,
+        completed = self.run_rewritten(
+            first,
+            {"CLICK_RUNNER_ONLY_NOISE": "launcher-added"},
         )
         self.assertEqual(completed.returncode, 0, completed.stderr)
         recorded = json.loads(state_path.read_text(encoding="utf-8"))

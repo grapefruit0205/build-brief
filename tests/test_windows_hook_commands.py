@@ -76,6 +76,8 @@ class WindowsHookCommandTests(unittest.TestCase):
     def test_commands_execute_in_powershell_from_normal_and_spaced_roots(self) -> None:
         powershell = shutil.which("pwsh")
         self.assertIsNotNone(powershell, "pwsh is required on the Windows CI runner")
+        command_prompt = shutil.which("cmd.exe")
+        self.assertIsNotNone(command_prompt, "cmd.exe is required on Windows")
         commands = windows_commands()
 
         with tempfile.TemporaryDirectory() as temporary:
@@ -99,6 +101,34 @@ class WindowsHookCommandTests(unittest.TestCase):
                             "CLICK_CONFIG_HOME": str(plugin_data),
                         }
                     )
+
+                    def run_runner(
+                        shell_name: str, runner: str
+                    ) -> subprocess.CompletedProcess[str]:
+                        if shell_name == "PowerShell":
+                            invocation: str | list[str] = [
+                                powershell,
+                                "-NoProfile",
+                                "-NonInteractive",
+                                "-Command",
+                                runner,
+                            ]
+                            shell_options: dict[str, object] = {}
+                        else:
+                            invocation = runner
+                            shell_options = {
+                                "shell": True,
+                                "executable": command_prompt,
+                            }
+                        return subprocess.run(
+                            invocation,
+                            capture_output=True,
+                            text=True,
+                            cwd=workspace,
+                            env=environment,
+                            check=False,
+                            **shell_options,
+                        )
 
                     for event_name, mode in WINDOWS_MODES.items():
                         with self.subTest(plugin_root=root_name, event=event_name):
@@ -135,6 +165,146 @@ class WindowsHookCommandTests(unittest.TestCase):
                                 payload = json.loads(result.stdout)
                                 updated = payload["hookSpecificOutput"]["updatedInput"]
                                 self.assertIn("Click default mode:", updated["command"])
+
+                    probe = workspace / "runner probe.txt"
+                    probe.write_text("portable Windows runner\n", encoding="utf-8")
+                    request = {
+                        "version": 1,
+                        "commands": [["Get-Content", "-Raw", probe.name]],
+                    }
+                    inspect_event = synthetic_event(
+                        "PreToolUse",
+                        workspace,
+                        f"{root_name}-inspect".replace(" ", "-"),
+                    )
+                    inspect_event["tool_input"] = {
+                        "command": (
+                            "click-gate inspect '"
+                            + json.dumps(request, separators=(",", ":"))
+                            + "'"
+                        )
+                    }
+                    rendered_hook = commands["PreToolUse"].replace(
+                        "${PLUGIN_ROOT}", str(plugin_root)
+                    )
+                    hook_result = subprocess.run(
+                        [
+                            powershell,
+                            "-NoProfile",
+                            "-NonInteractive",
+                            "-Command",
+                            rendered_hook,
+                        ],
+                        input=json.dumps(inspect_event) + "\n",
+                        capture_output=True,
+                        text=True,
+                        cwd=workspace,
+                        env=environment,
+                        check=False,
+                    )
+                    self.assertEqual(
+                        hook_result.returncode,
+                        0,
+                        f"inspect hook failed:\n{hook_result.stderr}\n{hook_result.stdout}",
+                    )
+                    payload = json.loads(hook_result.stdout)
+                    runner = payload["hookSpecificOutput"]["updatedInput"]["command"]
+                    self.assertTrue(runner.startswith("py -3 "), runner)
+
+                    for shell_name in ("PowerShell", "cmd.exe"):
+                        with self.subTest(plugin_root=root_name, shell=shell_name):
+                            runner_result = run_runner(shell_name, runner)
+                            self.assertEqual(
+                                runner_result.returncode,
+                                0,
+                                f"{shell_name} runner failed:\n"
+                                f"{runner_result.stderr}\n{runner_result.stdout}",
+                            )
+                            self.assertEqual(
+                                runner_result.stdout, "portable Windows runner\n"
+                            )
+
+                    for shell_name in ("PowerShell", "cmd.exe"):
+                        suffix = (
+                            f"{root_name}-{shell_name}-stateful".replace(" ", "-")
+                        )
+                        review_event = synthetic_event(
+                            "PreToolUse", workspace, suffix
+                        )
+                        review_event["tool_input"] = {"command": "click-gate review"}
+                        review_result = subprocess.run(
+                            [
+                                powershell,
+                                "-NoProfile",
+                                "-NonInteractive",
+                                "-Command",
+                                rendered_hook,
+                            ],
+                            input=json.dumps(review_event) + "\n",
+                            capture_output=True,
+                            text=True,
+                            cwd=workspace,
+                            env=environment,
+                            check=False,
+                        )
+                        self.assertEqual(
+                            review_result.returncode,
+                            0,
+                            f"review hook failed:\n"
+                            f"{review_result.stderr}\n{review_result.stdout}",
+                        )
+
+                        stateful_event = synthetic_event(
+                            "PreToolUse", workspace, suffix
+                        )
+                        stateful_event["tool_input"] = inspect_event["tool_input"]
+                        stateful_result = subprocess.run(
+                            [
+                                powershell,
+                                "-NoProfile",
+                                "-NonInteractive",
+                                "-Command",
+                                rendered_hook,
+                            ],
+                            input=json.dumps(stateful_event) + "\n",
+                            capture_output=True,
+                            text=True,
+                            cwd=workspace,
+                            env=environment,
+                            check=False,
+                        )
+                        self.assertEqual(
+                            stateful_result.returncode,
+                            0,
+                            f"stateful inspect hook failed:\n"
+                            f"{stateful_result.stderr}\n{stateful_result.stdout}",
+                        )
+                        stateful_payload = json.loads(stateful_result.stdout)
+                        stateful_runner = stateful_payload["hookSpecificOutput"][
+                            "updatedInput"
+                        ]["command"]
+                        self.assertTrue(
+                            stateful_runner.startswith("py -3 "), stateful_runner
+                        )
+
+                        with self.subTest(
+                            plugin_root=root_name,
+                            shell=shell_name,
+                            runner="stateful",
+                        ):
+                            executed = run_runner(shell_name, stateful_runner)
+                            self.assertEqual(
+                                executed.returncode,
+                                0,
+                                f"{shell_name} stateful runner failed:\n"
+                                f"{executed.stderr}\n{executed.stdout}",
+                            )
+                            self.assertNotIn(
+                                "state-root binding", executed.stderr.lower()
+                            )
+                            self.assertEqual(
+                                executed.stdout, "portable Windows runner\n"
+                            )
 
 
 if __name__ == "__main__":

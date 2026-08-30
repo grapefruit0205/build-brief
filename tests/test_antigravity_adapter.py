@@ -331,9 +331,16 @@ class AntigravityAdapterTests(unittest.TestCase):
         ]
         command = click_gate._runner_shell_command(arguments)
         parsed = antigravity_gate._command_argv(command)
-        self.assertEqual(parsed[:2], arguments[:2])
-        self.assertEqual(parsed[2], "--encoded-runner")
-        decoded, error = click_gate._decode_runner_transport(parsed[3])
+        self.assertEqual(parsed[:3], ["py", "-3", arguments[1]])
+        self.assertEqual(parsed[3], "--encoded-runner")
+        decoded, error = click_gate._decode_runner_transport(parsed[4])
+        self.assertEqual(error, "")
+        self.assertEqual(decoded, arguments[2:])
+
+        direct = antigravity_gate._runner_command_argv(command)
+        self.assertEqual(direct[:2], arguments[:2])
+        self.assertEqual(direct[2], "--encoded-runner")
+        decoded, error = click_gate._decode_runner_transport(direct[3])
         self.assertEqual(error, "")
         self.assertEqual(decoded, arguments[2:])
 

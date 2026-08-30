@@ -222,9 +222,9 @@ Antigravity IDE 用户也可以把 `dist/antigravity` 复制到工作区的 `.ag
 
 Antigravity 的 Hook contract 与 Codex 不同。native file/search 和其他 MCP、Skill 工具仍可使用，但目前还不支持 cross-tool 去重和 Browser evidence。准确限制请参阅 [`platforms/antigravity/README.md`](platforms/antigravity/README.md)。
 
-## 更新现有安装 — v0.24.4
+## 更新现有安装 — v0.24.5
 
-当前版本是 **v0.24.4**。
+当前版本是 **v0.24.5**。
 
 ```bash
 codex plugin marketplace upgrade click
