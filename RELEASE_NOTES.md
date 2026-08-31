@@ -12,6 +12,14 @@
 - Service request schema, error text, runner argv transport, digest and
   constant-time token bindings, timeout behavior, and public/private compatibility
   symbols remain unchanged. Antigravity bundles the same extracted runtime.
+- Browser source admission, serial `tool_use_id` interlocks, bounded attempt
+  receipts, PostToolUse result mapping, current-revision observation, and final
+  evidence transition now live in `click_browser.py`. The gate retains host
+  event routing and injects only cross-domain lifecycle predicates.
+- Browser timing and repeat suggestions remain non-authoritative in
+  `click_browser_advisory.py`; the extracted receipt runtime cannot emit a host
+  allow/deny decision. Existing state fields, exact error text, compatibility
+  helpers, retry compaction, and legacy running-entry handling are preserved.
 
 ## v0.32.0 — 2026-09-01
 

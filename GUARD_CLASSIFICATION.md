@@ -19,7 +19,7 @@ not claim that every hard gate has already been moved to its target layer.
 | Canonical state paths, locks, atomic writes and authorized state-root recovery | `hooks/click_state.py` | Preserves approval state across failure without weakening identity checks |
 | Cancellation, expiry, consumed-runner and tampering revocation | `hooks/click_state.py`; lifecycle branches in `hooks/click_gate.py` | Prevents stale authority from becoming executable again |
 | Evidence registry identity, current-revision state and receipt matching | `hooks/click_evidence.py`; verification claim/result paths in `hooks/click_gate.py` | Prevents evidence from a different request or revision from completing work |
-| Browser source admission, serial-call interlock, stable host-call/result mapping, current revision and finalization replay | Browser receipt transitions in `hooks/click_gate.py` | Prevents an unassigned, parallel, mismatched, stale or replayed Browser result from completing evidence without judging the model's interaction strategy |
+| Browser source admission, serial-call interlock, stable host-call/result mapping, current revision and finalization replay | `hooks/click_browser.py`; host routing in `hooks/click_gate.py` | Prevents an unassigned, parallel, mismatched, stale or replayed Browser result from completing evidence without judging the model's interaction strategy |
 | Protected Git-tree, environment and executable fingerprints for argv verification; verification-time mutation detection | verification receipt helpers and runners in `hooks/click_gate.py` | Preserves the identity of the code and environment actually checked by Click's argv runner |
 | Opt-in dependency provider, relevant-entry and resolved-path receipts, plus approved mutation pre/post binding | `hooks/click_dependency_cache.py`; mutation-boundary and receipt transitions in `hooks/click_gate.py` | Allows cross-revision reuse without treating a model's post-approval assertion, unrelated manifest content, or later workspace drift as proof |
 | Direct-argv capability safety, executable/path/environment checks, process-control rejection and read-only side-effect defenses | capability constants and validators in `hooks/click_gate.py` | Prevents an admitted inspect, verify or service request from gaining unapproved effects |
@@ -67,8 +67,9 @@ not claim that every hard gate has already been moved to its target layer.
 - A verification command that observably changes protected repository content
   violates the read-only evidence boundary and remains `CORE`; limiting fresh
   retries of an ordinary failing argv check is `HEURISTIC`.
-- Browser source and current-revision accounting are `CORE` when the host event
-  is observable; duplicate-input and call-count tuning are `HEURISTIC`.
+- Browser source and current-revision accounting in `hooks/click_browser.py` are
+  `CORE` when the host event is observable; duplicate-input and call-count
+  tuning in `hooks/click_browser_advisory.py` are `HEURISTIC`.
 - The contract digest and approval identity are `CORE`; required planning prose
   and judgments about whether a contract is concise are not.
 

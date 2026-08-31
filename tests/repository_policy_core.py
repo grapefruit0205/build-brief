@@ -504,6 +504,7 @@ class RepositoryPolicyTests(unittest.TestCase):
         sources = {
             name: (ROOT / "hooks" / name).read_text(encoding="utf-8")
             for name in (
+                "click_browser.py",
                 "click_browser_advisory.py",
                 "click_contract.py",
                 "click_dependency_cache.py",
@@ -611,11 +612,24 @@ class RepositoryPolicyTests(unittest.TestCase):
 
     def test_browser_advisory_is_separate_from_receipt_integrity(self) -> None:
         gate = (ROOT / "hooks" / "click_gate.py").read_text(encoding="utf-8")
+        browser = (ROOT / "hooks" / "click_browser.py").read_text(
+            encoding="utf-8"
+        )
         advisory = (ROOT / "hooks" / "click_browser_advisory.py").read_text(
             encoding="utf-8"
         )
 
+        self.assertIn("click_browser", gate)
         self.assertIn("click_browser_advisory", gate)
+        for required in (
+            "def prepare(",
+            "def record_result(",
+            "def finalize_evidence(",
+        ):
+            with self.subTest(required=required):
+                self.assertIn(required, browser)
+        self.assertIn("Workflow suggestions remain", browser)
+        self.assertNotIn("permissionDecision", browser)
         self.assertIn("does not grant or deny Browser authority", advisory)
         self.assertNotIn("permissionDecision", advisory)
         self.assertNotIn("tool_use_id", advisory.split("def repeat_advisory", 1)[0])
@@ -629,6 +643,17 @@ class RepositoryPolicyTests(unittest.TestCase):
         ):
             with self.subTest(forbidden=forbidden):
                 self.assertNotIn(forbidden, advisory)
+        for forbidden in (
+            "import click_contract",
+            "import click_gate",
+            "import click_process",
+            "import click_service",
+            "import click_verification_meter",
+            "import click_verification_policy",
+            "import platform_protocol",
+        ):
+            with self.subTest(browser_forbidden=forbidden):
+                self.assertNotIn(forbidden, browser)
 
     def test_compact_contract_replaces_the_verbose_execution_fields(self) -> None:
         hook = (ROOT / "hooks" / "click_gate.py").read_text(encoding="utf-8")
