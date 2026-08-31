@@ -179,6 +179,26 @@ class ClickDependencyCacheTests(unittest.TestCase):
         self.assertNotEqual(first["entry_digest"], second["entry_digest"])
         self.assertNotEqual(first["dependency_digest"], second["dependency_digest"])
 
+    def test_committed_manifest_accepts_windows_checkout_line_endings(self) -> None:
+        subprocess.run(
+            ["git", "config", "core.autocrlf", "true"],
+            cwd=self.root,
+            check=True,
+        )
+        self.write_manifest([self.entry(["src/unit.py"])])
+        manifest = self.root / ".click" / "evidence-dependencies.json"
+        manifest.write_bytes(manifest.read_bytes().replace(b"\n", b"\r\n"))
+        self.commit("windows checkout manifest")
+
+        self.assertIn(b"\r\n", manifest.read_bytes())
+        receipt = self.receipts()["source"]
+        self.assertEqual(receipt["resolved_paths"], ["src/unit.py"])
+
+        manifest.write_bytes(
+            manifest.read_bytes().replace(b"src/unit.py", b"docs/a.md")
+        )
+        self.assertEqual(self.receipts(), {})
+
     @unittest.skipIf(os.name == "nt", "Windows symlink creation needs host privileges")
     def test_internal_symlink_hashes_link_and_target_but_external_is_rejected(self) -> None:
         (self.root / "linked.py").symlink_to("src/unit.py")

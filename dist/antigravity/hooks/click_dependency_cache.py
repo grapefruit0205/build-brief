@@ -42,6 +42,11 @@ def _digest(value: Any) -> str:
     return hashlib.sha256(canonical.encode()).hexdigest()
 
 
+def _canonical_config_bytes(value: bytes) -> bytes:
+    """Make a committed text manifest stable across Git checkout EOL modes."""
+    return value.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+
+
 def _group_digest(checks: list[dict[str, Any]]) -> str:
     payload: list[dict[str, list[str]]] = []
     for check in checks:
@@ -313,10 +318,13 @@ def _load_repository(
         raw = config_path.read_bytes()
     except OSError:
         return None
-    if committed is None or committed != raw:
+    if committed is None:
+        return None
+    canonical_raw = _canonical_config_bytes(raw)
+    if _canonical_config_bytes(committed) != canonical_raw:
         return None
     try:
-        value = json.loads(raw.decode("utf-8"))
+        value = json.loads(canonical_raw.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError):
         return None
     if not isinstance(value, dict) or set(value) != {"version", "entries"}:
@@ -336,7 +344,12 @@ def _load_repository(
         if not group_digest or group_digest in entries or error or paths is None:
             return None
         entries[group_digest] = paths
-    return root, hashlib.sha256(raw).hexdigest(), entries, repository_paths
+    return (
+        root,
+        hashlib.sha256(canonical_raw).hexdigest(),
+        entries,
+        repository_paths,
+    )
 
 
 def receipts_for_groups(
