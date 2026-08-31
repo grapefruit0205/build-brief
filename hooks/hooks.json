@@ -7,7 +7,7 @@
           {
             "type": "command",
             "command": "python3 \"${PLUGIN_ROOT}/hooks/click_gate.py\" prompt-submit",
-            "commandWindows": "powershell.exe -NoProfile -NonInteractive -Command \"& '${PLUGIN_ROOT}\\hooks\\click_windows.cmd' prompt-submit\"",
+            "commandWindows": "\"${PLUGIN_ROOT}\\hooks\\click_windows.cmd\" prompt-submit",
             "timeout": 7,
             "additionalContextLimit": 1400
           }
@@ -21,7 +21,18 @@
           {
             "type": "command",
             "command": "python3 \"${PLUGIN_ROOT}/hooks/click_gate.py\" pre-tool",
-            "commandWindows": "powershell.exe -NoProfile -NonInteractive -Command \"& '${PLUGIN_ROOT}\\hooks\\click_windows.cmd' pre-tool\"",
+            "commandWindows": "\"${PLUGIN_ROOT}\\hooks\\click_windows.cmd\" pre-tool",
+            "timeout": 7
+          }
+        ]
+      },
+      {
+        "matcher": "^(shell_command|functions\\.shell_command|exec_command|functions\\.exec_command|unified_exec|functions\\.unified_exec|exec|functions\\.exec|code_mode_exec|functions\\.apply_patch)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${PLUGIN_ROOT}/hooks/click_hook.py\" pre-tool",
+            "commandWindows": "\"${PLUGIN_ROOT}\\hooks\\click_windows.cmd\" pre-tool",
             "timeout": 7
           }
         ]
@@ -34,7 +45,7 @@
           {
             "type": "command",
             "command": "python3 \"${PLUGIN_ROOT}/hooks/click_gate.py\" post-tool",
-            "commandWindows": "powershell.exe -NoProfile -NonInteractive -Command \"& '${PLUGIN_ROOT}\\hooks\\click_windows.cmd' post-tool\"",
+            "commandWindows": "\"${PLUGIN_ROOT}\\hooks\\click_windows.cmd\" post-tool",
             "timeout": 7
           }
         ]
@@ -46,7 +57,7 @@
           {
             "type": "command",
             "command": "python3 \"${PLUGIN_ROOT}/hooks/click_gate.py\" session-end",
-            "commandWindows": "powershell.exe -NoProfile -NonInteractive -Command \"& '${PLUGIN_ROOT}\\hooks\\click_windows.cmd' session-end\"",
+            "commandWindows": "\"${PLUGIN_ROOT}\\hooks\\click_windows.cmd\" session-end",
             "timeout": 3
           }
         ]
