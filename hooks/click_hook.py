@@ -2,7 +2,7 @@
 """Codex Hook entrypoint that normalizes equivalent tool names for Click.
 
 Codex clients do not always expose shell execution under the historical `Bash`
-name.  This adapter maps direct shell/exec surfaces onto Click's canonical Bash
+name. This adapter maps direct shell/exec surfaces onto Click's canonical Bash
 path while leaving the core contract state machine unchanged.
 """
 
@@ -13,7 +13,10 @@ import json
 import sys
 from typing import Any
 
-import click_gate
+if __package__:
+    from . import click_gate
+else:
+    import click_gate
 
 
 DIRECT_EXEC_TOOL_NAMES = {
