@@ -12,6 +12,7 @@ import os
 from pathlib import Path
 
 import click_gate
+import click_hook
 
 
 _ORIGINAL_RUNNER_SHELL_COMMAND = click_gate._runner_shell_command
@@ -61,7 +62,7 @@ def _runner_shell_command(arguments: list[str]) -> str:
 def main() -> int:
     if os.name == "nt":
         click_gate._runner_shell_command = _runner_shell_command
-    return click_gate.main()
+    return click_hook.main()
 
 
 if __name__ == "__main__":
