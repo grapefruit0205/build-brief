@@ -222,16 +222,16 @@ Antigravity IDE 用户也可以把 `dist/antigravity` 复制到工作区的 `.ag
 
 Antigravity 的 Hook contract 与 Codex 不同。native file/search 和其他 MCP、Skill 工具仍可使用，但目前还不支持 cross-tool 去重和 Browser evidence。准确限制请参阅 [`platforms/antigravity/README.md`](platforms/antigravity/README.md)。
 
-## 更新现有安装 — v0.24.5
+## 更新现有安装 — v0.24.6
 
-当前版本是 **v0.24.5**。
+当前版本是 **v0.24.6**。
 
 ```bash
 codex plugin marketplace upgrade click
 codex plugin add click@click
 ```
 
-重启 ChatGPT 桌面应用并检查、信任更新后的 Hook。不要复用旧安装留下的待执行 runner 命令；让更新后的 Hook 重新签发。
+重启 ChatGPT 桌面应用并检查、信任更新后的 Hook。在 Windows 上，v0.24.6 增加 Python launcher fallback；当宿主实际派发匹配的 Hook 事件时，Desktop 的 `exec_command` 类执行会被规范化到 Click 路径。不要复用旧安装留下的待执行 runner 命令；让更新后的 Hook 重新签发。
 
 详细发布历史见 [RELEASE_NOTES.md](RELEASE_NOTES.md)。
 
@@ -243,6 +243,7 @@ Click 只在 Hook 真正可以观察并强制执行的范围内做强声明。
 
 - 检查隐藏推理或只写在自然语言中的计划；
 - 观察所有 matcher 外的 connector 或 hosted tool；
+- 在 Codex 客户端没有派发匹配 Hook 事件时强制对应的宿主执行路径；
 - 单独证明语义边界合规或架构正确性；
 - 独立证明 matcher 外部人工或外部 attestation 真实发生；
 - 阻止已允许自定义程序内部隐藏多项操作；
