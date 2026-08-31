@@ -1,5 +1,69 @@
 # Release notes
 
+## v0.24.6 — 2026-08-31
+
+Click v0.24.6 is a focused Windows/Codex Desktop compatibility and runner-state
+recovery patch. Contract shape, approval semantics, evidence protocol,
+verification budgets, and the observable workflow policy remain unchanged.
+
+### Recover approved runner state before strict path resolution
+
+- Stateful mutation, verification, and managed-service runners keep the final
+  canonical `Path.resolve(strict=True)` admission check, but an already-issued
+  approved runner may now restore its exact missing session-contract state from
+  a short-lived recovery mirror before that strict check runs.
+- Recovery requires the explicit bound state path plus the existing request or
+  service binding and one-use runner token to match. Wrong tokens, mismatched
+  requests, cancelled contracts, expired reservations, and consumed-runner
+  replay remain fail-closed.
+- Explicit contract cancellation removes the recovery mirror. Recovery-only
+  paths use non-strict canonicalization so macOS aliases such as `/var` and
+  `/private/var` resolve to the same snapshot without weakening the final state
+  path validation.
+
+### Windows Python launcher fallback
+
+- Windows lifecycle Hooks no longer assume that `py -3` can resolve an
+  installed interpreter. The launcher probes Python 3 through `py -3`, then
+  `python`, then `python3`, and a broken `py` launcher can fall through to a
+  working `python.exe`.
+- Once the Hook starts, rewritten Click runners reuse the exact selected
+  `sys.executable` instead of returning to `py -3`. Existing encoded transport,
+  runner claims, state-root binding, and shell-free capability execution remain
+  unchanged.
+- The Windows regression suite includes a fake `py` launcher that reports
+  `No installed Python found!` while a real `python.exe` remains available.
+
+### Codex Desktop exec routing and Hook launch
+
+- The existing canonical `Bash|apply_patch|...` PreToolUse matcher remains
+  unchanged. A separate Desktop execution matcher covers `exec_command`,
+  `shell_command`, `unified_exec`, function-qualified forms, and observed Code
+  Mode aliases.
+- Direct execution aliases are normalized onto Click's canonical Bash policy
+  before the core state machine sees the event, so `click-gate` control commands
+  and structured reads receive the same rewrite and enforcement when the host
+  dispatches the matching Hook event.
+- Windows lifecycle Hooks invoke the quoted `.cmd` launcher directly instead of
+  wrapping the entrypoint in an embedded PowerShell `-Command` payload.
+  UserPromptSubmit, PreToolUse, PostToolUse, and SessionEnd keep their existing
+  lifecycle semantics and timeouts.
+- This does not claim to solve a host path that never dispatches PreToolUse.
+  If Codex Code Mode executes through a surface for which the client emits no
+  matching Hook event, Click cannot observe or enforce that execution.
+
+### Regression and release gate
+
+- Focused regressions cover deleted state-root/state-file recovery, wrong-token
+  rejection, cancel/replay revocation, Windows encoded-runner recovery, broken
+  `py` fallback, direct `cmd.exe` UserPromptSubmit context, Desktop
+  `exec_command` rewriting, structured inspection, and rewritten runner
+  execution through PowerShell and `cmd.exe`.
+- The compatibility patches passed deterministic CI on Ubuntu, macOS, and
+  Windows and the Plugin Security Scan before this release metadata was staged.
+- The immutable `v0.24.6` tag and GitHub Release must point to the exact merged
+  main commit that passes the final release CI and security checks.
+
 ## v0.24.5 — 2026-08-31
 
 Click v0.24.5 is a focused Windows internal-runner shell compatibility
