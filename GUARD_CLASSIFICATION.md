@@ -1,6 +1,6 @@
 # Click Guard Classification
 
-Status: **Living inventory; v0.30 policy migrations complete; dependency-aware receipt reuse completed for v0.31.0**
+Status: **Living inventory; v0.30 policy migrations complete; dependency-aware receipt reuse completed for v0.31.0; host coverage identity in the v0.32 candidate**
 
 Baseline: **v0.24.6 plus the canonical product-boundary change at `73072a9`**
 
@@ -24,7 +24,7 @@ not claim that every hard gate has already been moved to its target layer.
 | Opt-in dependency provider, relevant-entry and resolved-path receipts, plus approved mutation pre/post binding | `hooks/click_dependency_cache.py`; mutation-boundary and receipt transitions in `hooks/click_gate.py` | Allows cross-revision reuse without treating a model's post-approval assertion, unrelated manifest content, or later workspace drift as proof |
 | Direct-argv capability safety, executable/path/environment checks, process-control rejection and read-only side-effect defenses | capability constants and validators in `hooks/click_gate.py` | Prevents an admitted inspect, verify or service request from gaining unapproved effects |
 | Mutation, verification and managed-service interlocks around active runner claims | runner reservation and claim state in `hooks/click_gate.py` | Prevents an authorized side effect or receipt from racing into a different state without treating distinct observation concurrency as authority |
-| Host event normalization and state/receipt-preserving result mapping | `hooks/click_hook.py`, `hooks/antigravity_gate.py`, `hooks/platform_protocol.py` | Ensures observable host actions reach the same authorization protocol |
+| Host coverage identity, event normalization and state/receipt-preserving result mapping | `hooks/click_host_coverage.py`, `hooks/click_hook.py`, `hooks/antigravity_gate.py`, `hooks/platform_protocol.py` | Keeps the known pre/post surface symmetric and prevents verification receipts from crossing a host or coverage-registry revision while making the limited assurance explicit |
 
 ## USER_POLICY
 
@@ -87,6 +87,9 @@ not claim that every hard gate has already been moved to its target layer.
   an independently observed external fact.
 - Browser success proves an observed tool result and source binding, not the
   truth of an arbitrary natural-language completion condition.
+- Host coverage receipts assert `known-surfaces-only`: they fingerprint the
+  configured events Click knows how to consume, but cannot prove that a host
+  emitted an event for every capability it may expose.
 - Current state and receipts are inspectable, but Click does not keep an
   append-only durable history of every authorization and evidence transition.
 
@@ -125,6 +128,9 @@ stronger guarantee than the runtime can observe.
 9. **Complete in v0.31.0:** Add approval-bound, dependency-aware cross-revision
    argv receipt reuse with exact check, environment, executable, relevant
    manifest entry, resolved-path and mutation-boundary invalidation.
+10. **In the v0.32 candidate:** Centralize the known Codex and Antigravity Hook
+    surface, test pre/post symmetry, and bind that limited coverage identity to
+    argv verification runners and receipts.
 
 Each migration is a separate behavior-preserving-for-Core change. It must retain
 approval, side-effect authority, one-use runner, revision, receipt, cancellation,

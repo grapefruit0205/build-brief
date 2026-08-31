@@ -19,6 +19,7 @@ HOOK_FILES = (
     "click_contract.py",
     "click_dependency_cache.py",
     "click_evidence.py",
+    "click_host_coverage.py",
     "click_process.py",
     "click_state.py",
     "click_gate.py",

@@ -428,6 +428,7 @@ class RepositoryPolicyTests(unittest.TestCase):
         self.assertIn("hooks/click_verification_meter.py", classification)
         self.assertIn("hooks/click_browser_advisory.py", classification)
         self.assertIn("hooks/click_dependency_cache.py", classification)
+        self.assertIn("hooks/click_host_coverage.py", classification)
 
         gate_runtime = (ROOT / "hooks" / "click_gate.py").read_text(
             encoding="utf-8"
@@ -507,6 +508,7 @@ class RepositoryPolicyTests(unittest.TestCase):
                 "click_contract.py",
                 "click_dependency_cache.py",
                 "click_evidence.py",
+                "click_host_coverage.py",
                 "click_gate.py",
                 "click_process.py",
                 "click_state.py",

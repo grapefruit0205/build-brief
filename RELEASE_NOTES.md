@@ -1,5 +1,23 @@
 # Release notes
 
+## Unreleased v0.32 candidate — host Hook coverage identity
+
+- Codex and Antigravity now derive their known mutation, plan, Browser, and
+  exec-alias surfaces from one standard-library-only host coverage registry.
+  Deterministic tests require every registered mutation or Browser surface to
+  have matching `PreToolUse` and `PostToolUse` configuration; plan tools remain
+  intentionally pre-only advisory.
+- Verification preparation binds a compact host, registry digest, and explicit
+  `known-surfaces-only` assurance to its one-use runner. Successful argv
+  evidence records the same coverage identity, and exact or dependency-aware
+  reuse requires an exact current match. A host change, registry change, or
+  tampered runner binding therefore runs verification again or fails before a
+  check executes.
+- Legacy evidence state without a coverage receipt remains readable but cannot
+  authorize receipt reuse until a new successful verification records one.
+  The registry does not claim to observe a capability for which the host emits
+  no matching Hook event.
+
 ## v0.31.0 — 2026-08-31
 
 Click v0.31.0 adds opt-in dependency-aware evidence reuse across approved

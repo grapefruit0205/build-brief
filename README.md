@@ -192,13 +192,14 @@ The exact design is repository-dependent. The example shows the contract shape, 
 | Advise on ordinary argv retries | A fixed failure count does not block a fresh verification retry; verification that changed protected repository content still requires an approved mutation |
 | Make command intent explicit | Ambiguous active shell work is replaced by structured `inspect`, `mutate`, `service`, or `verify` paths |
 | Keep verification strategy non-authoritative | The model chooses evidence and `argv`; Click binds exact check-group digests and observed results to receipts |
+| Bind known host coverage | Verification receipts include the current Codex or Antigravity known-surface digest, so reuse cannot silently cross hosts or Hook coverage revisions |
 | Reuse dependency-safe evidence | An approval-bound dependency declaration or committed repository mapping can carry an exact success across revisions only while its resolved files, check, environment, executable, and approved mutation snapshot still match |
 | Track completion by source | All declared sources must be current; no placeholder local check is invented when no `argv` source exists |
 | Advise on Browser workflow repetition | Fresh normalized Browser repeats, retries, and long timed interactions remain allowed with guidance; assigned-source, serial-call, tool-result, revision, and completion-replay checks remain hard |
 
 ## Advisory verification profiles
 
-Before approval, the Skill or model recommends the smallest sufficient verification profile from the current risk and repository evidence. The profile is a qualitative statement of intended depth and remains digest-bound so the approved contract is represented faithfully. During execution the model chooses the concrete `argv`; Click binds the exact check-group digest, revision, environment, executable fingerprint, and observed result to the receipt. The Hook does not infer verification sufficiency or turn a plugin-authored numeric spectrum into authority or advice.
+Before approval, the Skill or model recommends the smallest sufficient verification profile from the current risk and repository evidence. The profile is a qualitative statement of intended depth and remains digest-bound so the approved contract is represented faithfully. During execution the model chooses the concrete `argv`; Click binds the exact check-group digest, revision, environment, executable fingerprint, known host coverage identity, and observed result to the receipt. The Hook does not infer verification sufficiency or turn a plugin-authored numeric spectrum into authority or advice.
 
 | Profile | Typical use |
 | --- | --- |
@@ -258,6 +259,10 @@ Detailed release history is in [RELEASE_NOTES.md](RELEASE_NOTES.md).
 ## Honest limits
 
 Click makes strong claims only where the Hook can observe and enforce behavior.
+
+Its host coverage receipt is explicitly `known-surfaces-only`: it detects a
+host or registered Hook-surface change, but cannot manufacture events the host
+never dispatches.
 
 It does **not** claim that the Hook can:
 

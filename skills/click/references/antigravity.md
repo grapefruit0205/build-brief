@@ -46,6 +46,10 @@ Antigravity's matching `PreToolUse` and `PostToolUse` identities close the
 approved mutation snapshot used by optional dependency-aware argv receipts. If
 the post event or Git snapshot is unavailable, Click safely runs verification
 instead of reusing a cross-revision receipt.
+Successful argv receipts also bind Antigravity's deterministic
+`known-surfaces-only` coverage digest. They cannot be reused as Codex receipts
+or after the registered Antigravity Hook surface changes; this identity still
+cannot observe a host capability that emits no matching event.
 Do not declare Browser evidence: no Antigravity Browser tool is currently bound
 to Click's Browser meter. Use the cheapest sufficient argv, hosted, manual, or
 existing source instead.

@@ -19,28 +19,19 @@ import time
 from typing import Any, Callable
 
 if __package__:
-    from . import click_gate, click_state
+    from . import click_gate, click_host_coverage, click_state
     from .platform_protocol import AntigravityOutputAdapter, CodexOutputAdapter
 else:  # Executed directly from the bundled hooks directory.
     import click_gate
+    import click_host_coverage
     import click_state
     from platform_protocol import AntigravityOutputAdapter, CodexOutputAdapter
 
 
-ANTIGRAVITY_TOOL_MAP = {
-    "run_command": "Bash",
-    "write_to_file": "Write",
-    "replace_file_content": "Edit",
-    "multi_replace_file_content": "Edit",
-    "update_plan": "update_plan",
-    "create_plan": "update_plan",
-}
-ANTIGRAVITY_MUTATION_TOOLS = {
-    "run_command",
-    "write_to_file",
-    "replace_file_content",
-    "multi_replace_file_content",
-}
+ANTIGRAVITY_TOOL_MAP = click_host_coverage.ANTIGRAVITY_TOOL_MAP
+ANTIGRAVITY_MUTATION_TOOLS = (
+    click_host_coverage.ANTIGRAVITY_MUTATION_TOOL_NAMES
+)
 MAX_TRANSCRIPT_BYTES = 1_000_000
 
 

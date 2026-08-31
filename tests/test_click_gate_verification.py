@@ -1863,3 +1863,89 @@ class ClickGateVerificationTests(ClickGateTestCase):
         self.assert_verification_new_path_behavior(
             "ignored-artifact.tmp", ignored=True
         )
+
+    def test_success_receipt_binds_the_current_host_coverage_identity(self) -> None:
+        (self.workspace / ".gitignore").write_text(
+            "__pycache__/\n", encoding="utf-8"
+        )
+        self.initialize_git(".gitignore", "verification_fixture.py")
+        self.approve_contract()
+
+        first = self.verify_gate([self.verification_argv()])
+        completed = self.run_rewritten(first)
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+
+        state_path = next(
+            (self.plugin_data / "gate-state").glob("session-contract-*.json")
+        )
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        source = state["evidence_state"]["sources"][
+            CLICK_GATE._evidence_key("E1")
+        ]
+        self.assertEqual(
+            source["verified_host_coverage"],
+            CLICK_GATE.click_host_coverage.receipt("codex"),
+        )
+        self.assertEqual(state["verification"]["running_host_coverage"], {})
+
+    def test_current_receipt_is_not_reused_across_host_coverage_identities(self) -> None:
+        (self.workspace / ".gitignore").write_text(
+            "__pycache__/\n", encoding="utf-8"
+        )
+        self.initialize_git(".gitignore", "verification_fixture.py")
+        self.approve_contract()
+        command = self.verification_argv()
+        first = self.verify_gate([command])
+        self.assertEqual(self.run_rewritten(first).returncode, 0)
+
+        self.base_event["platform"] = "antigravity"
+        repeated = self.verify_gate([command])
+
+        self.assertEqual(
+            repeated["hookSpecificOutput"]["permissionDecision"], "allow"
+        )
+        self.assertIn(
+            "run-verification",
+            split_runner_command(
+                repeated["hookSpecificOutput"]["updatedInput"]["command"]
+            ),
+        )
+        state_path = next(
+            (self.plugin_data / "gate-state").glob("session-contract-*.json")
+        )
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        self.assertEqual(
+            state["verification"]["running_host_coverage"],
+            CLICK_GATE.click_host_coverage.receipt("antigravity"),
+        )
+        self.assertRegex(
+            state["verification"]["running_host_coverage_digest"],
+            r"^[0-9a-f]{64}$",
+        )
+
+    def test_runner_rejects_tampered_host_coverage_binding_before_execution(self) -> None:
+        (self.workspace / ".gitignore").write_text(
+            "__pycache__/\n", encoding="utf-8"
+        )
+        self.initialize_git(".gitignore", "verification_fixture.py")
+        self.approve_contract()
+        prepared = self.verify_gate([self.verification_argv()])
+        state_path = next(
+            (self.plugin_data / "gate-state").glob("session-contract-*.json")
+        )
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        state["verification"]["running_host_coverage"] = (
+            CLICK_GATE.click_host_coverage.receipt("antigravity")
+        )
+        state_path.write_text(json.dumps(state), encoding="utf-8")
+
+        blocked = self.run_rewritten(prepared)
+
+        self.assertNotEqual(blocked.returncode, 0)
+        self.assertIn("host coverage binding", blocked.stderr)
+        released = json.loads(state_path.read_text(encoding="utf-8"))
+        self.assertEqual(released["verification"]["status"], "ready")
+        self.assertEqual(released["verification"]["running_host_coverage"], {})
+        self.assertEqual(
+            released["verification"]["running_host_coverage_digest"], ""
+        )
