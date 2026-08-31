@@ -28,14 +28,14 @@ def _runner_shell_command(arguments: list[str]) -> str:
         return "exit 2"
     try:
         interpreter = Path(arguments[0]).resolve(strict=True)
-        launcher = Path(__file__).with_name("click_windows.cmd").resolve(strict=True)
+        script_path = Path(arguments[1]).resolve(strict=True)
     except (OSError, RuntimeError):
         return "exit 2"
-    if not interpreter.is_file() or not launcher.is_file():
+    if not interpreter.is_file() or not script_path.is_file():
         return "exit 2"
     if not all(
         click_gate._windows_launcher_path_is_safe(value)
-        for value in (str(interpreter), str(launcher))
+        for value in (str(interpreter), str(script_path))
     ):
         return "exit 2"
 
@@ -43,9 +43,8 @@ def _runner_shell_command(arguments: list[str]) -> str:
     script = " ".join(
         (
             "&",
-            _powershell_single_quote(str(launcher)),
-            "--python",
             _powershell_single_quote(str(interpreter)),
+            _powershell_single_quote(str(script_path)),
             "--encoded-runner",
             _powershell_single_quote(encoded),
         )
