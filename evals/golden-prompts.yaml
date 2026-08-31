@@ -29,7 +29,7 @@ evaluation_dimensions:
   - verification_definition
   - verification_scale
   - verification_evidence_economy
-  - verification_subset_budget
+  - verification_profile_boundary
   - one_shot_execution
   - default_mode_selection
   - always_on_mutation_routing
@@ -96,7 +96,7 @@ global_invariants:
   - "Rejects material additions only when they are out of scope, speculative, or disproportionate; it does not ban a technology category"
   - "Includes verification with one quick, focused, or full scale, structured evidence sources, and observable done_when conditions; only declared argv sources require local verification requests"
   - "Declares each evidence source once with a unique id and supported kind, assigns every done_when condition one primary_evidence id, allows one id to cover several conditions, and does not duplicate proof through another tool or surface"
-  - "Binds every final argv check to a declared argv source through evidence_id, permits any nonempty unresolved subset, reserves each source's exact check group and inferred units for the active contract, enforces one cumulative scale ceiling, records completion per id and mutation revision, and does not require an unrelated local batch when no argv source exists"
+  - "Binds every final argv check to a declared argv source through evidence_id, permits any nonempty unresolved subset, reserves each source's exact check group for the active contract, treats the qualitative profile and legacy units as non-authoritative compatibility data, records completion per id and mutation revision, and does not require an unrelated local batch when no argv source exists"
   - "Finalizes observed Browser evidence explicitly, keeps observed status monotonic until mutation, and treats hosted, manual, and existing completion as attestations rather than claiming independently observed execution"
   - "Keeps broad-inventory count non-blocking and non-authoritative: a distinct-digest broad inventory receives narrowing guidance and may run despite prior broad running or success, while an active exact-digest reservation, mutation and verification interlocks, and runner safety remain hard"
   - "Keeps fresh logical repetition non-blocking and model-neutral: a completed identical observation or ordinary repeatedly failing argv check may receive a new one-use authorization with advisory context, while consumed-token replay, active same-request reservations, and verification-time repository mutation remain hard"
@@ -114,7 +114,7 @@ global_invariants:
   - "Enables session-wide strict blocking only when the user explicitly selects it"
   - "Keeps compatible simple direct reads convenient, but rejects pipelines and ambiguous active Bash in favor of versioned argv-based inspect, mutate, or verify requests"
   - "Executes accepted structured capability argv with shell disabled and rejects shell interpreters or write-capable inspect operations"
-  - "Requires an approved contract for structured mutation, invalidates stale evidence after mutation, and raises every recognized verification argv to its Hook-inferred minimum targeted, broad, or deep class based on runner kind and actual scope before metering"
+  - "Requires an approved contract for structured mutation, invalidates stale evidence after mutation, and retains deterministic targeted, broad, or deep normalization only as protocol compatibility rather than a cost or sufficiency judgment"
   - "Rejects Python inline code and direct Python scripts as verification; only explicit supported module runners qualify"
   - "In a Git worktree, fails verification stale when the batch changes tracked or pre-existing non-ignored untracked content, reports every new non-ignored path, fails obvious new source/configuration/migration paths stale, and leaves ignored paths outside the snapshot"
   - "Keeps update_plan non-blocking and non-authoritative throughout armed, staged, passed, and review turns while contract approval, mutation authority, replacement, and evidence integrity remain hard runtime guards"
@@ -450,11 +450,11 @@ cases:
     expected_mutation_gate: structured-after-approval
     directive_semantics:
       - "Uses a versioned mutate argv request for the write-capable generator after a later approval passes the emitted contract_id bound to the staged semantic contract"
-      - "Uses protocol-v2 verify requests whose checks bind to declared argv evidence_ids, may cover nonempty unresolved subsets, and reserve inferred targeted, broad, or deep units against one cumulative contract budget"
+      - "Uses protocol-v2 verify requests whose checks bind to declared argv evidence_ids, may cover nonempty unresolved subsets, and bind exact check-group digests and observed results without numeric profile guidance"
       - "Does not guess command intent from an ambiguous active shell string or hide a shell interpreter inside argv"
       - "Keeps the approved outcome and boundary fixed while the structured mutation invalidates stale evidence"
     minimality_expectations:
-      reuse: "The existing generator, tests, compact contract, and one cumulative verification budget"
+      reuse: "The existing generator, tests, compact contract, and exact verification receipts"
       reject_without_evidence:
         - "A new task runner, MCP server, sandbox, or dependency"
 
@@ -491,36 +491,36 @@ cases:
         - "A new top-level completed mode or automatic approval of the next contract"
 
   - id: verification-minimum-class
-    prompt: "@Click 전체 테스트를 targeted로 제출해 quick 예산을 우회할 수 없게 고쳐줘."
+    prompt: "@Click 검증 class와 과거 unit 값이 권한이나 영수증 사실로 취급되지 않게 하고 exact argv receipt만 결속해줘."
     default_mode: on
     expected_activation: true
     expected_mode: build
     expected_mutation_gate: none-before-approval
     directive_semantics:
-      - "Infers runner kind and actual target scope from recognized argv before calculating budget units"
-      - "Raises underdeclared broad or deep checks automatically when the approved scale can pay for them"
-      - "Treats filters and multiple targets as at least broad while charging an exact integration or security node as broad rather than deep"
-      - "Rejects the batch when the inferred cost exceeds the approved scale"
+      - "Retains deterministic targeted, broad, or deep normalization only for protocol and persisted-state compatibility"
+      - "Does not describe class or legacy units as observed cost, sufficiency, quality, or evidence strength"
+      - "Makes no permission or advisory decision from a class, unit total, or qualitative profile"
+      - "Binds exact argv, check-group digest, revision, environment, executable fingerprint, and observed result to the receipt"
       - "Keeps one-shot execution instead of adding a separate class-approval turn"
     minimality_expectations:
-      reuse: "The existing verify request schema, class table, and budget limits"
+      reuse: "The existing verify request schema, compatibility class table, and exact receipt bindings"
       reject_without_evidence:
         - "A new dependency, external policy service, or per-command user prompt"
 
   - id: verification-policy-boundary
-    prompt: "@Click 모델이 검증 전략을 고르는 것과 사용자가 승인한 scale, Hook의 실제 argv 비용 측정을 분리해줘. 모델별 분기는 넣지 마."
+    prompt: "@Click 모델이 고르는 검증 전략과 qualitative profile, Hook의 exact argv 영수증을 분리해줘. 모델별 분기나 숫자 점수는 넣지 마."
     default_mode: on
     expected_activation: true
     expected_mode: build
     expected_mutation_gate: none-before-approval
     directive_semantics:
       - "Treats evidence and scale selection before approval, and concrete argv selection during execution, as model strategy rather than runtime authority"
-      - "Fixes the selected scale and numeric ceiling as user policy when the digest-bound contract is approved"
-      - "Never auto-selects or widens the approved scale inside the Hook"
-      - "Keeps conservative minimum-class inference and cumulative unit enforcement for the actual submitted argv as model-neutral Core metering"
+      - "Keeps the selected qualitative profile digest-bound without assigning it a plugin-authored numeric suggestion"
+      - "Never auto-selects, scores, or interprets a profile as a permission or advisory decision inside the Hook"
+      - "Keeps exact argv, check-group, revision, environment, executable, and result binding as model-neutral receipt facts"
       - "Preserves contract schema, exact compatibility symbols and errors, one-use runner binding, and evidence receipts"
     minimality_expectations:
-      reuse: "The existing scale table, class table, argv classifier, contract aliases, and cumulative source reservations"
+      reuse: "The existing qualitative profiles, compatibility class schema, contract aliases, and exact source receipts"
       reject_without_evidence:
         - "A model-specific workflow matrix, semantic verification judge, policy service, new approval turn, or contract schema change"
 
@@ -649,7 +649,7 @@ cases:
       - "Classifies filters, regexes, multiple targets, directories, and suites as at least broad"
       - "Classifies one exact integration or security node as broad and the whole corresponding suite as deep"
       - "Recognizes py -3 -m, uv, lint, build, typecheck, Cargo check/clippy, and Go vet forms"
-      - "Preserves one cumulative verification budget and one-shot implementation"
+      - "Preserves compatibility classification, qualitative profiles, exact receipt binding, and one-shot implementation without numeric authority"
     minimality_expectations:
       reuse: "The existing argv validator and verification class table"
       reject_without_evidence:

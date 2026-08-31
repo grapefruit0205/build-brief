@@ -1,6 +1,6 @@
 ---
 name: click
-description: Compile repository-aware software intent into one approval-bound execution contract, explain it plainly, then implement it in one shot with anti-loop guards and an automatically enforced budget for observable local and Browser verification. Use when the user explicitly selects Click, or when Hook context says Click Always ON is enabled and the request will change software; use its read-only review guard for code review in Always ON mode. Do not use for questions, explanations, or simple inspection.
+description: Compile repository-aware software intent into one approval-bound execution contract, explain it plainly, then implement it in one shot with evidence-bound local and Browser verification. Use when the user explicitly selects Click, or when Hook context says Click Always ON is enabled and the request will change software; use its read-only review guard for code review in Always ON mode. Do not use for questions, explanations, or simple inspection.
 ---
 
 ## Google Antigravity runtime
@@ -34,7 +34,7 @@ For broad or cross-boundary work, read the [translation guide](references/transl
 
 Keep the contract proportional. Prefer an existing capable structure and add no speculative component. The contract fixes the approved semantic boundary while leaving necessary in-scope libraries, files, tools, dependencies, and low-level tactics open. Give every completion condition one cheapest sufficient primary evidence source, allow one source to cover several conditions, and avoid duplicate proof.
 
-Choosing evidence and scale before approval, then concrete argv during execution, is model strategy. Approval fixes scale as user policy; the Hook never widens it and only meters submitted argv against its ceiling.
+Choosing evidence and a qualitative verification profile before approval, then concrete argv during execution, is model strategy. The selected profile remains digest-bound as part of the contract. The Hook binds exact check groups and observed results to receipts but does not score verification sufficiency or use legacy units for authority or advice.
 
 ## Stage once and approve by id
 
@@ -54,4 +54,4 @@ Collect each assigned source once after the last mutation that can invalidate it
 
 Do not request reapproval for an in-scope technical choice. Stop only when completion needs missing authority, an uncovered irreversible or paid external action, or a change to the approved outcome, visible behavior, boundary, invariant, or verification commitment. Otherwise finish in one shot and report the result and completion evidence.
 
-The Hook enforces observable contract shape, id/digest binding, turn order, supported tool paths, and verification budgets. It cannot prove semantic approval, hidden reasoning, unmatched connector behavior, architecture truth, or implementation fidelity. If Hook enforcement is unavailable, preserve the same ordering and disclose that limitation.
+The Hook enforces observable contract shape, id/digest binding, turn order, supported tool paths, one-use runners, and evidence receipts. It cannot prove semantic approval, hidden reasoning, unmatched connector behavior, architecture truth, implementation fidelity, or the optimal amount of verification. If Hook enforcement is unavailable, preserve the same ordering and disclose that limitation.

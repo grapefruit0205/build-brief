@@ -31,8 +31,8 @@ VERIFICATION_FIELDS = {"scale", "evidence", "done_when", "intermediate_gate"}
 EVIDENCE_SOURCE_FIELDS = {"id", "kind", "description"}
 DONE_WHEN_FIELDS = {"condition", "primary_evidence"}
 EVIDENCE_ID_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9_-]{0,31}$")
-# Compatibility aliases retained for direct callers. Approved scale policy and
-# deterministic unit metering now live below contract schema validation.
+# Compatibility aliases retained for direct callers. Qualitative profile names
+# and legacy unit arithmetic live below contract schema validation.
 VERIFICATION_SCALES = click_verification_policy.VERIFICATION_SCALES
 VERIFICATION_UNIT_LIMITS = click_verification_policy.VERIFICATION_UNIT_LIMITS
 VERIFICATION_CLASSES = click_verification_meter.VERIFICATION_CLASSES
@@ -123,8 +123,7 @@ def validate_contract(raw: str) -> tuple[dict[str, Any] | None, str]:
             f"Execution Contract verification contains unsupported field(s): {rendered}.",
         )
     scale = verification.get("scale")
-    approved_unit_limit = click_verification_policy.approved_unit_limit(scale)
-    if approved_unit_limit is None:
+    if not click_verification_policy.is_profile(scale):
         allowed = ", ".join(VERIFICATION_SCALES)
         return None, f"Verification `scale` must be one of: {allowed}."
 
@@ -133,7 +132,6 @@ def validate_contract(raw: str) -> tuple[dict[str, Any] | None, str]:
         return None, "Verification `evidence` must be a non-empty list."
     evidence_ids: set[str] = set()
     browser_source_ids: list[str] = []
-    argv_source_count = 0
     for index, source in enumerate(evidence):
         label = f"Verification evidence item {index + 1}"
         if not isinstance(source, dict):
@@ -165,25 +163,12 @@ def validate_contract(raw: str) -> tuple[dict[str, Any] | None, str]:
             return None, f"Evidence `{source_id}` description must be non-empty."
         if kind == "browser":
             browser_source_ids.append(source_id)
-        elif kind == "argv":
-            argv_source_count += 1
     if len(browser_source_ids) > 1:
         return (
             None,
             "Verification may assign at most one Browser evidence source; reuse its id "
             "across every condition covered by the representative session.",
         )
-    targeted_units = click_verification_meter.class_units("targeted")
-    assert targeted_units is not None
-    minimum_argv_units = argv_source_count * targeted_units
-    if minimum_argv_units > approved_unit_limit:
-        return (
-            None,
-            f"Verification scale `{scale}` cannot fit {argv_source_count} argv evidence "
-            "sources within its cumulative reservation limit; deduplicate the "
-            "sources or choose a sufficient scale before approval.",
-        )
-
     done_when = verification.get("done_when")
     if not isinstance(done_when, list) or not done_when:
         return None, "Verification `done_when` must be a non-empty list."

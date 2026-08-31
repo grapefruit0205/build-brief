@@ -582,11 +582,13 @@ def _read_default_mode() -> str:
 
 def _fresh_verification_state(contract: dict[str, Any]) -> dict[str, Any]:
     scale = str(contract["verification"]["scale"])
-    unit_limit = click_verification_policy.approved_unit_limit(scale)
-    assert unit_limit is not None
+    legacy_unit_limit = click_verification_policy.approved_unit_limit(scale)
+    assert legacy_unit_limit is not None
     return {
         "scale": scale,
-        "unit_limit": unit_limit,
+        # Compatibility state field only. Runtime authority and advice do not
+        # depend on this legacy plugin-authored number.
+        "unit_limit": legacy_unit_limit,
         "status": "ready",
         "mutation_revision": 0,
         "verified_revision": -1,
@@ -1301,16 +1303,6 @@ def _validate_verification_batch(
         if isinstance(evidence_id, str):
             normalized_check["evidence_id"] = evidence_id
         normalized.append(normalized_check)
-    limit = click_verification_policy.approved_unit_limit(scale)
-    assert limit is not None
-    if units > limit:
-        return (
-            None,
-            units,
-            f"The {scale} verification budget allows {limit} unit(s), but this batch "
-            f"costs {units} after Hook minimum-class inference. Remove lower-value "
-            "checks instead of expanding verification.",
-        )
     return {
         "version": VERIFICATION_PROTOCOL_VERSION,
         "checks": normalized,
@@ -1356,9 +1348,9 @@ def _verification_groups(
 
 
 def _verification_group_digest(checks: list[dict[str, Any]]) -> str:
-    payload = [
-        {"argv": check["argv"], "class": check["class"]} for check in checks
-    ]
+    # Receipt identity is the executable request, not Click's compatibility
+    # class or legacy unit heuristic.
+    payload = [{"argv": check["argv"]} for check in checks]
     return _capability_digest({"checks": payload})
 
 
@@ -1649,7 +1641,6 @@ def _verification_receipt_matches(
     contract_digest: str,
     revision: int,
     group_digest: str,
-    units: int,
     git_root: str,
     tree_digest: str,
     environment_digest: str,
@@ -1665,13 +1656,10 @@ def _verification_receipt_matches(
     ):
         return False
     verified_at = source.get("verified_at", 0)
-    verified_units = source.get("verified_units", -1)
     if (
         not isinstance(verified_at, int)
         or isinstance(verified_at, bool)
         or verified_at <= 0
-        or not isinstance(verified_units, int)
-        or isinstance(verified_units, bool)
     ):
         return False
     return bool(
@@ -1679,7 +1667,6 @@ def _verification_receipt_matches(
         and int(source.get("verified_revision", -1)) == revision
         and source.get("verified_contract_digest") == contract_digest
         and source.get("verified_check_digest") == group_digest
-        and verified_units == units
         and source.get("verified_root") == git_root
         and source.get("verified_tree_digest") == tree_digest
         and source.get("verified_environment_digest") == environment_digest
@@ -2773,13 +2760,13 @@ def _prepare_verification(
         verification.get("workspace_changed") is True
     )
     scale = str(verification.get("scale", ""))
-    approved_unit_limit = click_verification_policy.approved_unit_limit(scale)
-    if approved_unit_limit is None:
+    if not click_verification_policy.is_profile(scale):
         return (
             "",
             "Approved Click verification scale is invalid; stage and approve again.",
             "",
         )
+    verification_advisories: list[str] = []
     sources = _evidence_sources(state)
     if sources is None:
         return (
@@ -2884,39 +2871,12 @@ def _prepare_verification(
                 "",
             )
 
-    reserved_total = sum(
-        int(source.get("reserved_units", 0))
-        for key, source in sources.items()
-        if key in argv_keys and isinstance(source, dict)
-    )
-    projected_units = reserved_total
     for source_key, requested_units in group_units.items():
         source = sources[source_key]
-        reserved_units = int(source.get("reserved_units", 0))
-        if reserved_units and reserved_units != requested_units:
-            return (
-                "",
-                "An argv evidence source changed its reserved verification breadth. "
-                "Reuse the approved check set or stage a sufficient verification scale.",
-                "",
-            )
-        if not reserved_units:
-            projected_units += requested_units
-    if projected_units > approved_unit_limit:
-        return (
-            "",
-            f"The {scale} verification budget allows {approved_unit_limit} unit(s), but the source "
-            f"reservations would total {projected_units}. Remove duplicate evidence or "
-            "stage a sufficient scale instead of splitting the work across batches.",
-            "",
-        )
-
-    for source_key, requested_units in group_units.items():
-        source = sources[source_key]
-        if not int(source.get("reserved_units", 0)):
-            source["reserved_units"] = requested_units
-            source["reserved_check_digest"] = group_digests[source_key]
-        elif not str(source.get("reserved_check_digest", "")):
+        # Retain the derived unit field for state-schema compatibility only.
+        # Exact check-group identity comes from reserved_check_digest.
+        source["reserved_units"] = requested_units
+        if not str(source.get("reserved_check_digest", "")):
             source["reserved_check_digest"] = group_digests[source_key]
 
     current_requested = {
@@ -2989,7 +2949,6 @@ def _prepare_verification(
                         contract_digest=contract_digest,
                         revision=revision,
                         group_digest=group_digests[source_key],
-                        units=group_units[source_key],
                         git_root=git_root,
                         tree_digest=tree_digest,
                         environment_digest=environment_digest,
@@ -3061,9 +3020,8 @@ def _prepare_verification(
                 retried_failed_sources += 1
             source["unchanged_failure_retries"] = retries + 1
 
-    verification_advisory = ""
     if retried_failed_sources:
-        verification_advisory = (
+        verification_advisories.append(
             "Click advisory: "
             f"{retried_failed_sources} argv evidence source(s) already failed twice "
             "without a subsequent code mutation. This fresh, separately authorized "
@@ -3142,7 +3100,7 @@ def _prepare_verification(
     return (
         _verification_runner_command(event, batch, batch_digest, runner_token),
         "",
-        verification_advisory,
+        "\n".join(verification_advisories),
     )
 
 
@@ -4530,7 +4488,6 @@ def _record_verification_result(
                     and workspace_digest
                     and environment_digest
                     and check_digest
-                    and reserved_units > 0
                 ):
                     source["verified_contract_digest"] = str(
                         state.get("contract_digest", "")
@@ -5867,8 +5824,7 @@ def _claim_verification_run(
         return None, "Click verification runner authorization expired before execution."
 
     scale = str(verification.get("scale", ""))
-    approved_unit_limit = click_verification_policy.approved_unit_limit(scale)
-    if approved_unit_limit is None:
+    if not click_verification_policy.is_profile(scale):
         return None, "Click verification runner could not read its approved scale."
     sources = _evidence_sources(state)
     if sources is None or not sources:
@@ -5928,11 +5884,7 @@ def _claim_verification_run(
         if not isinstance(source, dict):
             return None, "Click verification runner source reservation is unavailable."
         expected_digest = _verification_group_digest(checks)
-        expected_units = _verification_group_units(checks)
-        if (
-            source.get("reserved_check_digest") != expected_digest
-            or source.get("reserved_units") != expected_units
-        ):
+        if source.get("reserved_check_digest") != expected_digest:
             return None, "Click verification runner source reservation did not match."
         executable_records = _verification_executable_records(
             checks,
@@ -5971,15 +5923,6 @@ def _claim_verification_run(
             execution_argv = list(check["argv"])
             execution_argv[0] = execution_path
             check["argv"] = execution_argv
-    reserved_total = sum(
-        int(source.get("reserved_units", 0))
-        for key, source in sources.items()
-        if key in _evidence_keys_for_kind(sources, "argv")
-        and isinstance(source, dict)
-    )
-    if reserved_total > approved_unit_limit:
-        return None, "Click verification runner cumulative source budget was exceeded."
-
     verification["runner_claimed_at"] = int(time.time()) or 1
     verification["running_environment_digests"] = prepared_environment_digests
     state["verification"] = verification

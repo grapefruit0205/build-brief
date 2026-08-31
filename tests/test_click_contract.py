@@ -134,15 +134,6 @@ class ClickContractTests(unittest.TestCase):
             {"condition": "second", "primary_evidence": "E2"},
         ]
 
-        over_budget = copy.deepcopy(self.contract)
-        over_budget["verification"]["scale"] = "quick"
-        over_budget["verification"]["evidence"].append(
-            {"id": "E2", "kind": "argv", "description": "second check"}
-        )
-        over_budget["verification"]["done_when"].append(
-            {"condition": "second", "primary_evidence": "E2"}
-        )
-
         inline_done_when = copy.deepcopy(self.contract)
         inline_done_when["verification"]["done_when"] = ["behavior works"]
 
@@ -190,11 +181,6 @@ class ClickContractTests(unittest.TestCase):
                 "Verification may assign at most one Browser evidence source; reuse its id across every condition covered by the representative session.",
             ),
             (
-                "argv sources exceed scale",
-                json.dumps(over_budget),
-                "Verification scale `quick` cannot fit 2 argv evidence sources within its cumulative reservation limit; deduplicate the sources or choose a sufficient scale before approval.",
-            ),
-            (
                 "inline done_when",
                 json.dumps(inline_done_when),
                 "Verification done_when item 1 must be an object with `condition` and `primary_evidence`; inline evidence strings are no longer accepted.",
@@ -226,6 +212,30 @@ class ClickContractTests(unittest.TestCase):
                     click_contract.validate_contract(raw),
                     (None, expected),
                 )
+
+    def test_profile_recommendation_does_not_limit_argv_source_count(self) -> None:
+        contract = copy.deepcopy(self.contract)
+        contract["verification"]["scale"] = "quick"
+        for index in range(2, 12):
+            evidence_id = f"E{index}"
+            contract["verification"]["evidence"].append(
+                {
+                    "id": evidence_id,
+                    "kind": "argv",
+                    "description": f"targeted check {index}",
+                }
+            )
+            contract["verification"]["done_when"].append(
+                {
+                    "condition": f"condition {index} remains true",
+                    "primary_evidence": evidence_id,
+                }
+            )
+
+        value, error = click_contract.validate_contract(json.dumps(contract))
+
+        self.assertEqual(error, "")
+        self.assertEqual(value, contract)
 
 
 if __name__ == "__main__":

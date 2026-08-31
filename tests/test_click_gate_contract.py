@@ -94,7 +94,7 @@ class ClickGateContractTests(ClickGateTestCase):
         self.assertEqual(error, "")
         self.assertEqual(value, contract)
 
-    def test_contract_rejects_more_argv_reservations_than_scale_can_hold(self) -> None:
+    def test_contract_profile_does_not_limit_argv_reservations(self) -> None:
         contract = self.contract()
         contract["verification"]["scale"] = "quick"
         contract["verification"]["evidence"].append(
@@ -104,8 +104,8 @@ class ClickGateContractTests(ClickGateTestCase):
             {"condition": "compatibility remains", "primary_evidence": "E2"}
         )
         value, error = CLICK_GATE._validate_contract(json.dumps(contract))
-        self.assertIsNone(value)
-        self.assertIn("cannot fit 2 argv evidence sources", error)
+        self.assertEqual(error, "")
+        self.assertEqual(value, contract)
 
         full = self.contract()
         full["verification"]["scale"] = "full"
@@ -130,8 +130,8 @@ class ClickGateContractTests(ClickGateTestCase):
                 {"condition": f"condition {index}", "primary_evidence": evidence_id}
             )
         value, error = CLICK_GATE._validate_contract(json.dumps(full))
-        self.assertIsNone(value)
-        self.assertIn("cannot fit 11 argv evidence sources", error)
+        self.assertEqual(error, "")
+        self.assertEqual(value, full)
 
     def test_verification_check_requires_a_declared_argv_evidence_id(self) -> None:
         self.approve_contract()

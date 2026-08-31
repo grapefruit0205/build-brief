@@ -75,19 +75,18 @@ class RepositoryPolicyTests(unittest.TestCase):
                 self.assertNotRegex(readme, r"(?m)^\$click\s")
                 self.assertNotIn("<br/>$click", readme)
 
-    def test_readmes_document_approved_policy_and_runtime_metering(self) -> None:
+    def test_readmes_document_qualitative_profiles_and_exact_receipts(self) -> None:
         english = (ROOT / "README.md").read_text(encoding="utf-8")
         korean = (ROOT / "README.ko.md").read_text(encoding="utf-8")
         chinese = (ROOT / "README.zh-CN.md").read_text(encoding="utf-8")
         for readme in (english, korean, chinese):
             self.assertIn("click-gate verify", readme)
-            self.assertIn("10", readme)
-        self.assertIn("Approved verification policy", english)
-        self.assertIn("승인된 검증 정책", korean)
-        self.assertIn("已批准的验证政策", chinese)
-        self.assertIn("Approved ceiling", english)
-        self.assertIn("승인된 상한", korean)
-        self.assertIn("已批准上限", chinese)
+        self.assertIn("Advisory verification profiles", english)
+        self.assertIn("Advisory 검증 profile", korean)
+        self.assertIn("Advisory 验证 profile", chinese)
+        self.assertIn("qualitative statement", english)
+        self.assertIn("정성적 표현", korean)
+        self.assertIn("定性表达", chinese)
         for readme in (english, korean, chinese):
             self.assertIn("argv", readme)
 
@@ -417,7 +416,8 @@ class RepositoryPolicyTests(unittest.TestCase):
         for tier in ("## CORE", "## USER_POLICY", "## HEURISTIC"):
             self.assertIn(tier, classification)
         self.assertIn("## Known assurance gaps", classification)
-        self.assertIn("minimum-class inference", classification)
+        self.assertIn("Legacy class\n  normalization is compatibility behavior", classification)
+        self.assertIn("do not produce runtime advice", classification)
         self.assertIn("## Operational limits requiring disposition", classification)
         self.assertIn("## Migration order", classification)
         self.assertIn("Complete in the v0.25 candidate", classification)
@@ -558,8 +558,10 @@ class RepositoryPolicyTests(unittest.TestCase):
         self.assertIn("click_verification_meter", gate)
         self.assertIn("click_verification_policy", contract)
         self.assertIn("click_verification_meter", contract)
-        self.assertIn("does not choose a scale", policy)
-        self.assertIn("does not choose evidence or a verification scale", meter)
+        self.assertIn("legacy numeric table", policy)
+        self.assertIn("not use those numbers as authority", policy)
+        self.assertIn("state and direct-caller compatibility", meter)
+        self.assertIn("not runtime advice", meter)
         for source in (policy, meter):
             for forbidden in (
                 "import click_contract",

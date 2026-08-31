@@ -21,7 +21,6 @@ not claim that every hard gate has already been moved to its target layer.
 | Evidence registry identity, current-revision state and receipt matching | `hooks/click_evidence.py`; verification claim/result paths in `hooks/click_gate.py` | Prevents evidence from a different request or revision from completing work |
 | Browser source admission, serial-call interlock, stable host-call/result mapping, current revision and finalization replay | Browser receipt transitions in `hooks/click_gate.py` | Prevents an unassigned, parallel, mismatched, stale or replayed Browser result from completing evidence without judging the model's interaction strategy |
 | Protected Git-tree, environment and executable fingerprints for argv verification; verification-time mutation detection | verification receipt helpers and runners in `hooks/click_gate.py` | Preserves the identity of the code and environment actually checked by Click's argv runner |
-| Enforcement of an approved verification budget against observable argv, including minimum-class inference from the submitted command | deterministic units in `hooks/click_verification_meter.py`; argv classification and enforcement in `hooks/click_gate.py` | Prevents an underdeclared check from bypassing the user's approved ceiling without choosing the verification strategy |
 | Direct-argv capability safety, executable/path/environment checks, process-control rejection and read-only side-effect defenses | capability constants and validators in `hooks/click_gate.py` | Prevents an admitted inspect, verify or service request from gaining unapproved effects |
 | Mutation, verification and managed-service interlocks around active runner claims | runner reservation and claim state in `hooks/click_gate.py` | Prevents an authorized side effect or receipt from racing into a different state without treating distinct observation concurrency as authority |
 | Host event normalization and state/receipt-preserving result mapping | `hooks/click_hook.py`, `hooks/antigravity_gate.py`, `hooks/platform_protocol.py` | Ensures observable host actions reach the same authorization protocol |
@@ -31,7 +30,7 @@ not claim that every hard gate has already been moved to its target layer.
 | Policy | Current owner | Constitutional boundary |
 | --- | --- | --- |
 | Always ON, Manual, review and bypass availability | mode state and `skills/click/references/modes.md` | Choosing the mode is policy; exact one-use enforcement after selection is Core |
-| Verification scale and numeric unit ceilings | `hooks/click_verification_policy.py` and the digest-bound contract | Choosing or approving the ceiling is policy; Core measures the actual argv conservatively and enforces that value without widening it |
+| An explicit numeric verification budget | Not currently implemented | A numeric ceiling becomes policy only when the user deliberately opts into that exact restriction; Click's built-in profile suggestions are not a substitute for user choice |
 | Acceptance of hosted, manual or existing attestations | evidence-completion handling in `hooks/click_gate.py` | Acceptance must be explicit and must not be described as independent proof |
 
 ## HEURISTIC
@@ -41,7 +40,8 @@ not claim that every hard gate has already been moved to its target layer.
 | Advising on a repeated successful read or search and on repeated incomplete/failing reads | observation preparation in `hooks/click_gate.py` | Advisory only — fresh separately authorized repeats use a new one-use runner; an active same-digest reservation remains a Core interlock |
 | Advising after broad repository inventory | broad-exploration classifiers, observation preparation and host adapters | Advisory only — cross-digest running/success hard denial removed in the v0.25 candidate; active same-digest reservations and execution interlocks remain separate |
 | Advising on `update_plan` or equivalent host plan tools | plan-tool branch in `hooks/click_gate.py`; host matchers and adapters | Advisory only — hard denial removed in the v0.25 candidate |
-| Choosing the proposed evidence source and verification scale before approval, or concrete argv and the cheapest proof strategy during execution | Skill, eval and documentation policy | Model strategy or an explicit user constraint; runtime minimum-class enforcement of the approved ceiling remains Core |
+| Choosing the proposed evidence source and qualitative verification profile before approval, concrete argv during execution, and the cheapest proof strategy | Skill, eval and documentation policy | Model strategy or an explicit user constraint; Click records the choice but does not interpret it as runtime authority |
+| Legacy verification class-unit values | `hooks/click_verification_policy.py` and `hooks/click_verification_meter.py` | Compatibility data only — they do not produce runtime advice, prove cost or sufficiency, or participate in receipt authority |
 | Requiring a mutation after a fixed number of otherwise legitimate failed retries | argv verification and Browser retry handling | Advisory only in the v0.25 candidate; fresh authorization remains distinct from replay of an active or consumed runner |
 | Browser repeat/retry guidance, preferred timing thresholds and interaction-history depth | `hooks/click_browser_advisory.py`; bounded history compaction in Browser preparation | Advisory only — normalized repeats and long timed interactions remain receipt-bound and allowed; old per-input guidance is compacted instead of blocking a new call |
 | Contract compactness, planning prose and workflow-shape preferences beyond parser or transport safety | `hooks/click_contract.py` schema policy | Keep only identity-bearing protocol fields in Core |
@@ -53,9 +53,11 @@ not claim that every hard gate has already been moved to its target layer.
   approved contract without new approval is `CORE`.
 - Broad-inventory count and scope are `HEURISTIC`; exact request identity,
   one-use runner claims, mutation and verification interlocks are `CORE`.
-- Selecting verification breadth and cost is `HEURISTIC` or `USER_POLICY`;
-  exact argv, evidence ID, revision and receipt binding—and conservative
-  minimum-class enforcement of the approved budget—are `CORE`.
+- Selecting verification breadth and interpreting its cost is `HEURISTIC`
+  unless the user explicitly constrains it; exact argv, evidence ID, revision,
+  check-group reservation and receipt binding are `CORE`. Legacy class
+  normalization is compatibility behavior, not a receipt fact, and does not
+  deny or advise on an otherwise authorized check.
 - Read path, environment, pager, text-conversion and executable-shadow defenses
   are `CORE`; the supported command surface is an implementation compatibility
   choice, and deciding that a read is too broad is `HEURISTIC`.
@@ -104,7 +106,7 @@ stronger guarantee than the runtime can observe.
 3. **Complete in the v0.25 candidate:** Convert plan-tool hard denial to advisory output.
 4. **Complete in the v0.25 candidate:** Convert broad-inventory counting to advisory output while retaining active exact-digest reservations and Core execution interlocks.
 5. **Complete in the v0.25 candidate:** Convert fresh duplicate-read and fixed legitimate argv-retry denials to advisory output while retaining active-runner and verification-time mutation denials.
-6. **Complete in the v0.25 candidate:** Separate pre-approval verification strategy, approved scale policy, and deterministic argv cost metering while preserving the approved ceiling and minimum-class enforcement.
+6. **Complete in the v0.25 candidate:** Separate model-selected verification strategy, qualitative profile metadata, legacy unit compatibility, and exact receipt binding; remove plugin-authored cumulative ceilings and numeric overage advice from runtime authority.
 7. **Complete in the v0.25 candidate:** Separate Browser source, serial-call,
    result, revision and replay integrity from non-blocking repeat, retry and
    timing guidance.

@@ -46,23 +46,24 @@ runtime authority.
   Verification that changed protected repository content also remains blocked
   until an approved mutation repairs or reconciles the workspace.
 - Consumed-token replay, request substitution, active mutation or verification
-  races, receipt mismatch, cancellation, tampering, and verification budget
-  enforcement remain hard.
+  races, receipt mismatch, cancellation, tampering, exact check-group binding,
+  and verification-time mutation detection remain hard.
 
-### Verification strategy, approved policy, and metering are separate
+### Verification profiles are qualitative and non-authoritative
 
 - Before approval, the Skill or model recommends evidence and a verification
-  scale; during execution it chooses concrete argv. Those choices are strategy
-  and cannot grant authority or alter approved policy.
-- Approval fixes the selected scale and numeric ceiling as user policy. The
-  Hook never chooses or widens the approved scale.
-- The Hook still classifies observable submitted argv conservatively, raises an
-  underdeclared class, reserves exact per-source units, and rejects cumulative
-  work above the approved ceiling. This deterministic metering is Core, not a
-  model-quality judgment.
-- Separate leaf modules now own approved scale policy and unit arithmetic.
+  profile; during execution it chooses concrete argv. Those choices are
+  strategy and cannot grant or revoke execution authority.
+- The selected profile remains digest-bound as a qualitative statement of
+  intended depth. It has no plugin-authored numeric ceiling or overage advice.
+- The model chooses concrete argv during execution. Exact check-group digests,
+  revision, environment, executable fingerprints, and observed results remain
+  receipt facts; legacy class-unit values remain compatibility data only.
+- Separate leaf modules now own profile names and legacy unit arithmetic.
   Contract and gate compatibility symbols, contract schema, error messages,
   one-use runners, evidence receipts, and completion behavior remain unchanged.
+- A future exact numeric ceiling belongs in an explicit opt-in user-policy
+  field; plugin-authored defaults will not silently stand in for that choice.
 
 ### Browser receipt integrity is separate from workflow advice
 

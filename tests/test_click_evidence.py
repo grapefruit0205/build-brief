@@ -165,8 +165,6 @@ class ClickEvidenceTests(unittest.TestCase):
             wrong_digest,
             wrong_kind,
             wrong_reservation,
-            units_without_digest,
-            digest_without_units,
         ):
             with self.subTest(state=state):
                 self.assertEqual(
@@ -174,6 +172,17 @@ class ClickEvidenceTests(unittest.TestCase):
                         state, expected_contract_schema_version=2
                     ),
                     {},
+                )
+
+        # Legacy unit values no longer establish or invalidate exact receipt
+        # identity; only the check digest does.
+        for state in (units_without_digest, digest_without_units):
+            with self.subTest(compatibility_state=state):
+                self.assertIsInstance(
+                    click_evidence.sources_from_state(
+                        state, expected_contract_schema_version=2
+                    ),
+                    dict,
                 )
 
     def test_current_revision_and_kind_queries_are_pure(self) -> None:

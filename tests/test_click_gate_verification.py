@@ -21,7 +21,7 @@ from click_gate_test_support import (
 
 
 class ClickGateVerificationTests(ClickGateTestCase):
-    def test_quick_budget_accepts_one_command_and_rejects_two(self) -> None:
+    def test_quick_profile_does_not_control_verification_authority(self) -> None:
         contract = self.contract()
         contract["verification"]["scale"] = "quick"
         self.arm_gate("turn-1")
@@ -30,26 +30,15 @@ class ClickGateVerificationTests(ClickGateTestCase):
         self.pass_gate(turn_id="turn-2")
 
         command = self.verification_argv()
-        denied = self.verify_gate([command, command])
-        self.assertEqual(
-            denied["hookSpecificOutput"]["permissionDecision"], "deny"
-        )
-        self.assertIn(
-            "allows 1 unit",
-            denied["hookSpecificOutput"]["permissionDecisionReason"],
-        )
-        allowed = self.verify_gate([command])
+        allowed = self.verify_gate([command, command])
         self.assertEqual(
             allowed["hookSpecificOutput"]["permissionDecision"], "allow"
         )
-        self.assertIn(
-            "run-verification",
-            split_runner_command(
-                allowed["hookSpecificOutput"]["updatedInput"]["command"]
-            ),
-        )
+        self.assertNotIn("additionalContext", allowed["hookSpecificOutput"])
+        completed = self.run_rewritten(allowed)
+        self.assertEqual(completed.returncode, 0, completed.stderr)
 
-    def test_split_argv_batches_share_one_cumulative_budget(self) -> None:
+    def test_split_argv_batches_bind_exact_groups_without_a_profile_ceiling(self) -> None:
         (self.workspace / "empty_tests").mkdir()
         (self.workspace / "empty_tests" / "test_pass.py").write_text(
             "import unittest\n\n"
@@ -82,38 +71,22 @@ class ClickGateVerificationTests(ClickGateTestCase):
         self.assertEqual(self.run_rewritten(first).returncode, 0)
         second = self.verify_gate([broad_argv], evidence_ids=["E2"])
         self.assertEqual(
-            second["hookSpecificOutput"]["permissionDecision"], "deny"
+            second["hookSpecificOutput"]["permissionDecision"], "allow"
         )
-        self.assertIn(
-            "reservations would total 6",
-            second["hookSpecificOutput"]["permissionDecisionReason"],
-        )
+        self.assertNotIn("additionalContext", second["hookSpecificOutput"])
+        self.assertEqual(self.run_rewritten(second).returncode, 0)
 
         state_path = next(
             (self.plugin_data / "gate-state").glob("session-contract-*.json")
         )
         state = json.loads(state_path.read_text(encoding="utf-8"))
         sources = state["evidence_state"]["sources"]
-        self.assertEqual(
-            sources[CLICK_GATE._evidence_key("E1")]["reserved_units"], 3
-        )
-        self.assertEqual(
-            sources[CLICK_GATE._evidence_key("E2")]["reserved_units"], 0
-        )
+        for evidence_id in ("E1", "E2"):
+            source = sources[CLICK_GATE._evidence_key(evidence_id)]
+            self.assertEqual(source["status"], "passed")
+            self.assertRegex(source["reserved_check_digest"], r"^[0-9a-f]{64}$")
 
-    def test_broad_and_expensive_checks_consume_more_budget(self) -> None:
-        quick = self.contract()
-        quick["verification"]["scale"] = "quick"
-        self.arm_gate("turn-1")
-        self.stage_gate(quick, "turn-1")
-        self.arm_gate("turn-2")
-        self.pass_gate(turn_id="turn-2")
-        broad = self.verify_gate(["python3 -m unittest discover -s tests"])
-        self.assertEqual(
-            broad["hookSpecificOutput"]["permissionDecision"], "deny"
-        )
-        self.assertIn("costs 3", broad["hookSpecificOutput"]["permissionDecisionReason"])
-
+    def test_legacy_class_normalization_is_deterministic_but_non_authoritative(self) -> None:
         for command in (
             "pytest tests",
             "python3 -m pytest tests",
@@ -124,29 +97,41 @@ class ClickGateVerificationTests(ClickGateTestCase):
             "go test ./internal/...",
         ):
             with self.subTest(command=command):
-                denied = self.verify_gate([command])
-                self.assertEqual(
-                    denied["hookSpecificOutput"]["permissionDecision"], "deny"
+                batch, units, error = CLICK_GATE._validate_verification_batch(
+                    json.dumps(
+                        {
+                            "version": 2,
+                            "checks": [
+                                {
+                                    "argv": shlex.split(command),
+                                    "class": "targeted",
+                                }
+                            ],
+                        }
+                    ),
+                    "quick",
                 )
-                self.assertIn(
-                    "costs 3",
-                    denied["hookSpecificOutput"]["permissionDecisionReason"],
-                )
+                self.assertEqual(error, "")
+                self.assertEqual(units, 3)
+                self.assertEqual(batch["checks"][0]["class"], "broad")
 
-        full = self.contract()
-        full["verification"]["scale"] = "full"
-        self.cancel_gate("turn-3")
-        self.arm_gate("turn-4")
-        self.stage_gate(full, "turn-4")
-        self.arm_gate("turn-5")
-        self.pass_gate(turn_id="turn-5")
-        expensive = self.verify_gate(
-            ["npx playwright test", "python3 -m unittest discover -s tests"],
-            "turn-5",
+        deep_batch, deep_units, error = CLICK_GATE._validate_verification_batch(
+            json.dumps(
+                {
+                    "version": 2,
+                    "checks": [
+                        {
+                            "argv": ["npx", "playwright", "test"],
+                            "class": "broad",
+                        }
+                    ],
+                }
+            ),
+            "quick",
         )
-        self.assertEqual(
-            expensive["hookSpecificOutput"]["permissionDecision"], "allow"
-        )
+        self.assertEqual(error, "")
+        self.assertEqual(deep_units, 5)
+        self.assertEqual(deep_batch["checks"][0]["class"], "deep")
 
     def test_hook_raises_underdeclared_verification_to_its_minimum_class(self) -> None:
         contract = self.contract()
@@ -156,20 +141,8 @@ class ClickGateVerificationTests(ClickGateTestCase):
         self.arm_gate("turn-2")
         self.pass_gate(turn_id="turn-2")
 
-        broad_as_targeted = self.verify_checks(
-            [
-                {
-                    "argv": ["python3", "-m", "unittest", "discover", "-s", "tests"],
-                    "class": "targeted",
-                }
-            ]
-        )
-        output = broad_as_targeted["hookSpecificOutput"]
-        self.assertEqual(output["permissionDecision"], "deny")
-        self.assertIn("costs 3", output["permissionDecisionReason"])
-        self.assertIn("minimum-class inference", output["permissionDecisionReason"])
-
         for argv in (
+            [sys.executable, "-m", "unittest", "discover", "-s", "tests"],
             ["pytest", "-k", "not definitely_missing", "tests"],
             ["pytest", "tests/test_01.py", "tests/test_02.py"],
             [
@@ -178,28 +151,61 @@ class ClickGateVerificationTests(ClickGateTestCase):
             ],
         ):
             with self.subTest(argv=argv):
-                denied = self.verify_checks(
-                    [{"argv": argv, "class": "targeted"}]
+                batch, units, error = CLICK_GATE._validate_verification_batch(
+                    json.dumps(
+                        {
+                            "version": 2,
+                            "checks": [{"argv": argv, "class": "targeted"}],
+                        }
+                    ),
+                    "quick",
                 )
-                reason = denied["hookSpecificOutput"]["permissionDecisionReason"]
-                self.assertEqual(
-                    denied["hookSpecificOutput"]["permissionDecision"], "deny"
-                )
-                self.assertIn("costs 3", reason)
+                self.assertEqual(error, "")
+                self.assertEqual(units, 3)
+                self.assertEqual(batch["checks"][0]["class"], "broad")
 
-    def test_deep_verification_cannot_be_underdeclared_as_broad(self) -> None:
+        allowed = self.verify_checks(
+            [
+                {
+                    "argv": [
+                        sys.executable,
+                        "-m",
+                        "unittest",
+                        "discover",
+                        "-s",
+                        "tests",
+                    ],
+                    "class": "targeted",
+                }
+            ]
+        )
+        self.assertEqual(
+            allowed["hookSpecificOutput"]["permissionDecision"], "allow"
+        )
+        self.assertNotIn("additionalContext", allowed["hookSpecificOutput"])
+
+    def test_deep_class_normalization_does_not_create_authority(self) -> None:
         self.approve_contract()
         payload = self.verify_checks(
             [
                 {
-                    "argv": ["npx", "playwright", "test"],
+                    "argv": [
+                        sys.executable,
+                        "-m",
+                        "coverage",
+                        "run",
+                        "-m",
+                        "unittest",
+                        "verification_fixture.VerificationFixture.test_pass",
+                    ],
                     "class": "broad",
                 }
             ]
         )
-        output = payload["hookSpecificOutput"]
-        self.assertEqual(output["permissionDecision"], "deny")
-        self.assertIn("costs 5", output["permissionDecisionReason"])
+        self.assertEqual(
+            payload["hookSpecificOutput"]["permissionDecision"], "allow"
+        )
+        self.assertNotIn("additionalContext", payload["hookSpecificOutput"])
 
     def test_verification_classifier_uses_scope_before_kind_markers(self) -> None:
         cases = {
@@ -270,14 +276,32 @@ class ClickGateVerificationTests(ClickGateTestCase):
                 self.assertEqual(output["permissionDecision"], "deny")
                 self.assertIn("neither read-only nor a recognized check", output["permissionDecisionReason"])
 
-    def test_unknown_verification_wrapper_defaults_to_deep(self) -> None:
+    def test_unknown_verification_wrapper_is_normalized_but_must_resolve(self) -> None:
         self.approve_contract()
+        batch, units, error = CLICK_GATE._validate_verification_batch(
+            json.dumps(
+                {
+                    "version": 2,
+                    "checks": [
+                        {"argv": ["project-test"], "class": "targeted"}
+                    ],
+                }
+            ),
+            "focused",
+        )
+        self.assertEqual(error, "")
+        self.assertEqual(units, 5)
+        self.assertEqual(batch["checks"][0]["class"], "deep")
+
         payload = self.verify_checks(
             [{"argv": ["project-test"], "class": "targeted"}]
         )
         output = payload["hookSpecificOutput"]
         self.assertEqual(output["permissionDecision"], "deny")
-        self.assertIn("costs 5", output["permissionDecisionReason"])
+        self.assertIn(
+            "could not resolve and fingerprint",
+            output["permissionDecisionReason"],
+        )
 
     def test_verification_batch_rejects_legacy_shell_strings(self) -> None:
         self.approve_contract()
@@ -332,6 +356,27 @@ class ClickGateVerificationTests(ClickGateTestCase):
             split_runner_command(
                 stale_retry["hookSpecificOutput"]["updatedInput"]["command"]
             ),
+        )
+
+    def test_legacy_class_change_does_not_invalidate_exact_argv_receipt(self) -> None:
+        (self.workspace / ".gitignore").write_text(
+            "__pycache__/\n", encoding="utf-8"
+        )
+        self.initialize_git(".gitignore", "verification_fixture.py")
+        self.approve_contract()
+        argv = self.verification_argv()
+
+        first = self.verify_checks([{"argv": argv, "class": "targeted"}])
+        completed = self.run_rewritten(first)
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+
+        repeated = self.verify_checks([{"argv": argv, "class": "deep"}])
+        self.assertEqual(
+            repeated["hookSpecificOutput"]["permissionDecision"], "allow"
+        )
+        self.assertIn(
+            "reused 1 current unchanged-tree",
+            repeated["hookSpecificOutput"]["updatedInput"]["command"],
         )
 
     def test_runner_only_environment_noise_does_not_invalidate_receipt(self) -> None:
@@ -1498,7 +1543,7 @@ class ClickGateVerificationTests(ClickGateTestCase):
         after_fix = self.verify_gate([command])
         self.assertEqual(after_fix["hookSpecificOutput"]["permissionDecision"], "allow")
 
-    def test_broad_checks_must_use_the_budgeted_runner_after_approval(self) -> None:
+    def test_broad_checks_must_use_the_receipt_bound_runner_after_approval(self) -> None:
         self.approve_contract()
         for command in (
             "python3 -m unittest discover -s tests",

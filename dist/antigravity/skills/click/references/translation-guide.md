@@ -26,7 +26,7 @@ Build top-down:
 2. Map those obligations onto the smallest concrete approach that fits the current system.
 3. Add `build.semantics` only for material state, failure, security, compatibility, concurrency, migration, or operational meaning.
 4. Add `build.order` only where sequence affects safe completion.
-5. Choose a verification scale, assign each completion condition one typed primary source, and submit only nonempty unresolved argv subsets within the contract's cumulative reserved budget. Prefer one coalesced request when practical, but never rerun a current source merely to keep every check in one batch.
+5. Choose a qualitative verification profile, assign each completion condition one typed primary source, and submit only nonempty unresolved argv subsets. Choose concrete checks from repository evidence, prefer one coalesced request when practical, and never rerun a current source merely to keep every check in one batch.
 
 An implementation agent may change low-level tactics, dependencies, tools, files, or internal sequencing without reapproval when the result remains inside the contract's outcome, boundary, must-hold behavior, material semantics, and verification commitment.
 
