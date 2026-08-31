@@ -288,6 +288,7 @@ class RepositoryPolicyTests(unittest.TestCase):
                 self.assertIn("v0.23.0", readme)
                 self.assertIn("v0.21.0", readme)
         notes = (ROOT / "RELEASE_NOTES.md").read_text(encoding="utf-8")
+        self.assertIn("## v0.31.0", notes)
         self.assertIn("## v0.30.0", notes)
         self.assertIn("## v0.24.5", notes)
         self.assertIn("## v0.24.4", notes)
@@ -303,7 +304,7 @@ class RepositoryPolicyTests(unittest.TestCase):
         golden = (ROOT / "evals" / "golden-prompts.yaml").read_text(
             encoding="utf-8"
         )
-        self.assertIn("version: 21", golden)
+        self.assertIn("version: 22", golden)
         self.assertIn(
             "## Evidence-bound completion in v0.21.0",
             (ROOT / "README.md").read_text(encoding="utf-8"),
@@ -410,7 +411,7 @@ class RepositoryPolicyTests(unittest.TestCase):
         self.assertIn("does not maintain\nan append-only", constitution)
 
         self.assertIn(
-            "plan, inventory, logical-repeat, and verification-boundary migrations applied",
+            "v0.30 policy migrations complete; dependency-aware receipt reuse",
             classification,
         )
         for tier in ("## CORE", "## USER_POLICY", "## HEURISTIC"):
@@ -426,6 +427,7 @@ class RepositoryPolicyTests(unittest.TestCase):
         self.assertIn("hooks/click_verification_policy.py", classification)
         self.assertIn("hooks/click_verification_meter.py", classification)
         self.assertIn("hooks/click_browser_advisory.py", classification)
+        self.assertIn("hooks/click_dependency_cache.py", classification)
 
         gate_runtime = (ROOT / "hooks" / "click_gate.py").read_text(
             encoding="utf-8"
@@ -503,6 +505,7 @@ class RepositoryPolicyTests(unittest.TestCase):
             for name in (
                 "click_browser_advisory.py",
                 "click_contract.py",
+                "click_dependency_cache.py",
                 "click_evidence.py",
                 "click_gate.py",
                 "click_process.py",
@@ -647,7 +650,7 @@ class RepositoryPolicyTests(unittest.TestCase):
         catalog = (
             ROOT / "evals" / "golden-prompts.yaml"
         ).read_text(encoding="utf-8")
-        self.assertIn("version: 21", catalog)
+        self.assertIn("version: 22", catalog)
         for case_id in (
             "unset-first-mutation-choice",
             "always-on-trivial-edit",

@@ -167,7 +167,7 @@ ChatGPT 데스크톱 앱을 다시 시작하고 포함된 Click Hook을 확인�
   "verification": {
     "scale": "full",
     "evidence": [
-      {"id": "E1", "kind": "argv", "description": "주문 취소와 중복 환불 테스트"},
+      {"id": "E1", "kind": "argv", "description": "주문 취소와 중복 환불 테스트", "dependencies": ["src/orders/", "tests/test_cancellation.py"]},
       {"id": "E2", "kind": "argv", "description": "기존 API 회귀 테스트"}
     ],
     "done_when": [
@@ -191,6 +191,7 @@ ChatGPT 데스크톱 앱을 다시 시작하고 포함된 Click Hook을 확인�
 | 일반 argv 재시도를 차단하지 않고 안내 | 고정 실패 횟수만으로 새 verification 재시도를 막지 않지만 protected repository content를 바꾼 verification은 승인된 mutation이 필요함 |
 | 명령 의도 명시 | active 상태의 애매한 shell 작업 대신 structured `inspect`·`mutate`·`service`·`verify`를 사용 |
 | 검증 전략을 권한화하지 않음 | 모델이 evidence와 `argv`를 고르고 Click은 정확한 check-group digest와 관찰 결과를 receipt에 결합 |
+| dependency-safe evidence 재사용 | 승인에 결속된 dependency 선언 또는 커밋된 저장소 매핑은 해석된 파일·check·환경·실행 파일·승인 mutation snapshot이 모두 같을 때만 성공 증거를 다음 revision으로 이어감 |
 | source별 완료 추적 | 선언한 모든 source가 current여야 하며 `argv` source가 없으면 억지 local check를 만들지 않음 |
 | Browser workflow 반복 advisory | 정규화된 Browser 반복·재시도·긴 timed interaction은 안내와 함께 허용하고, 할당 source·직렬 호출·tool result·revision·완료 replay 결속은 계속 차단으로 보장 |
 
@@ -207,6 +208,8 @@ ChatGPT 데스크톱 앱을 다시 시작하고 포함된 Click Hook을 확인�
 기존 class-unit 필드는 저장된 state와 직접 호출자의 호환을 위해 읽을 수만 있게 남아 있으며 receipt 증거도 runtime 안내도 아닙니다. 숫자 검증 예산은 사용자나 저장소가 그 정책을 명시적으로 소유할 때만 강제해야 합니다.
 
 근거는 local `argv` check 또는 명시적으로 선언한 Browser·hosted·manual·existing source가 될 수 있습니다. `argv` source는 연결된 local runner의 실제 성공으로만 완료됩니다. non-argv 완료는 명시적인 attestation이며 Hook은 승인된 source와 현재 revision을 기록하지만 matcher 밖 외부 작업이나 수동 작업의 진실성을 독립적으로 증명하지는 않습니다.
+
+`argv` evidence source는 결정적인 저장소 상대 `dependencies`를 선택적으로 선언할 수 있습니다. 모델이 stage 전에 제안하므로 승인 contract digest에 결속되고, 확실하지 않으면 필드를 생략해 정상적으로 다시 검증합니다. `*`는 한 path segment 안에서만, 완전한 segment인 `**`는 하위 디렉터리 전체에, 마지막 `/`는 디렉터리 prefix에 적용됩니다. 커밋된 `.click/evidence-dependencies.json`으로 정확한 argv-to-path 매핑을 제공할 수도 있습니다. Click은 실제 해석된 파일 목록과 저장소 내부 상대 symlink를 추적하고, 관련 entry가 아닌 설정 변경은 허용하지만 mutation receipt 누락이나 승인 경계 뒤 workspace drift가 있으면 검증을 다시 실행합니다.
 
 ## 구조화 capability
 
@@ -238,16 +241,16 @@ Antigravity IDE에서는 `dist/antigravity`를 워크스페이스의 `.agents/pl
 
 Antigravity의 Hook contract는 Codex와 다릅니다. native file/search와 별도 MCP·Skill 도구는 계속 사용할 수 있지만 cross-tool 중복 제거와 Browser evidence는 아직 지원하지 않습니다. 정확한 제한은 [`platforms/antigravity/README.md`](platforms/antigravity/README.md)를 확인하세요.
 
-## 기존 설치 업데이트 — v0.30.0
+## 기존 설치 업데이트 — v0.31.0
 
-현재 릴리스는 **v0.30.0**입니다.
+현재 릴리스는 **v0.31.0**입니다.
 
 ```bash
 codex plugin marketplace upgrade click
 codex plugin add click@click
 ```
 
-ChatGPT 데스크톱 앱을 다시 시작하고 갱신된 Hook을 검토해 신뢰하세요. v0.30.0은 runtime 권한을 승인, one-use 실행, evidence 무결성에 집중합니다. 전략 카운터와 숫자형 검증 profile은 더 이상 작업을 차단하지 않으며, 계약 prose 길이와 verification check 개수도 권한 gate가 아닙니다. inspection 요청당 8개 제한은 실행기의 운영 경계로 유지됩니다. 이전 설치의 대기 중 runner를 재사용하지 말고 업그레이드 후 새 계약을 시작하세요.
+ChatGPT 데스크톱 앱을 다시 시작하고 갱신된 Hook을 검토해 신뢰하세요. v0.31.0은 승인된 revision 사이에서 선택적으로 dependency-aware evidence를 재사용합니다. 승인된 dependency 집합, 정확한 check, 환경, 실행 파일, mutation receipt가 모두 일치할 때만 재사용하고, 하나라도 달라지면 Click이 check를 다시 실행합니다. 이전 설치의 대기 중 runner를 재사용하지 말고 업그레이드 후 새 계약을 시작하세요.
 
 자세한 릴리스 이력은 [RELEASE_NOTES.md](RELEASE_NOTES.md)에 있습니다.
 

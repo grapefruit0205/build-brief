@@ -196,6 +196,14 @@ class AntigravityAdapterTests(unittest.TestCase):
         self.assertEqual(code, 0, error)
         return payload
 
+    def post_tool(self, name: str, arguments: dict) -> dict:
+        code, payload, error = self.hook(
+            "post-tool",
+            {"toolCall": {"name": name, "args": arguments}, "stepIdx": 4},
+        )
+        self.assertEqual(code, 0, error)
+        return payload
+
     def assert_plan_advisory(self, payload: dict, expected_reason: str) -> None:
         self.assertEqual(payload.get("decision"), "allow")
         self.assertIn(expected_reason, payload.get("reason", ""))
@@ -240,6 +248,27 @@ class AntigravityAdapterTests(unittest.TestCase):
         state = json.loads(states[0].read_text(encoding="utf-8"))
         sources = state["evidence_state"]["sources"]
         self.assertEqual(next(iter(sources.values()))["status"], "passed")
+
+    def test_post_tool_closes_the_approved_mutation_snapshot(self) -> None:
+        self.initialize_git("tests/test_sample.py")
+        self.approve()
+        target = self.workspace / "app.py"
+        arguments = {"TargetFile": str(target), "CodeContent": "ok"}
+        allowed = self.pre_tool("write_to_file", arguments)
+        self.assertEqual(allowed.get("decision"), "allow")
+        target.write_text("ok\n", encoding="utf-8")
+
+        completed = self.post_tool("write_to_file", arguments)
+
+        self.assertEqual(completed.get("decision"), "allow")
+        state_path = next(
+            (self.plugin_data / "gate-state").glob("session-contract-*.json")
+        )
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        boundary = state["verification"]["mutation_boundary"]
+        self.assertEqual(boundary["status"], "recorded")
+        self.assertTrue(boundary["lineage_valid"])
+        self.assertEqual(boundary["revision"], 1)
 
     def test_active_mutation_fails_closed_without_a_contract(self) -> None:
         self.pre_invocation("change the file")

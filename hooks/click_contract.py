@@ -14,9 +14,14 @@ import re
 from typing import Any
 
 if __package__:
-    from . import click_verification_meter, click_verification_policy
+    from . import (
+        click_dependency_cache,
+        click_verification_meter,
+        click_verification_policy,
+    )
     from .click_evidence import EVIDENCE_KINDS
 else:  # Executed directly from the bundled hooks directory.
+    import click_dependency_cache
     import click_verification_meter
     import click_verification_policy
     from click_evidence import EVIDENCE_KINDS
@@ -28,7 +33,7 @@ CONTRACT_FIELDS = set(STRING_FIELDS) | set(OBJECT_FIELDS) | {"must_hold"}
 BOUNDARY_FIELDS = {"in_scope", "out_of_scope"}
 BUILD_FIELDS = {"approach", "semantics", "order"}
 VERIFICATION_FIELDS = {"scale", "evidence", "done_when", "intermediate_gate"}
-EVIDENCE_SOURCE_FIELDS = {"id", "kind", "description"}
+EVIDENCE_SOURCE_FIELDS = {"id", "kind", "description", "dependencies"}
 DONE_WHEN_FIELDS = {"condition", "primary_evidence"}
 EVIDENCE_ID_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9_-]{0,31}$")
 # Compatibility aliases retained for direct callers. Qualitative profile names
@@ -155,6 +160,21 @@ def validate_contract(raw: str) -> tuple[dict[str, Any] | None, str]:
         description = source.get("description")
         if not isinstance(description, str) or not description.strip():
             return None, f"Evidence `{source_id}` description must be non-empty."
+        if "dependencies" in source:
+            if kind != "argv":
+                return (
+                    None,
+                    f"Evidence `{source_id}` may declare `dependencies` only when its "
+                    "kind is `argv`.",
+                )
+            _, dependency_error = click_dependency_cache.normalize_patterns(
+                source.get("dependencies")
+            )
+            if dependency_error:
+                return (
+                    None,
+                    f"Evidence `{source_id}` dependencies {dependency_error}.",
+                )
         if kind == "browser":
             browser_source_ids.append(source_id)
     if len(browser_source_ids) > 1:

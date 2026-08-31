@@ -26,7 +26,7 @@ class RepositoryPolicyTests(core.RepositoryPolicyTests):
             (ROOT / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8")
         )
         self.assertEqual(manifest["name"], "click")
-        self.assertEqual(manifest["version"], "0.30.0")
+        self.assertEqual(manifest["version"], "0.31.0")
         self.assertEqual(manifest["license"], "MIT")
         self.assertIn("always on", manifest["description"].lower())
         self.assertIn("manual", manifest["description"].lower())
@@ -94,7 +94,7 @@ class RepositoryPolicyTests(core.RepositoryPolicyTests):
         self.assertEqual(marketplace["name"], "click")
         self.assertEqual(marketplace["plugins"][0]["name"], "click")
         self.assertEqual(
-            marketplace["plugins"][0]["source"]["ref"], "v0.30.0"
+            marketplace["plugins"][0]["source"]["ref"], "v0.31.0"
         )
 
     def test_readmes_lead_with_hook_enforced_state_machine_positioning(self) -> None:
@@ -219,11 +219,12 @@ class RepositoryPolicyTests(core.RepositoryPolicyTests):
 
     def test_release_documents_identify_current_and_preserve_release_history(self) -> None:
         for readme in _readmes().values():
-            self.assertIn("v0.30.0", readme)
+            self.assertIn("v0.31.0", readme)
             self.assertIn("codex plugin marketplace upgrade click", readme)
             self.assertIn("codex plugin add click@click", readme)
         notes = (ROOT / "RELEASE_NOTES.md").read_text(encoding="utf-8")
         for marker in (
+            "## v0.31.0",
             "## v0.30.0",
             "## v0.24.6",
             "## v0.24.5",
@@ -240,7 +241,7 @@ class RepositoryPolicyTests(core.RepositoryPolicyTests):
             self.assertIn(marker, notes)
         self.assertNotIn("Unreleased v0.24", notes)
         golden = (ROOT / "evals" / "golden-prompts.yaml").read_text(encoding="utf-8")
-        self.assertIn("version: 21", golden)
+        self.assertIn("version: 22", golden)
 
     def test_readmes_document_trusted_reads_and_pre_execution_claims(self) -> None:
         readmes = _readmes()
@@ -297,6 +298,30 @@ class RepositoryPolicyTests(core.RepositoryPolicyTests):
         self.assertIn("not claimed", platform)
         self.assertIn("control inspect", platform)
         self.assertIn("non-blocking narrowing advisory", platform)
+
+    def test_dependency_aware_receipts_are_opt_in_and_documented(self) -> None:
+        readmes = _readmes()
+        for readme in readmes.values():
+            self.assertIn('"dependencies":', readme)
+            self.assertIn(".click/evidence-dependencies.json", readme)
+        directive = _reference("directive-format.md")
+        protocol = _reference("capability-protocol.md")
+        self.assertIn("Omit `dependencies` when uncertain", directive)
+        for marker in (
+            "dependency-aware cross-revision reuse",
+            "relevant normalized entry",
+            "PostToolUse",
+            "Repository-internal relative symlinks",
+        ):
+            self.assertIn(marker, protocol)
+        hook_config = json.loads(
+            (ROOT / "hooks" / "hooks.json").read_text(encoding="utf-8")
+        )
+        post_matchers = [
+            entry.get("matcher", "")
+            for entry in hook_config["hooks"]["PostToolUse"]
+        ]
+        self.assertTrue(any("apply_patch" in matcher for matcher in post_matchers))
 
 
 if __name__ == "__main__":

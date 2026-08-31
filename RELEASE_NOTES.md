@@ -1,5 +1,36 @@
 # Release notes
 
+## v0.31.0 — 2026-08-31
+
+Click v0.31.0 adds opt-in dependency-aware evidence reuse across approved
+mutation revisions while preserving whole-tree verification as the safe
+fallback.
+
+- An `argv` evidence source may opt into cross-revision reuse with deterministic
+  repository-relative `dependencies` proposed before staging and bound by the
+  approved contract digest. Sources without a precise declaration keep the
+  existing rerun behavior.
+- A committed `.click/evidence-dependencies.json` may map an exact adjacent argv
+  group to repository paths. Contract and repository declarations are unioned;
+  only the normalized relevant entry participates in cache identity, so an
+  unrelated committed manifest-entry change does not invalidate the source.
+- `*`, complete-segment `**`, and trailing-slash directory prefixes have fixed
+  semantics. Receipts record the sorted resolved file set and hash file modes,
+  contents, safe repository-internal relative symlinks, and their targets.
+  Ambiguous patterns, external or broken links, unmatched paths, malformed or
+  uncommitted manifests, and special files fall back to real verification.
+- A successful cross-revision promotion still requires the same active
+  contract, exact check group, Git root, canonical environment, executable
+  fingerprint, provider, entry, and dependency digest. The receipt records its
+  prior revision, reuse time, count, current full-tree digest, and resolved
+  dependency paths.
+- Mutation pre/post snapshots are bound to the host `tool_use_id`. Pre-existing
+  drift, a missing `PostToolUse` receipt, or workspace drift after the approved
+  tool returns disables dependency reuse. Current-revision whole-tree receipt
+  matching and verification-time mutation detection remain unchanged.
+- The exact release commit is gated by the deterministic suite on Linux, macOS,
+  and Windows, plus distribution validation and the Plugin Security Scan.
+
 ## v0.30.0 — 2026-08-31
 
 Click now states its stable product boundary directly: bind AI execution to

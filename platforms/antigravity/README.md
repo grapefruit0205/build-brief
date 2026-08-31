@@ -44,6 +44,9 @@ Antigravity lifecycle and mutation tools onto that common runtime.
   reservation and all runner safety checks remain hard.
 - Native Antigravity file/search tools are not routed through Click's local
   observation runner, so cross-tool repeat guidance is not claimed.
+- Matching mutation `PreToolUse` and `PostToolUse` events close the Git snapshot
+  boundary for optional dependency-aware argv receipt reuse. Missing or
+  mismatched post state falls back to executing verification.
 - `update_plan` and `create_plan` remain available. While a Click lifecycle is
   active, the adapter returns advisory context explaining that plan output
   cannot grant mutation authority or replace, widen, or complete the contract.

@@ -102,6 +102,40 @@ class ClickContractTests(unittest.TestCase):
         self.assertEqual(error, "")
         self.assertEqual(value, full)
 
+    def test_argv_evidence_may_bind_deterministic_dependency_patterns(self) -> None:
+        contract = copy.deepcopy(self.contract)
+        contract["verification"]["evidence"][0]["dependencies"] = [
+            "src/**/*.py",
+            "tests/",
+            "pyproject.toml",
+        ]
+
+        value, error = click_contract.validate_contract(json.dumps(contract))
+
+        self.assertEqual(error, "")
+        self.assertEqual(value, contract)
+
+    def test_dependency_declaration_rejects_wrong_kind_and_ambiguous_patterns(self) -> None:
+        wrong_kind = copy.deepcopy(self.contract)
+        wrong_kind["verification"]["evidence"][0].update(
+            {"kind": "manual", "dependencies": ["src/"]}
+        )
+        ambiguous = copy.deepcopy(self.contract)
+        ambiguous["verification"]["evidence"][0]["dependencies"] = [
+            "src/**thing.py"
+        ]
+
+        self.assertEqual(
+            click_contract.validate_contract(json.dumps(wrong_kind)),
+            (
+                None,
+                "Evidence `E1` may declare `dependencies` only when its kind is `argv`.",
+            ),
+        )
+        value, error = click_contract.validate_contract(json.dumps(ambiguous))
+        self.assertIsNone(value)
+        self.assertIn("deterministic repository-relative patterns", error)
+
     def test_representative_rejections_keep_exact_messages_and_order(self) -> None:
         unknown_top = copy.deepcopy(self.contract)
         unknown_top["unsupported"] = True

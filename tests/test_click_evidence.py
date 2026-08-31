@@ -99,6 +99,30 @@ class ClickEvidenceTests(unittest.TestCase):
         )
         self.assertNotIn("E-browser", json.dumps(external, sort_keys=True))
 
+    def test_dependency_declaration_is_prose_free_and_integrity_checked(self) -> None:
+        contract = copy.deepcopy(self.contract)
+        contract["verification"]["evidence"][0]["dependencies"] = [
+            "tests/",
+            "src/**/*.py",
+        ]
+        ledger = click_evidence.fresh_state(contract)
+        source = ledger["sources"][click_evidence.evidence_key("E1")]
+
+        self.assertEqual(
+            source["dependency_patterns"], ["src/**/*.py", "tests/"]
+        )
+        self.assertRegex(source["dependency_declaration_digest"], r"^[0-9a-f]{64}$")
+        self.assertNotIn("tests pass", json.dumps(ledger, sort_keys=True))
+
+        state = {"state_schema_version": 2, "evidence_state": ledger}
+        source["dependency_patterns"] = ["src/other.py"]
+        self.assertEqual(
+            click_evidence.sources_from_state(
+                state, expected_contract_schema_version=2
+            ),
+            {},
+        )
+
     def test_sources_from_state_preserves_legacy_and_malformed_distinction(self) -> None:
         self.assertIsNone(
             click_evidence.sources_from_state(
