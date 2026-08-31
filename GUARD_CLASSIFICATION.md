@@ -14,8 +14,8 @@ not claim that every hard gate has already been moved to its target layer.
 | Guard or invariant | Current owner | Why it remains Core |
 | --- | --- | --- |
 | Canonical contract validation, digest and ID binding, later-turn approval, session and working-directory identity | `hooks/click_contract.py`; approval lifecycle in `hooks/click_gate.py` | Prevents mutation under an unapproved or substituted intent |
-| Mutation and external side-effect authorization | mutation and managed-service prepare/claim/record paths in `hooks/click_gate.py` | Controls observable effects rather than model strategy |
-| Exact one-use runner token, action, request, root and state binding | runner claim paths in `hooks/click_gate.py` | Prevents replay, request substitution and cross-state execution |
+| Mutation and external side-effect authorization | mutation paths in `hooks/click_gate.py`; managed-service prepare/claim/record paths in `hooks/click_service.py` | Controls observable effects rather than model strategy |
+| Exact one-use runner token, action, request, root and state binding | managed-service claims in `hooks/click_service.py`; remaining runner claim paths in `hooks/click_gate.py` | Prevents replay, request substitution and cross-state execution |
 | Canonical state paths, locks, atomic writes and authorized state-root recovery | `hooks/click_state.py` | Preserves approval state across failure without weakening identity checks |
 | Cancellation, expiry, consumed-runner and tampering revocation | `hooks/click_state.py`; lifecycle branches in `hooks/click_gate.py` | Prevents stale authority from becoming executable again |
 | Evidence registry identity, current-revision state and receipt matching | `hooks/click_evidence.py`; verification claim/result paths in `hooks/click_gate.py` | Prevents evidence from a different request or revision from completing work |
@@ -23,7 +23,7 @@ not claim that every hard gate has already been moved to its target layer.
 | Protected Git-tree, environment and executable fingerprints for argv verification; verification-time mutation detection | verification receipt helpers and runners in `hooks/click_gate.py` | Preserves the identity of the code and environment actually checked by Click's argv runner |
 | Opt-in dependency provider, relevant-entry and resolved-path receipts, plus approved mutation pre/post binding | `hooks/click_dependency_cache.py`; mutation-boundary and receipt transitions in `hooks/click_gate.py` | Allows cross-revision reuse without treating a model's post-approval assertion, unrelated manifest content, or later workspace drift as proof |
 | Direct-argv capability safety, executable/path/environment checks, process-control rejection and read-only side-effect defenses | capability constants and validators in `hooks/click_gate.py` | Prevents an admitted inspect, verify or service request from gaining unapproved effects |
-| Mutation, verification and managed-service interlocks around active runner claims | runner reservation and claim state in `hooks/click_gate.py` | Prevents an authorized side effect or receipt from racing into a different state without treating distinct observation concurrency as authority |
+| Mutation, verification and managed-service interlocks around active runner claims | managed-service reservation and claim state in `hooks/click_service.py`; remaining runner state in `hooks/click_gate.py` | Prevents an authorized side effect or receipt from racing into a different state without treating distinct observation concurrency as authority |
 | Host coverage identity, event normalization and state/receipt-preserving result mapping | `hooks/click_host_coverage.py`, `hooks/click_hook.py`, `hooks/antigravity_gate.py`, `hooks/platform_protocol.py` | Keeps the known pre/post surface symmetric and prevents verification receipts from crossing a host or coverage-registry revision while making the limited assurance explicit |
 
 ## USER_POLICY
