@@ -51,12 +51,13 @@ Click은 이런 규칙을 **프롬프트의 부탁**에만 맡기지 않고 지�
 
 Click의 안정적인 제품 경계는 모델 워크플로우 최적화기가 아니라 승인과
 증거를 결속하는 runtime입니다. 정식 진입 기준과 정책 계층은
-[Click 제품 헌법](PRODUCT_CONSTITUTION.md)에, 현재 동작을 바꾸지 않는 분류
-목록은 [Click guard 분류](GUARD_CLASSIFICATION.md)에 있습니다.
+[Click 제품 헌법](PRODUCT_CONSTITUTION.md)에, 현재 guard 목록과 전환 상태는
+[Click guard 분류](GUARD_CLASSIFICATION.md)에 있습니다.
 
-v0.24.6에는 아래에 설명된 기존 anti-loop hard gate가 아직 남아 있습니다.
-전략 규칙을 명시적 사용자 정책이나 비차단 advisory로 옮기는 별도 변경이
-완료되기 전까지는 현재 동작을 그대로 문서화합니다.
+Click은 권한과 evidence 무결성은 hard runtime 보장으로 유지하고, 모델의
+workflow 전략은 권한 없는 안내로 취급합니다. 특히 `update_plan`은 계속
+사용할 수 있지만 active contract를 승인·교체·확장할 수 없고 contract digest나
+evidence 상태도 바꾸지 않습니다.
 
 ## 왜 Click인가요?
 
@@ -67,7 +68,7 @@ v0.24.6에는 아래에 설명된 기존 anti-loop hard gate가 아직 남아 �
 | 모델이 계획을 기억하기를 기대 | 승인된 workflow 상태를 유지 |
 | 승인 시점이 맞기를 기대 | digest에 묶인 `contract_id`를 stage하고 다음 사용자 turn을 요구 |
 | 다시 탐색하지 말라고 요청 | 첫 유용한 root inventory 뒤에는 범위를 좁힘 |
-| 다시 계획하지 말라고 요청 | workflow가 active일 때 matcher가 잡는 `update_plan` churn을 거부 |
+| 다시 계획하지 말라고 요청 | 비차단 안내를 제공하며 `update_plan`은 contract 권한을 바꾸지 못함 |
 | 같은 검증을 반복하지 말라고 요청 | 현재 structured evidence와 receipt를 재사용 |
 | 작업이 커질수록 검증도 커짐 | 완료 근거를 승인된 검증 예산에 결합 |
 | 에이전트가 끝났다고 하면 종료 | 최신 mutation revision의 증거가 current여야 완료 |
@@ -82,7 +83,7 @@ stage, implementation, review, verification 동안 Click은 다음과 같은 **�
 
 - **제안과 승인을 분리합니다.** stage하면 불투명한 `contract_id`가 나오고 같은 사용자 turn에서 stage와 pass를 동시에 할 수 없습니다.
 - **승인 전 mutation을 막습니다.** 정확한 staged ID가 승인되고 pass될 때까지 active contract가 잠금 상태를 유지합니다.
-- **재계획을 제한합니다.** Click workflow가 active일 때 matcher가 잡는 `update_plan` 호출은 명시적인 한 turn bypass를 제외하고 거부합니다.
+- **계획은 advisory로 둡니다.** `update_plan` 같은 plan tool은 계속 사용할 수 있으며 active contract를 승인·교체·확장하지 못합니다.
 - **저장소 탐색 범위를 좁힙니다.** 현재 revision의 첫 유용한 root inventory는 허용할 수 있지만 이후 broad inventory는 path-scoped inspection으로 좁혀야 합니다.
 - **성공한 관찰을 재사용합니다.** 범위 안 mutation으로 stale되기 전까지 같은 structured read를 반복하지 않습니다.
 - **검증을 evidence에 결합합니다.** local check는 자신이 증명하는 승인된 `evidence_id`를 지정하고 누적 검증은 승인된 규모 안에 있어야 합니다.
@@ -184,7 +185,7 @@ ChatGPT 데스크톱 앱을 다시 시작하고 포함된 Click Hook을 확인�
 | 안전망 | 동작 |
 | --- | --- |
 | 이미 얻은 근거 재사용 | 성공한 동일 structured read/search는 범위 안 mutation으로 stale되기 전까지 반복하지 않음 |
-| plan churn 차단 | workflow가 armed·staged·승인 후 미완료·review 상태일 때 matcher가 잡는 `update_plan`을 거부 |
+| 계획을 막지 않고 안내 | `update_plan`은 계속 사용할 수 있지만 contract를 stage·승인·교체·확장하지 못함 |
 | 첫 inventory 뒤 범위 축소 | 현재 revision의 첫 유용한 root inventory 뒤에는 broad inventory를 거부 |
 | 명령 의도 명시 | active 상태의 애매한 shell 작업 대신 structured `inspect`·`mutate`·`service`·`verify`를 사용 |
 | 검증을 한 예산에 결합 | local check마다 등록된 `argv` source를 지정하고 누적 예약이 승인 규모 안에 있어야 함 |

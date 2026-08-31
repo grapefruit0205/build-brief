@@ -1,4 +1,4 @@
-version: 18
+version: 19
 skill: click
 evaluation_conditions:
   - no-plugin
@@ -42,7 +42,7 @@ evaluation_dimensions:
   - verification_new_path_mutation
   - verification_scope_classification
   - distinct_user_turn_approval
-  - active_lifecycle_plan_block
+  - active_lifecycle_plan_advisory
   - manual_session_mutation_lock
   - isolated_ab_provenance
 grading_priority:
@@ -113,7 +113,7 @@ global_invariants:
   - "Requires an approved contract for structured mutation, invalidates stale evidence after mutation, and raises every recognized verification argv to its Hook-inferred minimum targeted, broad, or deep class based on runner kind and actual scope before metering"
   - "Rejects Python inline code and direct Python scripts as verification; only explicit supported module runners qualify"
   - "In a Git worktree, fails verification stale when the batch changes tracked or pre-existing non-ignored untracked content, reports every new non-ignored path, fails obvious new source/configuration/migration paths stale, and leaves ignored paths outside the snapshot"
-  - "Blocks update_plan throughout armed, staged, passed, and review turns and while a staged or incomplete approved session contract remains active"
+  - "Keeps update_plan non-blocking and non-authoritative throughout armed, staged, passed, and review turns while contract approval, mutation authority, replacement, and evidence integrity remain hard runtime guards"
   - "Fails closed on malformed structured requests without claiming coverage of hosted tools, matcher opt-outs, hidden reasoning, or arbitrary custom code"
   - "Stores runtime gate state outside the target repository and records no execution contract plaintext"
   - "Injects only concise mode-aware routing context per prompt and stores the persistent preference outside the target repository"
@@ -408,7 +408,7 @@ cases:
     directive_semantics:
       - "Uses the read-only review guard without a build contract or approval prompt"
       - "Allows initial repository context through structured inspection, then narrows inspection and reuses successful evidence"
-      - "Blocks repeated successful structured reads, concurrent or post-success root inventory, plan churn, and mutation"
+      - "Blocks repeated successful structured reads, concurrent or post-success root inventory, and mutation while leaving plan tools non-blocking and non-authoritative"
       - "Reports only evidence-backed findings"
     minimality_expectations:
       reuse: "The first useful inventory and focused authentication evidence"
@@ -536,19 +536,19 @@ cases:
       reject_without_evidence:
         - "Natural-language approval classification, an MCP service, or extra approval phases"
 
-  - id: active-lifecycle-plan-block
-    prompt: "@Click 계약이 active인 동안 update_plan으로 별도 계획을 만들지 못하게 고쳐줘."
+  - id: active-lifecycle-plan-advisory
+    prompt: "@Click 계약이 active여도 update_plan은 권한을 바꾸지 않는 advisory로만 두고 hard block하지 않게 고쳐줘."
     default_mode: on
     expected_activation: true
     expected_mode: build
     expected_mutation_gate: none-before-approval
     directive_semantics:
-      - "Blocks both plan tool names in armed, staged, passed, and review turns"
-      - "Uses session contract state to keep blocking in later turns while staging or implementation is incomplete"
-      - "Allows ordinary planning after bypass or current-revision completion"
-      - "Does not add a second plan representation"
+      - "Allows both plan tool names in armed, staged, passed, and review turns"
+      - "Keeps plan output non-authoritative across later turns while staging or implementation is incomplete"
+      - "Preserves hard approval, mutation, replacement-contract, and evidence-integrity guards"
+      - "Does not add a second plan representation, plan ledger, or policy engine"
     minimality_expectations:
-      reuse: "The existing per-turn and session contract state"
+      reuse: "The existing contract authority and Hook routing boundaries"
       reject_without_evidence:
         - "A new plan ledger or semantic planning service"
 

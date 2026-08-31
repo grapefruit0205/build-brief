@@ -147,6 +147,18 @@ class ClickGateTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         return payload
 
+    def assert_plan_advisory(
+        self, payload: dict | None, expected_context: str
+    ) -> None:
+        self.assertIsNotNone(payload)
+        assert payload is not None
+        output = payload["hookSpecificOutput"]
+        self.assertEqual(output["hookEventName"], "PreToolUse")
+        self.assertNotIn("permissionDecision", output)
+        self.assertNotIn("permissionDecisionReason", output)
+        self.assertNotIn("updatedInput", output)
+        self.assertIn(expected_context, output["additionalContext"])
+
     def tool_hook(
         self,
         mode: str,
@@ -4153,18 +4165,23 @@ class ClickGateTests(unittest.TestCase):
             second["hookSpecificOutput"]["permissionDecisionReason"],
         )
 
-    def test_review_mode_is_read_only_and_blocks_plan_churn(self) -> None:
+    def test_review_mode_keeps_mutations_blocked_but_advises_plan(self) -> None:
         self.set_default("on")
         self.start_review()
+
+        plan = self.pre_tool("update_plan", "")
+        self.assert_plan_advisory(plan, "read-only review")
+        assert plan is not None
+        self.assertIn(
+            "does not authorize mutation",
+            plan["hookSpecificOutput"]["additionalContext"],
+        )
+
         mutation = self.pre_tool("apply_patch", "*** Begin Patch\n*** End Patch")
         self.assertEqual(
             mutation["hookSpecificOutput"]["permissionDecision"], "deny"
         )
         self.assertIn("read-only", mutation["hookSpecificOutput"]["permissionDecisionReason"])
-
-        plan = self.pre_tool("update_plan", "")
-        self.assertEqual(plan["hookSpecificOutput"]["permissionDecision"], "deny")
-        self.assertIn("during read-only review", plan["hookSpecificOutput"]["permissionDecisionReason"])
 
     def test_simple_read_only_inspection_is_not_tracked_outside_review(self) -> None:
         self.set_default("on")
@@ -4387,48 +4404,46 @@ class ClickGateTests(unittest.TestCase):
             after_mutation["hookSpecificOutput"]["permissionDecision"], "allow"
         )
 
-    def test_approved_contract_blocks_new_plan_tool_calls(self) -> None:
+    def test_approved_contract_advises_plan_but_still_blocks_replacement(self) -> None:
         self.approve_contract()
         for tool_name in ("update_plan", "functions.update_plan"):
             with self.subTest(tool_name=tool_name):
                 payload = self.pre_tool(tool_name, "", "turn-2")
-                self.assertEqual(
-                    payload["hookSpecificOutput"]["permissionDecision"], "deny"
-                )
+                self.assert_plan_advisory(payload, "approved contract")
+                assert payload is not None
                 self.assertIn(
-                    "parallel plan",
-                    payload["hookSpecificOutput"]["permissionDecisionReason"],
+                    "remains authoritative",
+                    payload["hookSpecificOutput"]["additionalContext"],
                 )
 
-    def test_armed_contract_workflow_blocks_plan_tool_calls(self) -> None:
+        replacement = self.contract()
+        replacement["outcome"] = "replace the approved outcome without new authority"
+        blocked = self.stage_gate(replacement, "turn-2")
+        self.assertEqual(
+            blocked["hookSpecificOutput"]["permissionDecision"], "deny"
+        )
+        self.assertIn(
+            "already executing one approved contract",
+            blocked["hookSpecificOutput"]["permissionDecisionReason"],
+        )
+
+    def test_armed_contract_workflow_advises_plan_tool_calls(self) -> None:
         self.arm_gate("turn-1")
         for tool_name in ("update_plan", "functions.update_plan"):
             with self.subTest(tool_name=tool_name):
                 payload = self.pre_tool(tool_name, "", "turn-1")
-                self.assertEqual(
-                    payload["hookSpecificOutput"]["permissionDecision"], "deny"
-                )
-                self.assertIn(
-                    "parallel plan",
-                    payload["hookSpecificOutput"]["permissionDecisionReason"],
-                )
+                self.assert_plan_advisory(payload, "contract workflow")
 
-    def test_staged_session_contract_blocks_plan_in_a_later_turn(self) -> None:
+    def test_staged_session_contract_advises_plan_in_a_later_turn(self) -> None:
         self.arm_gate("turn-1")
         self.stage_gate(turn_id="turn-1")
         payload = self.pre_tool("update_plan", "", "turn-2")
-        self.assertEqual(payload["hookSpecificOutput"]["permissionDecision"], "deny")
-        self.assertIn(
-            "parallel plan", payload["hookSpecificOutput"]["permissionDecisionReason"]
-        )
+        self.assert_plan_advisory(payload, "approved contract")
 
-    def test_approved_session_contract_blocks_plan_in_a_later_turn(self) -> None:
+    def test_approved_session_contract_advises_plan_in_a_later_turn(self) -> None:
         self.approve_contract()
         payload = self.pre_tool("update_plan", "", "turn-3")
-        self.assertEqual(payload["hookSpecificOutput"]["permissionDecision"], "deny")
-        self.assertIn(
-            "parallel plan", payload["hookSpecificOutput"]["permissionDecisionReason"]
-        )
+        self.assert_plan_advisory(payload, "approved contract")
 
     def test_completed_contract_allows_plan_in_a_fresh_uninvoked_turn(self) -> None:
         self.approve_contract()

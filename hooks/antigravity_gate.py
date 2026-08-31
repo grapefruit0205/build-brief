@@ -40,8 +40,6 @@ ANTIGRAVITY_MUTATION_TOOLS = {
     "write_to_file",
     "replace_file_content",
     "multi_replace_file_content",
-    "update_plan",
-    "create_plan",
 }
 MAX_TRANSCRIPT_BYTES = 1_000_000
 

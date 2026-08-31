@@ -40,7 +40,14 @@ class RepositoryPolicyTests(core.RepositoryPolicyTests):
             manifest["interface"]["longDescription"].lower(),
         )
         self.assertIn("automatically", manifest["interface"]["longDescription"].lower())
-        self.assertIn("replanning", manifest["interface"]["longDescription"].lower())
+        self.assertIn(
+            "plan tools remain available with non-blocking advisory guidance",
+            manifest["interface"]["longDescription"].lower(),
+        )
+        self.assertIn(
+            "cannot alter contract authority",
+            manifest["interface"]["longDescription"].lower(),
+        )
         self.assertIn(
             "isolated child process groups",
             manifest["interface"]["longDescription"].lower(),
@@ -57,10 +64,10 @@ class RepositoryPolicyTests(core.RepositoryPolicyTests):
         self.assertIn("anti-loop", manifest["keywords"])
         self.assertIn("@Click", manifest["description"])
         self.assertIn("structured", manifest["description"].lower())
-        self.assertIn("keeps codex inside that boundary", manifest["description"].lower())
+        self.assertIn("revision-bound evidence", manifest["description"].lower())
         self.assertEqual(
             manifest["interface"]["shortDescription"],
-            "Approve one clear boundary, then build and verify without replanning.",
+            "Bind AI execution to approved intent and return verifiable evidence.",
         )
         self.assertLessEqual(len(manifest["interface"]["defaultPrompt"]), 3)
         for prompt in manifest["interface"]["defaultPrompt"]:
@@ -161,6 +168,9 @@ class RepositoryPolicyTests(core.RepositoryPolicyTests):
         readmes = _readmes()
         for readme in readmes.values():
             self.assertIn("update_plan", readme)
+        self.assertIn("non-blocking guidance", readmes["README.md"])
+        self.assertIn("비차단 안내", readmes["README.ko.md"])
+        self.assertIn("非阻断提示", readmes["README.zh-CN.md"])
         self.assertIn("observable tool path", readmes["README.md"])
         self.assertIn("관찰 가능한 tool path", readmes["README.ko.md"])
         self.assertIn("可观察的 tool path", readmes["README.zh-CN.md"])
@@ -190,6 +200,7 @@ class RepositoryPolicyTests(core.RepositoryPolicyTests):
             self.assertIn("codex plugin add click@click", readme)
         notes = (ROOT / "RELEASE_NOTES.md").read_text(encoding="utf-8")
         for marker in (
+            "## Unreleased v0.25 candidate",
             "## v0.24.6",
             "## v0.24.5",
             "## v0.24.4",
@@ -205,7 +216,7 @@ class RepositoryPolicyTests(core.RepositoryPolicyTests):
             self.assertIn(marker, notes)
         self.assertNotIn("Unreleased v0.24", notes)
         golden = (ROOT / "evals" / "golden-prompts.yaml").read_text(encoding="utf-8")
-        self.assertIn("version: 18", golden)
+        self.assertIn("version: 19", golden)
 
     def test_readmes_document_trusted_reads_and_pre_execution_claims(self) -> None:
         readmes = _readmes()

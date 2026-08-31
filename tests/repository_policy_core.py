@@ -34,7 +34,14 @@ class RepositoryPolicyTests(unittest.TestCase):
             manifest["interface"]["longDescription"].lower(),
         )
         self.assertIn("automatically", manifest["interface"]["longDescription"].lower())
-        self.assertIn("replanning", manifest["interface"]["longDescription"].lower())
+        self.assertIn(
+            "plan tools remain available with non-blocking advisory guidance",
+            manifest["interface"]["longDescription"].lower(),
+        )
+        self.assertIn(
+            "cannot alter contract authority",
+            manifest["interface"]["longDescription"].lower(),
+        )
         self.assertIn(
             "isolated child process groups",
             manifest["interface"]["longDescription"].lower(),
@@ -51,10 +58,10 @@ class RepositoryPolicyTests(unittest.TestCase):
         self.assertIn("anti-loop", manifest["keywords"])
         self.assertIn("@Click", manifest["description"])
         self.assertIn("structured", manifest["description"].lower())
-        self.assertIn("keeps codex inside that boundary", manifest["description"].lower())
+        self.assertIn("revision-bound evidence", manifest["description"].lower())
         self.assertEqual(
             manifest["interface"]["shortDescription"],
-            "Approve one clear boundary, then build and verify without replanning.",
+            "Bind AI execution to approved intent and return verifiable evidence.",
         )
         self.assertLessEqual(len(manifest["interface"]["defaultPrompt"]), 3)
         for prompt in manifest["interface"]["defaultPrompt"]:
@@ -215,6 +222,9 @@ class RepositoryPolicyTests(unittest.TestCase):
             self.assertIn("48,000", readme)
             self.assertIn("update_plan", readme)
             self.assertIn("rg --files", readme)
+        self.assertIn("non-blocking guidance", english)
+        self.assertIn("비차단 안내", korean)
+        self.assertIn("非阻断提示", chinese)
         self.assertIn("Implementation without loops", english)
         self.assertIn("hidden reasoning", english)
         self.assertIn("실행 루프 없이 구현", korean)
@@ -282,8 +292,8 @@ class RepositoryPolicyTests(unittest.TestCase):
                 self.assertIn("v0.24.0", readme)
                 self.assertIn("v0.23.0", readme)
                 self.assertIn("v0.21.0", readme)
-                self.assertIn("version-18", readme)
         notes = (ROOT / "RELEASE_NOTES.md").read_text(encoding="utf-8")
+        self.assertIn("## Unreleased v0.25 candidate", notes)
         self.assertIn("## v0.24.5", notes)
         self.assertIn("## v0.24.4", notes)
         self.assertIn("## v0.24.3", notes)
@@ -295,6 +305,10 @@ class RepositoryPolicyTests(unittest.TestCase):
         self.assertIn("## v0.21.0", notes)
         self.assertIn("## v0.20.0", notes)
         self.assertNotIn("Unreleased v0.24", notes)
+        golden = (ROOT / "evals" / "golden-prompts.yaml").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("version: 19", golden)
         self.assertIn(
             "## Evidence-bound completion in v0.21.0",
             (ROOT / "README.md").read_text(encoding="utf-8"),
@@ -398,13 +412,14 @@ class RepositoryPolicyTests(unittest.TestCase):
         self.assertIn("argv verification receipts", constitution)
         self.assertIn("does not maintain\nan append-only", constitution)
 
-        self.assertIn("no runtime behavior change", classification)
+        self.assertIn("plan-tool advisory migration applied", classification)
         for tier in ("## CORE", "## USER_POLICY", "## HEURISTIC"):
             self.assertIn(tier, classification)
         self.assertIn("## Known assurance gaps", classification)
         self.assertIn("minimum-class inference", classification)
         self.assertIn("## Operational limits requiring disposition", classification)
         self.assertIn("## Migration order", classification)
+        self.assertIn("Complete in the v0.25 candidate", classification)
 
     def test_click_supports_always_on_while_fix_remains_explicit(self) -> None:
         for skill_name in ("click", "fix"):
@@ -562,7 +577,7 @@ class RepositoryPolicyTests(unittest.TestCase):
         catalog = (
             ROOT / "evals" / "golden-prompts.yaml"
         ).read_text(encoding="utf-8")
-        self.assertIn("version: 18", catalog)
+        self.assertIn("version: 19", catalog)
         for case_id in (
             "unset-first-mutation-choice",
             "always-on-trivial-edit",
@@ -578,7 +593,7 @@ class RepositoryPolicyTests(unittest.TestCase):
         self.assertIn("id: verification-minimum-class", catalog)
         self.assertIn("id: verification-workspace-mutation", catalog)
         self.assertIn("id: distinct-turn-contract-approval", catalog)
-        self.assertIn("id: active-lifecycle-plan-block", catalog)
+        self.assertIn("id: active-lifecycle-plan-advisory", catalog)
         self.assertIn("id: cheapest-evidence-browser-game", catalog)
 
     def test_multiplatform_adapter_is_documented_without_false_parity(self) -> None:

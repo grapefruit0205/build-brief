@@ -38,6 +38,9 @@ Antigravity lifecycle and mutation tools onto that common runtime.
   available.
 - Native Antigravity file/search tools are not routed through Click's local
   observation runner, so cross-tool duplicate-read blocking is not claimed.
+- `update_plan` and `create_plan` remain available. While a Click lifecycle is
+  active, the adapter returns advisory context explaining that plan output
+  cannot grant mutation authority or replace, widen, or complete the contract.
 - No Antigravity Browser tool is currently bound to Click's Browser evidence
   meter. Do not declare `kind: browser` in an Antigravity contract.
 
