@@ -5,7 +5,6 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
-import sys
 import tempfile
 import unittest
 
@@ -129,13 +128,6 @@ class WindowsHookCommandTests(unittest.TestCase):
                                 "executable": command_prompt,
                             }
                         return subprocess.run(
-                            invocation,
-                            capture_output=True,
-                            text=True,
-                            cwd=workspace,
-                            env=environment,
-                            check=False,
-                        ) if not shell_options else subprocess.run(
                             invocation,
                             capture_output=True,
                             text=True,
@@ -332,6 +324,8 @@ class WindowsHookCommandTests(unittest.TestCase):
         self.assertIsNotNone(powershell, "pwsh is required on the Windows CI runner")
         command_prompt = shutil.which("cmd.exe")
         self.assertIsNotNone(command_prompt, "cmd.exe is required on Windows")
+        real_python = shutil.which("python")
+        self.assertIsNotNone(real_python, "python.exe is required on the Windows CI runner")
         commands = windows_commands()
 
         with tempfile.TemporaryDirectory() as temporary:
@@ -348,7 +342,7 @@ class WindowsHookCommandTests(unittest.TestCase):
             probe = workspace / "fallback probe.txt"
             probe.write_text("fallback runner works\n", encoding="utf-8")
 
-            fake_bin = base / "fake python launchers"
+            fake_bin = base / "broken py launcher"
             fake_bin.mkdir()
             launcher_log = base / "launcher.log"
             (fake_bin / "py.cmd").write_text(
@@ -356,13 +350,6 @@ class WindowsHookCommandTests(unittest.TestCase):
                 ">>\"%CLICK_TEST_LAUNCHER_LOG%\" echo py\r\n"
                 ">&2 echo No installed Python found!\r\n"
                 "exit /b 103\r\n",
-                encoding="utf-8",
-            )
-            (fake_bin / "python.cmd").write_text(
-                "@echo off\r\n"
-                ">>\"%CLICK_TEST_LAUNCHER_LOG%\" echo python\r\n"
-                f'"{sys.executable}" %*\r\n'
-                "exit /b %errorlevel%\r\n",
                 encoding="utf-8",
             )
 
@@ -409,7 +396,13 @@ class WindowsHookCommandTests(unittest.TestCase):
             self.assertEqual(
                 hook_result.returncode,
                 0,
-                f"fallback hook failed:\n{hook_result.stderr}\n{hook_result.stdout}",
+                (
+                    "fallback hook failed:\n"
+                    f"stderr={hook_result.stderr!r}\n"
+                    f"stdout={hook_result.stdout!r}\n"
+                    f"log={launcher_log.read_text(encoding='utf-8') if launcher_log.exists() else '<missing>'}\n"
+                    f"python={real_python}"
+                ),
             )
             self.assertNotIn("No installed Python found", hook_result.stderr)
             payload = json.loads(hook_result.stdout)
@@ -418,8 +411,7 @@ class WindowsHookCommandTests(unittest.TestCase):
             self.assertNotIn("py -3", runner.lower())
 
             launches_before_runner = launcher_log.read_text(encoding="utf-8").splitlines()
-            self.assertIn("py", launches_before_runner)
-            self.assertIn("python", launches_before_runner)
+            self.assertEqual(launches_before_runner, ["py"])
 
             for shell_name in ("PowerShell", "cmd.exe"):
                 with self.subTest(shell=shell_name):
