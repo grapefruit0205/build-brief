@@ -27,6 +27,16 @@
   Host rendering, shared argv execution, workspace snapshots, and observation
   activity predicates are injected by the gate, preserving exact command
   transport, errors, state schema, replay behavior, and compatibility symbols.
+- Shared direct-argv protocol decoding, executable normalization, shell-free
+  validation, request transport, and stable digests now live in the leaf
+  `click_capability.py` module for reuse without an upward gate dependency.
+- Read-only command admission, Git and structured SSH policy, trusted executable
+  resolution, environment sanitization, remote-URL redaction, and inspection
+  execution now live in `click_inspection.py`.
+- Observation reservations, duplicate-read advisories, one-use runner claims,
+  bounded output receipts, review state, replay rejection, and exact result
+  recording now live in `click_observation.py`. Gate wrappers preserve existing
+  private symbols and runtime patch points while injecting host command rendering.
 
 ## v0.32.0 — 2026-09-01
 
