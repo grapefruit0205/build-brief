@@ -14,29 +14,18 @@ import sys
 from typing import Any
 
 if __package__:
-    from . import click_gate
+    from . import click_gate, click_host_coverage
 else:
     import click_gate
+    import click_host_coverage
 
 
-DIRECT_EXEC_TOOL_NAMES = {
-    "Bash",
-    "exec_command",
-    "functions.exec_command",
-    "shell_command",
-    "functions.shell_command",
-    "unified_exec",
-    "functions.unified_exec",
-}
+DIRECT_EXEC_TOOL_NAMES = click_host_coverage.CODEX_DIRECT_EXEC_TOOL_NAMES
 
 # Current Codex Code Mode may not emit Hook events at all for this surface.
 # When an event is available, map it onto the conservative command path so an
 # active Click workflow fails closed instead of silently bypassing the gate.
-CODE_MODE_TOOL_NAMES = {
-    "exec",
-    "functions.exec",
-    "code_mode_exec",
-}
+CODE_MODE_TOOL_NAMES = click_host_coverage.CODEX_CODE_MODE_TOOL_NAMES
 
 
 def normalize_event(event: dict[str, Any], mode: str) -> dict[str, Any]:
@@ -46,7 +35,7 @@ def normalize_event(event: dict[str, Any], mode: str) -> dict[str, Any]:
     if tool_name not in DIRECT_EXEC_TOOL_NAMES | CODE_MODE_TOOL_NAMES:
         return event
     normalized = dict(event)
-    normalized["tool_name"] = "Bash"
+    normalized["tool_name"] = click_host_coverage.CODEX_TOOL_MAP[tool_name]
     return normalized
 
 

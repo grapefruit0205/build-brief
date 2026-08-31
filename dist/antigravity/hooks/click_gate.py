@@ -37,6 +37,7 @@ if __package__:
         click_contract,
         click_dependency_cache,
         click_evidence,
+        click_host_coverage,
         click_process,
         click_verification_meter,
         click_verification_policy,
@@ -62,6 +63,7 @@ else:  # Executed directly from the bundled hooks directory.
     import click_contract
     import click_dependency_cache
     import click_evidence
+    import click_host_coverage
     import click_process
     import click_verification_meter
     import click_verification_policy
@@ -212,7 +214,7 @@ PROCESS_CONTROL_EXECUTABLES = {
     "xkill",
 }
 
-BROWSER_TOOL_NAMES = {"mcp__node_repl__js"}
+BROWSER_TOOL_NAMES = click_host_coverage.CODEX_BROWSER_TOOL_NAMES
 BROWSER_WAIT_PATTERNS = click_browser_advisory.BROWSER_WAIT_PATTERNS
 MANAGED_SERVICE_EXECUTABLES = {
     "flask",
@@ -618,6 +620,8 @@ def _fresh_verification_state(contract: dict[str, Any]) -> dict[str, Any]:
         "running_environment_binding": [],
         "running_environment_binding_digest": "",
         "running_executable_digests": {},
+        "running_host_coverage": {},
+        "running_host_coverage_digest": "",
         "workspace_changed": False,
         "mutation_boundary": _fresh_mutation_boundary(),
         "started_at": 0,
@@ -1527,6 +1531,28 @@ def _verification_environment_binding_is_authentic(
     return bool(expected and secrets.compare_digest(digest, expected))
 
 
+def _verification_host_coverage_binding_digest(
+    coverage: Any, runner_token: str
+) -> str:
+    if not click_host_coverage.receipt_is_current(coverage):
+        return ""
+    canonical = json.dumps(coverage, sort_keys=True, separators=(",", ":"))
+    return _verification_environment_hmac(
+        runner_token, "host-coverage", canonical
+    )
+
+
+def _verification_host_coverage_binding_is_authentic(
+    coverage: Any, digest: Any, runner_token: str
+) -> bool:
+    if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
+        return False
+    expected = _verification_host_coverage_binding_digest(
+        coverage, runner_token
+    )
+    return bool(expected and secrets.compare_digest(digest, expected))
+
+
 def _verification_environment_from_binding(
     binding: Any,
     runner_token: str,
@@ -1702,6 +1728,7 @@ def _verification_receipt_matches(
     git_root: str,
     tree_digest: str,
     environment_digest: str,
+    host_coverage: dict[str, Any],
 ) -> bool:
     if not all(
         isinstance(value, str) and re.fullmatch(r"[0-9a-f]{64}", value)
@@ -1728,6 +1755,8 @@ def _verification_receipt_matches(
         and source.get("verified_root") == git_root
         and source.get("verified_tree_digest") == tree_digest
         and source.get("verified_environment_digest") == environment_digest
+        and click_host_coverage.receipt_is_current(host_coverage)
+        and source.get("verified_host_coverage") == host_coverage
     )
 
 
@@ -1785,6 +1814,7 @@ def _dependency_receipt_matches(
     group_digest: str,
     git_root: str,
     environment_digest: str,
+    host_coverage: dict[str, Any],
 ) -> bool:
     if not _dependency_receipt_is_valid(receipt):
         return False
@@ -1816,6 +1846,8 @@ def _dependency_receipt_matches(
         and source.get("verified_check_digest") == group_digest
         and source.get("verified_root") == git_root
         and source.get("verified_environment_digest") == environment_digest
+        and click_host_coverage.receipt_is_current(host_coverage)
+        and source.get("verified_host_coverage") == host_coverage
         and source.get("verified_dependency_provider") == receipt["provider"]
         # The full manifest digest is audit metadata. The normalized relevant
         # entry is the authority boundary, so unrelated settings may change.
@@ -2975,6 +3007,13 @@ def _prepare_verification(
             "Click evidence state is unavailable or malformed; cancel and restage.",
             "",
         )
+    host_coverage = click_host_coverage.receipt_for_event(event)
+    if not click_host_coverage.receipt_is_current(host_coverage):
+        return (
+            "",
+            "Click could not establish the current host Hook coverage identity.",
+            "",
+        )
 
     observations = state.get("observations")
     if isinstance(observations, dict):
@@ -3016,6 +3055,8 @@ def _prepare_verification(
         verification["running_environment_binding"] = []
         verification["running_environment_binding_digest"] = ""
         verification["running_executable_digests"] = {}
+        verification["running_host_coverage"] = {}
+        verification["running_host_coverage_digest"] = ""
         verification["runner_claimed_at"] = 0
 
     revision = int(verification.get("mutation_revision", 0))
@@ -3170,6 +3211,7 @@ def _prepare_verification(
                         git_root=git_root,
                         tree_digest=tree_digest,
                         environment_digest=environment_digest,
+                        host_coverage=host_coverage,
                     ):
                         reused_keys.add(source_key)
                     else:
@@ -3206,6 +3248,7 @@ def _prepare_verification(
                         group_digest=group_digests[source_key],
                         git_root=git_root,
                         environment_digest=environment_digest,
+                        host_coverage=host_coverage,
                     ):
                         assert isinstance(receipt, dict)
                         _promote_dependency_receipt(
@@ -3310,6 +3353,9 @@ def _prepare_verification(
     workspace = Path(str(event.get("cwd", ""))).resolve()
     prepared_environment = _verification_environment(cwd=workspace)
     runner_token = secrets.token_urlsafe(24)
+    running_host_coverage_digest = (
+        _verification_host_coverage_binding_digest(host_coverage, runner_token)
+    )
     running_environment_binding = _verification_environment_binding(
         prepared_environment, runner_token
     )
@@ -3368,6 +3414,8 @@ def _prepare_verification(
                 running_environment_binding_digest
             ),
             "running_executable_digests": running_executable_digests,
+            "running_host_coverage": host_coverage,
+            "running_host_coverage_digest": running_host_coverage_digest,
             "started_at": int(time.time()),
         }
     )
@@ -4647,6 +4695,13 @@ def _record_verification_result(
         or claimed_at <= 0
     ):
         return False
+    running_host_coverage = verification.get("running_host_coverage")
+    if not _verification_host_coverage_binding_is_authentic(
+        running_host_coverage,
+        verification.get("running_host_coverage_digest"),
+        runner_token,
+    ):
+        return False
 
     revision = int(verification.get("mutation_revision", 0))
     verification["runner_token_digest"] = ""
@@ -4731,6 +4786,8 @@ def _record_verification_result(
     verification["running_environment_binding"] = []
     verification["running_environment_binding_digest"] = ""
     verification["running_executable_digests"] = {}
+    verification["running_host_coverage"] = {}
+    verification["running_host_coverage_digest"] = ""
     if workspace_changed:
         previous_revision = revision
         revision += 1
@@ -4817,6 +4874,9 @@ def _record_verification_result(
                     source["verified_root"] = os.path.normcase(workspace_root)
                     source["verified_tree_digest"] = workspace_digest
                     source["verified_environment_digest"] = environment_digest
+                    source["verified_host_coverage"] = dict(
+                        running_host_coverage
+                    )
                     source["verified_at"] = int(time.time())
                     _store_dependency_receipt(
                         source, dependency_receipts.get(source_key)
@@ -4828,6 +4888,7 @@ def _record_verification_result(
                     source["verified_root"] = ""
                     source["verified_tree_digest"] = ""
                     source["verified_environment_digest"] = ""
+                    source["verified_host_coverage"] = {}
                     source["verified_at"] = 0
                     _clear_dependency_receipt(source)
             elif source_ran:
@@ -6146,6 +6207,16 @@ def _claim_verification_run(
         verification.get("started_at", 0), VERIFY_RUNNING_TTL_SECONDS
     ):
         return None, "Click verification runner authorization expired before execution."
+    running_host_coverage = verification.get("running_host_coverage")
+    if not _verification_host_coverage_binding_is_authentic(
+        running_host_coverage,
+        verification.get("running_host_coverage_digest"),
+        runner_token,
+    ):
+        return (
+            None,
+            "Click verification runner host coverage binding was malformed or changed.",
+        )
 
     scale = str(verification.get("scale", ""))
     if not click_verification_policy.is_profile(scale):
@@ -6315,6 +6386,8 @@ def _release_unclaimed_verification_reservation(
             "running_environment_binding": [],
             "running_environment_binding_digest": "",
             "running_executable_digests": {},
+            "running_host_coverage": {},
+            "running_host_coverage_digest": "",
             "started_at": 0,
             "last_exit_code": None,
         }

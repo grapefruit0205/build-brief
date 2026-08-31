@@ -190,13 +190,14 @@ codex plugin add click@click
 | 提示但不阻断普通 argv 重试 | 固定失败次数不会阻断新的 verification 重试；改变 protected repository content 的 verification 仍需要已批准 mutation |
 | 明确命令意图 | active 状态下含义不明确的 shell 工作改用 structured `inspect`、`mutate`、`service` 或 `verify` |
 | 不把验证策略变成权限 | 模型选择 evidence 与 `argv`；Click 把准确 check-group digest 和观察结果绑定到 receipt |
+| 绑定已知 host coverage | verification receipt 包含当前 Codex 或 Antigravity 的 known-surface digest，因此证据不会静默跨 host 或 Hook coverage revision 复用 |
 | 复用 dependency-safe evidence | 只有解析文件、check、环境、可执行文件和已批准 mutation snapshot 都一致时，绑定到批准的 dependency 声明或已提交仓库映射才能跨 revision 复用成功证据 |
 | 按 source 跟踪完成 | 所有声明 source 必须 current；没有 `argv` source 时不会为了形式制造 local check |
 | 提示 Browser workflow 重复 | 规范化 Browser 重复、重试和长定时交互在提示下仍可执行；已分配 source、串行调用、tool result、revision 与完成后 replay 的绑定仍为 hard gate |
 
 ## Advisory 验证 profile
 
-批准前，Skill 或模型会根据当前风险和仓库证据建议最小且足够的验证 profile。Profile 是对预期验证深度的定性表达，并绑定到 digest，以准确表示已批准 contract。执行期间模型选择具体 `argv`；Click 把准确 check-group digest、revision、环境、可执行文件指纹和观察结果绑定到 receipt。Hook 不推断验证充分性，也不把插件自定的数字谱系当作权限或提示。
+批准前，Skill 或模型会根据当前风险和仓库证据建议最小且足够的验证 profile。Profile 是对预期验证深度的定性表达，并绑定到 digest，以准确表示已批准 contract。执行期间模型选择具体 `argv`；Click 把准确 check-group digest、revision、环境、可执行文件指纹、已知 host coverage identity 和观察结果绑定到 receipt。Hook 不推断验证充分性，也不把插件自定的数字谱系当作权限或提示。
 
 | Profile | 典型用途 |
 | --- | --- |
@@ -256,6 +257,8 @@ codex plugin add click@click
 ## 证据与诚实边界
 
 Click 只在 Hook 真正可以观察并强制执行的范围内做强声明。
+
+host coverage receipt 明确标记为 `known-surfaces-only`：它可以检测 host 或已注册 Hook surface 的变化，但无法生成 host 从未派发的事件。
 
 它不会声称 Hook 能够：
 

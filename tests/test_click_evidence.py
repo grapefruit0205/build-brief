@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 import unittest
 
-from hooks import click_evidence, click_gate
+from hooks import click_evidence, click_gate, click_host_coverage
 
 
 class ClickEvidenceTests(unittest.TestCase):
@@ -83,6 +83,7 @@ class ClickEvidenceTests(unittest.TestCase):
         self.assertEqual(argv_source["reserved_units"], 0)
         self.assertEqual(argv_source["reserved_check_digest"], "")
         self.assertEqual(argv_source["verified_tree_digest"], "")
+        self.assertEqual(argv_source["verified_host_coverage"], {})
 
     def test_browser_registry_and_external_state_remain_content_free(self) -> None:
         self.assertEqual(
@@ -208,6 +209,42 @@ class ClickEvidenceTests(unittest.TestCase):
                     ),
                     dict,
                 )
+
+    def test_host_coverage_receipt_shape_is_integrity_checked(self) -> None:
+        valid = {
+            "state_schema_version": 2,
+            "evidence_state": click_evidence.fresh_state(self.contract),
+        }
+        source = next(iter(valid["evidence_state"]["sources"].values()))
+        source["verified_host_coverage"] = click_host_coverage.receipt("codex")
+        self.assertIsInstance(
+            click_evidence.sources_from_state(
+                valid, expected_contract_schema_version=2
+            ),
+            dict,
+        )
+
+        malformed = copy.deepcopy(valid)
+        malformed_source = next(
+            iter(malformed["evidence_state"]["sources"].values())
+        )
+        malformed_source["verified_host_coverage"].pop("assurance")
+        self.assertEqual(
+            click_evidence.sources_from_state(
+                malformed, expected_contract_schema_version=2
+            ),
+            {},
+        )
+
+        legacy = copy.deepcopy(valid)
+        legacy_source = next(iter(legacy["evidence_state"]["sources"].values()))
+        legacy_source.pop("verified_host_coverage")
+        self.assertIsInstance(
+            click_evidence.sources_from_state(
+                legacy, expected_contract_schema_version=2
+            ),
+            dict,
+        )
 
     def test_current_revision_and_kind_queries_are_pure(self) -> None:
         ledger = click_evidence.fresh_state(self.contract)

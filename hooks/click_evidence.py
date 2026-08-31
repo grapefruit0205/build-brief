@@ -16,9 +16,10 @@ import secrets
 from typing import Any
 
 if __package__:
-    from . import click_dependency_cache
+    from . import click_dependency_cache, click_host_coverage
 else:  # Executed directly from the bundled hooks directory.
     import click_dependency_cache
+    import click_host_coverage
 
 
 EVIDENCE_KINDS = ("argv", "browser", "hosted", "manual", "existing")
@@ -86,6 +87,7 @@ def fresh_state(contract: dict[str, Any]) -> dict[str, Any]:
                 "verified_root": "",
                 "verified_tree_digest": "",
                 "verified_environment_digest": "",
+                "verified_host_coverage": {},
                 "verified_at": 0,
                 "verified_dependency_provider": "",
                 "verified_dependency_manifest_digest": "",
@@ -169,6 +171,14 @@ def _dependency_fields_are_valid(source: dict[str, Any]) -> bool:
     )
 
 
+def _host_coverage_field_is_valid(source: dict[str, Any]) -> bool:
+    coverage = source.get("verified_host_coverage", {})
+    return bool(
+        isinstance(coverage, dict)
+        and (not coverage or click_host_coverage.receipt_is_valid(coverage))
+    )
+
+
 def sources_from_state(
     state: dict[str, Any],
     *,
@@ -222,6 +232,7 @@ def sources_from_state(
             or not isinstance(source.get("last_check_digest"), str)
             or not isinstance(source.get("locked_check_digest"), str)
             or not _dependency_fields_are_valid(source)
+            or not _host_coverage_field_is_valid(source)
             or (
                 "reserved_units" in source
                 and (

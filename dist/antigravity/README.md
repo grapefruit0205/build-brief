@@ -47,6 +47,9 @@ Antigravity lifecycle and mutation tools onto that common runtime.
 - Matching mutation `PreToolUse` and `PostToolUse` events close the Git snapshot
   boundary for optional dependency-aware argv receipt reuse. Missing or
   mismatched post state falls back to executing verification.
+- Successful argv receipts bind the registered Antigravity tool surface with a
+  `known-surfaces-only` digest. This prevents cross-host or registry-drift reuse
+  but cannot observe a capability for which Antigravity emits no Hook event.
 - `update_plan` and `create_plan` remain available. While a Click lifecycle is
   active, the adapter returns advisory context explaining that plan output
   cannot grant mutation authority or replace, widen, or complete the contract.

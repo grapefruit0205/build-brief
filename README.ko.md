@@ -191,13 +191,14 @@ ChatGPT 데스크톱 앱을 다시 시작하고 포함된 Click Hook을 확인�
 | 일반 argv 재시도를 차단하지 않고 안내 | 고정 실패 횟수만으로 새 verification 재시도를 막지 않지만 protected repository content를 바꾼 verification은 승인된 mutation이 필요함 |
 | 명령 의도 명시 | active 상태의 애매한 shell 작업 대신 structured `inspect`·`mutate`·`service`·`verify`를 사용 |
 | 검증 전략을 권한화하지 않음 | 모델이 evidence와 `argv`를 고르고 Click은 정확한 check-group digest와 관찰 결과를 receipt에 결합 |
+| 알려진 host coverage 결속 | 검증 receipt에 현재 Codex 또는 Antigravity의 known-surface digest를 넣어 다른 host나 Hook coverage revision의 증거가 조용히 재사용되지 않게 함 |
 | dependency-safe evidence 재사용 | 승인에 결속된 dependency 선언 또는 커밋된 저장소 매핑은 해석된 파일·check·환경·실행 파일·승인 mutation snapshot이 모두 같을 때만 성공 증거를 다음 revision으로 이어감 |
 | source별 완료 추적 | 선언한 모든 source가 current여야 하며 `argv` source가 없으면 억지 local check를 만들지 않음 |
 | Browser workflow 반복 advisory | 정규화된 Browser 반복·재시도·긴 timed interaction은 안내와 함께 허용하고, 할당 source·직렬 호출·tool result·revision·완료 replay 결속은 계속 차단으로 보장 |
 
 ## Advisory 검증 profile
 
-승인 전에는 Skill 또는 모델이 현재 위험과 저장소 근거를 기준으로 충분한 최소 검증 profile을 제안합니다. Profile은 의도한 검증 깊이를 나타내는 정성적 표현이며 승인 contract를 정확히 나타내도록 digest에 결합됩니다. 실행 중에는 모델이 실제 `argv`를 선택하고, Click은 정확한 check-group digest·revision·환경·실행 파일 지문·관찰 결과를 receipt에 결합합니다. Hook은 검증 충분성을 추론하거나 플러그인이 만든 숫자 스펙트럼을 권한 또는 안내로 사용하지 않습니다.
+승인 전에는 Skill 또는 모델이 현재 위험과 저장소 근거를 기준으로 충분한 최소 검증 profile을 제안합니다. Profile은 의도한 검증 깊이를 나타내는 정성적 표현이며 승인 contract를 정확히 나타내도록 digest에 결합됩니다. 실행 중에는 모델이 실제 `argv`를 선택하고, Click은 정확한 check-group digest·revision·환경·실행 파일 지문·알려진 host coverage identity·관찰 결과를 receipt에 결합합니다. Hook은 검증 충분성을 추론하거나 플러그인이 만든 숫자 스펙트럼을 권한 또는 안내로 사용하지 않습니다.
 
 | Profile | 주로 쓰는 경우 |
 | --- | --- |
@@ -257,6 +258,8 @@ ChatGPT 데스크톱 앱을 다시 시작하고 갱신된 Hook을 검토해 신�
 ## 근거와 솔직한 한계
 
 Click은 Hook이 실제로 관찰하고 강제할 수 있는 범위에서만 강한 주장을 합니다.
+
+host coverage receipt는 명시적으로 `known-surfaces-only`입니다. host 또는 등록된 Hook 표면의 변경은 탐지하지만 host가 전달하지 않은 이벤트를 만들어낼 수는 없습니다.
 
 Hook이 다음을 할 수 있다고 주장하지 않습니다.
 
