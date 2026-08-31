@@ -25,7 +25,8 @@
 
 当上下文变长、任务开始分叉时，模型仍可能重新规划、重新探索仓库，或者再次证明已经证明过的结果。
 
-Click 不再只把这些规则当作**提示词里的要求**，而是把它们移到受支持的**工具执行边界**中。
+Click 把权限与 evidence 保证移到受支持的**工具执行边界**中。
+探索偏好在那里仍是非阻断提示，不会成为执行权限。
 
 ```text
 请求
@@ -66,7 +67,7 @@ evidence 状态。
 | --- | --- |
 | 希望模型一直记住计划 | 持久保存已批准的 workflow 状态 |
 | 希望批准恰好发生在正确时机 | stage 一个绑定 digest 的 `contract_id`，并要求后续用户 turn |
-| 要求代理不要重新扫描 | 允许第一次有价值的 root inventory，之后强制缩小范围 |
+| 要求代理不要重新扫描 | 提供非阻断的缩小范围提示；inventory 次数不会改变权限 |
 | 要求代理不要重新规划 | 提供非阻断提示；`update_plan` 不能改变 contract 权限 |
 | 要求代理不要重复同一验证 | 复用 current structured evidence 与 receipt |
 | 任务越做越大，验证也越做越大 | 把完成证据绑定到批准的验证预算 |
@@ -83,7 +84,7 @@ evidence 状态。
 - **提案与批准分离。** stage 后签发不透明的 `contract_id`；同一个用户 turn 不能同时 stage 和 pass。
 - **批准前阻止 mutation。** active contract 会保持锁定，直到准确的 staged ID 被批准并 pass。
 - **规划保持 advisory。** `update_plan` 等 plan tool 仍然可用，但不能批准、替换或扩大 active contract。
-- **仓库探索必须逐渐收窄。** 当前 revision 第一次有用的 root inventory 可以执行；之后的 broad inventory 必须缩小到 path-scoped inspection。
+- **仓库探索保持 advisory。** 不同 digest 的 broad inventory 即使在另一个 broad inventory 运行期间或成功之后仍可执行，并会收到缩小范围提示；相同请求复用与执行 interlock 仍是独立的 hard guard。
 - **复用已经成功的观察。** 在范围内 mutation 使其 stale 之前，不重复相同的 structured read。
 - **验证绑定 evidence。** local check 必须指定它所证明的已批准 `evidence_id`，累计验证必须处于批准规模内。
 - **完成状态跟随代码。** mutation 会推进 revision，使旧完成证据 stale，而不是静默复用。
@@ -185,7 +186,7 @@ codex plugin add click@click
 | --- | --- |
 | 复用已有证据 | 已成功的相同 structured read/search 在范围内 mutation 使其 stale 前不会重复执行 |
 | 提示但不阻断规划 | `update_plan` 仍然可用，但不能 stage、批准、替换或扩大 contract |
-| 第一次 inventory 后缩小范围 | 当前 revision 第一次有价值的 root inventory 可以执行，之后拒绝 broad inventory |
+| broad inventory 后提示缩小范围 | 不同 broad 请求仍可在提示下执行；相同 digest 的运行中或成功请求由独立复用 guard 阻止 |
 | 明确命令意图 | active 状态下含义不明确的 shell 工作改用 structured `inspect`、`mutate`、`service` 或 `verify` |
 | 所有检查共享一个预算 | 每项 local check 指定已注册的 `argv` source，累计预约必须符合批准规模 |
 | 按 source 跟踪完成 | 所有声明 source 必须 current；没有 `argv` source 时不会为了形式制造 local check |

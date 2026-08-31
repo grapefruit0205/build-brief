@@ -28,8 +28,8 @@ For a read-only code review:
 1. Run `click-gate review`.
 2. Do not stage a build contract or ask for contract approval.
 3. Use `click-gate inspect` with argv arrays for explicit review evidence. Compatible simple direct reads are converted to the same internal structure.
-4. Allow one useful repository-wide inventory when needed, then narrow later reads and searches.
-5. Reuse successful evidence. The Hook blocks an identical successful structured read or search, and blocks a second successful repository-wide inventory attempt in the same review turn.
+4. Prefer narrowing later reads and searches after broad repository context. This is advisory and does not block a distinct-digest broad request, including while another broad inventory is running or after one succeeds.
+5. Reuse successful evidence. The Hook blocks an exact-digest structured read or search that is already running or successful. A distinct broad request remains available with advisory guidance and does not authorize mutation.
 6. Report findings without modifying the project. A later request to fix findings starts the normal compact-contract workflow.
 
 The review guard is intentionally narrower than the build gate. It observes structured inspection and compatible simple reads routed through the bundled local Hook. It cannot deduplicate hidden reasoning, hosted search, unmatched connectors, or custom wrappers.

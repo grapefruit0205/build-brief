@@ -36,6 +36,10 @@ Antigravity lifecycle and mutation tools onto that common runtime.
   their argv with Click's trusted executable. Use `control inspect` instead.
   Native file/search tools and unrelated MCP, Skill, and Plugin tools remain
   available.
+- Structured broad requests sent through the exact `control inspect` launcher
+  forward Click's non-blocking narrowing advisory while continuing execution.
+  A prior cross-digest broad request that is running or successful does not
+  block them; exact-digest observation reuse and all runner safety checks remain.
 - Native Antigravity file/search tools are not routed through Click's local
   observation runner, so cross-tool duplicate-read blocking is not claimed.
 - `update_plan` and `create_plan` remain available. While a Click lifecycle is

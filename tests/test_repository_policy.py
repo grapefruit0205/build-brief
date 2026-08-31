@@ -41,7 +41,7 @@ class RepositoryPolicyTests(core.RepositoryPolicyTests):
         )
         self.assertIn("automatically", manifest["interface"]["longDescription"].lower())
         self.assertIn(
-            "plan tools remain available with non-blocking advisory guidance",
+            "plan tools and distinct-digest broad inventories remain available with non-blocking advisory guidance",
             manifest["interface"]["longDescription"].lower(),
         )
         self.assertIn(
@@ -174,8 +174,11 @@ class RepositoryPolicyTests(core.RepositoryPolicyTests):
         self.assertIn("observable tool path", readmes["README.md"])
         self.assertIn("관찰 가능한 tool path", readmes["README.ko.md"])
         self.assertIn("可观察的 tool path", readmes["README.zh-CN.md"])
+        self.assertIn("distinct-digest broad inventory remains available", readmes["README.md"])
+        self.assertIn("서로 다른 digest의 broad inventory", readmes["README.ko.md"])
+        self.assertIn("不同 digest 的 broad inventory", readmes["README.zh-CN.md"])
         anti_loop = _reference("anti-loop-policy.md")
-        for marker in ("48,000", "update_plan", "hidden reasoning", "Inventory once, then narrow"):
+        for marker in ("48,000", "update_plan", "hidden reasoning", "Prefer narrow follow-up after broad context"):
             self.assertIn(marker, anti_loop)
 
     def test_readmes_document_structured_capabilities_and_shell_boundary(self) -> None:
@@ -216,7 +219,7 @@ class RepositoryPolicyTests(core.RepositoryPolicyTests):
             self.assertIn(marker, notes)
         self.assertNotIn("Unreleased v0.24", notes)
         golden = (ROOT / "evals" / "golden-prompts.yaml").read_text(encoding="utf-8")
-        self.assertIn("version: 19", golden)
+        self.assertIn("version: 20", golden)
 
     def test_readmes_document_trusted_reads_and_pre_execution_claims(self) -> None:
         readmes = _readmes()
@@ -271,6 +274,8 @@ class RepositoryPolicyTests(core.RepositoryPolicyTests):
         self.assertIn("model_stop", platform)
         self.assertIn("cannot rewrite tool arguments", platform)
         self.assertIn("not claimed", platform)
+        self.assertIn("control inspect", platform)
+        self.assertIn("non-blocking narrowing advisory", platform)
 
 
 if __name__ == "__main__":

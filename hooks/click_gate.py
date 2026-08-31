@@ -501,6 +501,10 @@ def _allow_rewritten(command: str) -> None:
     _emit(_OUTPUT_ADAPTER.allow(command))
 
 
+def _allow_rewritten_with_advisory(command: str, value: str) -> None:
+    _emit(_OUTPUT_ADAPTER.allow_with_advisory(command, value))
+
+
 def _read_event() -> dict[str, Any]:
     try:
         value = json.load(sys.stdin)
@@ -2330,28 +2334,48 @@ def _observation_runner_command(
 
 
 def _prepare_observation(
-    event: dict[str, Any], request: dict[str, Any], broad_inventory: bool, *, review: bool = False
-) -> tuple[str, str]:
+    event: dict[str, Any],
+    request: dict[str, Any],
+    broad_inventory: bool,
+    *,
+    review: bool = False,
+) -> tuple[str, str, str]:
     state_path = _review_path(event) if review else _contract_path(event)
     if review:
         state = _read_review_state(event)
         if state.get("status") != "review":
-            return "", "Click review state is unavailable; activate review mode again."
+            return (
+                "",
+                "Click review state is unavailable; activate review mode again.",
+                "",
+            )
         revision = 0
     else:
         state = _read_contract_state(event)
         if state.get("status") != "approved":
-            return "", "Click observation state is unavailable; approve the contract again."
+            return (
+                "",
+                "Click observation state is unavailable; approve the contract again.",
+                "",
+            )
         mutation = state.get("mutation")
         if _mutation_is_running(mutation):
-            return "", "Wait for the structured Click mutation to finish before inspection."
+            return (
+                "",
+                "Wait for the structured Click mutation to finish before inspection.",
+                "",
+            )
         if isinstance(mutation, dict) and mutation.get("status") == "running":
             state["mutation"] = _fresh_mutation_state()
         verification = state.get("verification")
         if not isinstance(verification, dict):
-            return "", "Click verification state is unavailable; approve the contract again."
+            return (
+                "",
+                "Click verification state is unavailable; approve the contract again.",
+                "",
+            )
         if verification.get("status") == "running":
-            return "", "The final Click verification batch is already running."
+            return "", "The final Click verification batch is already running.", ""
         revision = int(verification.get("mutation_revision", 0))
 
     observations = state.get("observations")
@@ -2362,29 +2386,36 @@ def _prepare_observation(
         entries = {}
 
     digest = _capability_digest(request)
+    broad_advisory = ""
     if broad_inventory:
-        for existing in entries.values():
+        prior_broad_success = False
+        prior_broad_running = False
+        for existing_digest, existing in entries.items():
             if not (
-                isinstance(existing, dict)
+                existing_digest != digest
+                and isinstance(existing, dict)
                 and existing.get("broad_inventory") is True
                 and int(existing.get("revision", -1)) == revision
             ):
                 continue
             existing_status = str(existing.get("status", ""))
             if existing_status == "success":
-                return (
-                    "",
-                    "Click already completed one successful repository-wide "
-                    "inventory. Narrow the next read or search instead of rescanning "
-                    "the whole repository.",
-                )
-            if existing_status == "running" and _observation_is_running(existing):
-                return (
-                    "",
-                    "One repository-wide inventory is already running for the "
-                    "current revision. Wait for it instead of starting a parallel "
-                    "rescan.",
-                )
+                prior_broad_success = True
+            elif existing_status == "running" and _observation_is_running(existing):
+                prior_broad_running = True
+        if prior_broad_success:
+            broad_advisory = (
+                "Click advisory: a repository-wide inventory already completed for this "
+                "revision. This additional broad inventory is allowed through the same "
+                "read-only runner, but reuse existing results or narrow the query when "
+                "practical."
+            )
+        elif prior_broad_running:
+            broad_advisory = (
+                "Click advisory: another repository-wide inventory is already running for "
+                "this revision. This distinct broad inventory is allowed through the same "
+                "read-only runner, but waiting or narrowing avoids redundant work."
+            )
 
     prior = entries.get(digest)
     unchanged_retries = 0
@@ -2397,10 +2428,11 @@ def _prepare_observation(
                 "Click blocked an identical successful read or search because neither "
                 "the implementation nor its evidence changed. Use the existing result "
                 "or issue a narrower, materially different query.",
+                "",
             )
         if status == "running":
             if _observation_is_running(prior):
-                return "", "The identical Click read or search is already running."
+                return "", "The identical Click read or search is already running.", ""
             status = "failed"
         if status in {"failed", "incomplete"}:
             if unchanged_retries >= 1:
@@ -2408,6 +2440,7 @@ def _prepare_observation(
                     "",
                     "The identical read or search already failed or produced incomplete "
                     "evidence twice. Change or narrow the command instead of repeating it.",
+                    "",
                 )
             unchanged_retries += 1
 
@@ -2434,7 +2467,11 @@ def _prepare_observation(
         _save_review_state(event, state)
     else:
         _save_contract_state(event, state)
-    return _observation_runner_command(state_path, request, digest, runner_token), ""
+    return (
+        _observation_runner_command(state_path, request, digest, runner_token),
+        "",
+        broad_advisory,
+    )
 
 
 def _encoded_request(request: dict[str, Any]) -> str:
@@ -3590,8 +3627,8 @@ def _handle_prompt_submit(event: dict[str, Any]) -> None:
             "staged contract_id. Questions, "
             "explanations, and simple read-only inspection do not need a contract. For a "
             "read-only code review, run `click-gate review` before shell reads/searches; "
-            "do not stage a build contract, and reuse successful evidence instead of "
-            "repeating reads or repository-wide inventory. During review or approved "
+            "do not stage a build contract, reuse exact successful evidence, and prefer "
+            "focused follow-up after broad repository context. During review or approved "
             "implementation use versioned `click-gate inspect`, `click-gate mutate`, and "
             "`click-gate verify` version-2 evidence-bound argv requests when direct Bash "
             "intent is ambiguous; use `click-gate evidence` to finalize an observed "
@@ -3779,27 +3816,34 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
                     _read_contract_state(event)
                 )
                 if current_status == "review":
-                    rewritten, inspection_error = _prepare_observation(
-                        event,
-                        request,
-                        broad_inventory,
-                        review=True,
+                    (
+                        rewritten,
+                        inspection_error,
+                        inspection_advisory,
+                    ) = _prepare_observation(
+                        event, request, broad_inventory, review=True
                     )
                     if inspection_error:
                         _deny(inspection_error)
                         return
                 elif current_status == "passed" or approved_session_active:
-                    rewritten, inspection_error = _prepare_observation(
-                        event,
-                        request,
-                        broad_inventory,
+                    (
+                        rewritten,
+                        inspection_error,
+                        inspection_advisory,
+                    ) = _prepare_observation(
+                        event, request, broad_inventory
                     )
                     if inspection_error:
                         _deny(inspection_error)
                         return
                 else:
                     rewritten = _inspection_once_runner_command(request)
-                _allow_rewritten(rewritten)
+                    inspection_advisory = ""
+                if inspection_advisory:
+                    _allow_rewritten_with_advisory(rewritten, inspection_advisory)
+                else:
+                    _allow_rewritten(rewritten)
                 return
             if action == "mutate":
                 current_status = _read_state(event).get("status")
@@ -4038,21 +4082,35 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
             _read_contract_state(event)
         )
         if status == "passed" or approved_session_active:
-            rewritten, observation_error = _prepare_observation(
+            (
+                rewritten,
+                observation_error,
+                observation_advisory,
+            ) = _prepare_observation(
                 event, inspection_request, broad_inventory
             )
             if observation_error:
                 _deny(observation_error)
                 return
-            _allow_rewritten(rewritten)
+            if observation_advisory:
+                _allow_rewritten_with_advisory(rewritten, observation_advisory)
+            else:
+                _allow_rewritten(rewritten)
         elif status == "review":
-            rewritten, observation_error = _prepare_observation(
+            (
+                rewritten,
+                observation_error,
+                observation_advisory,
+            ) = _prepare_observation(
                 event, inspection_request, broad_inventory, review=True
             )
             if observation_error:
                 _deny(observation_error)
                 return
-            _allow_rewritten(rewritten)
+            if observation_advisory:
+                _allow_rewritten_with_advisory(rewritten, observation_advisory)
+            else:
+                _allow_rewritten(rewritten)
         else:
             _allow_rewritten(_inspection_once_runner_command(inspection_request))
         return

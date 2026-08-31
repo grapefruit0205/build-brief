@@ -21,7 +21,7 @@ On first use, you choose **Always ON** or **Manual**.
 - Always ON applies Click only to software-changing requests.
 - Manual applies it when you mention `@Click`.
 - Questions, explanations, and simple read-only inspection stay normal.
-- Code review needs no build contract, but a read-only guard blocks repeated successful reads and repeat repository-wide inventory.
+- Code review needs no build contract. The read-only guard keeps mutation blocked and exact observations reusable, while distinct broad inventories receive non-blocking narrowing guidance.
 
 For a code change, Click turns the request and repository context into one compact contract: outcome, boundary, must-hold behavior, build approach, verification scale, and a plain-language explanation. It stages and shows that contract, then requires a later user turn for the one approval. After that, the Hook rejects replacement contracts and unauthorized mutations, binds one-use runners to exact requests, and records revision-bound evidence. Plan tools remain available as non-blocking, non-authoritative guidance.
 
@@ -91,7 +91,7 @@ Repository: https://github.com/grapefruit0205/click
 - Always ON은 소프트웨어를 실제로 바꾸는 요청에만 적용됩니다.
 - Manual은 `@Click`을 멘션했을 때만 적용됩니다.
 - 질문·설명·단순 조회는 평소처럼 처리합니다.
-- 코드 리뷰는 구현 계약 없이 진행하지만, 읽기 전용 안전망으로 성공한 동일 조회와 저장소 전체 재탐색 반복을 막습니다.
+- 코드 리뷰는 구현 계약 없이 진행합니다. 읽기 전용 안전망은 mutation을 막고 동일 관찰을 재사용하며, 서로 다른 broad inventory에는 비차단 범위 축소 안내를 제공합니다.
 
 코드 변경 요청에서는 저장소 맥락을 바탕으로 결과, 범위, 반드시 지킬 동작, 최소 구현 경로, 검증 규모, 쉬운 설명을 하나의 축약 계약으로 만듭니다. 계약을 stage해 보여준 뒤 다음 사용자 turn의 승인 한 번을 기다립니다. 승인하면 Hook이 대체 계약과 무권한 mutation을 막고, one-use runner를 정확한 요청에 결속하며, revision에 결속된 evidence를 기록합니다. plan tool은 비차단·비권한 advisory로 계속 사용할 수 있습니다.
 

@@ -13,6 +13,10 @@ class HookOutputAdapter(Protocol):
 
     def allow(self, rewritten_command: str) -> dict[str, Any]: ...
 
+    def allow_with_advisory(
+        self, rewritten_command: str, value: str
+    ) -> dict[str, Any]: ...
+
     def advisory(self, value: str) -> dict[str, Any]: ...
 
     def context(self, value: str) -> dict[str, Any]: ...
@@ -36,6 +40,18 @@ class CodexOutputAdapter:
                 "hookEventName": "PreToolUse",
                 "permissionDecision": "allow",
                 "updatedInput": {"command": rewritten_command},
+            }
+        }
+
+    def allow_with_advisory(
+        self, rewritten_command: str, value: str
+    ) -> dict[str, Any]:
+        return {
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "allow",
+                "updatedInput": {"command": rewritten_command},
+                "additionalContext": value,
             }
         }
 
@@ -66,6 +82,11 @@ class AntigravityOutputAdapter:
         # Antigravity PreToolUse cannot replace tool arguments. Its dedicated
         # launcher executes rewritten capability commands itself.
         return {"decision": "allow"}
+
+    def allow_with_advisory(
+        self, rewritten_command: str, value: str
+    ) -> dict[str, Any]:
+        return {"decision": "allow", "reason": value}
 
     def advisory(self, value: str) -> dict[str, Any]:
         return {"decision": "allow", "reason": value}
