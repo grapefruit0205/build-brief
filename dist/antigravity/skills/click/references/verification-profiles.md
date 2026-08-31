@@ -1,8 +1,8 @@
 # Verification Profiles
 
-Choose one scale and place it in the contract. Approval of the contract approves that scale and the Hook applies its executable ceiling automatically; never ask the user to configure a separate budget.
+Recommend one scale and place it in the contract. This pre-approval choice is model strategy, not Hook authority. Approval fixes that scale as user policy: the Hook never selects or widens it and only meters submitted argv conservatively against its executable ceiling. Never ask the user to configure a separate budget.
 
-| Scale | Use when | Automatic ceiling | Typical argv evidence, when declared |
+| Scale | Use when | Approved ceiling | Typical argv evidence, when declared |
 | --- | --- | ---: | --- |
 | `quick` | The change is small, local, reversible, and has a narrow failure surface | 1 unit | The nearest meaningful local check |
 | `focused` | An ordinary feature or repair affects behavior but has a bounded owner | 4 units | Direct behavior tests and the closest relevant regression checks |

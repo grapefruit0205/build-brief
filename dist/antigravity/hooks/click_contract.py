@@ -14,8 +14,11 @@ import re
 from typing import Any
 
 if __package__:
+    from . import click_verification_meter, click_verification_policy
     from .click_evidence import EVIDENCE_KINDS
 else:  # Executed directly from the bundled hooks directory.
+    import click_verification_meter
+    import click_verification_policy
     from click_evidence import EVIDENCE_KINDS
 
 
@@ -28,9 +31,11 @@ VERIFICATION_FIELDS = {"scale", "evidence", "done_when", "intermediate_gate"}
 EVIDENCE_SOURCE_FIELDS = {"id", "kind", "description"}
 DONE_WHEN_FIELDS = {"condition", "primary_evidence"}
 EVIDENCE_ID_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9_-]{0,31}$")
-VERIFICATION_SCALES = ("quick", "focused", "full")
-VERIFICATION_UNIT_LIMITS = {"quick": 1, "focused": 4, "full": 10}
-VERIFICATION_CLASSES = {"targeted": 1, "broad": 3, "deep": 5}
+# Compatibility aliases retained for direct callers. Approved scale policy and
+# deterministic unit metering now live below contract schema validation.
+VERIFICATION_SCALES = click_verification_policy.VERIFICATION_SCALES
+VERIFICATION_UNIT_LIMITS = click_verification_policy.VERIFICATION_UNIT_LIMITS
+VERIFICATION_CLASSES = click_verification_meter.VERIFICATION_CLASSES
 MAX_CONTRACT_CHARS = 4_000
 
 
@@ -118,7 +123,8 @@ def validate_contract(raw: str) -> tuple[dict[str, Any] | None, str]:
             f"Execution Contract verification contains unsupported field(s): {rendered}.",
         )
     scale = verification.get("scale")
-    if scale not in VERIFICATION_SCALES:
+    approved_unit_limit = click_verification_policy.approved_unit_limit(scale)
+    if approved_unit_limit is None:
         allowed = ", ".join(VERIFICATION_SCALES)
         return None, f"Verification `scale` must be one of: {allowed}."
 
@@ -167,8 +173,10 @@ def validate_contract(raw: str) -> tuple[dict[str, Any] | None, str]:
             "Verification may assign at most one Browser evidence source; reuse its id "
             "across every condition covered by the representative session.",
         )
-    minimum_argv_units = argv_source_count * VERIFICATION_CLASSES["targeted"]
-    if minimum_argv_units > VERIFICATION_UNIT_LIMITS[str(scale)]:
+    targeted_units = click_verification_meter.class_units("targeted")
+    assert targeted_units is not None
+    minimum_argv_units = argv_source_count * targeted_units
+    if minimum_argv_units > approved_unit_limit:
         return (
             None,
             f"Verification scale `{scale}` cannot fit {argv_source_count} argv evidence "

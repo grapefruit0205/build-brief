@@ -195,11 +195,11 @@ The exact design is repository-dependent. The example shows the contract shape, 
 | Track completion by source | All declared sources must be current; no placeholder local check is invented when no `argv` source exists |
 | Deduplicate Browser evidence | Successful normalized Browser input is not repeated; one unchanged retry is allowed after failure |
 
-## Automatic verification budget
+## Approved verification policy
 
-Click chooses the smallest sufficient verification scale from the current risk and repository evidence. The user approves that scale as part of the contract.
+Before approval, the Skill or model recommends the smallest sufficient verification scale from the current risk and repository evidence. That recommendation is strategy, not runtime authority. Approval fixes the selected scale as user policy; the Hook never chooses or widens it and only meters the actual submitted argv conservatively against its ceiling.
 
-| Scale | Typical use | Automatic ceiling |
+| Scale | Typical use | Approved ceiling |
 | --- | --- | ---: |
 | `quick` | Small, local, reversible change | 1 unit |
 | `focused` | Ordinary bounded feature or repair | 4 units |

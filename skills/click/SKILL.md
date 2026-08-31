@@ -26,6 +26,8 @@ For broad or cross-boundary work, read the [translation guide](references/transl
 
 Keep the contract proportional. Prefer an existing capable structure and add no speculative component. The contract fixes the approved semantic boundary while leaving necessary in-scope libraries, files, tools, dependencies, and low-level tactics open. Give every completion condition one cheapest sufficient primary evidence source, allow one source to cover several conditions, and avoid duplicate proof.
 
+Choosing evidence and scale before approval, then concrete argv during execution, is model strategy. Approval fixes scale as user policy; the Hook never widens it and only meters submitted argv against its ceiling.
+
 ## Stage once and approve by id
 
 1. Run `click-gate stage '<Execution Contract JSON>'` once and capture the emitted `CLICK_CONTRACT_ID=ctr_<32hex>`.

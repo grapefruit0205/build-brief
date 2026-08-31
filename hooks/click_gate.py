@@ -32,7 +32,13 @@ from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 if __package__:
-    from . import click_contract, click_evidence, click_process
+    from . import (
+        click_contract,
+        click_evidence,
+        click_process,
+        click_verification_meter,
+        click_verification_policy,
+    )
     from .click_state import (
         STATE_LOCK_STALE_SECONDS,
         STATE_LOCK_TIMEOUT_SECONDS,
@@ -53,6 +59,8 @@ else:  # Executed directly from the bundled hooks directory.
     import click_contract
     import click_evidence
     import click_process
+    import click_verification_meter
+    import click_verification_policy
     from click_state import (
         STATE_LOCK_STALE_SECONDS,
         STATE_LOCK_TIMEOUT_SECONDS,
@@ -114,8 +122,8 @@ EVIDENCE_KINDS = click_evidence.EVIDENCE_KINDS
 EVIDENCE_STATUSES = click_evidence.EVIDENCE_STATUSES
 EVIDENCE_ID_PATTERN = click_contract.EVIDENCE_ID_PATTERN
 CONTRACT_ID_PATTERN = re.compile(r"^ctr_[0-9a-f]{32}$")
-VERIFICATION_SCALES = click_contract.VERIFICATION_SCALES
-VERIFICATION_UNIT_LIMITS = click_contract.VERIFICATION_UNIT_LIMITS
+VERIFICATION_SCALES = click_verification_policy.VERIFICATION_SCALES
+VERIFICATION_UNIT_LIMITS = click_verification_policy.VERIFICATION_UNIT_LIMITS
 CAPABILITY_PROTOCOL_VERSION = 1
 VERIFICATION_PROTOCOL_VERSION = 2
 CONTRACT_STATE_SCHEMA_VERSION = 2
@@ -125,7 +133,7 @@ SERVICE_REQUEST_FIELDS = {"version", "action", "argv"}
 VERIFICATION_BATCH_FIELDS = {"version", "checks"}
 VERIFICATION_CHECK_FIELDS = {"evidence_id", "argv", "class"}
 EVIDENCE_RESULT_FIELDS = {"version", "evidence_id"}
-VERIFICATION_CLASSES = click_contract.VERIFICATION_CLASSES
+VERIFICATION_CLASSES = click_verification_meter.VERIFICATION_CLASSES
 PYTHON_VERIFICATION_MODULES = {"coverage", "pytest", "unittest"}
 DEEP_VERIFICATION_EXECUTABLES = {
     "bandit",
@@ -571,9 +579,11 @@ def _read_default_mode() -> str:
 
 def _fresh_verification_state(contract: dict[str, Any]) -> dict[str, Any]:
     scale = str(contract["verification"]["scale"])
+    unit_limit = click_verification_policy.approved_unit_limit(scale)
+    assert unit_limit is not None
     return {
         "scale": scale,
-        "unit_limit": VERIFICATION_UNIT_LIMITS[scale],
+        "unit_limit": unit_limit,
         "status": "ready",
         "mutation_revision": 0,
         "verified_revision": -1,
@@ -1274,10 +1284,13 @@ def _validate_verification_batch(
         if check_class not in VERIFICATION_CLASSES:
             allowed = ", ".join(VERIFICATION_CLASSES)
             return None, 0, f"Verification check {index} `class` must be one of: {allowed}."
-        effective_class = str(check_class)
-        if VERIFICATION_CLASSES[effective_class] < VERIFICATION_CLASSES[minimum_class]:
-            effective_class = minimum_class
-        units += VERIFICATION_CLASSES[effective_class]
+        effective_class = click_verification_meter.effective_class(
+            check_class, minimum_class
+        )
+        assert effective_class is not None
+        effective_units = click_verification_meter.class_units(effective_class)
+        assert effective_units is not None
+        units += effective_units
         normalized_check: dict[str, Any] = {
             "argv": argv,
             "class": effective_class,
@@ -1285,7 +1298,8 @@ def _validate_verification_batch(
         if isinstance(evidence_id, str):
             normalized_check["evidence_id"] = evidence_id
         normalized.append(normalized_check)
-    limit = VERIFICATION_UNIT_LIMITS[scale]
+    limit = click_verification_policy.approved_unit_limit(scale)
+    assert limit is not None
     if units > limit:
         return (
             None,
@@ -1346,7 +1360,9 @@ def _verification_group_digest(checks: list[dict[str, Any]]) -> str:
 
 
 def _verification_group_units(checks: list[dict[str, Any]]) -> int:
-    return sum(VERIFICATION_CLASSES[str(check["class"])] for check in checks)
+    units = click_verification_meter.total_units(check["class"] for check in checks)
+    assert units is not None
+    return units
 
 
 def _file_content_digest(path: Path) -> str:
@@ -2754,7 +2770,8 @@ def _prepare_verification(
         verification.get("workspace_changed") is True
     )
     scale = str(verification.get("scale", ""))
-    if scale not in VERIFICATION_UNIT_LIMITS:
+    approved_unit_limit = click_verification_policy.approved_unit_limit(scale)
+    if approved_unit_limit is None:
         return (
             "",
             "Approved Click verification scale is invalid; stage and approve again.",
@@ -2882,11 +2899,10 @@ def _prepare_verification(
             )
         if not reserved_units:
             projected_units += requested_units
-    limit = VERIFICATION_UNIT_LIMITS[scale]
-    if projected_units > limit:
+    if projected_units > approved_unit_limit:
         return (
             "",
-            f"The {scale} verification budget allows {limit} unit(s), but the source "
+            f"The {scale} verification budget allows {approved_unit_limit} unit(s), but the source "
             f"reservations would total {projected_units}. Remove duplicate evidence or "
             "stage a sufficient scale instead of splitting the work across batches.",
             "",
@@ -5796,7 +5812,8 @@ def _claim_verification_run(
         return None, "Click verification runner authorization expired before execution."
 
     scale = str(verification.get("scale", ""))
-    if scale not in VERIFICATION_UNIT_LIMITS:
+    approved_unit_limit = click_verification_policy.approved_unit_limit(scale)
+    if approved_unit_limit is None:
         return None, "Click verification runner could not read its approved scale."
     sources = _evidence_sources(state)
     if sources is None or not sources:
@@ -5905,7 +5922,7 @@ def _claim_verification_run(
         if key in _evidence_keys_for_kind(sources, "argv")
         and isinstance(source, dict)
     )
-    if reserved_total > VERIFICATION_UNIT_LIMITS[scale]:
+    if reserved_total > approved_unit_limit:
         return None, "Click verification runner cumulative source budget was exceeded."
 
     verification["runner_claimed_at"] = int(time.time()) or 1
