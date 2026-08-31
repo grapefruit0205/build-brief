@@ -164,8 +164,6 @@ DEEP_VERIFICATION_MARKERS = {
 }
 MAX_INSPECTION_COMMANDS = 8
 MAX_ARGV_ITEMS = 128
-MAX_CAPABILITY_REQUEST_CHARS = 6_000
-MAX_VERIFICATION_BATCH_CHARS = 6_000
 MAX_OBSERVATION_OUTPUT_BYTES = 48_000
 MAX_OBSERVATION_ENTRIES = 64
 MAX_BROWSER_UNIQUE_INPUTS = 256
@@ -1013,11 +1011,8 @@ def _decode_capability_request(
     raw: str,
     label: str,
     *,
-    limit: int = MAX_CAPABILITY_REQUEST_CHARS,
     version: int = CAPABILITY_PROTOCOL_VERSION,
 ) -> tuple[dict[str, Any] | None, str]:
-    if len(raw) > limit:
-        return None, f"{label} request must stay under {limit:,} characters."
     try:
         value = json.loads(raw)
     except json.JSONDecodeError:
@@ -1208,7 +1203,6 @@ def _validate_verification_batch(
     value, error = _decode_capability_request(
         raw,
         "Verification batch",
-        limit=MAX_VERIFICATION_BATCH_CHARS,
         version=VERIFICATION_PROTOCOL_VERSION,
     )
     if error:
