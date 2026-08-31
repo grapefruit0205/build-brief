@@ -1,5 +1,5 @@
 {
-  "description": "Load the user's persistent Click mode, gate supported software mutations behind one approved compact contract in Always ON mode, preserve explicit activation in Manual mode, keep host plans non-authoritative through advisory context, apply evidence-driven guards during implementation and code review, meter cumulative argv evidence reservations, deduplicate assigned Browser inputs, and supervise managed local services.",
+  "description": "Load the user's persistent Click mode, gate supported software mutations behind one approved compact contract in Always ON mode, preserve explicit activation in Manual mode, keep host plans non-authoritative through advisory context, apply evidence-driven guards during implementation and code review, bind exact argv execution receipts without scoring verification sufficiency, deduplicate assigned Browser inputs, and supervise managed local services.",
   "hooks": {
     "UserPromptSubmit": [
       {

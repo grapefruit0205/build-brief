@@ -71,7 +71,7 @@ evidence 상태도 바꾸지 않습니다.
 | 다시 탐색하지 말라고 요청 | 비차단 범위 축소 안내를 제공하며 inventory 횟수는 권한을 바꾸지 않음 |
 | 다시 계획하지 말라고 요청 | 비차단 안내를 제공하며 `update_plan`은 contract 권한을 바꾸지 못함 |
 | 같은 검증을 반복하지 말라고 요청 | 현재 structured evidence와 receipt를 재사용 |
-| 작업이 커질수록 검증도 커짐 | 완료 근거를 승인된 검증 예산에 결합 |
+| 검증이 작업 의도에서 벗어나도 방치 | 각 완료 조건을 revision-bound evidence와 정확한 receipt에 결합 |
 | 에이전트가 끝났다고 하면 종료 | 최신 mutation revision의 증거가 current여야 완료 |
 
 핵심은 단순합니다.
@@ -87,7 +87,7 @@ stage, implementation, review, verification 동안 Click은 다음과 같은 **�
 - **계획은 advisory로 둡니다.** `update_plan` 같은 plan tool은 계속 사용할 수 있으며 active contract를 승인·교체·확장하지 못합니다.
 - **저장소 탐색은 advisory로 둡니다.** 서로 다른 digest의 broad inventory는 다른 broad inventory가 실행 중이거나 성공한 뒤에도 범위 축소 안내와 함께 사용할 수 있습니다. 실행 중 runner와 실행 interlock만 hard guard로 유지합니다.
 - **반복 관찰도 계속 사용할 수 있습니다.** 성공한 동일 structured read/search의 새 요청에는 재사용 안내와 새 one-use runner를 제공하며, 소진된 runner token 재생과 혼동하지 않습니다.
-- **검증을 evidence에 결합합니다.** local check는 자신이 증명하는 승인된 `evidence_id`를 지정하고 누적 검증은 승인된 규모 안에 있어야 합니다.
+- **검증을 evidence에 결합합니다.** local check는 자신이 증명하는 승인된 `evidence_id`를 지정합니다. Click은 정확한 실행 receipt를 결합하되 모델이 선택한 검증 범위가 충분한지는 점수화하지 않습니다.
 - **완료 상태가 코드 revision을 따라갑니다.** mutation이 생기면 이전 완료 근거를 조용히 재사용하지 않고 stale로 만듭니다.
 - **로컬 서버 수명주기를 관리합니다.** 인식된 개발 서버는 Click의 managed service 경로를 사용해 정확한 격리 자식을 정리합니다.
 
@@ -190,21 +190,21 @@ ChatGPT 데스크톱 앱을 다시 시작하고 포함된 Click Hook을 확인�
 | broad inventory 뒤 범위 축소 안내 | 서로 다른 broad 요청은 안내와 함께 계속 사용할 수 있고 실행 중인 동일 digest runner는 별도 상태 interlock이 막음 |
 | 일반 argv 재시도를 차단하지 않고 안내 | 고정 실패 횟수만으로 새 verification 재시도를 막지 않지만 protected repository content를 바꾼 verification은 승인된 mutation이 필요함 |
 | 명령 의도 명시 | active 상태의 애매한 shell 작업 대신 structured `inspect`·`mutate`·`service`·`verify`를 사용 |
-| 검증을 한 예산에 결합 | local check마다 등록된 `argv` source를 지정하고 누적 예약이 승인 규모 안에 있어야 함 |
+| 검증 전략을 권한화하지 않음 | 모델이 evidence와 `argv`를 고르고 Click은 정확한 check-group digest와 관찰 결과를 receipt에 결합 |
 | source별 완료 추적 | 선언한 모든 source가 current여야 하며 `argv` source가 없으면 억지 local check를 만들지 않음 |
 | Browser workflow 반복 advisory | 정규화된 Browser 반복·재시도·긴 timed interaction은 안내와 함께 허용하고, 할당 source·직렬 호출·tool result·revision·완료 replay 결속은 계속 차단으로 보장 |
 
-## 승인된 검증 정책
+## Advisory 검증 profile
 
-승인 전에는 Skill 또는 모델이 현재 위험과 저장소 근거를 기준으로 충분한 최소 검증 규모를 제안합니다. 이 제안은 runtime 권한이 아니라 전략입니다. 사용자가 contract를 승인하면 선택된 규모가 사용자 정책으로 고정되며, Hook은 이를 고르거나 자동 확대하지 않고 실제 제출된 argv 비용만 보수적으로 측정해 상한을 집행합니다.
+승인 전에는 Skill 또는 모델이 현재 위험과 저장소 근거를 기준으로 충분한 최소 검증 profile을 제안합니다. Profile은 의도한 검증 깊이를 나타내는 정성적 표현이며 승인 contract를 정확히 나타내도록 digest에 결합됩니다. 실행 중에는 모델이 실제 `argv`를 선택하고, Click은 정확한 check-group digest·revision·환경·실행 파일 지문·관찰 결과를 receipt에 결합합니다. Hook은 검증 충분성을 추론하거나 플러그인이 만든 숫자 스펙트럼을 권한 또는 안내로 사용하지 않습니다.
 
-| 규모 | 주로 쓰는 경우 | 승인된 상한 |
-| --- | --- | ---: |
-| `quick` | 작고 국소적이며 되돌리기 쉬운 변경 | 1단위 |
-| `focused` | 범위가 명확한 일반 기능 또는 수정 | 4단위 |
-| `full` | 결제·인증·삭제·마이그레이션·공개 계약·경계를 넘는 동시성 | 10단위 |
+| Profile | 주로 쓰는 경우 |
+| --- | --- |
+| `quick` | 작고 국소적이며 되돌리기 쉬운 변경 |
+| `focused` | 범위가 명확한 일반 기능 또는 수정 |
+| `full` | 결제·인증·삭제·마이그레이션·공개 계약·경계를 넘는 동시성 |
 
-`targeted` check는 1단위, `broad`는 3단위, `deep`은 5단위입니다. 상한일 뿐 반드시 모두 사용할 목표는 아닙니다.
+기존 class-unit 필드는 저장된 state와 직접 호출자의 호환을 위해 읽을 수만 있게 남아 있으며 receipt 증거도 runtime 안내도 아닙니다. 숫자 검증 예산은 사용자나 저장소가 그 정책을 명시적으로 소유할 때만 강제해야 합니다.
 
 근거는 local `argv` check 또는 명시적으로 선언한 Browser·hosted·manual·existing source가 될 수 있습니다. `argv` source는 연결된 local runner의 실제 성공으로만 완료됩니다. non-argv 완료는 명시적인 attestation이며 Hook은 승인된 source와 현재 revision을 기록하지만 matcher 밖 외부 작업이나 수동 작업의 진실성을 독립적으로 증명하지는 않습니다.
 
@@ -227,7 +227,7 @@ Click은 **workflow guardrail**이지 OS 보안 sandbox가 아닙니다.
 
 ## Google Antigravity 어댑터 — 실험적
 
-이 저장소는 Click의 contract 상태 머신·evidence ledger·검증 예산·shell-free runner를 공유하는 독립형 Google Antigravity 플러그인도 생성합니다.
+이 저장소는 Click의 contract 상태 머신·evidence ledger·검증 receipt 측정·shell-free runner를 공유하는 독립형 Google Antigravity 플러그인도 생성합니다.
 
 ```bash
 python3 scripts/build_antigravity_distribution.py

@@ -2,7 +2,7 @@
 
 This module owns deterministic evidence identifiers, initial ledger creation,
 ledger-shape validation, and current-revision lookup helpers. It deliberately
-does not decide contract completion, verification budgets, Browser policy, or
+does not decide contract completion, verification profiles, Browser policy, or
 when a source may transition between states; those decisions remain in the
 gate that calls these mechanics.
 """
@@ -147,7 +147,6 @@ def sources_from_state(
                     )
                 )
             )
-            or (reserved_units == 0) != (reserved_digest == "")
         ):
             return {}
     source_count = evidence_state.get("source_count")

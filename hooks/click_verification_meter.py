@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Deterministic verification-unit metering for Click.
 
-This leaf module compares submitted and Hook-inferred check classes and totals
-their units.  It does not choose evidence or a verification scale, grant
+This leaf module preserves deterministic class normalization and unit arithmetic
+for state and direct-caller compatibility. Those values are not runtime advice,
+receipt evidence, or facts about cost, quality, or evidence strength. This
+module does not choose evidence or a verification scale, grant or deny
 authority, inspect argv, read contract state, or execute a check.
 """
 

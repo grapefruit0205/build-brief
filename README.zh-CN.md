@@ -70,7 +70,7 @@ evidence 状态。
 | 要求代理不要重新扫描 | 提供非阻断的缩小范围提示；inventory 次数不会改变权限 |
 | 要求代理不要重新规划 | 提供非阻断提示；`update_plan` 不能改变 contract 权限 |
 | 要求代理不要重复同一验证 | 复用 current structured evidence 与 receipt |
-| 任务越做越大，验证也越做越大 | 把完成证据绑定到批准的验证预算 |
+| 验证逐渐偏离任务意图 | 把每项完成条件绑定到 revision-bound evidence 与准确 receipt |
 | “看起来完成了”就结束 | 声明证据必须对最新 mutation revision 保持 current |
 
 核心思想很简单：
@@ -86,7 +86,7 @@ evidence 状态。
 - **规划保持 advisory。** `update_plan` 等 plan tool 仍然可用，但不能批准、替换或扩大 active contract。
 - **仓库探索保持 advisory。** 不同 digest 的 broad inventory 即使在另一个 broad inventory 运行期间或成功之后仍可执行，并会收到缩小范围提示；只有 active runner 与执行 interlock 继续作为 hard guard。
 - **重复观察仍然可用。** 对已成功的相同 structured read/search 发起新请求时，Click 会给出复用提示并签发新的 one-use runner，不会把它与已消费 runner token 的 replay 混为一谈。
-- **验证绑定 evidence。** local check 必须指定它所证明的已批准 `evidence_id`，累计验证必须处于批准规模内。
+- **验证绑定 evidence。** local check 必须指定它所证明的已批准 `evidence_id`。Click 会绑定准确执行 receipt，但不会对模型所选验证范围是否充分进行评分。
 - **完成状态跟随代码。** mutation 会推进 revision，使旧完成证据 stale，而不是静默复用。
 - **持有本地服务器生命周期。** 可识别开发服务器使用 Click 的 managed service 路径，以便清理准确的隔离子进程。
 
@@ -189,21 +189,21 @@ codex plugin add click@click
 | broad inventory 后提示缩小范围 | 不同 broad 请求仍可在提示下执行；正在运行的相同 digest runner 由独立状态 interlock 阻止 |
 | 提示但不阻断普通 argv 重试 | 固定失败次数不会阻断新的 verification 重试；改变 protected repository content 的 verification 仍需要已批准 mutation |
 | 明确命令意图 | active 状态下含义不明确的 shell 工作改用 structured `inspect`、`mutate`、`service` 或 `verify` |
-| 所有检查共享一个预算 | 每项 local check 指定已注册的 `argv` source，累计预约必须符合批准规模 |
+| 不把验证策略变成权限 | 模型选择 evidence 与 `argv`；Click 把准确 check-group digest 和观察结果绑定到 receipt |
 | 按 source 跟踪完成 | 所有声明 source 必须 current；没有 `argv` source 时不会为了形式制造 local check |
 | 提示 Browser workflow 重复 | 规范化 Browser 重复、重试和长定时交互在提示下仍可执行；已分配 source、串行调用、tool result、revision 与完成后 replay 的绑定仍为 hard gate |
 
-## 已批准的验证政策
+## Advisory 验证 profile
 
-批准前，Skill 或模型会根据当前风险和仓库证据建议最小且足够的验证规模。该建议属于策略，不是 runtime 权限。用户批准 contract 后，所选规模即固定为用户策略；Hook 不会自行选择或扩大规模，只会保守计量实际提交的 argv 并执行其上限。
+批准前，Skill 或模型会根据当前风险和仓库证据建议最小且足够的验证 profile。Profile 是对预期验证深度的定性表达，并绑定到 digest，以准确表示已批准 contract。执行期间模型选择具体 `argv`；Click 把准确 check-group digest、revision、环境、可执行文件指纹和观察结果绑定到 receipt。Hook 不推断验证充分性，也不把插件自定的数字谱系当作权限或提示。
 
-| 规模 | 典型用途 | 已批准上限 |
-| --- | --- | ---: |
-| `quick` | 小型、局部、可逆的变更 | 1 unit |
-| `focused` | 普通且边界清晰的功能或修复 | 4 units |
-| `full` | 支付、认证、删除、迁移、公共 contract 或跨边界并发 | 10 units |
+| Profile | 典型用途 |
+| --- | --- |
+| `quick` | 小型、局部、可逆的变更 |
+| `focused` | 普通且边界清晰的功能或修复 |
+| `full` | 支付、认证、删除、迁移、公共 contract 或跨边界并发 |
 
-一项 `targeted` check 花费 1 unit，`broad` 为 3，`deep` 为 5。这些数值是上限，不是目标。
+旧 class-unit 字段仅为持久化 state 与直接调用者兼容而保留；它们不是 receipt 证据，也不会产生 runtime 提示。只有用户或仓库明确拥有该策略时，才应强制数字验证预算。
 
 证据可以来自 local `argv` check，也可以来自显式声明的 Browser、hosted、manual 或 existing source。`argv` source 只能通过关联 local runner 的真实成功完成。non-argv completion 是显式 attestation；Hook 会记录已批准 source 与当前 revision，但不会独立证明 matcher 外部执行或人工步骤确实发生。
 
@@ -226,7 +226,7 @@ Click 是 **workflow guardrail**，不是 OS 安全 sandbox。
 
 ## Google Antigravity 适配器 — 实验性
 
-此仓库还可以生成一个独立的 Google Antigravity 插件，它与 Click 共享 contract 状态机、evidence ledger、验证预算和 shell-free runner。
+此仓库还可以生成一个独立的 Google Antigravity 插件，它与 Click 共享 contract 状态机、evidence ledger、验证 receipt 计量和 shell-free runner。
 
 ```bash
 python3 scripts/build_antigravity_distribution.py

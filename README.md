@@ -72,7 +72,7 @@ A prompt can tell an agent what it *should* do. Click adds persistent state arou
 | Ask the agent not to rescan | Offer non-blocking narrowing guidance; inventory count does not alter authority |
 | Ask the agent not to replan | Offer non-blocking guidance; `update_plan` cannot alter contract authority |
 | Ask the agent not to rerun proof | Reuse current structured evidence and receipts |
-| Let verification expand with the task | Bind completion evidence to an approved verification budget |
+| Let verification drift away from the task | Bind each completion condition to revision-bound evidence and exact receipts |
 | Stop when the agent says it is done | Require declared evidence to be current for the latest mutation revision |
 
 The core idea is simple:
@@ -88,7 +88,7 @@ During staging, implementation, review, and verification, Click can enforce thes
 - **Planning stays advisory.** Plan tools such as `update_plan` remain available and cannot approve, replace, or widen the active contract.
 - **Repository exploration stays advisory.** A distinct-digest broad inventory remains available with narrowing guidance even while another broad inventory is running or after one succeeds; only active runner and execution interlocks remain hard.
 - **Repeated observations stay available.** A fresh identical structured read/search receives reuse guidance and a new one-use runner; it is not confused with replay of a consumed runner token.
-- **Verification is evidence-bound.** Local checks name the approved `evidence_id` they prove, and cumulative verification stays within the approved scale.
+- **Verification is evidence-bound.** Local checks name the approved `evidence_id` they prove. Click binds their exact execution receipts without scoring whether the model's chosen verification breadth is sufficient.
 - **Completion follows the code.** A mutation advances the revision and makes older completion evidence stale rather than silently reusing it.
 - **Local server lifecycle is owned.** Recognized development servers use Click's managed service path so the exact isolated child can be cleaned up.
 
@@ -191,21 +191,21 @@ The exact design is repository-dependent. The example shows the contract shape, 
 | Advise after broad inventory | Distinct broad requests remain available with narrowing guidance; an active exact-digest runner retains its separate state interlock |
 | Advise on ordinary argv retries | A fixed failure count does not block a fresh verification retry; verification that changed protected repository content still requires an approved mutation |
 | Make command intent explicit | Ambiguous active shell work is replaced by structured `inspect`, `mutate`, `service`, or `verify` paths |
-| Keep verification in one budget | Each local check names its registered `argv` source and cumulative reservations must fit the approved scale |
+| Keep verification strategy non-authoritative | The model chooses evidence and `argv`; Click binds exact check-group digests and observed results to receipts |
 | Track completion by source | All declared sources must be current; no placeholder local check is invented when no `argv` source exists |
 | Advise on Browser workflow repetition | Fresh normalized Browser repeats, retries, and long timed interactions remain allowed with guidance; assigned-source, serial-call, tool-result, revision, and completion-replay checks remain hard |
 
-## Approved verification policy
+## Advisory verification profiles
 
-Before approval, the Skill or model recommends the smallest sufficient verification scale from the current risk and repository evidence. That recommendation is strategy, not runtime authority. Approval fixes the selected scale as user policy; the Hook never chooses or widens it and only meters the actual submitted argv conservatively against its ceiling.
+Before approval, the Skill or model recommends the smallest sufficient verification profile from the current risk and repository evidence. The profile is a qualitative statement of intended depth and remains digest-bound so the approved contract is represented faithfully. During execution the model chooses the concrete `argv`; Click binds the exact check-group digest, revision, environment, executable fingerprint, and observed result to the receipt. The Hook does not infer verification sufficiency or turn a plugin-authored numeric spectrum into authority or advice.
 
-| Scale | Typical use | Approved ceiling |
-| --- | --- | ---: |
-| `quick` | Small, local, reversible change | 1 unit |
-| `focused` | Ordinary bounded feature or repair | 4 units |
-| `full` | Payments, auth, deletion, migrations, public contracts, or cross-boundary concurrency | 10 units |
+| Profile | Typical use |
+| --- | --- |
+| `quick` | Small, local, reversible change |
+| `focused` | Ordinary bounded feature or repair |
+| `full` | Payments, auth, deletion, migrations, public contracts, or cross-boundary concurrency |
 
-A `targeted` check costs 1 unit, `broad` costs 3, and `deep` costs 5. These are ceilings, not targets.
+Legacy class-unit fields remain readable for persisted-state and direct-caller compatibility, but they are not receipt evidence and produce no runtime guidance. A numeric verification budget should be enforced only when a user or repository explicitly owns that policy.
 
 Evidence may come from local `argv` checks or explicitly declared Browser, hosted, manual, or existing sources. An `argv` source completes only through the real success of its linked local runner. Non-argv completion is an explicit attestation; the Hook records the approved source identity and current revision but does not independently prove unmatched external or manual work.
 
@@ -228,7 +228,7 @@ Click is a **workflow guardrail**, not an OS security sandbox.
 
 ## Google Antigravity adapter — experimental
 
-The repository also builds a self-contained Google Antigravity plugin that shares Click's contract state machine, evidence ledger, verification budget, and shell-free runners.
+The repository also builds a self-contained Google Antigravity plugin that shares Click's contract state machine, evidence ledger, verification receipts, and shell-free runners.
 
 ```bash
 python3 scripts/build_antigravity_distribution.py

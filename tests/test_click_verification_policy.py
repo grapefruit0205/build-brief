@@ -56,21 +56,27 @@ class ClickVerificationPolicyTests(unittest.TestCase):
             self.imported_modules(click_verification_meter),
         )
 
-    def test_approved_policy_never_selects_or_widens_a_scale(self) -> None:
+    def test_profiles_are_qualitative_and_legacy_units_are_compatibility_only(self) -> None:
         self.assertEqual(
             click_verification_policy.VERIFICATION_SCALES,
             ("quick", "focused", "full"),
         )
-        self.assertEqual(click_verification_policy.approved_unit_limit("quick"), 1)
-        self.assertEqual(click_verification_policy.approved_unit_limit("focused"), 4)
-        self.assertEqual(click_verification_policy.approved_unit_limit("full"), 10)
+        for profile in click_verification_policy.VERIFICATION_SCALES:
+            with self.subTest(profile=profile):
+                self.assertTrue(click_verification_policy.is_profile(profile))
         for invalid in (None, "", "automatic", "focused+1", 4):
             with self.subTest(invalid=invalid):
-                self.assertIsNone(
-                    click_verification_policy.approved_unit_limit(invalid)
-                )
+                self.assertFalse(click_verification_policy.is_profile(invalid))
 
-    def test_meter_raises_only_the_submitted_class_and_totals_units(self) -> None:
+        # Direct callers and persisted state keep working, but these values do
+        # not drive authority or runtime advice.
+        self.assertEqual(
+            click_verification_policy.VERIFICATION_UNIT_LIMITS,
+            {"quick": 1, "focused": 4, "full": 10},
+        )
+        self.assertEqual(click_verification_policy.approved_unit_limit("quick"), 1)
+
+    def test_legacy_meter_normalizes_classes_for_compatibility(self) -> None:
         self.assertEqual(
             click_verification_meter.effective_class("targeted", "broad"),
             "broad",

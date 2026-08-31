@@ -121,18 +121,17 @@ class RepositoryPolicyTests(core.RepositoryPolicyTests):
         ):
             self.assertIn(marker, chinese)
 
-    def test_readmes_document_approved_policy_and_runtime_metering(self) -> None:
+    def test_readmes_document_qualitative_profiles_and_exact_receipts(self) -> None:
         readmes = _readmes()
         for readme in readmes.values():
             self.assertIn("click-gate verify", readme)
             self.assertIn("evidence_id", readme)
-            self.assertIn("10", readme)
-        self.assertIn("Approved verification policy", readmes["README.md"])
-        self.assertIn("승인된 검증 정책", readmes["README.ko.md"])
-        self.assertIn("已批准的验证政策", readmes["README.zh-CN.md"])
+        self.assertIn("Advisory verification profiles", readmes["README.md"])
+        self.assertIn("Advisory 검증 profile", readmes["README.ko.md"])
+        self.assertIn("Advisory 验证 profile", readmes["README.zh-CN.md"])
 
         profiles = _reference("verification-profiles.md")
-        for marker in ("Approved ceiling", "Python `-c`", "minimum class", "custom program", "wrapper"):
+        for marker in ("qualitative profile", "Python `-c`", "compatibility", "custom program", "wrapper"):
             self.assertIn(marker.lower(), profiles.lower())
 
     def test_plain_language_stays_digest_bound_and_is_rendered_once(self) -> None:
