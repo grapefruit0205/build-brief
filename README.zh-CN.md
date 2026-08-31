@@ -193,11 +193,11 @@ codex plugin add click@click
 | 按 source 跟踪完成 | 所有声明 source 必须 current；没有 `argv` source 时不会为了形式制造 local check |
 | 去重 Browser evidence | 成功的规范化输入不会重复；相同失败只允许原样再试一次 |
 
-## 自动验证预算
+## 已批准的验证政策
 
-Click 根据当前风险和仓库证据选择最小且足够的验证规模。用户把该规模作为 contract 的一部分批准。
+批准前，Skill 或模型会根据当前风险和仓库证据建议最小且足够的验证规模。该建议属于策略，不是 runtime 权限。用户批准 contract 后，所选规模即固定为用户策略；Hook 不会自行选择或扩大规模，只会保守计量实际提交的 argv 并执行其上限。
 
-| 规模 | 典型用途 | 自动上限 |
+| 规模 | 典型用途 | 已批准上限 |
 | --- | --- | ---: |
 | `quick` | 小型、局部、可逆的变更 | 1 unit |
 | `focused` | 普通且边界清晰的功能或修复 | 4 units |

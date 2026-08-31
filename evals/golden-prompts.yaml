@@ -38,6 +38,7 @@ evaluation_dimensions:
   - shell_intent_false_positive
   - shell_intent_false_negative
   - verification_minimum_class
+  - verification_policy_boundary
   - verification_workspace_mutation
   - verification_new_path_mutation
   - verification_scope_classification
@@ -505,6 +506,23 @@ cases:
       reuse: "The existing verify request schema, class table, and budget limits"
       reject_without_evidence:
         - "A new dependency, external policy service, or per-command user prompt"
+
+  - id: verification-policy-boundary
+    prompt: "@Click 모델이 검증 전략을 고르는 것과 사용자가 승인한 scale, Hook의 실제 argv 비용 측정을 분리해줘. 모델별 분기는 넣지 마."
+    default_mode: on
+    expected_activation: true
+    expected_mode: build
+    expected_mutation_gate: none-before-approval
+    directive_semantics:
+      - "Treats evidence and scale selection before approval, and concrete argv selection during execution, as model strategy rather than runtime authority"
+      - "Fixes the selected scale and numeric ceiling as user policy when the digest-bound contract is approved"
+      - "Never auto-selects or widens the approved scale inside the Hook"
+      - "Keeps conservative minimum-class inference and cumulative unit enforcement for the actual submitted argv as model-neutral Core metering"
+      - "Preserves contract schema, exact compatibility symbols and errors, one-use runner binding, and evidence receipts"
+    minimality_expectations:
+      reuse: "The existing scale table, class table, argv classifier, contract aliases, and cumulative source reservations"
+      reject_without_evidence:
+        - "A model-specific workflow matrix, semantic verification judge, policy service, new approval turn, or contract schema change"
 
   - id: verification-workspace-mutation
     prompt: "@Click 검증 명령이 소스 파일을 바꿔도 성공으로 기록되는 구멍을 막아줘."

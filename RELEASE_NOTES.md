@@ -50,6 +50,21 @@ runtime authority.
   enforcement remain hard. Browser duplicate and retry tuning is intentionally
   deferred to its separate migration.
 
+### Verification strategy, approved policy, and metering are separate
+
+- Before approval, the Skill or model recommends evidence and a verification
+  scale; during execution it chooses concrete argv. Those choices are strategy
+  and cannot grant authority or alter approved policy.
+- Approval fixes the selected scale and numeric ceiling as user policy. The
+  Hook never chooses or widens the approved scale.
+- The Hook still classifies observable submitted argv conservatively, raises an
+  underdeclared class, reserves exact per-source units, and rejects cumulative
+  work above the approved ceiling. This deterministic metering is Core, not a
+  model-quality judgment.
+- Separate leaf modules now own approved scale policy and unit arithmetic.
+  Contract and gate compatibility symbols, contract schema, error messages,
+  one-use runners, evidence receipts, and completion behavior remain unchanged.
+
 ### Runtime authority remains hard
 
 - Distinct-turn approval and exact contract-digest binding remain required.

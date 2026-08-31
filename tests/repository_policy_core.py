@@ -75,25 +75,21 @@ class RepositoryPolicyTests(unittest.TestCase):
                 self.assertNotRegex(readme, r"(?m)^\$click\s")
                 self.assertNotIn("<br/>$click", readme)
 
-    def test_readmes_document_automatic_budget_and_its_limit(self) -> None:
+    def test_readmes_document_approved_policy_and_runtime_metering(self) -> None:
         english = (ROOT / "README.md").read_text(encoding="utf-8")
         korean = (ROOT / "README.ko.md").read_text(encoding="utf-8")
         chinese = (ROOT / "README.zh-CN.md").read_text(encoding="utf-8")
         for readme in (english, korean, chinese):
             self.assertIn("click-gate verify", readme)
             self.assertIn("10", readme)
-        self.assertIn("Automatic ceiling", english)
-        self.assertIn("custom wrapper", english)
-        self.assertIn("자동 상한", korean)
-        self.assertIn("사용자 정의 래퍼", korean)
-        self.assertIn("自动上限", chinese)
-        self.assertIn("自定义 wrapper", chinese)
-        self.assertIn("minimum class", english.lower())
-        self.assertIn("최소 class", korean)
-        self.assertIn("最低 class", chinese)
-        self.assertIn("Python `-c`", english)
-        self.assertIn("Python `-c`", korean)
-        self.assertIn("Python `-c`", chinese)
+        self.assertIn("Approved verification policy", english)
+        self.assertIn("승인된 검증 정책", korean)
+        self.assertIn("已批准的验证政策", chinese)
+        self.assertIn("Approved ceiling", english)
+        self.assertIn("승인된 상한", korean)
+        self.assertIn("已批准上限", chinese)
+        for readme in (english, korean, chinese):
+            self.assertIn("argv", readme)
 
     def test_evidence_economy_uses_structured_primary_source_references(self) -> None:
         click_skill = (ROOT / "skills" / "click" / "SKILL.md").read_text(
@@ -418,7 +414,7 @@ class RepositoryPolicyTests(unittest.TestCase):
         self.assertIn("does not maintain\nan append-only", constitution)
 
         self.assertIn(
-            "plan, inventory, and logical-repeat advisory migrations applied",
+            "plan, inventory, logical-repeat, and verification-boundary migrations applied",
             classification,
         )
         for tier in ("## CORE", "## USER_POLICY", "## HEURISTIC"):
@@ -430,6 +426,8 @@ class RepositoryPolicyTests(unittest.TestCase):
         self.assertIn("Complete in the v0.25 candidate", classification)
         self.assertIn("fresh, separately authorized retries", classification)
         self.assertIn("verification-time mutation", classification)
+        self.assertIn("hooks/click_verification_policy.py", classification)
+        self.assertIn("hooks/click_verification_meter.py", classification)
 
         gate_runtime = (ROOT / "hooks" / "click_gate.py").read_text(
             encoding="utf-8"
@@ -510,6 +508,8 @@ class RepositoryPolicyTests(unittest.TestCase):
                 "click_gate.py",
                 "click_process.py",
                 "click_state.py",
+                "click_verification_meter.py",
+                "click_verification_policy.py",
             )
         }
         for name, source in sources.items():
@@ -542,6 +542,35 @@ class RepositoryPolicyTests(unittest.TestCase):
             with self.subTest(forbidden=forbidden):
                 self.assertNotIn(f"import {forbidden}", evidence)
                 self.assertNotIn(f"from {forbidden}", evidence)
+
+    def test_verification_policy_and_meter_are_separate_runtime_boundaries(self) -> None:
+        gate = (ROOT / "hooks" / "click_gate.py").read_text(encoding="utf-8")
+        contract = (ROOT / "hooks" / "click_contract.py").read_text(
+            encoding="utf-8"
+        )
+        policy = (ROOT / "hooks" / "click_verification_policy.py").read_text(
+            encoding="utf-8"
+        )
+        meter = (ROOT / "hooks" / "click_verification_meter.py").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("click_verification_policy", gate)
+        self.assertIn("click_verification_meter", gate)
+        self.assertIn("click_verification_policy", contract)
+        self.assertIn("click_verification_meter", contract)
+        self.assertIn("does not choose a scale", policy)
+        self.assertIn("does not choose evidence or a verification scale", meter)
+        for source in (policy, meter):
+            for forbidden in (
+                "import click_contract",
+                "import click_evidence",
+                "import click_gate",
+                "import click_process",
+                "import click_state",
+            ):
+                with self.subTest(forbidden=forbidden):
+                    self.assertNotIn(forbidden, source)
 
     def test_compact_contract_replaces_the_verbose_execution_fields(self) -> None:
         hook = (ROOT / "hooks" / "click_gate.py").read_text(encoding="utf-8")
@@ -615,6 +644,7 @@ class RepositoryPolicyTests(unittest.TestCase):
         self.assertIn("id: active-lifecycle-plan-advisory", catalog)
         self.assertIn("id: broad-inventory-advisory", catalog)
         self.assertIn("id: logical-repeat-advisory", catalog)
+        self.assertIn("id: verification-policy-boundary", catalog)
         self.assertIn("id: cheapest-evidence-browser-game", catalog)
 
     def test_multiplatform_adapter_is_documented_without_false_parity(self) -> None:

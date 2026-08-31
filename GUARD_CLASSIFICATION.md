@@ -1,6 +1,6 @@
 # Click Guard Classification
 
-Status: **Living inventory; plan, inventory, and logical-repeat advisory migrations applied**
+Status: **Living inventory; plan, inventory, logical-repeat, and verification-boundary migrations applied**
 
 Baseline: **v0.24.6 plus the canonical product-boundary change at `73072a9`**
 
@@ -20,7 +20,7 @@ not claim that every hard gate has already been moved to its target layer.
 | Cancellation, expiry, consumed-runner and tampering revocation | `hooks/click_state.py`; lifecycle branches in `hooks/click_gate.py` | Prevents stale authority from becoming executable again |
 | Evidence registry identity, current-revision state and receipt matching | `hooks/click_evidence.py`; verification claim/result paths in `hooks/click_gate.py` | Prevents evidence from a different request or revision from completing work |
 | Protected Git-tree, environment and executable fingerprints for argv verification; verification-time mutation detection | verification receipt helpers and runners in `hooks/click_gate.py` | Preserves the identity of the code and environment actually checked by Click's argv runner |
-| Enforcement of an approved verification budget against observable argv, including minimum-class inference from the submitted command | verification request validation and preparation in `hooks/click_gate.py` | Prevents an underdeclared check from bypassing the user's approved ceiling |
+| Enforcement of an approved verification budget against observable argv, including minimum-class inference from the submitted command | deterministic units in `hooks/click_verification_meter.py`; argv classification and enforcement in `hooks/click_gate.py` | Prevents an underdeclared check from bypassing the user's approved ceiling without choosing the verification strategy |
 | Direct-argv capability safety, executable/path/environment checks, process-control rejection and read-only side-effect defenses | capability constants and validators in `hooks/click_gate.py` | Prevents an admitted inspect, verify or service request from gaining unapproved effects |
 | Mutation, verification and managed-service interlocks around active runner claims | runner reservation and claim state in `hooks/click_gate.py` | Prevents an authorized side effect or receipt from racing into a different state without treating distinct observation concurrency as authority |
 | Host event normalization and state/receipt-preserving result mapping | `hooks/click_hook.py`, `hooks/antigravity_gate.py`, `hooks/platform_protocol.py` | Ensures observable host actions reach the same authorization protocol |
@@ -30,7 +30,7 @@ not claim that every hard gate has already been moved to its target layer.
 | Policy | Current owner | Constitutional boundary |
 | --- | --- | --- |
 | Always ON, Manual, review and bypass availability | mode state and `skills/click/references/modes.md` | Choosing the mode is policy; exact one-use enforcement after selection is Core |
-| Verification scale and numeric unit ceilings | `VERIFICATION_UNIT_LIMITS` and contract verification policy | Choosing or approving the ceiling is policy; Core measures the actual argv conservatively and enforces that value |
+| Verification scale and numeric unit ceilings | `hooks/click_verification_policy.py` and the digest-bound contract | Choosing or approving the ceiling is policy; Core measures the actual argv conservatively and enforces that value without widening it |
 | Acceptance of hosted, manual or existing attestations | evidence-completion handling in `hooks/click_gate.py` | Acceptance must be explicit and must not be described as independent proof |
 
 ## HEURISTIC
@@ -40,7 +40,7 @@ not claim that every hard gate has already been moved to its target layer.
 | Advising on a repeated successful read or search and on repeated incomplete/failing reads | observation preparation in `hooks/click_gate.py` | Advisory only — fresh separately authorized repeats use a new one-use runner; an active same-digest reservation remains a Core interlock |
 | Advising after broad repository inventory | broad-exploration classifiers, observation preparation and host adapters | Advisory only — cross-digest running/success hard denial removed in the v0.25 candidate; active same-digest reservations and execution interlocks remain separate |
 | Advising on `update_plan` or equivalent host plan tools | plan-tool branch in `hooks/click_gate.py`; host matchers and adapters | Advisory only — hard denial removed in the v0.25 candidate |
-| Choosing the proposed evidence source, verification scale or cheapest proof strategy before approval | Skill, eval and documentation policy | Model strategy or explicit user policy; runtime minimum-class enforcement of the approved ceiling remains Core |
+| Choosing the proposed evidence source and verification scale before approval, or concrete argv and the cheapest proof strategy during execution | Skill, eval and documentation policy | Model strategy or an explicit user constraint; runtime minimum-class enforcement of the approved ceiling remains Core |
 | Requiring a mutation after a fixed number of otherwise legitimate failed retries | argv verification and Browser retry handling | Argv verification count is advisory in the v0.25 candidate; Browser tuning remains pending and may become advisory or explicit user policy |
 | Browser wait thresholds, duplicate-input blocking, retry tuning, shadow-verification rules and interaction ceilings | Browser preparation and input validation | Advisory or explicit user policy |
 | Contract compactness, planning prose and workflow-shape preferences beyond parser or transport safety | `hooks/click_contract.py` schema policy | Keep only identity-bearing protocol fields in Core |
@@ -102,7 +102,7 @@ stronger guarantee than the runtime can observe.
 3. **Complete in the v0.25 candidate:** Convert plan-tool hard denial to advisory output.
 4. **Complete in the v0.25 candidate:** Convert broad-inventory counting to advisory output while retaining active exact-digest reservations and Core execution interlocks.
 5. **Complete in the v0.25 candidate:** Convert fresh duplicate-read and fixed legitimate argv-retry denials to advisory output while retaining active-runner and verification-time mutation denials.
-6. Separate approved verification policy from automatic strategy and cost inference.
+6. **Complete in the v0.25 candidate:** Separate pre-approval verification strategy, approved scale policy, and deterministic argv cost metering while preserving the approved ceiling and minimum-class enforcement.
 7. Separate Browser receipt integrity from Browser workflow tuning.
 8. Update Skill, evals, manifest, README and host distributions together with the
    behavior they describe.
