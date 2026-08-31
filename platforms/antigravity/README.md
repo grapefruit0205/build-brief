@@ -39,9 +39,11 @@ Antigravity lifecycle and mutation tools onto that common runtime.
 - Structured broad requests sent through the exact `control inspect` launcher
   forward Click's non-blocking narrowing advisory while continuing execution.
   A prior cross-digest broad request that is running or successful does not
-  block them; exact-digest observation reuse and all runner safety checks remain.
+  block them. A completed exact-digest request may run again under a fresh
+  one-use authorization with advisory context; an active same-digest
+  reservation and all runner safety checks remain hard.
 - Native Antigravity file/search tools are not routed through Click's local
-  observation runner, so cross-tool duplicate-read blocking is not claimed.
+  observation runner, so cross-tool repeat guidance is not claimed.
 - `update_plan` and `create_plan` remain available. While a Click lifecycle is
   active, the adapter returns advisory context explaining that plan output
   cannot grant mutation authority or replace, widen, or complete the contract.

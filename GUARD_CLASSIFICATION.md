@@ -1,6 +1,6 @@
 # Click Guard Classification
 
-Status: **Living inventory; plan-tool and broad-inventory advisory migrations applied**
+Status: **Living inventory; plan, inventory, and logical-repeat advisory migrations applied**
 
 Baseline: **v0.24.6 plus the canonical product-boundary change at `73072a9`**
 
@@ -37,11 +37,11 @@ not claim that every hard gate has already been moved to its target layer.
 
 | Current strategic guard | Current owner | Target behavior |
 | --- | --- | --- |
-| Blocking a repeated successful read or search and allowing only one unchanged retry | observation preparation in `hooks/click_gate.py` | Advisory or telemetry |
-| Advising after broad repository inventory | broad-exploration classifiers, observation preparation and host adapters | Advisory only — cross-digest running/success hard denial removed in the v0.25 candidate; exact-digest reuse and execution interlocks remain separate |
+| Advising on a repeated successful read or search and on repeated incomplete/failing reads | observation preparation in `hooks/click_gate.py` | Advisory only — fresh separately authorized repeats use a new one-use runner; an active same-digest reservation remains a Core interlock |
+| Advising after broad repository inventory | broad-exploration classifiers, observation preparation and host adapters | Advisory only — cross-digest running/success hard denial removed in the v0.25 candidate; active same-digest reservations and execution interlocks remain separate |
 | Advising on `update_plan` or equivalent host plan tools | plan-tool branch in `hooks/click_gate.py`; host matchers and adapters | Advisory only — hard denial removed in the v0.25 candidate |
 | Choosing the proposed evidence source, verification scale or cheapest proof strategy before approval | Skill, eval and documentation policy | Model strategy or explicit user policy; runtime minimum-class enforcement of the approved ceiling remains Core |
-| Requiring a mutation after a fixed number of otherwise legitimate failed retries | verification and Browser retry handling | Advisory or explicit user policy |
+| Requiring a mutation after a fixed number of otherwise legitimate failed retries | argv verification and Browser retry handling | Argv verification count is advisory in the v0.25 candidate; Browser tuning remains pending and may become advisory or explicit user policy |
 | Browser wait thresholds, duplicate-input blocking, retry tuning, shadow-verification rules and interaction ceilings | Browser preparation and input validation | Advisory or explicit user policy |
 | Contract compactness, planning prose and workflow-shape preferences beyond parser or transport safety | `hooks/click_contract.py` schema policy | Keep only identity-bearing protocol fields in Core |
 
@@ -59,6 +59,9 @@ not claim that every hard gate has already been moved to its target layer.
   choice, and deciding that a read is too broad is `HEURISTIC`.
 - Reusing the same one-use runner token is a `CORE` replay violation; limiting
   fresh, separately authorized retries is `HEURISTIC`.
+- A verification command that observably changes protected repository content
+  violates the read-only evidence boundary and remains `CORE`; limiting fresh
+  retries of an ordinary failing argv check is `HEURISTIC`.
 - Browser source and current-revision accounting are `CORE` when the host event
   is observable; duplicate-input and call-count tuning are `HEURISTIC`.
 - The contract digest and approval identity are `CORE`; required planning prose
@@ -97,8 +100,8 @@ stronger guarantee than the runtime can observe.
 1. **Complete:** Treat the v0.24.6 state-root recovery, distribution, tests and release as complete.
 2. **Complete:** Establish this classification without changing behavior.
 3. **Complete in the v0.25 candidate:** Convert plan-tool hard denial to advisory output.
-4. **Complete in the v0.25 candidate:** Convert broad-inventory counting to advisory output while retaining exact-digest observation reuse and Core execution interlocks.
-5. Convert duplicate-read and fixed legitimate-retry denials to advisory output.
+4. **Complete in the v0.25 candidate:** Convert broad-inventory counting to advisory output while retaining active exact-digest reservations and Core execution interlocks.
+5. **Complete in the v0.25 candidate:** Convert fresh duplicate-read and fixed legitimate argv-retry denials to advisory output while retaining active-runner and verification-time mutation denials.
 6. Separate approved verification policy from automatic strategy and cost inference.
 7. Separate Browser receipt integrity from Browser workflow tuning.
 8. Update Skill, evals, manifest, README and host distributions together with the

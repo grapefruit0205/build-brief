@@ -2386,7 +2386,7 @@ def _prepare_observation(
         entries = {}
 
     digest = _capability_digest(request)
-    broad_advisory = ""
+    advisories: list[str] = []
     if broad_inventory:
         prior_broad_success = False
         prior_broad_running = False
@@ -2404,14 +2404,14 @@ def _prepare_observation(
             elif existing_status == "running" and _observation_is_running(existing):
                 prior_broad_running = True
         if prior_broad_success:
-            broad_advisory = (
+            advisories.append(
                 "Click advisory: a repository-wide inventory already completed for this "
                 "revision. This additional broad inventory is allowed through the same "
                 "read-only runner, but reuse existing results or narrow the query when "
                 "practical."
             )
         elif prior_broad_running:
-            broad_advisory = (
+            advisories.append(
                 "Click advisory: another repository-wide inventory is already running for "
                 "this revision. This distinct broad inventory is allowed through the same "
                 "read-only runner, but waiting or narrowing avoids redundant work."
@@ -2423,24 +2423,27 @@ def _prepare_observation(
         status = str(prior.get("status", ""))
         unchanged_retries = int(prior.get("unchanged_retries", 0))
         if status == "success":
-            return (
-                "",
-                "Click blocked an identical successful read or search because neither "
-                "the implementation nor its evidence changed. Use the existing result "
-                "or issue a narrower, materially different query.",
-                "",
+            advisories.append(
+                "Click advisory: this identical read or search already succeeded for the "
+                "current revision. A fresh, separately authorized one-use runner is "
+                "allowed, but reuse the existing result or narrow the query when practical."
             )
         if status == "running":
             if _observation_is_running(prior):
-                return "", "The identical Click read or search is already running.", ""
+                return (
+                    "",
+                    "An exact observation runner for this request is already active. Wait "
+                    "for it to record a result before issuing a fresh authorization.",
+                    "",
+                )
             status = "failed"
         if status in {"failed", "incomplete"}:
             if unchanged_retries >= 1:
-                return (
-                    "",
-                    "The identical read or search already failed or produced incomplete "
-                    "evidence twice. Change or narrow the command instead of repeating it.",
-                    "",
+                advisories.append(
+                    "Click advisory: this identical read or search already failed or "
+                    "produced incomplete output twice for the current revision. A fresh, "
+                    "separately authorized retry is allowed, but repair, narrow, or change "
+                    "the request when practical."
                 )
             unchanged_retries += 1
 
@@ -2470,7 +2473,7 @@ def _prepare_observation(
     return (
         _observation_runner_command(state_path, request, digest, runner_token),
         "",
-        broad_advisory,
+        "\n".join(advisories),
     )
 
 
@@ -2727,30 +2730,50 @@ def _record_evidence_completion(event: dict[str, Any], raw: str) -> tuple[str, s
 
 def _prepare_verification(
     event: dict[str, Any], raw: str
-) -> tuple[str, str]:
+) -> tuple[str, str, str]:
     state = _read_contract_state(event)
     if state.get("status") != "approved":
-        return "", "Approve the staged Click execution contract before verification."
+        return "", "Approve the staged Click execution contract before verification.", ""
     mutation = state.get("mutation")
     if _mutation_is_running(mutation):
-        return "", "Wait for the structured Click mutation to finish before verification."
+        return (
+            "",
+            "Wait for the structured Click mutation to finish before verification.",
+            "",
+        )
     if isinstance(mutation, dict) and mutation.get("status") == "running":
         state["mutation"] = _fresh_mutation_state()
     verification = state.get("verification")
     if not isinstance(verification, dict):
-        return "", "Click verification state is unavailable; stage and approve again."
+        return (
+            "",
+            "Click verification state is unavailable; stage and approve again.",
+            "",
+        )
+    prior_verification_changed_workspace = (
+        verification.get("workspace_changed") is True
+    )
     scale = str(verification.get("scale", ""))
     if scale not in VERIFICATION_UNIT_LIMITS:
-        return "", "Approved Click verification scale is invalid; stage and approve again."
+        return (
+            "",
+            "Approved Click verification scale is invalid; stage and approve again.",
+            "",
+        )
     sources = _evidence_sources(state)
     if sources is None:
         return (
             "",
             "This active contract predates evidence-id completion tracking. Cancel it, "
             "stage the proposal again, and obtain fresh approval.",
+            "",
         )
     if not sources:
-        return "", "Click evidence state is unavailable or malformed; cancel and restage."
+        return (
+            "",
+            "Click evidence state is unavailable or malformed; cancel and restage.",
+            "",
+        )
 
     observations = state.get("observations")
     if isinstance(observations, dict):
@@ -2762,22 +2785,23 @@ def _prepare_verification(
                         "",
                         "Wait for the approved read or search to finish before starting "
                         "the final verification batch.",
+                        "",
                     )
 
     batch, units, error = _validate_verification_batch(raw, scale, sources)
     if error:
-        return "", error
+        return "", error, ""
     assert batch is not None
     status = str(verification.get("status", "ready"))
     if status == "running":
         claimed_at = verification.get("runner_claimed_at", 0)
         if not isinstance(claimed_at, int) or isinstance(claimed_at, bool):
-            return "", "Click verification runner claim state is malformed."
+            return "", "Click verification runner claim state is malformed.", ""
         if claimed_at > 0:
-            return "", "The approved Click verification batch is already running."
+            return "", "The approved Click verification batch is already running.", ""
         started_at = int(verification.get("started_at", 0))
         if started_at and time.time() - started_at <= VERIFY_RUNNING_TTL_SECONDS:
-            return "", "The approved Click verification batch is already running."
+            return "", "The approved Click verification batch is already running.", ""
         status = "failed"
         verification["status"] = status
         verification["last_exit_code"] = 124
@@ -2797,7 +2821,7 @@ def _prepare_verification(
     argv_keys = _evidence_keys_for_kind(sources, "argv")
     grouped_checks, grouping_error = _verification_groups(batch)
     if grouping_error:
-        return "", grouping_error
+        return "", grouping_error, ""
     requested_keys = set(grouped_checks)
     unassigned_keys = requested_keys - argv_keys
     if unassigned_keys:
@@ -2805,6 +2829,7 @@ def _prepare_verification(
             "",
             "A verification batch may contain only declared argv evidence; "
             f"{len(unassigned_keys)} source(s) were unassigned or non-argv.",
+            "",
         )
 
     group_digests: dict[str, str] = {}
@@ -2820,6 +2845,7 @@ def _prepare_verification(
                 "",
                 "An argv evidence source is already reserved to a different exact "
                 "check set for this contract. Reuse that set or stage a new contract.",
+                "",
             )
         locked_digest = str(source.get("locked_check_digest", ""))
         if locked_digest and locked_digest != group_digest:
@@ -2827,6 +2853,7 @@ def _prepare_verification(
                 "",
                 "A previously successful argv evidence source is locked to its exact "
                 "check set. Re-run that set after the relevant mutation.",
+                "",
             )
         last_digest = str(source.get("last_check_digest", ""))
         if last_digest and last_digest != group_digest:
@@ -2834,6 +2861,7 @@ def _prepare_verification(
                 "",
                 "An argv evidence source changed its check set without an intervening "
                 "mutation. Fix the implementation or reuse the original check set.",
+                "",
             )
 
     reserved_total = sum(
@@ -2850,6 +2878,7 @@ def _prepare_verification(
                 "",
                 "An argv evidence source changed its reserved verification breadth. "
                 "Reuse the approved check set or stage a sufficient verification scale.",
+                "",
             )
         if not reserved_units:
             projected_units += requested_units
@@ -2860,6 +2889,7 @@ def _prepare_verification(
             f"The {scale} verification budget allows {limit} unit(s), but the source "
             f"reservations would total {projected_units}. Remove duplicate evidence or "
             "stage a sufficient scale instead of splitting the work across batches.",
+            "",
         )
 
     for source_key, requested_units in group_units.items():
@@ -2961,6 +2991,7 @@ def _prepare_verification(
             "",
             "A verification batch may contain only unresolved declared argv evidence or "
             "an exact reusable success receipt.",
+            "",
         )
 
     if not pending_keys:
@@ -2978,6 +3009,7 @@ def _prepare_verification(
         return (
             f"echo Click reused {len(reused_keys)} current unchanged-tree verification receipt(s)",
             "",
+            "",
         )
 
     batch = {
@@ -2991,18 +3023,34 @@ def _prepare_verification(
     units = sum(group_units[source_key] for source_key in pending_keys)
     requested_keys = pending_keys
 
+    if prior_verification_changed_workspace:
+        return (
+            "",
+            "The previous verification changed protected repository content. Use an "
+            "approved code mutation to repair or reconcile the workspace before running "
+            "verification again.",
+            "",
+        )
+
+    retried_failed_sources = 0
     for source_key in requested_keys:
         source = sources[source_key]
         source_status = str(source.get("status", "ready"))
         if source_status == "failed":
             retries = int(source.get("unchanged_failure_retries", 0))
             if retries >= 1:
-                return (
-                    "",
-                    "An argv evidence source failed twice without a subsequent code "
-                    "mutation. Fix the in-scope cause before retrying.",
-                )
+                retried_failed_sources += 1
             source["unchanged_failure_retries"] = retries + 1
+
+    verification_advisory = ""
+    if retried_failed_sources:
+        verification_advisory = (
+            "Click advisory: "
+            f"{retried_failed_sources} argv evidence source(s) already failed twice "
+            "without a subsequent code mutation. This fresh, separately authorized "
+            "retry is allowed, but fix the in-scope cause before repeating it when "
+            "practical."
+        )
 
     canonical = json.dumps(batch, sort_keys=True, separators=(",", ":"))
     batch_digest = hashlib.sha256(canonical.encode()).hexdigest()
@@ -3030,6 +3078,7 @@ def _prepare_verification(
                 "",
                 "Click could not resolve and fingerprint every verification "
                 "executable before issuing the runner.",
+                "",
             )
         running_environment_digests[source_key] = (
             _verification_environment_digest_from_records(
@@ -3071,7 +3120,11 @@ def _prepare_verification(
     )
     state["verification"] = verification
     _save_contract_state(event, state)
-    return _verification_runner_command(event, batch, batch_digest, runner_token), ""
+    return (
+        _verification_runner_command(event, batch, batch_digest, runner_token),
+        "",
+        verification_advisory,
+    )
 
 
 def _is_read_only_sed(tokens: list[str]) -> bool:
@@ -3881,11 +3934,20 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
                         "before starting its final verification batch."
                     )
                     return
-                rewritten, verification_error = _prepare_verification(event, value)
+                (
+                    rewritten,
+                    verification_error,
+                    verification_advisory,
+                ) = _prepare_verification(event, value)
                 if verification_error:
                     _deny(verification_error)
                     return
-                _allow_rewritten(rewritten)
+                if verification_advisory:
+                    _allow_rewritten_with_advisory(
+                        rewritten, verification_advisory
+                    )
+                else:
+                    _allow_rewritten(rewritten)
                 return
             if action in {"stage", "pass"}:
                 contract: dict[str, Any] | None = None

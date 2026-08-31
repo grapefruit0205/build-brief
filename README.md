@@ -86,8 +86,8 @@ During staging, implementation, review, and verification, Click can enforce thes
 - **Proposal and approval are separate.** Staging emits an opaque `contract_id`; the same user turn cannot both stage and pass it.
 - **Mutation waits for approval.** An active contract remains locked until the exact staged ID is approved and passed.
 - **Planning stays advisory.** Plan tools such as `update_plan` remain available and cannot approve, replace, or widen the active contract.
-- **Repository exploration stays advisory.** A distinct-digest broad inventory remains available with narrowing guidance even while another broad inventory is running or after one succeeds; exact-request reuse and execution interlocks remain separate hard guards.
-- **Successful observations are reused.** The same successful structured read is not repeated until an in-scope mutation makes it stale.
+- **Repository exploration stays advisory.** A distinct-digest broad inventory remains available with narrowing guidance even while another broad inventory is running or after one succeeds; only active runner and execution interlocks remain hard.
+- **Repeated observations stay available.** A fresh identical structured read/search receives reuse guidance and a new one-use runner; it is not confused with replay of a consumed runner token.
 - **Verification is evidence-bound.** Local checks name the approved `evidence_id` they prove, and cumulative verification stays within the approved scale.
 - **Completion follows the code.** A mutation advances the revision and makes older completion evidence stale rather than silently reusing it.
 - **Local server lifecycle is owned.** Recognized development servers use Click's managed service path so the exact isolated child can be cleaned up.
@@ -186,9 +186,10 @@ The exact design is repository-dependent. The example shows the contract shape, 
 
 | Guard | Behavior |
 | --- | --- |
-| Reuse evidence | A successful identical structured read/search is not repeated until an in-scope mutation makes it stale |
+| Advise on repeated observations | A fresh identical structured read/search remains available through a new one-use runner; prior success or repeated failure adds guidance, while an active same-digest reservation remains blocked |
 | Advise without gating plans | `update_plan` remains available; its output cannot stage, approve, replace, or widen a contract |
-| Advise after broad inventory | Distinct broad requests remain available with narrowing guidance; exact running or successful requests retain the separate reuse guard |
+| Advise after broad inventory | Distinct broad requests remain available with narrowing guidance; an active exact-digest runner retains its separate state interlock |
+| Advise on ordinary argv retries | A fixed failure count does not block a fresh verification retry; verification that changed protected repository content still requires an approved mutation |
 | Make command intent explicit | Ambiguous active shell work is replaced by structured `inspect`, `mutate`, `service`, or `verify` paths |
 | Keep verification in one budget | Each local check names its registered `argv` source and cumulative reservations must fit the approved scale |
 | Track completion by source | All declared sources must be current; no placeholder local check is invented when no `argv` source exists |

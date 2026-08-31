@@ -23,12 +23,32 @@ runtime authority.
   inventory is running or after one succeeds; narrowing context is advisory.
 - The decision depends on observable argv, request digest, revision, and runtime
   state—not model identity or a model-specific workflow score.
-- Exact-digest running or successful requests remain blocked by separate
-  observation reuse and replay protections. Broad advice cannot alter contract,
-  digest, mutation, or evidence authority.
+- An active exact-digest observation reservation remains blocked by a separate
+  runner-state interlock. A completed exact-digest request is handled by the
+  logical-repeat advisory below. Broad advice cannot alter contract, digest,
+  mutation, or evidence authority.
 - Structured read admission, one-use claims, path and environment safety,
   cancellation, replay and tamper checks, mutation and verification interlocks,
   output caps, and retained-state limits remain unchanged.
+
+### Logical repetition and fixed argv retries become non-blocking advisory
+
+- A fresh request for an identical successful read or search is allowed through
+  a newly issued one-use runner and receives reuse or narrowing guidance. This
+  is a new authorization, not replay of the consumed runner token.
+- An observation that has already failed or produced incomplete output twice,
+  and an ordinary argv evidence source that has already failed twice, may be
+  retried under fresh authorization with non-blocking repair guidance.
+- The decision remains model-neutral and depends only on the request digest,
+  revision, result state, and exact runner authorization.
+- A same-digest observation already running remains blocked because issuing a
+  second reservation would conflict with its active token and result record.
+  Verification that changed protected repository content also remains blocked
+  until an approved mutation repairs or reconciles the workspace.
+- Consumed-token replay, request substitution, active mutation or verification
+  races, receipt mismatch, cancellation, tampering, and verification budget
+  enforcement remain hard. Browser duplicate and retry tuning is intentionally
+  deferred to its separate migration.
 
 ### Runtime authority remains hard
 

@@ -85,8 +85,8 @@ stage, implementation, review, verification 동안 Click은 다음과 같은 **�
 - **제안과 승인을 분리합니다.** stage하면 불투명한 `contract_id`가 나오고 같은 사용자 turn에서 stage와 pass를 동시에 할 수 없습니다.
 - **승인 전 mutation을 막습니다.** 정확한 staged ID가 승인되고 pass될 때까지 active contract가 잠금 상태를 유지합니다.
 - **계획은 advisory로 둡니다.** `update_plan` 같은 plan tool은 계속 사용할 수 있으며 active contract를 승인·교체·확장하지 못합니다.
-- **저장소 탐색은 advisory로 둡니다.** 서로 다른 digest의 broad inventory는 다른 broad inventory가 실행 중이거나 성공한 뒤에도 범위 축소 안내와 함께 사용할 수 있습니다. 동일 요청 재사용과 실행 interlock은 별도의 hard guard로 유지합니다.
-- **성공한 관찰을 재사용합니다.** 범위 안 mutation으로 stale되기 전까지 같은 structured read를 반복하지 않습니다.
+- **저장소 탐색은 advisory로 둡니다.** 서로 다른 digest의 broad inventory는 다른 broad inventory가 실행 중이거나 성공한 뒤에도 범위 축소 안내와 함께 사용할 수 있습니다. 실행 중 runner와 실행 interlock만 hard guard로 유지합니다.
+- **반복 관찰도 계속 사용할 수 있습니다.** 성공한 동일 structured read/search의 새 요청에는 재사용 안내와 새 one-use runner를 제공하며, 소진된 runner token 재생과 혼동하지 않습니다.
 - **검증을 evidence에 결합합니다.** local check는 자신이 증명하는 승인된 `evidence_id`를 지정하고 누적 검증은 승인된 규모 안에 있어야 합니다.
 - **완료 상태가 코드 revision을 따라갑니다.** mutation이 생기면 이전 완료 근거를 조용히 재사용하지 않고 stale로 만듭니다.
 - **로컬 서버 수명주기를 관리합니다.** 인식된 개발 서버는 Click의 managed service 경로를 사용해 정확한 격리 자식을 정리합니다.
@@ -185,9 +185,10 @@ ChatGPT 데스크톱 앱을 다시 시작하고 포함된 Click Hook을 확인�
 
 | 안전망 | 동작 |
 | --- | --- |
-| 이미 얻은 근거 재사용 | 성공한 동일 structured read/search는 범위 안 mutation으로 stale되기 전까지 반복하지 않음 |
+| 반복 관찰을 차단하지 않고 안내 | 성공했거나 반복 실패한 동일 structured read/search도 새 one-use runner로 실행할 수 있고 안내만 제공하며, 같은 digest의 runner가 실행 중이면 계속 차단 |
 | 계획을 막지 않고 안내 | `update_plan`은 계속 사용할 수 있지만 contract를 stage·승인·교체·확장하지 못함 |
-| broad inventory 뒤 범위 축소 안내 | 서로 다른 broad 요청은 안내와 함께 계속 사용할 수 있고 동일 digest의 실행 중·성공 요청은 별도 재사용 guard가 막음 |
+| broad inventory 뒤 범위 축소 안내 | 서로 다른 broad 요청은 안내와 함께 계속 사용할 수 있고 실행 중인 동일 digest runner는 별도 상태 interlock이 막음 |
+| 일반 argv 재시도를 차단하지 않고 안내 | 고정 실패 횟수만으로 새 verification 재시도를 막지 않지만 protected repository content를 바꾼 verification은 승인된 mutation이 필요함 |
 | 명령 의도 명시 | active 상태의 애매한 shell 작업 대신 structured `inspect`·`mutate`·`service`·`verify`를 사용 |
 | 검증을 한 예산에 결합 | local check마다 등록된 `argv` source를 지정하고 누적 예약이 승인 규모 안에 있어야 함 |
 | source별 완료 추적 | 선언한 모든 source가 current여야 하며 `argv` source가 없으면 억지 local check를 만들지 않음 |
