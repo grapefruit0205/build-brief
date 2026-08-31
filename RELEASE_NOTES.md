@@ -37,6 +37,13 @@
   bounded output receipts, review state, replay rejection, and exact result
   recording now live in `click_observation.py`. Gate wrappers preserve existing
   private symbols and runtime patch points while injecting host command rendering.
+- Verification batch validation, check classification compatibility, protected
+  Git snapshots, environment and executable fingerprints, host-coverage and
+  dependency receipts, preparation, one-use claims, result recording, and the
+  shell-free verification runner now live in `click_verification.py`.
+- `click_gate.py` retains verification routing and compatibility wrappers. Its
+  wrappers inject current snapshot, executable-digest, and argv-execution patch
+  points so existing callers and the deterministic suite retain exact behavior.
 
 ## v0.32.0 — 2026-09-01
 

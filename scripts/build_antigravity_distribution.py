@@ -28,6 +28,7 @@ HOOK_FILES = (
     "click_process.py",
     "click_service.py",
     "click_state.py",
+    "click_verification.py",
     "click_gate.py",
     "platform_protocol.py",
     "antigravity_gate.py",
