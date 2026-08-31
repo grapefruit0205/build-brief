@@ -1,6 +1,6 @@
 # Click Guard Classification
 
-Status: **Living inventory; v0.30 policy migrations complete; dependency-aware receipt reuse completed for v0.31.0; host coverage identity in the v0.32 candidate**
+Status: **Living inventory; v0.30 policy migrations complete; dependency-aware receipt reuse completed for v0.31.0; host coverage identity completed for v0.32.0**
 
 Baseline: **v0.24.6 plus the canonical product-boundary change at `73072a9`**
 
@@ -128,7 +128,7 @@ stronger guarantee than the runtime can observe.
 9. **Complete in v0.31.0:** Add approval-bound, dependency-aware cross-revision
    argv receipt reuse with exact check, environment, executable, relevant
    manifest entry, resolved-path and mutation-boundary invalidation.
-10. **In the v0.32 candidate:** Centralize the known Codex and Antigravity Hook
+10. **Complete in v0.32.0:** Centralize the known Codex and Antigravity Hook
     surface, test pre/post symmetry, and bind that limited coverage identity to
     argv verification runners and receipts.
 

@@ -1,6 +1,6 @@
 # Release notes
 
-## Unreleased v0.32 candidate — host Hook coverage identity
+## v0.32.0 — 2026-09-01
 
 - Codex and Antigravity now derive their known mutation, plan, Browser, and
   exec-alias surfaces from one standard-library-only host coverage registry.

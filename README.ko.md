@@ -242,16 +242,16 @@ Antigravity IDE에서는 `dist/antigravity`를 워크스페이스의 `.agents/pl
 
 Antigravity의 Hook contract는 Codex와 다릅니다. native file/search와 별도 MCP·Skill 도구는 계속 사용할 수 있지만 cross-tool 중복 제거와 Browser evidence는 아직 지원하지 않습니다. 정확한 제한은 [`platforms/antigravity/README.md`](platforms/antigravity/README.md)를 확인하세요.
 
-## 기존 설치 업데이트 — v0.31.0
+## 기존 설치 업데이트 — v0.32.0
 
-현재 릴리스는 **v0.31.0**입니다.
+현재 릴리스는 **v0.32.0**입니다.
 
 ```bash
 codex plugin marketplace upgrade click
 codex plugin add click@click
 ```
 
-ChatGPT 데스크톱 앱을 다시 시작하고 갱신된 Hook을 검토해 신뢰하세요. v0.31.0은 승인된 revision 사이에서 선택적으로 dependency-aware evidence를 재사용합니다. 승인된 dependency 집합, 정확한 check, 환경, 실행 파일, mutation receipt가 모두 일치할 때만 재사용하고, 하나라도 달라지면 Click이 check를 다시 실행합니다. 이전 설치의 대기 중 runner를 재사용하지 말고 업그레이드 후 새 계약을 시작하세요.
+ChatGPT 데스크톱 앱을 다시 시작하고 갱신된 Hook을 검토해 신뢰하세요. v0.32.0은 각 verification runner와 성공한 argv receipt를 현재 host 및 결정론적인 known-surface Hook coverage digest에 추가로 결속합니다. 정확한 재사용과 dependency-aware 재사용은 이 coverage identity, 승인된 dependency 집합, 정확한 check, 환경, 실행 파일, mutation receipt가 모두 일치할 때만 허용되며, 하나라도 달라지면 Click이 check를 다시 실행합니다. Hook event가 발생하지 않는 host 경로까지 관찰했다고 주장하지는 않습니다. 이전 설치의 대기 중 runner를 재사용하지 말고 업그레이드 후 새 계약을 시작하세요.
 
 자세한 릴리스 이력은 [RELEASE_NOTES.md](RELEASE_NOTES.md)에 있습니다.
 
