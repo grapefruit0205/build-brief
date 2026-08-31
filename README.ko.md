@@ -222,16 +222,16 @@ Antigravity IDE에서는 `dist/antigravity`를 워크스페이스의 `.agents/pl
 
 Antigravity의 Hook contract는 Codex와 다릅니다. native file/search와 별도 MCP·Skill 도구는 계속 사용할 수 있지만 cross-tool 중복 제거와 Browser evidence는 아직 지원하지 않습니다. 정확한 제한은 [`platforms/antigravity/README.md`](platforms/antigravity/README.md)를 확인하세요.
 
-## 기존 설치 업데이트 — v0.24.5
+## 기존 설치 업데이트 — v0.24.6
 
-현재 릴리스는 **v0.24.5**입니다.
+현재 릴리스는 **v0.24.6**입니다.
 
 ```bash
 codex plugin marketplace upgrade click
 codex plugin add click@click
 ```
 
-ChatGPT 데스크톱 앱을 다시 시작하고 갱신된 Hook을 검토해 신뢰하세요. 이전 설치가 만든 실행 대기 중 runner 명령은 재사용하지 말고 새 Hook이 다시 발급하게 합니다.
+ChatGPT 데스크톱 앱을 다시 시작하고 갱신된 Hook을 검토해 신뢰하세요. Windows에서 v0.24.6은 Python launcher fallback을 추가하고, 호스트가 해당 Hook 이벤트를 전달하는 경우 Desktop의 `exec_command` 계열 실행을 Click 경로로 정규화합니다. 이전 설치가 만든 실행 대기 중 runner 명령은 재사용하지 말고 새 Hook이 다시 발급하게 합니다.
 
 자세한 릴리스 이력은 [RELEASE_NOTES.md](RELEASE_NOTES.md)에 있습니다.
 
@@ -243,6 +243,7 @@ Hook이 다음을 할 수 있다고 주장하지 않습니다.
 
 - 숨은 추론이나 자연어로만 작성된 계획을 검사;
 - matcher 밖 모든 connector나 hosted tool을 관찰;
+- Codex 클라이언트가 일치하는 Hook 이벤트를 전달하지 않는 실행 경로를 강제;
 - 의미적 경계 준수나 아키텍처 정확성을 단독으로 증명;
 - matcher 밖 수동·외부 attestation이 실제로 수행됐는지 독립적으로 증명;
 - 허용된 사용자 프로그램 내부에 숨은 여러 동작을 차단;
