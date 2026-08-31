@@ -25,7 +25,9 @@ Run only the checks that are actually needed.
 
 That works until context grows, the task branches, or the agent decides to plan and prove the same thing again.
 
-Click moves those rules out of prompt-only convention and into the supported tool boundary.
+Click moves authority and evidence guarantees into the supported tool boundary.
+Exploration preferences remain non-blocking guidance there; they do not become
+execution authority.
 
 ```text
 request
@@ -67,7 +69,7 @@ A prompt can tell an agent what it *should* do. Click adds persistent state arou
 | --- | --- |
 | Hope the model remembers the plan | Persist the approved workflow state |
 | Hope approval happens at the right time | Stage a digest-bound `contract_id` and require a later user turn |
-| Ask the agent not to rescan | Allow one useful root inventory, then require narrower inspection |
+| Ask the agent not to rescan | Offer non-blocking narrowing guidance; inventory count does not alter authority |
 | Ask the agent not to replan | Offer non-blocking guidance; `update_plan` cannot alter contract authority |
 | Ask the agent not to rerun proof | Reuse current structured evidence and receipts |
 | Let verification expand with the task | Bind completion evidence to an approved verification budget |
@@ -84,7 +86,7 @@ During staging, implementation, review, and verification, Click can enforce thes
 - **Proposal and approval are separate.** Staging emits an opaque `contract_id`; the same user turn cannot both stage and pass it.
 - **Mutation waits for approval.** An active contract remains locked until the exact staged ID is approved and passed.
 - **Planning stays advisory.** Plan tools such as `update_plan` remain available and cannot approve, replace, or widen the active contract.
-- **Repository exploration narrows.** One useful root inventory may run for the current revision; later broad inventories are rejected in favor of path-scoped inspection.
+- **Repository exploration stays advisory.** A distinct-digest broad inventory remains available with narrowing guidance even while another broad inventory is running or after one succeeds; exact-request reuse and execution interlocks remain separate hard guards.
 - **Successful observations are reused.** The same successful structured read is not repeated until an in-scope mutation makes it stale.
 - **Verification is evidence-bound.** Local checks name the approved `evidence_id` they prove, and cumulative verification stays within the approved scale.
 - **Completion follows the code.** A mutation advances the revision and makes older completion evidence stale rather than silently reusing it.
@@ -186,7 +188,7 @@ The exact design is repository-dependent. The example shows the contract shape, 
 | --- | --- |
 | Reuse evidence | A successful identical structured read/search is not repeated until an in-scope mutation makes it stale |
 | Advise without gating plans | `update_plan` remains available; its output cannot stage, approve, replace, or widen a contract |
-| Inventory once, then narrow | The first useful root inventory may run for the current revision; later broad inventories are rejected |
+| Advise after broad inventory | Distinct broad requests remain available with narrowing guidance; exact running or successful requests retain the separate reuse guard |
 | Make command intent explicit | Ambiguous active shell work is replaced by structured `inspect`, `mutate`, `service`, or `verify` paths |
 | Keep verification in one budget | Each local check names its registered `argv` source and cumulative reservations must fit the approved scale |
 | Track completion by source | All declared sources must be current; no placeholder local check is invented when no `argv` source exists |

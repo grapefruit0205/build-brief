@@ -510,6 +510,9 @@ def _control(arguments: list[str]) -> int:
     if output.get("permissionDecision") == "deny":
         sys.stderr.write(str(output.get("permissionDecisionReason", "Click denied")) + "\n")
         return 2
+    additional_context = output.get("additionalContext")
+    if isinstance(additional_context, str) and additional_context.strip():
+        sys.stderr.write(additional_context.rstrip() + "\n")
     updated = output.get("updatedInput")
     command = updated.get("command") if isinstance(updated, dict) else None
     if not isinstance(command, str) or not command:

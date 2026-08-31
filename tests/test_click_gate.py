@@ -159,6 +159,22 @@ class ClickGateTests(unittest.TestCase):
         self.assertNotIn("updatedInput", output)
         self.assertIn(expected_context, output["additionalContext"])
 
+    def assert_inventory_advisory(
+        self, payload: dict | None, expected_context: str
+    ) -> None:
+        self.assertIsNotNone(payload)
+        assert payload is not None
+        output = payload["hookSpecificOutput"]
+        self.assertEqual(output["hookEventName"], "PreToolUse")
+        self.assertEqual(output["permissionDecision"], "allow")
+        self.assertNotIn("permissionDecisionReason", output)
+        self.assertIn(
+            "run-observation",
+            split_runner_command(output["updatedInput"]["command"]),
+        )
+        self.assertIn("Click advisory", output["additionalContext"])
+        self.assertIn(expected_context, output["additionalContext"])
+
     def tool_hook(
         self,
         mode: str,
@@ -686,6 +702,44 @@ class ClickGateTests(unittest.TestCase):
         self.assertEqual(
             repeated["hookSpecificOutput"]["permissionDecision"], "deny"
         )
+
+    def test_structured_broad_inspection_allows_advised_cross_digest_repeat(
+        self,
+    ) -> None:
+        self.initialize_git("verification_fixture.py")
+        self.approve_contract()
+
+        first = self.inspect_gate([["git", "ls-files"]], "turn-2")
+        self.assertEqual(first["hookSpecificOutput"]["permissionDecision"], "allow")
+        self.assertNotIn("additionalContext", first["hookSpecificOutput"])
+        self.assertEqual(self.run_rewritten(first).returncode, 0)
+
+        cross_digest = self.inspect_gate(
+            [["git", "ls-files", "--cached"]], "turn-2"
+        )
+        self.assert_inventory_advisory(cross_digest, "already completed")
+        self.assertEqual(self.run_rewritten(cross_digest).returncode, 0)
+
+        identical = self.inspect_gate([["git", "ls-files"]], "turn-2")
+        self.assertEqual(
+            identical["hookSpecificOutput"]["permissionDecision"], "deny"
+        )
+        self.assertIn(
+            "identical successful read",
+            identical["hookSpecificOutput"]["permissionDecisionReason"],
+        )
+
+    def test_broad_inventory_advisory_is_independent_of_model_identity(self) -> None:
+        self.initialize_git("verification_fixture.py")
+        self.approve_contract()
+
+        first = self.pre_tool("Bash", "git ls-files", "turn-2")
+        self.assertEqual(self.run_rewritten(first).returncode, 0)
+
+        self.base_event["model"] = "different-frontier-model"
+        second = self.pre_tool("Bash", "git ls-files --cached", "turn-2")
+        self.assert_inventory_advisory(second, "already completed")
+        self.assertEqual(self.run_rewritten(second).returncode, 0)
 
     def test_structured_inspection_rejects_shells_and_write_options(self) -> None:
         for commands in (
@@ -2007,7 +2061,7 @@ class ClickGateTests(unittest.TestCase):
         self.assertEqual(state["contract_id"], contract_id)
         self.assertEqual(state["approved_turn_id"], "turn-2")
 
-    def test_incomplete_approved_contract_allows_one_later_turn_root_inventory(self) -> None:
+    def test_incomplete_approved_contract_advises_on_parallel_root_inventory(self) -> None:
         self.initialize_git("verification_fixture.py")
         self.set_default("manual", "turn-0")
         self.arm_gate("turn-1")
@@ -2018,22 +2072,28 @@ class ClickGateTests(unittest.TestCase):
         first = self.pre_tool("Bash", "git ls-files", turn_id="turn-3")
         self.assertEqual(first["hookSpecificOutput"]["permissionDecision"], "allow")
         parallel = self.pre_tool(
-            "Bash", "find . -maxdepth 2 -type f", turn_id="turn-3"
+            "Bash", "git ls-files --cached", turn_id="turn-3"
+        )
+        self.assert_inventory_advisory(parallel, "already running")
+
+        identical_running = self.pre_tool(
+            "Bash", "git ls-files", turn_id="turn-3"
         )
         self.assertEqual(
-            parallel["hookSpecificOutput"]["permissionDecision"], "deny"
+            identical_running["hookSpecificOutput"]["permissionDecision"], "deny"
         )
         self.assertIn(
-            "already running",
-            parallel["hookSpecificOutput"]["permissionDecisionReason"],
+            "identical Click read or search is already running",
+            identical_running["hookSpecificOutput"]["permissionDecisionReason"],
         )
         self.assertEqual(self.run_rewritten(first).returncode, 0)
+        self.assertEqual(self.run_rewritten(parallel).returncode, 0)
         repeated = self.pre_tool("Bash", "git ls-files", turn_id="turn-3")
         self.assertEqual(
             repeated["hookSpecificOutput"]["permissionDecision"], "deny"
         )
         self.assertIn(
-            "already completed one successful repository-wide inventory",
+            "identical successful read",
             repeated["hookSpecificOutput"]["permissionDecisionReason"],
         )
 
@@ -4142,7 +4202,7 @@ class ClickGateTests(unittest.TestCase):
             repeated["hookSpecificOutput"]["permissionDecisionReason"],
         )
 
-    def test_review_mode_allows_one_root_inventory_then_requires_narrowing(self) -> None:
+    def test_review_mode_advises_narrowing_after_root_inventory(self) -> None:
         self.set_default("on")
         self.start_review()
         (self.workspace / "review.py").write_text("value = 1\n", encoding="utf-8")
@@ -4158,11 +4218,17 @@ class ClickGateTests(unittest.TestCase):
         self.assertEqual(first["hookSpecificOutput"]["permissionDecision"], "allow")
         self.assertEqual(self.run_rewritten(first).returncode, 0)
 
-        second = self.pre_tool("Bash", "find . -maxdepth 2 -type f")
-        self.assertEqual(second["hookSpecificOutput"]["permissionDecision"], "deny")
+        second = self.pre_tool("Bash", "git ls-files --cached")
+        self.assert_inventory_advisory(second, "already completed")
+        self.assertEqual(self.run_rewritten(second).returncode, 0)
+
+        identical = self.pre_tool("Bash", "git ls-files")
+        self.assertEqual(
+            identical["hookSpecificOutput"]["permissionDecision"], "deny"
+        )
         self.assertIn(
-            "one successful repository-wide inventory",
-            second["hookSpecificOutput"]["permissionDecisionReason"],
+            "identical successful read",
+            identical["hookSpecificOutput"]["permissionDecisionReason"],
         )
 
     def test_review_mode_keeps_mutations_blocked_but_advises_plan(self) -> None:
@@ -4348,7 +4414,9 @@ class ClickGateTests(unittest.TestCase):
             blocked_large["hookSpecificOutput"]["permissionDecision"], "deny"
         )
 
-    def test_approved_boundary_allows_one_inventory_then_blocks_rescans(self) -> None:
+    def test_approved_boundary_advises_broad_rescans_and_resets_on_mutation(
+        self,
+    ) -> None:
         (self.workspace / "threshold.txt").write_text(
             "threshold\n", encoding="utf-8"
         )
@@ -4357,25 +4425,15 @@ class ClickGateTests(unittest.TestCase):
         first = self.pre_tool("Bash", "git ls-files", "turn-2")
         self.assertEqual(first["hookSpecificOutput"]["permissionDecision"], "allow")
         parallel = self.pre_tool(
-            "Bash", "find . -maxdepth 2 -type f", "turn-2"
+            "Bash", "git ls-files --cached", "turn-2"
         )
-        self.assertEqual(
-            parallel["hookSpecificOutput"]["permissionDecision"], "deny"
-        )
-        self.assertIn(
-            "already running",
-            parallel["hookSpecificOutput"]["permissionDecisionReason"],
-        )
+        self.assert_inventory_advisory(parallel, "already running")
         self.assertEqual(self.run_rewritten(first).returncode, 0)
+        self.assertEqual(self.run_rewritten(parallel).returncode, 0)
 
-        repeated = self.pre_tool("Bash", "ls -R", "turn-2")
-        self.assertEqual(
-            repeated["hookSpecificOutput"]["permissionDecision"], "deny"
-        )
-        self.assertIn(
-            "already completed one successful repository-wide inventory",
-            repeated["hookSpecificOutput"]["permissionDecisionReason"],
-        )
+        repeated = self.pre_tool("Bash", "git ls-files --stage", "turn-2")
+        self.assert_inventory_advisory(repeated, "already completed")
+        self.assertEqual(self.run_rewritten(repeated).returncode, 0)
 
         for command in (
             "git ls-files -- src",
@@ -4403,6 +4461,7 @@ class ClickGateTests(unittest.TestCase):
         self.assertEqual(
             after_mutation["hookSpecificOutput"]["permissionDecision"], "allow"
         )
+        self.assertNotIn("additionalContext", after_mutation["hookSpecificOutput"])
 
     def test_approved_contract_advises_plan_but_still_blocks_replacement(self) -> None:
         self.approve_contract()

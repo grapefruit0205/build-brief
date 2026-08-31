@@ -35,7 +35,7 @@ class RepositoryPolicyTests(unittest.TestCase):
         )
         self.assertIn("automatically", manifest["interface"]["longDescription"].lower())
         self.assertIn(
-            "plan tools remain available with non-blocking advisory guidance",
+            "plan tools and distinct-digest broad inventories remain available with non-blocking advisory guidance",
             manifest["interface"]["longDescription"].lower(),
         )
         self.assertIn(
@@ -225,6 +225,9 @@ class RepositoryPolicyTests(unittest.TestCase):
         self.assertIn("non-blocking guidance", english)
         self.assertIn("비차단 안내", korean)
         self.assertIn("非阻断提示", chinese)
+        self.assertIn("distinct-digest broad inventory remains available", english)
+        self.assertIn("서로 다른 digest의 broad inventory", korean)
+        self.assertIn("不同 digest 的 broad inventory", chinese)
         self.assertIn("Implementation without loops", english)
         self.assertIn("hidden reasoning", english)
         self.assertIn("실행 루프 없이 구현", korean)
@@ -308,7 +311,7 @@ class RepositoryPolicyTests(unittest.TestCase):
         golden = (ROOT / "evals" / "golden-prompts.yaml").read_text(
             encoding="utf-8"
         )
-        self.assertIn("version: 19", golden)
+        self.assertIn("version: 20", golden)
         self.assertIn(
             "## Evidence-bound completion in v0.21.0",
             (ROOT / "README.md").read_text(encoding="utf-8"),
@@ -409,10 +412,15 @@ class RepositoryPolicyTests(unittest.TestCase):
         )
         for tier in ("### CORE", "### USER_POLICY", "### HEURISTIC"):
             self.assertIn(tier, constitution)
+        self.assertIn("Cross-model, cross-host invariants", constitution)
+        self.assertIn("model-specific workflow tuning", constitution)
         self.assertIn("argv verification receipts", constitution)
         self.assertIn("does not maintain\nan append-only", constitution)
 
-        self.assertIn("plan-tool advisory migration applied", classification)
+        self.assertIn(
+            "plan-tool and broad-inventory advisory migrations applied",
+            classification,
+        )
         for tier in ("## CORE", "## USER_POLICY", "## HEURISTIC"):
             self.assertIn(tier, classification)
         self.assertIn("## Known assurance gaps", classification)
@@ -577,7 +585,7 @@ class RepositoryPolicyTests(unittest.TestCase):
         catalog = (
             ROOT / "evals" / "golden-prompts.yaml"
         ).read_text(encoding="utf-8")
-        self.assertIn("version: 19", catalog)
+        self.assertIn("version: 20", catalog)
         for case_id in (
             "unset-first-mutation-choice",
             "always-on-trivial-edit",
@@ -594,6 +602,7 @@ class RepositoryPolicyTests(unittest.TestCase):
         self.assertIn("id: verification-workspace-mutation", catalog)
         self.assertIn("id: distinct-turn-contract-approval", catalog)
         self.assertIn("id: active-lifecycle-plan-advisory", catalog)
+        self.assertIn("id: broad-inventory-advisory", catalog)
         self.assertIn("id: cheapest-evidence-browser-game", catalog)
 
     def test_multiplatform_adapter_is_documented_without_false_parity(self) -> None:
@@ -615,6 +624,8 @@ class RepositoryPolicyTests(unittest.TestCase):
         self.assertIn("model_stop", platform)
         self.assertIn("cannot rewrite tool arguments", platform)
         self.assertIn("not claimed", platform)
+        self.assertIn("control inspect", platform)
+        self.assertIn("non-blocking narrowing advisory", platform)
 
 
 if __name__ == "__main__":

@@ -1,6 +1,6 @@
 # Click Guard Classification
 
-Status: **Living inventory; plan-tool advisory migration applied**
+Status: **Living inventory; plan-tool and broad-inventory advisory migrations applied**
 
 Baseline: **v0.24.6 plus the canonical product-boundary change at `73072a9`**
 
@@ -22,7 +22,7 @@ not claim that every hard gate has already been moved to its target layer.
 | Protected Git-tree, environment and executable fingerprints for argv verification; verification-time mutation detection | verification receipt helpers and runners in `hooks/click_gate.py` | Preserves the identity of the code and environment actually checked by Click's argv runner |
 | Enforcement of an approved verification budget against observable argv, including minimum-class inference from the submitted command | verification request validation and preparation in `hooks/click_gate.py` | Prevents an underdeclared check from bypassing the user's approved ceiling |
 | Direct-argv capability safety, executable/path/environment checks, process-control rejection and read-only side-effect defenses | capability constants and validators in `hooks/click_gate.py` | Prevents an admitted inspect, verify or service request from gaining unapproved effects |
-| Concurrency interlocks for mutation, observation, verification and managed services | runner reservation and claim state in `hooks/click_gate.py` | Prevents an authorized action or receipt from racing into a different state |
+| Mutation, verification and managed-service interlocks around active runner claims | runner reservation and claim state in `hooks/click_gate.py` | Prevents an authorized side effect or receipt from racing into a different state without treating distinct observation concurrency as authority |
 | Host event normalization and state/receipt-preserving result mapping | `hooks/click_hook.py`, `hooks/antigravity_gate.py`, `hooks/platform_protocol.py` | Ensures observable host actions reach the same authorization protocol |
 
 ## USER_POLICY
@@ -38,7 +38,7 @@ not claim that every hard gate has already been moved to its target layer.
 | Current strategic guard | Current owner | Target behavior |
 | --- | --- | --- |
 | Blocking a repeated successful read or search and allowing only one unchanged retry | observation preparation in `hooks/click_gate.py` | Advisory or telemetry |
-| Allowing one broad repository inventory per revision | broad-exploration classifiers and observation preparation | Advisory or explicit user policy |
+| Advising after broad repository inventory | broad-exploration classifiers, observation preparation and host adapters | Advisory only — cross-digest running/success hard denial removed in the v0.25 candidate; exact-digest reuse and execution interlocks remain separate |
 | Advising on `update_plan` or equivalent host plan tools | plan-tool branch in `hooks/click_gate.py`; host matchers and adapters | Advisory only — hard denial removed in the v0.25 candidate |
 | Choosing the proposed evidence source, verification scale or cheapest proof strategy before approval | Skill, eval and documentation policy | Model strategy or explicit user policy; runtime minimum-class enforcement of the approved ceiling remains Core |
 | Requiring a mutation after a fixed number of otherwise legitimate failed retries | verification and Browser retry handling | Advisory or explicit user policy |
@@ -49,6 +49,8 @@ not claim that every hard gate has already been moved to its target layer.
 
 - Plan-tool guidance is `HEURISTIC`; preventing replacement or widening of an
   approved contract without new approval is `CORE`.
+- Broad-inventory count and scope are `HEURISTIC`; exact request identity,
+  one-use runner claims, mutation and verification interlocks are `CORE`.
 - Selecting verification breadth and cost is `HEURISTIC` or `USER_POLICY`;
   exact argv, evidence ID, revision and receipt binding—and conservative
   minimum-class enforcement of the approved budget—are `CORE`.
@@ -95,7 +97,7 @@ stronger guarantee than the runtime can observe.
 1. **Complete:** Treat the v0.24.6 state-root recovery, distribution, tests and release as complete.
 2. **Complete:** Establish this classification without changing behavior.
 3. **Complete in the v0.25 candidate:** Convert plan-tool hard denial to advisory output.
-4. Convert broad-inventory counting to advisory output.
+4. **Complete in the v0.25 candidate:** Convert broad-inventory counting to advisory output while retaining exact-digest observation reuse and Core execution interlocks.
 5. Convert duplicate-read and fixed legitimate-retry denials to advisory output.
 6. Separate approved verification policy from automatic strategy and cost inference.
 7. Separate Browser receipt integrity from Browser workflow tuning.

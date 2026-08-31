@@ -106,6 +106,34 @@ class AntigravityAdapterTests(unittest.TestCase):
         ]
         return shlex.join(argv)
 
+    def initialize_git(self, *tracked_paths: str) -> None:
+        initialized = subprocess.run(
+            ["git", "init", "--quiet"],
+            cwd=self.workspace,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(initialized.returncode, 0, initialized.stderr)
+        subprocess.run(
+            ["git", "add", *tracked_paths], cwd=self.workspace, check=True
+        )
+        subprocess.run(
+            [
+                "git",
+                "-c",
+                "user.name=Click Tests",
+                "-c",
+                "user.email=click-tests@example.invalid",
+                "commit",
+                "--quiet",
+                "-m",
+                "fixture",
+            ],
+            cwd=self.workspace,
+            check=True,
+        )
+
     def contract(self) -> dict:
         return {
             "outcome": "write one approved file without replanning",
@@ -387,6 +415,31 @@ class AntigravityAdapterTests(unittest.TestCase):
         matcher = hooks["click-tools"]["PreToolUse"][0]["matcher"]
         self.assertIsNone(re.search(matcher, "mcp__example__read"))
 
+    def test_control_inspect_surfaces_broad_inventory_advisory_without_blocking(
+        self,
+    ) -> None:
+        self.initialize_git("tests/test_sample.py")
+        self.approve()
+        first_request = json.dumps(
+            {"version": 1, "commands": [["git", "ls-files"]]}
+        )
+        second_request = json.dumps(
+            {"version": 1, "commands": [["git", "ls-files", "--cached"]]}
+        )
+
+        first = self.control("inspect", first_request)
+        self.assertEqual(first.returncode, 0, first.stderr)
+        self.assertNotIn("Click advisory", first.stderr)
+
+        second = self.control("inspect", second_request)
+        self.assertEqual(second.returncode, 0, second.stderr)
+        self.assertIn("Click advisory", second.stderr)
+        self.assertIn("already completed", second.stderr)
+
+        identical = self.control("inspect", first_request)
+        self.assertNotEqual(identical.returncode, 0)
+        self.assertIn("identical successful read", identical.stderr)
+
     def test_plain_cancel_is_recovered_from_the_transcript(self) -> None:
         self.pre_invocation("build this")
         self.assertEqual(self.control("default", "on").returncode, 0)
@@ -407,12 +460,20 @@ class AntigravityAdapterTests(unittest.TestCase):
         self.assertIn("Stop", hooks["click-context"])
         self.assertIn("PreToolUse", hooks["click-tools"])
         self.assertIn("PostToolUse", hooks["click-tools"])
-        plan_matcher = re.compile(
+        pre_tool_matcher = re.compile(
             hooks["click-tools"]["PreToolUse"][0]["matcher"]
         )
-        for tool_name in ("update_plan", "create_plan"):
+        for tool_name in (
+            "update_plan",
+            "create_plan",
+            "run_command",
+            "write_to_file",
+            "replace_file_content",
+            "multi_replace_file_content",
+        ):
             with self.subTest(tool_name=tool_name):
-                self.assertIsNotNone(plan_matcher.fullmatch(tool_name))
+                self.assertIsNotNone(pre_tool_matcher.fullmatch(tool_name))
+        self.assertIsNone(pre_tool_matcher.fullmatch("mcp__example__read"))
 
 
 if __name__ == "__main__":

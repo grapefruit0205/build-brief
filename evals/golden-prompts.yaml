@@ -1,4 +1,4 @@
-version: 19
+version: 20
 skill: click
 evaluation_conditions:
   - no-plugin
@@ -43,6 +43,7 @@ evaluation_dimensions:
   - verification_scope_classification
   - distinct_user_turn_approval
   - active_lifecycle_plan_advisory
+  - broad_inventory_advisory
   - manual_session_mutation_lock
   - isolated_ab_provenance
 grading_priority:
@@ -95,7 +96,7 @@ global_invariants:
   - "Declares each evidence source once with a unique id and supported kind, assigns every done_when condition one primary_evidence id, allows one id to cover several conditions, and does not duplicate proof through another tool or surface"
   - "Binds every final argv check to a declared argv source through evidence_id, permits any nonempty unresolved subset, reserves each source's exact check group and inferred units for the active contract, enforces one cumulative scale ceiling, records completion per id and mutation revision, and does not require an unrelated local batch when no argv source exists"
   - "Finalizes observed Browser evidence explicitly, keeps observed status monotonic until mutation, and treats hosted, manual, and existing completion as attestations rather than claiming independently observed execution"
-  - "Allows the first broad repository inventory for an approved or review current revision, then blocks concurrent or later broad inventory after success even when the argv differs"
+  - "Keeps broad-inventory count non-blocking and non-authoritative: a distinct-digest broad inventory receives narrowing guidance and may run despite prior broad running or success, while exact-digest running or success denial, mutation and verification interlocks, and runner safety remain hard"
   - "Skips an exact successful argv check only for the same active contract and mutation revision when its check group, protected Git tree, canonical execution environment, and executable fingerprint match; a new mutation revision never auto-promotes stale evidence"
   - "Deduplicates Browser work by normalized input: success blocks repetition, failure gets one identical retry, different input remains available, and serial 30-second-call and five-second-wait limits stay enforced without a normal three-call or 90-second cap"
   - "Uses browser, manual, hosted, broad-suite, or timed end-to-end evidence only when cheaper evidence cannot prove the condition, then stops when all conditions have current evidence"
@@ -407,11 +408,11 @@ cases:
     expected_mutation_gate: read-only-review
     directive_semantics:
       - "Uses the read-only review guard without a build contract or approval prompt"
-      - "Allows initial repository context through structured inspection, then narrows inspection and reuses successful evidence"
-      - "Blocks repeated successful structured reads, concurrent or post-success root inventory, and mutation while leaving plan tools non-blocking and non-authoritative"
+      - "Allows repository context through structured inspection, then advises focused follow-up and reuses exact successful evidence"
+      - "Allows distinct-digest concurrent or later broad inventory with non-blocking guidance while blocking exact-digest running or successful requests and mutation"
       - "Reports only evidence-backed findings"
     minimality_expectations:
-      reuse: "The first useful inventory and focused authentication evidence"
+      reuse: "Current observation evidence and focused authentication evidence"
       reject_without_evidence:
         - "A build contract, implementation plan, or file mutation"
 
@@ -551,6 +552,22 @@ cases:
       reuse: "The existing contract authority and Hook routing boundaries"
       reject_without_evidence:
         - "A new plan ledger or semantic planning service"
+
+  - id: broad-inventory-advisory
+    prompt: "@Click 서로 다른 broad inventory는 이전 broad 요청이 실행 중이거나 성공했어도 hard block하지 말고 범위를 좁히라는 advisory만 제공해줘."
+    default_mode: on
+    expected_activation: true
+    expected_mode: build
+    expected_mutation_gate: none-before-approval
+    directive_semantics:
+      - "Allows a distinct-digest broad inventory with non-blocking narrowing context even when another broad inventory is running or already succeeded"
+      - "Keeps exact-digest running and successful requests blocked by the separate observation reuse and replay rule"
+      - "Preserves mutation and verification interlocks plus runner claim, path, environment, cancellation, tampering, and replay checks"
+      - "Does not make inventory count authoritative or add a scan ledger or policy engine"
+    minimality_expectations:
+      reuse: "Existing broad classifier, observation digests, advisory output, and structured runner"
+      reject_without_evidence:
+        - "A new inventory budget, semantic search planner, or user approval step"
 
   - id: manual-session-mutation-lock
     prompt: "@Click Manual 모드에서 계약을 승인했어. pass하기 전에 다음 turn에서 코드를 먼저 바꾸지 못하게 해줘."

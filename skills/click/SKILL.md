@@ -38,7 +38,7 @@ Only in a later turn whose user response explicitly approves the shown proposal,
 
 ## Execute the approved boundary once
 
-Before implementation, read the [anti-loop policy](references/anti-loop-policy.md) and [structured capability protocol](references/capability-protocol.md). Implement continuously without a replacement plan, contract, or repository-wide rediscovery. Use their canonical inspect, mutate, managed-service, and verify forms rather than duplicating command details here.
+Before implementation, read the [anti-loop policy](references/anti-loop-policy.md) and [structured capability protocol](references/capability-protocol.md). Prefer focused follow-up after broad repository context; this is non-blocking strategy guidance, not contract authority. Implement continuously without a replacement plan or contract. Use their canonical inspect, mutate, managed-service, and verify forms rather than duplicating command details here.
 
 Collect each assigned source once after the last mutation that can invalidate it. Reuse current successful evidence, keep Browser or hosted work out of a shadow verification suite, and stop verification when every completion condition has current evidence. Stop any managed service before declaring completion. A failed or stale source may be repaired or replaced under the documented retry rules; it is not a reason to accumulate another proof path.
 

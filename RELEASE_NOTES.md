@@ -17,6 +17,19 @@ runtime authority.
   contract and avoiding unnecessary parallel planning, but that recommendation
   is non-blocking and non-authoritative.
 
+### Broad-inventory counts become non-blocking advisory
+
+- A distinct-digest broad repository inventory may run even while another broad
+  inventory is running or after one succeeds; narrowing context is advisory.
+- The decision depends on observable argv, request digest, revision, and runtime
+  state—not model identity or a model-specific workflow score.
+- Exact-digest running or successful requests remain blocked by separate
+  observation reuse and replay protections. Broad advice cannot alter contract,
+  digest, mutation, or evidence authority.
+- Structured read admission, one-use claims, path and environment safety,
+  cancellation, replay and tamper checks, mutation and verification interlocks,
+  output caps, and retained-state limits remain unchanged.
+
 ### Runtime authority remains hard
 
 - Distinct-turn approval and exact contract-digest binding remain required.
