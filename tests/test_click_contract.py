@@ -89,11 +89,6 @@ class ClickContractTests(unittest.TestCase):
         for name, expected in aliases.items():
             with self.subTest(name=name):
                 self.assertIs(getattr(click_gate, name), expected)
-        self.assertEqual(
-            click_gate.MAX_CONTRACT_CHARS,
-            click_contract.MAX_CONTRACT_CHARS,
-        )
-
     def test_valid_contract_is_returned_without_normalization(self) -> None:
         full = copy.deepcopy(self.contract)
         full["build"]["semantics"] = ["preserve errors"]
@@ -148,11 +143,6 @@ class ClickContractTests(unittest.TestCase):
         )
 
         cases = (
-            (
-                "oversized",
-                "x" * (click_contract.MAX_CONTRACT_CHARS + 1),
-                "Execution Contract is too large; keep it compact and under 4,000 characters.",
-            ),
             ("invalid json", "{", "Execution Contract must be valid JSON."),
             ("not object", "[]", "Execution Contract must be a JSON object."),
             (
@@ -212,6 +202,17 @@ class ClickContractTests(unittest.TestCase):
                     click_contract.validate_contract(raw),
                     (None, expected),
                 )
+
+    def test_valid_contract_is_not_rejected_by_prose_length(self) -> None:
+        contract = copy.deepcopy(self.contract)
+        contract["plain_language"] = "계약의 의미를 충분히 설명합니다. " * 300
+
+        value, error = click_contract.validate_contract(
+            json.dumps(contract, ensure_ascii=False)
+        )
+
+        self.assertEqual(error, "")
+        self.assertEqual(value, contract)
 
     def test_profile_recommendation_does_not_limit_argv_source_count(self) -> None:
         contract = copy.deepcopy(self.contract)

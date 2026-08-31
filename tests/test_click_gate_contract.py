@@ -602,14 +602,14 @@ class ClickGateContractTests(ClickGateTestCase):
         self.assertEqual(output["permissionDecision"], "deny")
         self.assertIn("surprise_scope", output["permissionDecisionReason"])
 
-    def test_contract_size_is_capped_to_prevent_planning_bloat(self) -> None:
+    def test_contract_prose_length_does_not_control_staging_authority(self) -> None:
         contract = self.contract()
         contract["outcome"] = "x" * 4_000
-        command = f"click-gate stage {shlex.quote(json.dumps(contract))}"
-        payload = self.pre_tool("Bash", command)
+        self.arm_gate("turn-large-contract")
+        payload = self.stage_gate(contract, "turn-large-contract")
         output = payload["hookSpecificOutput"]
-        self.assertEqual(output["permissionDecision"], "deny")
-        self.assertIn("4,000", output["permissionDecisionReason"])
+        self.assertEqual(output["permissionDecision"], "allow")
+        self.assertNotIn("4,000", output.get("permissionDecisionReason", ""))
 
     def test_legacy_verbose_contract_fields_are_rejected(self) -> None:
         for field in (

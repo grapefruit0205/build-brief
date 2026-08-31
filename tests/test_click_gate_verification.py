@@ -21,6 +21,25 @@ from click_gate_test_support import (
 
 
 class ClickGateVerificationTests(ClickGateTestCase):
+    def test_verification_batch_has_no_fixed_check_count_cap(self) -> None:
+        checks = [
+            {
+                "argv": ["git", "diff", "--check"],
+                "class": "targeted",
+            }
+            for _ in range(9)
+        ]
+
+        batch, _, error = CLICK_GATE._validate_verification_batch(
+            json.dumps({"version": 2, "checks": checks}),
+            "focused",
+        )
+
+        self.assertEqual(error, "")
+        self.assertIsNotNone(batch)
+        assert batch is not None
+        self.assertEqual(len(batch["checks"]), 9)
+
     def test_quick_profile_does_not_control_verification_authority(self) -> None:
         contract = self.contract()
         contract["verification"]["scale"] = "quick"
