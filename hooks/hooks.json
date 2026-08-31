@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${PLUGIN_ROOT}/hooks/click_hook.py\" prompt-submit",
+            "command": "python3 \"${PLUGIN_ROOT}/hooks/click_gate.py\" prompt-submit",
             "commandWindows": "\"${PLUGIN_ROOT}\\hooks\\click_windows.cmd\" prompt-submit",
             "timeout": 7,
             "additionalContextLimit": 1400
@@ -16,7 +16,18 @@
     ],
     "PreToolUse": [
       {
-        "matcher": "^(Bash|shell_command|functions\\.shell_command|exec_command|functions\\.exec_command|unified_exec|functions\\.unified_exec|exec|functions\\.exec|code_mode_exec|apply_patch|functions\\.apply_patch|Edit|Write|update_plan|functions\\.update_plan|mcp__node_repl__js)$",
+        "matcher": "^(Bash|apply_patch|Edit|Write|update_plan|functions\\.update_plan|mcp__node_repl__js)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${PLUGIN_ROOT}/hooks/click_gate.py\" pre-tool",
+            "commandWindows": "\"${PLUGIN_ROOT}\\hooks\\click_windows.cmd\" pre-tool",
+            "timeout": 7
+          }
+        ]
+      },
+      {
+        "matcher": "^(shell_command|functions\\.shell_command|exec_command|functions\\.exec_command|unified_exec|functions\\.unified_exec|exec|functions\\.exec|code_mode_exec|functions\\.apply_patch)$",
         "hooks": [
           {
             "type": "command",
@@ -33,7 +44,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${PLUGIN_ROOT}/hooks/click_hook.py\" post-tool",
+            "command": "python3 \"${PLUGIN_ROOT}/hooks/click_gate.py\" post-tool",
             "commandWindows": "\"${PLUGIN_ROOT}\\hooks\\click_windows.cmd\" post-tool",
             "timeout": 7
           }
@@ -45,7 +56,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${PLUGIN_ROOT}/hooks/click_hook.py\" session-end",
+            "command": "python3 \"${PLUGIN_ROOT}/hooks/click_gate.py\" session-end",
             "commandWindows": "\"${PLUGIN_ROOT}\\hooks\\click_windows.cmd\" session-end",
             "timeout": 3
           }
