@@ -51,10 +51,12 @@ Click 不再只把这些规则当作**提示词里的要求**，而是把它们�
 
 Click 的稳定产品边界是授权与证据 runtime，而不是模型工作流优化器。
 正式的准入测试和策略分层见 [Click 产品宪法](PRODUCT_CONSTITUTION.md)，
-当前不改变运行行为的清单见 [Click guard 分类](GUARD_CLASSIFICATION.md)。
+当前 guard 清单和迁移状态见 [Click guard 分类](GUARD_CLASSIFICATION.md)。
 
-v0.24.6 仍包含下文所述的旧 anti-loop hard gate。在后续独立变更把策略性
-规则迁移为显式用户策略或非阻断 advisory 之前，本文仍如实描述当前行为。
+Click 将权限与 evidence 完整性保留为 hard runtime 保证，同时把模型的
+workflow 策略视为不具授权效力的提示。尤其是，`update_plan` 仍然可用，
+但它不能批准、替换或扩大 active contract，也不会改变 contract digest 或
+evidence 状态。
 
 ## 为什么需要 Click？
 
@@ -65,7 +67,7 @@ v0.24.6 仍包含下文所述的旧 anti-loop hard gate。在后续独立变更�
 | 希望模型一直记住计划 | 持久保存已批准的 workflow 状态 |
 | 希望批准恰好发生在正确时机 | stage 一个绑定 digest 的 `contract_id`，并要求后续用户 turn |
 | 要求代理不要重新扫描 | 允许第一次有价值的 root inventory，之后强制缩小范围 |
-| 要求代理不要重新规划 | workflow active 时拒绝匹配到的 `update_plan` churn |
+| 要求代理不要重新规划 | 提供非阻断提示；`update_plan` 不能改变 contract 权限 |
 | 要求代理不要重复同一验证 | 复用 current structured evidence 与 receipt |
 | 任务越做越大，验证也越做越大 | 把完成证据绑定到批准的验证预算 |
 | “看起来完成了”就结束 | 声明证据必须对最新 mutation revision 保持 current |
@@ -80,7 +82,7 @@ v0.24.6 仍包含下文所述的旧 anti-loop hard gate。在后续独立变更�
 
 - **提案与批准分离。** stage 后签发不透明的 `contract_id`；同一个用户 turn 不能同时 stage 和 pass。
 - **批准前阻止 mutation。** active contract 会保持锁定，直到准确的 staged ID 被批准并 pass。
-- **限制重新规划。** Click workflow active 时，匹配到的 `update_plan` 调用会被拒绝；用户明确授权的单 turn bypass 除外。
+- **规划保持 advisory。** `update_plan` 等 plan tool 仍然可用，但不能批准、替换或扩大 active contract。
 - **仓库探索必须逐渐收窄。** 当前 revision 第一次有用的 root inventory 可以执行；之后的 broad inventory 必须缩小到 path-scoped inspection。
 - **复用已经成功的观察。** 在范围内 mutation 使其 stale 之前，不重复相同的 structured read。
 - **验证绑定 evidence。** local check 必须指定它所证明的已批准 `evidence_id`，累计验证必须处于批准规模内。
@@ -182,7 +184,7 @@ codex plugin add click@click
 | 防护规则 | 行为 |
 | --- | --- |
 | 复用已有证据 | 已成功的相同 structured read/search 在范围内 mutation 使其 stale 前不会重复执行 |
-| 阻止 plan churn | workflow 处于 armed、staged、approved-but-incomplete 或 review 状态时，匹配的 `update_plan` 会被拒绝 |
+| 提示但不阻断规划 | `update_plan` 仍然可用，但不能 stage、批准、替换或扩大 contract |
 | 第一次 inventory 后缩小范围 | 当前 revision 第一次有价值的 root inventory 可以执行，之后拒绝 broad inventory |
 | 明确命令意图 | active 状态下含义不明确的 shell 工作改用 structured `inspect`、`mutate`、`service` 或 `verify` |
 | 所有检查共享一个预算 | 每项 local check 指定已注册的 `argv` source，累计预约必须符合批准规模 |

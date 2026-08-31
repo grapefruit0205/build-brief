@@ -51,12 +51,13 @@ done
 
 Click's stable product boundary is an authorization-and-evidence runtime, not a
 model workflow optimizer. The canonical admission test and policy layers are in
-the [Click Product Constitution](PRODUCT_CONSTITUTION.md); the current no-behavior-change
-inventory is in [Click Guard Classification](GUARD_CLASSIFICATION.md).
+the [Click Product Constitution](PRODUCT_CONSTITUTION.md); the current guard
+inventory and migration status are in [Click Guard Classification](GUARD_CLASSIFICATION.md).
 
-v0.24.6 still contains the legacy anti-loop hard gates documented below. Those
-guards remain accurately documented until separate changes move strategic rules
-to explicit user policy or non-blocking advisory behavior.
+Click keeps authority and evidence integrity as hard runtime guarantees while
+treating model workflow strategy as non-authoritative guidance. In particular,
+`update_plan` remains available: it cannot approve, replace, or widen the active
+contract, and it does not change the contract digest or evidence state.
 
 ## Why Click?
 
@@ -67,7 +68,7 @@ A prompt can tell an agent what it *should* do. Click adds persistent state arou
 | Hope the model remembers the plan | Persist the approved workflow state |
 | Hope approval happens at the right time | Stage a digest-bound `contract_id` and require a later user turn |
 | Ask the agent not to rescan | Allow one useful root inventory, then require narrower inspection |
-| Ask the agent not to replan | Reject matched `update_plan` churn while the workflow is active |
+| Ask the agent not to replan | Offer non-blocking guidance; `update_plan` cannot alter contract authority |
 | Ask the agent not to rerun proof | Reuse current structured evidence and receipts |
 | Let verification expand with the task | Bind completion evidence to an approved verification budget |
 | Stop when the agent says it is done | Require declared evidence to be current for the latest mutation revision |
@@ -82,7 +83,7 @@ During staging, implementation, review, and verification, Click can enforce thes
 
 - **Proposal and approval are separate.** Staging emits an opaque `contract_id`; the same user turn cannot both stage and pass it.
 - **Mutation waits for approval.** An active contract remains locked until the exact staged ID is approved and passed.
-- **Replanning is bounded.** Matched `update_plan` calls are rejected while the Click workflow is active, except for an explicitly authorized one-turn bypass.
+- **Planning stays advisory.** Plan tools such as `update_plan` remain available and cannot approve, replace, or widen the active contract.
 - **Repository exploration narrows.** One useful root inventory may run for the current revision; later broad inventories are rejected in favor of path-scoped inspection.
 - **Successful observations are reused.** The same successful structured read is not repeated until an in-scope mutation makes it stale.
 - **Verification is evidence-bound.** Local checks name the approved `evidence_id` they prove, and cumulative verification stays within the approved scale.
@@ -184,7 +185,7 @@ The exact design is repository-dependent. The example shows the contract shape, 
 | Guard | Behavior |
 | --- | --- |
 | Reuse evidence | A successful identical structured read/search is not repeated until an in-scope mutation makes it stale |
-| Block plan churn | Matched `update_plan` calls are rejected while the workflow is armed, staged, approved-but-incomplete, or in review |
+| Advise without gating plans | `update_plan` remains available; its output cannot stage, approve, replace, or widen a contract |
 | Inventory once, then narrow | The first useful root inventory may run for the current revision; later broad inventories are rejected |
 | Make command intent explicit | Ambiguous active shell work is replaced by structured `inspect`, `mutate`, `service`, or `verify` paths |
 | Keep verification in one budget | Each local check names its registered `argv` source and cumulative reservations must fit the approved scale |

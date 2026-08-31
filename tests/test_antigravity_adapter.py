@@ -168,6 +168,10 @@ class AntigravityAdapterTests(unittest.TestCase):
         self.assertEqual(code, 0, error)
         return payload
 
+    def assert_plan_advisory(self, payload: dict, expected_reason: str) -> None:
+        self.assertEqual(payload.get("decision"), "allow")
+        self.assertIn(expected_reason, payload.get("reason", ""))
+
     def test_contract_lifecycle_mutation_and_evidence_share_the_core(self) -> None:
         self.approve()
         allowed = self.pre_tool(
@@ -234,6 +238,32 @@ class AntigravityAdapterTests(unittest.TestCase):
             "view_file", {"AbsolutePath": str(self.workspace / "app.py")}
         )
         self.assertEqual(native_read.get("decision"), "allow")
+
+    def test_missing_context_allows_plan_tools_without_granting_mutation(self) -> None:
+        for tool_name in ("update_plan", "create_plan"):
+            with self.subTest(tool_name=tool_name):
+                plan = self.pre_tool(tool_name, {"plan": []})
+                self.assertEqual(plan.get("decision"), "allow")
+
+        mutation = self.pre_tool(
+            "write_to_file", {"TargetFile": str(self.workspace / "app.py")}
+        )
+        self.assertEqual(mutation.get("decision"), "deny")
+        self.assertIn("PreInvocation context", mutation.get("reason", ""))
+
+    def test_approved_contract_advises_plan_but_still_blocks_replacement(self) -> None:
+        self.approve()
+        for tool_name in ("update_plan", "create_plan"):
+            with self.subTest(tool_name=tool_name):
+                plan = self.pre_tool(tool_name, {"plan": []})
+                self.assert_plan_advisory(plan, "approved contract")
+                self.assertIn("remains authoritative", plan["reason"])
+
+        replacement = self.contract()
+        replacement["outcome"] = "replace the approved outcome without new authority"
+        blocked = self.control("stage", json.dumps(replacement))
+        self.assertNotEqual(blocked.returncode, 0)
+        self.assertIn("already executing one approved contract", blocked.stderr)
 
     def test_pre_invocation_injects_only_the_exact_absolute_control_launcher(self) -> None:
         payload = self.pre_invocation("inspect the project")
@@ -377,6 +407,12 @@ class AntigravityAdapterTests(unittest.TestCase):
         self.assertIn("Stop", hooks["click-context"])
         self.assertIn("PreToolUse", hooks["click-tools"])
         self.assertIn("PostToolUse", hooks["click-tools"])
+        plan_matcher = re.compile(
+            hooks["click-tools"]["PreToolUse"][0]["matcher"]
+        )
+        for tool_name in ("update_plan", "create_plan"):
+            with self.subTest(tool_name=tool_name):
+                self.assertIsNotNone(plan_matcher.fullmatch(tool_name))
 
 
 if __name__ == "__main__":

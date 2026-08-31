@@ -1,5 +1,32 @@
 # Release notes
 
+## Unreleased v0.25 candidate — authorization and evidence core
+
+Click now states its stable product boundary directly: bind AI execution to
+approved intent and return verifiable evidence. Model workflow strategy is not
+runtime authority.
+
+### Plan tools become non-blocking advisory
+
+- `update_plan` and equivalent host plan tools remain available while a Click
+  workflow is armed, staged, approved, or in read-only review.
+- Plan output cannot stage, approve, replace, or widen an execution contract. It
+  does not change the contract digest, mutation authority, revision, or evidence
+  state.
+- Skill guidance may still recommend implementing directly from the compact
+  contract and avoiding unnecessary parallel planning, but that recommendation
+  is non-blocking and non-authoritative.
+
+### Runtime authority remains hard
+
+- Distinct-turn approval and exact contract-digest binding remain required.
+- Unauthorized mutations, mid-run contract replacement, runner replay,
+  cancellation bypass, state tampering, and evidence-integrity failures remain
+  fail-closed.
+- One-use runners remain bound to their exact request, and evidence receipts
+  remain bound to the active contract, mutation revision, protected workspace,
+  execution environment, and executable fingerprint.
+
 ## v0.24.6 — 2026-08-31
 
 Click v0.24.6 is a focused Windows/Codex Desktop compatibility and runner-state

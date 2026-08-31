@@ -493,6 +493,10 @@ def _deny(reason: str) -> None:
     _emit(_OUTPUT_ADAPTER.deny(reason))
 
 
+def _advise(value: str) -> None:
+    _emit(_OUTPUT_ADAPTER.advisory(value))
+
+
 def _allow_rewritten(command: str) -> None:
     _emit(_OUTPUT_ADAPTER.allow(command))
 
@@ -4007,16 +4011,18 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
         contract_state = _read_contract_state(event)
         session_contract_active = _session_contract_is_active(contract_state)
         if status in {"armed", "staged", "passed"} or session_contract_active:
-            _deny(
-                "Click blocked a parallel plan while its compact contract workflow is active. "
-                "Show or implement the one contract directly; only a later user response can "
-                "revise a staged proposal, and only the user can change an approved boundary."
+            _advise(
+                "Click advisory: the Click contract workflow remains authoritative. Use the "
+                "host plan only to track progress; it cannot authorize mutation; replace a "
+                "staged or approved contract; widen the approved outcome, boundary, must-hold "
+                "conditions, or evidence commitments; or satisfy evidence. Obtain new user "
+                "approval before changing those commitments."
             )
         elif status == "review":
-            _deny(
-                "Click blocked a plan during read-only review. Report findings from the "
-                "evidence already gathered; a later implementation request uses a separate "
-                "compact contract."
+            _advise(
+                "Click advisory: this remains a read-only review. A host plan may organize "
+                "findings but does not authorize mutation; obtain a new approved contract "
+                "before changing files."
             )
         return
 
@@ -4058,8 +4064,8 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
         if status == "review":
             _deny(
                 "Click review accepts only structured read-only argv operations. Use "
-                "`click-gate inspect '<Inspection JSON>'`; mutation and replanning remain "
-                "blocked during review."
+                "`click-gate inspect '<Inspection JSON>'`; mutation remains blocked during "
+                "review, while host plan tools remain non-authoritative advisory."
             )
             return
         contract_state = _read_contract_state(event)

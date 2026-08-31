@@ -19,7 +19,7 @@ Do not choose on the user's behalf. `click-gate default status` reports the stor
 
 ## Always ON
 
-Apply the compact contract to software creation, modification, deletion, refactoring, and repair. Questions, explanations, and simple read-only inspection do not need a contract. The Hook blocks matched mutations until the id emitted for the staged contract has been passed from a later approving `UserPromptSubmit` turn. It also blocks matched plan tools while the staged or incomplete approved session contract remains active.
+Apply the compact contract to software creation, modification, deletion, refactoring, and repair. Questions, explanations, and simple read-only inspection do not need a contract. The Hook blocks matched mutations until the id emitted for the staged contract has been passed from a later approving `UserPromptSubmit` turn. Plan tools remain available as non-authoritative guidance while the staged or incomplete approved session contract is active; their output cannot stage, approve, replace, or widen that contract.
 
 After every declared evidence source is current for the final mutation revision and no managed service remains active, a later software-change request may stage a fresh contract without `bypass`. An approved contract with missing, running, failed, or stale evidence—or an active managed service—still blocks replacement. A contract with no argv source needs no ceremonial local batch. Staging the next contract resets its observation, mutation, and evidence state and requires a new user approval.
 
@@ -36,7 +36,7 @@ The review guard is intentionally narrower than the build gate. It observes stru
 
 ## Manual
 
-Ordinary work remains fail-open only while no Click contract is active. Apply Click when the user selects `@Click` or invokes `$click`; then run `click-gate arm` and use the normal compact-contract workflow. Once a proposal is staged, or approved but incomplete, that session contract blocks ordinary mutations and plan tools across later turns. On the approval or resume turn, arm and pass the same emitted `contract_id` before editing; do not resend the contract JSON. Ephemeral turn, review, prompt, and temporary session state may age out after seven days, but staged and approved-incomplete contracts are never removed by that cleanup. A per-turn bypass suspends enforcement only for its authorized turn; it does not release or erase an active contract.
+Ordinary work remains fail-open only while no Click contract is active. Apply Click when the user selects `@Click` or invokes `$click`; then run `click-gate arm` and use the normal compact-contract workflow. Once a proposal is staged, or approved but incomplete, that session contract blocks ordinary mutations across later turns. Plan tools remain non-blocking and non-authoritative throughout that lifecycle. On the approval or resume turn, arm and pass the same emitted `contract_id` before editing; do not resend the contract JSON. Ephemeral turn, review, prompt, and temporary session state may age out after seven days, but staged and approved-incomplete contracts are never removed by that cleanup. A per-turn bypass suspends enforcement only for its authorized turn; it does not release or erase an active contract.
 
 ## User-authorized bypass and cancel
 
