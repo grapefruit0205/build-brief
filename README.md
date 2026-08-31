@@ -45,6 +45,19 @@ done
 
 **One contract. One approval. One implementation boundary. One evidence set.**
 
+## Core purpose
+
+> **Click binds AI execution to approved intent and returns verifiable evidence.**
+
+Click's stable product boundary is an authorization-and-evidence runtime, not a
+model workflow optimizer. The canonical admission test and policy layers are in
+the [Click Product Constitution](PRODUCT_CONSTITUTION.md); the current no-behavior-change
+inventory is in [Click Guard Classification](GUARD_CLASSIFICATION.md).
+
+v0.24.6 still contains the legacy anti-loop hard gates documented below. Those
+guards remain accurately documented until separate changes move strategic rules
+to explicit user policy or non-blocking advisory behavior.
+
 ## Why Click?
 
 A prompt can tell an agent what it *should* do. Click adds persistent state around what the agent is *allowed* to do on the observable tool path.

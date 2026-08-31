@@ -374,6 +374,38 @@ class RepositoryPolicyTests(unittest.TestCase):
         self.assertIn("## 핵심 목적", korean)
         self.assertIn("## 核心目的", chinese)
 
+    def test_product_constitution_is_canonical_and_classifies_guards(self) -> None:
+        constitution = (ROOT / "PRODUCT_CONSTITUTION.md").read_text(
+            encoding="utf-8"
+        )
+        classification = (ROOT / "GUARD_CLASSIFICATION.md").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("Status: **Canonical**", constitution)
+        self.assertIn(
+            "Click binds AI execution to approved intent and returns verifiable evidence.",
+            constitution,
+        )
+        self.assertIn("## Core admission test", constitution)
+        self.assertIn("if the model were perfect", constitution)
+        self.assertIn("runtime observe the relevant action or result", constitution)
+        self.assertIn(
+            "authority, side-effect control, or evidence integrity", constitution
+        )
+        for tier in ("### CORE", "### USER_POLICY", "### HEURISTIC"):
+            self.assertIn(tier, constitution)
+        self.assertIn("argv verification receipts", constitution)
+        self.assertIn("does not maintain\nan append-only", constitution)
+
+        self.assertIn("no runtime behavior change", classification)
+        for tier in ("## CORE", "## USER_POLICY", "## HEURISTIC"):
+            self.assertIn(tier, classification)
+        self.assertIn("## Known assurance gaps", classification)
+        self.assertIn("minimum-class inference", classification)
+        self.assertIn("## Operational limits requiring disposition", classification)
+        self.assertIn("## Migration order", classification)
+
     def test_click_supports_always_on_while_fix_remains_explicit(self) -> None:
         for skill_name in ("click", "fix"):
             with self.subTest(skill=skill_name):

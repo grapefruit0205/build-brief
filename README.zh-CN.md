@@ -45,6 +45,17 @@ Click 不再只把这些规则当作**提示词里的要求**，而是把它们�
 
 **一份 contract。一次批准。一条实现边界。一组完成证据。**
 
+## 核心目的
+
+> **Click 将 AI 执行绑定到已批准的意图，并返回可验证的证据。**
+
+Click 的稳定产品边界是授权与证据 runtime，而不是模型工作流优化器。
+正式的准入测试和策略分层见 [Click 产品宪法](PRODUCT_CONSTITUTION.md)，
+当前不改变运行行为的清单见 [Click guard 分类](GUARD_CLASSIFICATION.md)。
+
+v0.24.6 仍包含下文所述的旧 anti-loop hard gate。在后续独立变更把策略性
+规则迁移为显式用户策略或非阻断 advisory 之前，本文仍如实描述当前行为。
+
 ## 为什么需要 Click？
 
 提示词可以告诉代理它*应该做什么*。Click 则在可观察的 tool path 上，为代理当前*被允许做什么*增加持久状态。
