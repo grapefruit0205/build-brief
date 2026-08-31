@@ -21,6 +21,63 @@ def _reference(name: str) -> str:
 class RepositoryPolicyTests(core.RepositoryPolicyTests):
     """Preserve the full policy suite while keeping protocol internals out of the README hero."""
 
+    def test_manifest_declares_click_one_shot_release(self) -> None:
+        manifest = json.loads(
+            (ROOT / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(manifest["name"], "click")
+        self.assertEqual(manifest["version"], "0.24.6")
+        self.assertEqual(manifest["license"], "MIT")
+        self.assertIn("always on", manifest["description"].lower())
+        self.assertIn("manual", manifest["description"].lower())
+        self.assertIn("plain-language", manifest["description"].lower())
+        self.assertIn("execution contract", manifest["description"].lower())
+        self.assertIn("compact", manifest["description"].lower())
+        self.assertIn("one shot", manifest["interface"]["longDescription"].lower())
+        self.assertIn("verification", manifest["interface"]["longDescription"].lower())
+        self.assertIn(
+            "cheapest sufficient primary evidence",
+            manifest["interface"]["longDescription"].lower(),
+        )
+        self.assertIn("automatically", manifest["interface"]["longDescription"].lower())
+        self.assertIn("replanning", manifest["interface"]["longDescription"].lower())
+        self.assertIn(
+            "isolated child process groups",
+            manifest["interface"]["longDescription"].lower(),
+        )
+        self.assertIn(
+            "process-control executables",
+            manifest["interface"]["longDescription"].lower(),
+        )
+        self.assertIn("contract_id", manifest["interface"]["longDescription"])
+        self.assertIn(
+            "never the json again",
+            manifest["interface"]["longDescription"].lower(),
+        )
+        self.assertIn("anti-loop", manifest["keywords"])
+        self.assertIn("@Click", manifest["description"])
+        self.assertIn("structured", manifest["description"].lower())
+        self.assertIn("keeps codex inside that boundary", manifest["description"].lower())
+        self.assertEqual(
+            manifest["interface"]["shortDescription"],
+            "Approve one clear boundary, then build and verify without replanning.",
+        )
+        self.assertLessEqual(len(manifest["interface"]["defaultPrompt"]), 3)
+        for prompt in manifest["interface"]["defaultPrompt"]:
+            self.assertLessEqual(len(prompt), 128)
+
+    def test_marketplace_exposes_click_from_the_click_catalog(self) -> None:
+        marketplace = json.loads(
+            (ROOT / ".agents" / "plugins" / "marketplace.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        self.assertEqual(marketplace["name"], "click")
+        self.assertEqual(marketplace["plugins"][0]["name"], "click")
+        self.assertEqual(
+            marketplace["plugins"][0]["source"]["ref"], "v0.24.6"
+        )
+
     def test_readmes_lead_with_hook_enforced_state_machine_positioning(self) -> None:
         english, korean, chinese = _readmes().values()
         for marker in (
@@ -126,7 +183,7 @@ class RepositoryPolicyTests(core.RepositoryPolicyTests):
         for marker in ("shell=False", "process group", "process-control", "pkill"):
             self.assertIn(marker, protocol)
 
-    def test_release_documents_identify_v0246_and_preserve_release_history(self) -> None:
+    def test_release_documents_identify_v0245_and_preserve_release_history(self) -> None:
         for readme in _readmes().values():
             self.assertIn("v0.24.6", readme)
             self.assertIn("codex plugin marketplace upgrade click", readme)
