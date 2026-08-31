@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -17,6 +18,7 @@ WINDOWS_MODES = {
     "PostToolUse": "post-tool",
     "SessionEnd": "session-end",
 }
+WINDOWS_HOOK_PREFIX = "powershell.exe -NoProfile -NonInteractive -Command "
 
 
 def windows_commands() -> dict[str, str]:
@@ -60,6 +62,10 @@ def synthetic_event(event_name: str, workspace: Path, suffix: str) -> dict[str, 
     return event
 
 
+def rendered_windows_command(command: str, plugin_root: Path) -> str:
+    return command.replace("${PLUGIN_ROOT}", str(plugin_root))
+
+
 class WindowsHookCommandTests(unittest.TestCase):
     def test_commands_use_codex_plugin_root_template(self) -> None:
         commands = windows_commands()
@@ -68,9 +74,11 @@ class WindowsHookCommandTests(unittest.TestCase):
             with self.subTest(event=event_name):
                 self.assertEqual(
                     commands[event_name],
-                    f'py -3 "${{PLUGIN_ROOT}}\\hooks\\click_gate.py" {mode}',
+                    WINDOWS_HOOK_PREFIX
+                    + f'"& \'${{PLUGIN_ROOT}}\\hooks\\click_windows.cmd\' {mode}"',
                 )
                 self.assertNotIn("%PLUGIN_ROOT%", commands[event_name])
+                self.assertNotIn("py -3", commands[event_name].lower())
 
     @unittest.skipUnless(os.name == "nt", "Windows PowerShell integration test")
     def test_commands_execute_in_powershell_from_normal_and_spaced_roots(self) -> None:
@@ -127,13 +135,20 @@ class WindowsHookCommandTests(unittest.TestCase):
                             cwd=workspace,
                             env=environment,
                             check=False,
+                        ) if not shell_options else subprocess.run(
+                            invocation,
+                            capture_output=True,
+                            text=True,
+                            cwd=workspace,
+                            env=environment,
+                            check=False,
                             **shell_options,
                         )
 
                     for event_name, mode in WINDOWS_MODES.items():
                         with self.subTest(plugin_root=root_name, event=event_name):
-                            rendered = commands[event_name].replace(
-                                "${PLUGIN_ROOT}", str(plugin_root)
+                            rendered = rendered_windows_command(
+                                commands[event_name], plugin_root
                             )
                             self.assertNotIn("PLUGIN_ROOT", rendered)
                             event = synthetic_event(
@@ -184,8 +199,8 @@ class WindowsHookCommandTests(unittest.TestCase):
                             + "'"
                         )
                     }
-                    rendered_hook = commands["PreToolUse"].replace(
-                        "${PLUGIN_ROOT}", str(plugin_root)
+                    rendered_hook = rendered_windows_command(
+                        commands["PreToolUse"], plugin_root
                     )
                     hook_result = subprocess.run(
                         [
@@ -209,7 +224,8 @@ class WindowsHookCommandTests(unittest.TestCase):
                     )
                     payload = json.loads(hook_result.stdout)
                     runner = payload["hookSpecificOutput"]["updatedInput"]["command"]
-                    self.assertTrue(runner.startswith("py -3 "), runner)
+                    self.assertTrue(runner.startswith(WINDOWS_HOOK_PREFIX), runner)
+                    self.assertNotIn("py -3", runner.lower())
 
                     for shell_name in ("PowerShell", "cmd.exe"):
                         with self.subTest(plugin_root=root_name, shell=shell_name):
@@ -284,8 +300,10 @@ class WindowsHookCommandTests(unittest.TestCase):
                             "updatedInput"
                         ]["command"]
                         self.assertTrue(
-                            stateful_runner.startswith("py -3 "), stateful_runner
+                            stateful_runner.startswith(WINDOWS_HOOK_PREFIX),
+                            stateful_runner,
                         )
+                        self.assertNotIn("py -3", stateful_runner.lower())
 
                         with self.subTest(
                             plugin_root=root_name,
@@ -305,6 +323,140 @@ class WindowsHookCommandTests(unittest.TestCase):
                             self.assertEqual(
                                 executed.stdout, "portable Windows runner\n"
                             )
+
+    @unittest.skipUnless(os.name == "nt", "Windows Python launcher fallback test")
+    def test_broken_py_launcher_falls_back_to_python_and_runner_keeps_exact_interpreter(
+        self,
+    ) -> None:
+        powershell = shutil.which("pwsh")
+        self.assertIsNotNone(powershell, "pwsh is required on the Windows CI runner")
+        command_prompt = shutil.which("cmd.exe")
+        self.assertIsNotNone(command_prompt, "cmd.exe is required on Windows")
+        commands = windows_commands()
+
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            plugin_root = base / "Click Fallback Root With Spaces"
+            shutil.copytree(
+                ROOT / "hooks",
+                plugin_root / "hooks",
+                ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
+            )
+            plugin_data = plugin_root / "plugin data"
+            workspace = plugin_root / "workspace"
+            workspace.mkdir()
+            probe = workspace / "fallback probe.txt"
+            probe.write_text("fallback runner works\n", encoding="utf-8")
+
+            fake_bin = base / "fake python launchers"
+            fake_bin.mkdir()
+            launcher_log = base / "launcher.log"
+            (fake_bin / "py.cmd").write_text(
+                "@echo off\r\n"
+                ">>\"%CLICK_TEST_LAUNCHER_LOG%\" echo py\r\n"
+                ">&2 echo No installed Python found!\r\n"
+                "exit /b 103\r\n",
+                encoding="utf-8",
+            )
+            (fake_bin / "python.cmd").write_text(
+                "@echo off\r\n"
+                ">>\"%CLICK_TEST_LAUNCHER_LOG%\" echo python\r\n"
+                f'"{sys.executable}" %*\r\n'
+                "exit /b %errorlevel%\r\n",
+                encoding="utf-8",
+            )
+
+            environment = os.environ.copy()
+            environment.update(
+                {
+                    "PLUGIN_ROOT": str(plugin_root),
+                    "PLUGIN_DATA": str(plugin_data),
+                    "CLICK_CONFIG_HOME": str(plugin_data),
+                    "CLICK_TEST_LAUNCHER_LOG": str(launcher_log),
+                    "PATH": str(fake_bin) + os.pathsep + environment.get("PATH", ""),
+                }
+            )
+            request = {
+                "version": 1,
+                "commands": [["Get-Content", "-Raw", probe.name]],
+            }
+            event = synthetic_event("PreToolUse", workspace, "fallback")
+            event["tool_input"] = {
+                "command": (
+                    "click-gate inspect '"
+                    + json.dumps(request, separators=(",", ":"))
+                    + "'"
+                )
+            }
+            rendered_hook = rendered_windows_command(
+                commands["PreToolUse"], plugin_root
+            )
+            hook_result = subprocess.run(
+                [
+                    powershell,
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-Command",
+                    rendered_hook,
+                ],
+                input=json.dumps(event) + "\n",
+                capture_output=True,
+                text=True,
+                cwd=workspace,
+                env=environment,
+                check=False,
+            )
+            self.assertEqual(
+                hook_result.returncode,
+                0,
+                f"fallback hook failed:\n{hook_result.stderr}\n{hook_result.stdout}",
+            )
+            self.assertNotIn("No installed Python found", hook_result.stderr)
+            payload = json.loads(hook_result.stdout)
+            runner = payload["hookSpecificOutput"]["updatedInput"]["command"]
+            self.assertTrue(runner.startswith(WINDOWS_HOOK_PREFIX), runner)
+            self.assertNotIn("py -3", runner.lower())
+
+            launches_before_runner = launcher_log.read_text(encoding="utf-8").splitlines()
+            self.assertIn("py", launches_before_runner)
+            self.assertIn("python", launches_before_runner)
+
+            for shell_name in ("PowerShell", "cmd.exe"):
+                with self.subTest(shell=shell_name):
+                    if shell_name == "PowerShell":
+                        invocation: str | list[str] = [
+                            powershell,
+                            "-NoProfile",
+                            "-NonInteractive",
+                            "-Command",
+                            runner,
+                        ]
+                        shell_options: dict[str, object] = {}
+                    else:
+                        invocation = runner
+                        shell_options = {
+                            "shell": True,
+                            "executable": command_prompt,
+                        }
+                    result = subprocess.run(
+                        invocation,
+                        capture_output=True,
+                        text=True,
+                        cwd=workspace,
+                        env=environment,
+                        check=False,
+                        **shell_options,
+                    )
+                    self.assertEqual(
+                        result.returncode,
+                        0,
+                        f"{shell_name} fallback runner failed:\n"
+                        f"{result.stderr}\n{result.stdout}",
+                    )
+                    self.assertEqual(result.stdout, "fallback runner works\n")
+
+            launches_after_runner = launcher_log.read_text(encoding="utf-8").splitlines()
+            self.assertEqual(launches_after_runner, launches_before_runner)
 
 
 if __name__ == "__main__":
