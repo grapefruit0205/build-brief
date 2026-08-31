@@ -237,16 +237,16 @@ Antigravity IDE 用户也可以把 `dist/antigravity` 复制到工作区的 `.ag
 
 Antigravity 的 Hook contract 与 Codex 不同。native file/search 和其他 MCP、Skill 工具仍可使用，但目前还不支持 cross-tool 去重和 Browser evidence。准确限制请参阅 [`platforms/antigravity/README.md`](platforms/antigravity/README.md)。
 
-## 更新现有安装 — v0.24.6
+## 更新现有安装 — v0.30.0
 
-当前版本是 **v0.24.6**。
+当前版本是 **v0.30.0**。
 
 ```bash
 codex plugin marketplace upgrade click
 codex plugin add click@click
 ```
 
-重启 ChatGPT 桌面应用并检查、信任更新后的 Hook。在 Windows 上，v0.24.6 增加 Python launcher fallback；当宿主实际派发匹配的 Hook 事件时，Desktop 的 `exec_command` 类执行会被规范化到 Click 路径。不要复用旧安装留下的待执行 runner 命令；让更新后的 Hook 重新签发。
+重启 ChatGPT 桌面应用并检查、信任更新后的 Hook。v0.30.0 将 runtime 权限聚焦于批准、one-use 执行与 evidence 完整性。策略计数器和数字化验证 profile 不再阻断工作；contract prose 长度和 verification check 数量也不再是权限 gate。每次 inspection 最多八条命令仍作为 runner 的运行边界保留。升级后请开始新 contract，不要复用旧安装留下的待执行 runner。
 
 详细发布历史见 [RELEASE_NOTES.md](RELEASE_NOTES.md)。
 

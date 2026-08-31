@@ -239,16 +239,16 @@ Antigravity IDE users may also copy `dist/antigravity` into `.agents/plugins/cli
 
 Antigravity's Hook contract differs from Codex. Native file/search and unrelated MCP or Skill tools remain available, but cross-tool deduplication and Browser evidence are not currently supported. See [`platforms/antigravity/README.md`](platforms/antigravity/README.md) for the exact limits.
 
-## Update an existing installation — v0.24.6
+## Update an existing installation — v0.30.0
 
-The current release is **v0.24.6**.
+The current release is **v0.30.0**.
 
 ```bash
 codex plugin marketplace upgrade click
 codex plugin add click@click
 ```
 
-Restart the ChatGPT desktop app and review/trust the updated Hook. On Windows, v0.24.6 adds Python-launcher fallback and routes Desktop `exec_command` aliases through Click when the host dispatches the matching Hook event. Do not reuse a pending runner command created by an older installation; let the updated Hook issue a fresh one.
+Restart the ChatGPT desktop app and review/trust the updated Hook. v0.30.0 narrows runtime authority to approval, one-use execution, and evidence integrity. Strategy counters and numeric verification profiles no longer block work; contract prose length and verification check count are not permission gates. The eight-command inspection bound remains an operational runner limit. Begin a fresh contract after upgrading instead of reusing a pending runner from an older installation.
 
 Detailed release history is in [RELEASE_NOTES.md](RELEASE_NOTES.md).
 

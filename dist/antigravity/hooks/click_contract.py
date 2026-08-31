@@ -36,15 +36,9 @@ EVIDENCE_ID_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9_-]{0,31}$")
 VERIFICATION_SCALES = click_verification_policy.VERIFICATION_SCALES
 VERIFICATION_UNIT_LIMITS = click_verification_policy.VERIFICATION_UNIT_LIMITS
 VERIFICATION_CLASSES = click_verification_meter.VERIFICATION_CLASSES
-MAX_CONTRACT_CHARS = 4_000
 
 
 def validate_contract(raw: str) -> tuple[dict[str, Any] | None, str]:
-    if len(raw) > MAX_CONTRACT_CHARS:
-        return (
-            None,
-            "Execution Contract is too large; keep it compact and under 4,000 characters.",
-        )
     try:
         value = json.loads(raw)
     except json.JSONDecodeError:

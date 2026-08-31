@@ -1,6 +1,6 @@
 # Release notes
 
-## Unreleased v0.25 candidate — authorization and evidence core
+## v0.30.0 — 2026-08-31
 
 Click now states its stable product boundary directly: bind AI execution to
 approved intent and return verifiable evidence. Model workflow strategy is not
@@ -60,8 +60,8 @@ runtime authority.
   revision, environment, executable fingerprints, and observed results remain
   receipt facts; legacy class-unit values remain compatibility data only.
 - Separate leaf modules now own profile names and legacy unit arithmetic.
-  Contract and gate compatibility symbols, contract schema, error messages,
-  one-use runners, evidence receipts, and completion behavior remain unchanged.
+  Contract schema, one-use runners, evidence receipts, and completion behavior
+  remain unchanged except for the prose-length gate described below.
 - A future exact numeric ceiling belongs in an explicit opt-in user-policy
   field; plugin-authored defaults will not silently stand in for that choice.
 
@@ -99,6 +99,37 @@ runtime authority.
   reference links, lifecycle markers, manifest shape, Skill validation, and
   distribution consistency remain checked, while prose length and clarity stay
   authoring-review concerns rather than runtime or CI permission rules.
+- This item remains in the v0.30.0 notes because the policy removal landed
+  after v0.24.6 and has not previously shipped in a stable release.
+
+### Contract and verification size heuristics stop granting authority
+
+- A valid Execution Contract is no longer rejected solely because its encoded
+  prose exceeds 4,000 characters. Typed schema validation and contract-digest
+  binding remain unchanged.
+- A verification request is no longer rejected solely because it contains more
+  than eight checks or its JSON exceeds the former arbitrary 6,000-character
+  threshold. Argv policy, exact source-group binding, serial execution, and
+  mutation detection remain.
+- Inspection, mutation, service, and explicit evidence requests likewise no
+  longer inherit that raw-JSON character heuristic from the common decoder.
+- Inspection retains its eight-command request cap: it bounds one atomic
+  read-runner claim and its output exposure rather than judging model strategy.
+- Capability transport remains bounded by its decoded payload guard and the
+  host-imposed Windows command-line limit; those execution checks replace the
+  unrelated raw-JSON character heuristic.
+- Unused `_verification_executable_digest` and
+  `_is_broad_exploration_command` compatibility-free helpers are removed.
+
+### Evidence reuse boundary
+
+- v0.30.0 continues to reuse a successful exact receipt only when its active
+  contract, mutation revision, protected Git tree, normalized check group,
+  canonical environment, and executable fingerprint still match.
+- A dependency-aware cache across revisions is intentionally not included. It
+  requires a separate invalidation design backed by repository-owned dependency
+  data, with whole-tree invalidation as the safe fallback; model-declared impact
+  alone will not become receipt authority.
 
 ## v0.24.6 — 2026-08-31
 
