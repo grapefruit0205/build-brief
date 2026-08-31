@@ -1,4 +1,4 @@
-version: 20
+version: 21
 skill: click
 evaluation_conditions:
   - no-plugin
@@ -44,6 +44,7 @@ evaluation_dimensions:
   - distinct_user_turn_approval
   - active_lifecycle_plan_advisory
   - broad_inventory_advisory
+  - logical_repeat_advisory
   - manual_session_mutation_lock
   - isolated_ab_provenance
 grading_priority:
@@ -96,7 +97,8 @@ global_invariants:
   - "Declares each evidence source once with a unique id and supported kind, assigns every done_when condition one primary_evidence id, allows one id to cover several conditions, and does not duplicate proof through another tool or surface"
   - "Binds every final argv check to a declared argv source through evidence_id, permits any nonempty unresolved subset, reserves each source's exact check group and inferred units for the active contract, enforces one cumulative scale ceiling, records completion per id and mutation revision, and does not require an unrelated local batch when no argv source exists"
   - "Finalizes observed Browser evidence explicitly, keeps observed status monotonic until mutation, and treats hosted, manual, and existing completion as attestations rather than claiming independently observed execution"
-  - "Keeps broad-inventory count non-blocking and non-authoritative: a distinct-digest broad inventory receives narrowing guidance and may run despite prior broad running or success, while exact-digest running or success denial, mutation and verification interlocks, and runner safety remain hard"
+  - "Keeps broad-inventory count non-blocking and non-authoritative: a distinct-digest broad inventory receives narrowing guidance and may run despite prior broad running or success, while an active exact-digest reservation, mutation and verification interlocks, and runner safety remain hard"
+  - "Keeps fresh logical repetition non-blocking and model-neutral: a completed identical observation or ordinary repeatedly failing argv check may receive a new one-use authorization with advisory context, while consumed-token replay, active same-request reservations, and verification-time repository mutation remain hard"
   - "Skips an exact successful argv check only for the same active contract and mutation revision when its check group, protected Git tree, canonical execution environment, and executable fingerprint match; a new mutation revision never auto-promotes stale evidence"
   - "Deduplicates Browser work by normalized input: success blocks repetition, failure gets one identical retry, different input remains available, and serial 30-second-call and five-second-wait limits stay enforced without a normal three-call or 90-second cap"
   - "Uses browser, manual, hosted, broad-suite, or timed end-to-end evidence only when cheaper evidence cannot prove the condition, then stops when all conditions have current evidence"
@@ -408,8 +410,8 @@ cases:
     expected_mutation_gate: read-only-review
     directive_semantics:
       - "Uses the read-only review guard without a build contract or approval prompt"
-      - "Allows repository context through structured inspection, then advises focused follow-up and reuses exact successful evidence"
-      - "Allows distinct-digest concurrent or later broad inventory with non-blocking guidance while blocking exact-digest running or successful requests and mutation"
+      - "Allows repository context through structured inspection, then advises focused follow-up and reuse while keeping fresh repeated observations available through new one-use runners"
+      - "Allows distinct-digest concurrent or later broad inventory with non-blocking guidance while blocking an active exact-digest reservation and mutation"
       - "Reports only evidence-backed findings"
     minimality_expectations:
       reuse: "Current observation evidence and focused authentication evidence"
@@ -464,7 +466,7 @@ cases:
     directive_semantics:
       - "Uses versioned inspect argv for an ambiguous supported read instead of asking the Hook to classify arbitrary shell text"
       - "Rejects a pipeline, redirection, shell wrapper, or write-capable inspection option"
-      - "Reuses a successful structured observation and permits one unchanged retry only after failure or truncated output"
+      - "Advises reuse after a successful structured observation and repair or narrowing after repeated failure, while allowing each fresh separately authorized request through a new one-use runner"
       - "Does not create a build contract or mutate the repository"
     minimality_expectations:
       reuse: "The smallest repository evidence and the existing read-only review guard"
@@ -561,13 +563,30 @@ cases:
     expected_mutation_gate: none-before-approval
     directive_semantics:
       - "Allows a distinct-digest broad inventory with non-blocking narrowing context even when another broad inventory is running or already succeeded"
-      - "Keeps exact-digest running and successful requests blocked by the separate observation reuse and replay rule"
+      - "Keeps an active exact-digest reservation blocked by the runner-state interlock while completed exact-digest requests follow the separate logical-repeat advisory rule"
       - "Preserves mutation and verification interlocks plus runner claim, path, environment, cancellation, tampering, and replay checks"
       - "Does not make inventory count authoritative or add a scan ledger or policy engine"
     minimality_expectations:
       reuse: "Existing broad classifier, observation digests, advisory output, and structured runner"
       reject_without_evidence:
         - "A new inventory budget, semantic search planner, or user approval step"
+
+  - id: logical-repeat-advisory
+    prompt: "@Click 동일 read/search와 정상적인 argv 실패 재시도를 고정 횟수로 막지 말고 advisory만 제공하되 runner replay와 verification mutation은 계속 막아줘."
+    default_mode: on
+    expected_activation: true
+    expected_mode: build
+    expected_mutation_gate: none-before-approval
+    directive_semantics:
+      - "Allows a completed identical observation through a fresh one-use runner with non-blocking reuse guidance"
+      - "Allows an ordinary argv evidence source to retry after two unchanged failures with non-blocking repair guidance"
+      - "Keeps an active same-digest observation reservation, consumed runner token replay, request substitution, cancellation, and tampering hard"
+      - "Keeps verification that changed protected repository content blocked until an approved mutation repairs or reconciles the workspace"
+      - "Leaves Browser duplicate and retry tuning for its separate policy migration"
+    minimality_expectations:
+      reuse: "Existing observation digests, verification source state, one-use runners, advisory wire, and host adapters"
+      reject_without_evidence:
+        - "A model-specific workflow matrix, semantic retry judge, new scheduler, or user approval step"
 
   - id: manual-session-mutation-lock
     prompt: "@Click Manual 모드에서 계약을 승인했어. pass하기 전에 다음 turn에서 코드를 먼저 바꾸지 못하게 해줘."

@@ -159,8 +159,11 @@ class ClickGateTests(unittest.TestCase):
         self.assertNotIn("updatedInput", output)
         self.assertIn(expected_context, output["additionalContext"])
 
-    def assert_inventory_advisory(
-        self, payload: dict | None, expected_context: str
+    def assert_runner_advisory(
+        self,
+        payload: dict | None,
+        expected_context: str,
+        runner_action: str,
     ) -> None:
         self.assertIsNotNone(payload)
         assert payload is not None
@@ -169,11 +172,25 @@ class ClickGateTests(unittest.TestCase):
         self.assertEqual(output["permissionDecision"], "allow")
         self.assertNotIn("permissionDecisionReason", output)
         self.assertIn(
-            "run-observation",
+            runner_action,
             split_runner_command(output["updatedInput"]["command"]),
         )
         self.assertIn("Click advisory", output["additionalContext"])
         self.assertIn(expected_context, output["additionalContext"])
+
+    def assert_observation_advisory(
+        self, payload: dict | None, expected_context: str
+    ) -> None:
+        self.assert_runner_advisory(
+            payload, expected_context, "run-observation"
+        )
+
+    def assert_verification_advisory(
+        self, payload: dict | None, expected_context: str
+    ) -> None:
+        self.assert_runner_advisory(
+            payload, expected_context, "run-verification"
+        )
 
     def tool_hook(
         self,
@@ -685,7 +702,7 @@ class ClickGateTests(unittest.TestCase):
         self.assertIn("Always ON", reason)
         self.assertIn("Manual", reason)
 
-    def test_structured_inspection_runs_shell_free_and_blocks_repeat(self) -> None:
+    def test_structured_inspection_runs_shell_free_and_advises_repeat(self) -> None:
         self.approve_contract()
         initialized = subprocess.run(
             ["git", "init", "--quiet"],
@@ -699,9 +716,10 @@ class ClickGateTests(unittest.TestCase):
         self.assertEqual(first["hookSpecificOutput"]["permissionDecision"], "allow")
         self.assertEqual(self.run_rewritten(first).returncode, 0)
         repeated = self.inspect_gate([["git", "status", "--short"]], "turn-2")
-        self.assertEqual(
-            repeated["hookSpecificOutput"]["permissionDecision"], "deny"
+        self.assert_observation_advisory(
+            repeated, "identical read or search already succeeded"
         )
+        self.assertEqual(self.run_rewritten(repeated).returncode, 0)
 
     def test_structured_broad_inspection_allows_advised_cross_digest_repeat(
         self,
@@ -717,17 +735,14 @@ class ClickGateTests(unittest.TestCase):
         cross_digest = self.inspect_gate(
             [["git", "ls-files", "--cached"]], "turn-2"
         )
-        self.assert_inventory_advisory(cross_digest, "already completed")
+        self.assert_observation_advisory(cross_digest, "already completed")
         self.assertEqual(self.run_rewritten(cross_digest).returncode, 0)
 
         identical = self.inspect_gate([["git", "ls-files"]], "turn-2")
-        self.assertEqual(
-            identical["hookSpecificOutput"]["permissionDecision"], "deny"
+        self.assert_observation_advisory(
+            identical, "identical read or search already succeeded"
         )
-        self.assertIn(
-            "identical successful read",
-            identical["hookSpecificOutput"]["permissionDecisionReason"],
-        )
+        self.assertEqual(self.run_rewritten(identical).returncode, 0)
 
     def test_broad_inventory_advisory_is_independent_of_model_identity(self) -> None:
         self.initialize_git("verification_fixture.py")
@@ -738,8 +753,25 @@ class ClickGateTests(unittest.TestCase):
 
         self.base_event["model"] = "different-frontier-model"
         second = self.pre_tool("Bash", "git ls-files --cached", "turn-2")
-        self.assert_inventory_advisory(second, "already completed")
+        self.assert_observation_advisory(second, "already completed")
         self.assertEqual(self.run_rewritten(second).returncode, 0)
+
+    def test_logical_repeat_advisory_is_independent_of_model_identity(self) -> None:
+        (self.workspace / "model-neutral.txt").write_text(
+            "same request\n", encoding="utf-8"
+        )
+        self.approve_contract()
+        command = self.read_file_command("model-neutral.txt")
+
+        first = self.pre_tool("Bash", command, "turn-2")
+        self.assertEqual(self.run_rewritten(first).returncode, 0)
+
+        self.base_event["model"] = "another-model-family"
+        repeated = self.pre_tool("Bash", command, "turn-2")
+        self.assert_observation_advisory(
+            repeated, "identical read or search already succeeded"
+        )
+        self.assertEqual(self.run_rewritten(repeated).returncode, 0)
 
     def test_structured_inspection_rejects_shells_and_write_options(self) -> None:
         for commands in (
@@ -2074,7 +2106,7 @@ class ClickGateTests(unittest.TestCase):
         parallel = self.pre_tool(
             "Bash", "git ls-files --cached", turn_id="turn-3"
         )
-        self.assert_inventory_advisory(parallel, "already running")
+        self.assert_observation_advisory(parallel, "already running")
 
         identical_running = self.pre_tool(
             "Bash", "git ls-files", turn_id="turn-3"
@@ -2083,19 +2115,16 @@ class ClickGateTests(unittest.TestCase):
             identical_running["hookSpecificOutput"]["permissionDecision"], "deny"
         )
         self.assertIn(
-            "identical Click read or search is already running",
+            "exact observation runner for this request is already active",
             identical_running["hookSpecificOutput"]["permissionDecisionReason"],
         )
         self.assertEqual(self.run_rewritten(first).returncode, 0)
         self.assertEqual(self.run_rewritten(parallel).returncode, 0)
         repeated = self.pre_tool("Bash", "git ls-files", turn_id="turn-3")
-        self.assertEqual(
-            repeated["hookSpecificOutput"]["permissionDecision"], "deny"
+        self.assert_observation_advisory(
+            repeated, "identical read or search already succeeded"
         )
-        self.assertIn(
-            "identical successful read",
-            repeated["hookSpecificOutput"]["permissionDecisionReason"],
-        )
+        self.assertEqual(self.run_rewritten(repeated).returncode, 0)
 
     def test_incomplete_approved_contract_tracks_later_turn_direct_reads(self) -> None:
         (self.workspace / "README.md").write_text("hello\n", encoding="utf-8")
@@ -2106,13 +2135,10 @@ class ClickGateTests(unittest.TestCase):
         self.assertEqual(first["hookSpecificOutput"]["permissionDecision"], "allow")
         self.assertEqual(self.run_rewritten(first).returncode, 0)
         repeated = self.pre_tool("Bash", command, turn_id="turn-3")
-        self.assertEqual(
-            repeated["hookSpecificOutput"]["permissionDecision"], "deny"
+        self.assert_observation_advisory(
+            repeated, "identical read or search already succeeded"
         )
-        self.assertIn(
-            "identical successful read",
-            repeated["hookSpecificOutput"]["permissionDecisionReason"],
-        )
+        self.assertEqual(self.run_rewritten(repeated).returncode, 0)
 
     def test_incomplete_approved_contract_tracks_later_turn_structured_reads(self) -> None:
         (self.workspace / "README.md").write_text("hello\n", encoding="utf-8")
@@ -2123,9 +2149,10 @@ class ClickGateTests(unittest.TestCase):
         self.assertEqual(first["hookSpecificOutput"]["permissionDecision"], "allow")
         self.assertEqual(self.run_rewritten(first).returncode, 0)
         repeated = self.inspect_gate(commands, turn_id="turn-3")
-        self.assertEqual(
-            repeated["hookSpecificOutput"]["permissionDecision"], "deny"
+        self.assert_observation_advisory(
+            repeated, "identical read or search already succeeded"
         )
+        self.assertEqual(self.run_rewritten(repeated).returncode, 0)
 
     def test_always_on_default_persists_and_gates_later_mutations(self) -> None:
         setting = self.set_default("on")
@@ -2503,13 +2530,10 @@ class ClickGateTests(unittest.TestCase):
         blocked = self.verify_gate(
             [self.verification_argv(1)], evidence_ids=["E2"]
         )
-        self.assertEqual(
-            blocked["hookSpecificOutput"]["permissionDecision"], "deny"
+        self.assert_verification_advisory(
+            blocked, "already failed twice"
         )
-        self.assertIn(
-            "failed twice",
-            blocked["hookSpecificOutput"]["permissionDecisionReason"],
-        )
+        self.assertEqual(self.run_rewritten(blocked).returncode, 1)
 
     def test_partial_batch_retries_only_unresolved_source_to_completion(self) -> None:
         (self.workspace / ".gitignore").write_text(
@@ -4180,7 +4204,7 @@ class ClickGateTests(unittest.TestCase):
         self.assertIn("new non-ignored untracked path", result.stderr)
         self.assertIn("classification is informational", result.stderr)
 
-    def test_review_mode_needs_no_contract_and_blocks_repeated_successful_reads(self) -> None:
+    def test_review_mode_needs_no_contract_and_advises_repeated_successful_reads(self) -> None:
         self.set_default("on")
         review = self.start_review()
         self.assertEqual(
@@ -4194,13 +4218,10 @@ class ClickGateTests(unittest.TestCase):
         self.assertEqual(self.run_rewritten(first).returncode, 0)
 
         repeated = self.pre_tool("Bash", command)
-        self.assertEqual(
-            repeated["hookSpecificOutput"]["permissionDecision"], "deny"
+        self.assert_observation_advisory(
+            repeated, "identical read or search already succeeded"
         )
-        self.assertIn(
-            "identical successful read",
-            repeated["hookSpecificOutput"]["permissionDecisionReason"],
-        )
+        self.assertEqual(self.run_rewritten(repeated).returncode, 0)
 
     def test_review_mode_advises_narrowing_after_root_inventory(self) -> None:
         self.set_default("on")
@@ -4219,17 +4240,14 @@ class ClickGateTests(unittest.TestCase):
         self.assertEqual(self.run_rewritten(first).returncode, 0)
 
         second = self.pre_tool("Bash", "git ls-files --cached")
-        self.assert_inventory_advisory(second, "already completed")
+        self.assert_observation_advisory(second, "already completed")
         self.assertEqual(self.run_rewritten(second).returncode, 0)
 
         identical = self.pre_tool("Bash", "git ls-files")
-        self.assertEqual(
-            identical["hookSpecificOutput"]["permissionDecision"], "deny"
+        self.assert_observation_advisory(
+            identical, "identical read or search already succeeded"
         )
-        self.assertIn(
-            "identical successful read",
-            identical["hookSpecificOutput"]["permissionDecisionReason"],
-        )
+        self.assertEqual(self.run_rewritten(identical).returncode, 0)
 
     def test_review_mode_keeps_mutations_blocked_but_advises_plan(self) -> None:
         self.set_default("on")
@@ -4284,7 +4302,7 @@ class ClickGateTests(unittest.TestCase):
         passed = self.pass_gate(turn_id="turn-2")
         self.assertEqual(passed["hookSpecificOutput"]["permissionDecision"], "allow")
 
-    def test_identical_successful_read_is_blocked_until_mutation(self) -> None:
+    def test_identical_successful_read_is_advised_until_mutation(self) -> None:
         (self.workspace / "README.md").write_text("hello\n", encoding="utf-8")
         self.approve_contract()
         command = self.read_file_command("README.md")
@@ -4296,13 +4314,14 @@ class ClickGateTests(unittest.TestCase):
         self.assertEqual(completed.stdout.strip(), "hello")
 
         repeated = self.pre_tool("Bash", command, "turn-2")
-        self.assertEqual(
-            repeated["hookSpecificOutput"]["permissionDecision"], "deny"
+        self.assert_observation_advisory(
+            repeated, "identical read or search already succeeded"
         )
-        self.assertIn(
-            "identical successful read",
-            repeated["hookSpecificOutput"]["permissionDecisionReason"],
-        )
+        first_runner = self.observation_runner_arguments(first)
+        repeated_runner = self.observation_runner_arguments(repeated)
+        self.assertEqual(first_runner[1], repeated_runner[1])
+        self.assertNotEqual(first_runner[2], repeated_runner[2])
+        self.assertEqual(self.run_rewritten(repeated).returncode, 0)
 
         self.assertIsNone(
             self.pre_tool("apply_patch", "*** Begin Patch\n*** End Patch", "turn-2")
@@ -4323,15 +4342,12 @@ class ClickGateTests(unittest.TestCase):
         repeated = self.pre_tool(
             "Bash", "sed   -n   '1,99999p'   README.md", "turn-2"
         )
-        self.assertEqual(
-            repeated["hookSpecificOutput"]["permissionDecision"], "deny"
+        self.assert_observation_advisory(
+            repeated, "identical read or search already succeeded"
         )
-        self.assertIn(
-            "identical successful read",
-            repeated["hookSpecificOutput"]["permissionDecisionReason"],
-        )
+        self.assertEqual(self.run_rewritten(repeated).returncode, 0)
 
-    def test_identical_cat_read_is_observed_and_blocked(self) -> None:
+    def test_identical_cat_read_is_observed_and_advised(self) -> None:
         (self.workspace / "README.md").write_text("hello\n", encoding="utf-8")
         self.approve_contract()
 
@@ -4342,13 +4358,10 @@ class ClickGateTests(unittest.TestCase):
         self.assertEqual(completed.stdout.strip(), "hello")
 
         repeated = self.pre_tool("Bash", "cat README.md", "turn-2")
-        self.assertEqual(
-            repeated["hookSpecificOutput"]["permissionDecision"], "deny"
+        self.assert_observation_advisory(
+            repeated, "identical read or search already succeeded"
         )
-        self.assertIn(
-            "identical successful read",
-            repeated["hookSpecificOutput"]["permissionDecisionReason"],
-        )
+        self.assertEqual(self.run_rewritten(repeated).returncode, 0)
 
     def test_running_observation_blocks_mutation_and_final_verification(self) -> None:
         (self.workspace / "README.md").write_text("hello\n", encoding="utf-8")
@@ -4380,7 +4393,7 @@ class ClickGateTests(unittest.TestCase):
             verification["hookSpecificOutput"]["permissionDecisionReason"],
         )
 
-    def test_failed_or_incomplete_read_gets_one_unchanged_retry(self) -> None:
+    def test_failed_or_incomplete_read_advises_after_bounded_retry(self) -> None:
         self.approve_contract()
         missing = self.read_file_command("missing.txt", fail_hard=True)
 
@@ -4389,9 +4402,10 @@ class ClickGateTests(unittest.TestCase):
         retry_failure = self.pre_tool("Bash", missing, "turn-2")
         self.assertNotEqual(self.run_rewritten(retry_failure).returncode, 0)
         blocked_failure = self.pre_tool("Bash", missing, "turn-2")
-        self.assertEqual(
-            blocked_failure["hookSpecificOutput"]["permissionDecision"], "deny"
+        self.assert_observation_advisory(
+            blocked_failure, "failed or produced incomplete output twice"
         )
+        self.assertNotEqual(self.run_rewritten(blocked_failure).returncode, 0)
 
         self.assertIsNone(
             self.pre_tool("apply_patch", "*** Begin Patch\n*** End Patch", "turn-2")
@@ -4410,9 +4424,10 @@ class ClickGateTests(unittest.TestCase):
         )
         self.assertEqual(self.run_rewritten(retry_large).returncode, 0)
         blocked_large = self.pre_tool("Bash", large, "turn-2")
-        self.assertEqual(
-            blocked_large["hookSpecificOutput"]["permissionDecision"], "deny"
+        self.assert_observation_advisory(
+            blocked_large, "failed or produced incomplete output twice"
         )
+        self.assertEqual(self.run_rewritten(blocked_large).returncode, 0)
 
     def test_approved_boundary_advises_broad_rescans_and_resets_on_mutation(
         self,
@@ -4427,12 +4442,12 @@ class ClickGateTests(unittest.TestCase):
         parallel = self.pre_tool(
             "Bash", "git ls-files --cached", "turn-2"
         )
-        self.assert_inventory_advisory(parallel, "already running")
+        self.assert_observation_advisory(parallel, "already running")
         self.assertEqual(self.run_rewritten(first).returncode, 0)
         self.assertEqual(self.run_rewritten(parallel).returncode, 0)
 
         repeated = self.pre_tool("Bash", "git ls-files --stage", "turn-2")
-        self.assert_inventory_advisory(repeated, "already completed")
+        self.assert_observation_advisory(repeated, "already completed")
         self.assertEqual(self.run_rewritten(repeated).returncode, 0)
 
         for command in (
@@ -4581,7 +4596,7 @@ class ClickGateTests(unittest.TestCase):
         )
         self.assertNotEqual(verification["runner_token_digest"], original_token_digest)
 
-    def test_failed_batch_allows_one_unchanged_retry_then_requires_mutation(self) -> None:
+    def test_failed_batch_advises_after_unchanged_retry(self) -> None:
         contract = self.contract()
         contract["verification"]["scale"] = "quick"
         self.arm_gate("turn-1")
@@ -4595,11 +4610,10 @@ class ClickGateTests(unittest.TestCase):
         transient_retry = self.verify_gate([command])
         self.assertEqual(self.run_rewritten(transient_retry).returncode, 1)
         blocked = self.verify_gate([command])
-        self.assertEqual(blocked["hookSpecificOutput"]["permissionDecision"], "deny")
-        self.assertIn(
-            "subsequent code mutation",
-            blocked["hookSpecificOutput"]["permissionDecisionReason"],
+        self.assert_verification_advisory(
+            blocked, "already failed twice"
         )
+        self.assertEqual(self.run_rewritten(blocked).returncode, 1)
 
         self.assertIsNone(
             self.pre_tool("apply_patch", "*** Begin Patch\n*** End Patch", "turn-2")

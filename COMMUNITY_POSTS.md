@@ -21,7 +21,7 @@ On first use, you choose **Always ON** or **Manual**.
 - Always ON applies Click only to software-changing requests.
 - Manual applies it when you mention `@Click`.
 - Questions, explanations, and simple read-only inspection stay normal.
-- Code review needs no build contract. The read-only guard keeps mutation blocked and exact observations reusable, while distinct broad inventories receive non-blocking narrowing guidance.
+- Code review needs no build contract. The read-only guard keeps mutation blocked while fresh repeated observations and distinct broad inventories remain available with non-blocking reuse or narrowing guidance.
 
 For a code change, Click turns the request and repository context into one compact contract: outcome, boundary, must-hold behavior, build approach, verification scale, and a plain-language explanation. It stages and shows that contract, then requires a later user turn for the one approval. After that, the Hook rejects replacement contracts and unauthorized mutations, binds one-use runners to exact requests, and records revision-bound evidence. Plan tools remain available as non-blocking, non-authoritative guidance.
 

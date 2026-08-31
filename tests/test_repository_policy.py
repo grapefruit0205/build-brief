@@ -49,6 +49,18 @@ class RepositoryPolicyTests(core.RepositoryPolicyTests):
             manifest["interface"]["longDescription"].lower(),
         )
         self.assertIn(
+            "fresh repeated observations and ordinary argv retries",
+            manifest["interface"]["longDescription"].lower(),
+        )
+        self.assertIn(
+            "consumed-token replay",
+            manifest["interface"]["longDescription"].lower(),
+        )
+        self.assertIn(
+            "verification-time repository mutation",
+            manifest["interface"]["longDescription"].lower(),
+        )
+        self.assertIn(
             "isolated child process groups",
             manifest["interface"]["longDescription"].lower(),
         )
@@ -177,8 +189,18 @@ class RepositoryPolicyTests(core.RepositoryPolicyTests):
         self.assertIn("distinct-digest broad inventory remains available", readmes["README.md"])
         self.assertIn("서로 다른 digest의 broad inventory", readmes["README.ko.md"])
         self.assertIn("不同 digest 的 broad inventory", readmes["README.zh-CN.md"])
+        self.assertIn("fresh identical structured read/search", readmes["README.md"])
+        self.assertIn("동일 structured read/search의 새 요청", readmes["README.ko.md"])
+        self.assertIn("相同 structured read/search 发起新请求", readmes["README.zh-CN.md"])
         anti_loop = _reference("anti-loop-policy.md")
-        for marker in ("48,000", "update_plan", "hidden reasoning", "Prefer narrow follow-up after broad context"):
+        for marker in (
+            "48,000",
+            "update_plan",
+            "hidden reasoning",
+            "Prefer narrow follow-up after broad context",
+            "fresh authorization",
+            "Verification that changed protected repository content",
+        ):
             self.assertIn(marker, anti_loop)
 
     def test_readmes_document_structured_capabilities_and_shell_boundary(self) -> None:
@@ -219,7 +241,7 @@ class RepositoryPolicyTests(core.RepositoryPolicyTests):
             self.assertIn(marker, notes)
         self.assertNotIn("Unreleased v0.24", notes)
         golden = (ROOT / "evals" / "golden-prompts.yaml").read_text(encoding="utf-8")
-        self.assertIn("version: 20", golden)
+        self.assertIn("version: 21", golden)
 
     def test_readmes_document_trusted_reads_and_pre_execution_claims(self) -> None:
         readmes = _readmes()

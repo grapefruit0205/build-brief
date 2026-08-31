@@ -84,8 +84,8 @@ evidence 状态。
 - **提案与批准分离。** stage 后签发不透明的 `contract_id`；同一个用户 turn 不能同时 stage 和 pass。
 - **批准前阻止 mutation。** active contract 会保持锁定，直到准确的 staged ID 被批准并 pass。
 - **规划保持 advisory。** `update_plan` 等 plan tool 仍然可用，但不能批准、替换或扩大 active contract。
-- **仓库探索保持 advisory。** 不同 digest 的 broad inventory 即使在另一个 broad inventory 运行期间或成功之后仍可执行，并会收到缩小范围提示；相同请求复用与执行 interlock 仍是独立的 hard guard。
-- **复用已经成功的观察。** 在范围内 mutation 使其 stale 之前，不重复相同的 structured read。
+- **仓库探索保持 advisory。** 不同 digest 的 broad inventory 即使在另一个 broad inventory 运行期间或成功之后仍可执行，并会收到缩小范围提示；只有 active runner 与执行 interlock 继续作为 hard guard。
+- **重复观察仍然可用。** 对已成功的相同 structured read/search 发起新请求时，Click 会给出复用提示并签发新的 one-use runner，不会把它与已消费 runner token 的 replay 混为一谈。
 - **验证绑定 evidence。** local check 必须指定它所证明的已批准 `evidence_id`，累计验证必须处于批准规模内。
 - **完成状态跟随代码。** mutation 会推进 revision，使旧完成证据 stale，而不是静默复用。
 - **持有本地服务器生命周期。** 可识别开发服务器使用 Click 的 managed service 路径，以便清理准确的隔离子进程。
@@ -184,9 +184,10 @@ codex plugin add click@click
 
 | 防护规则 | 行为 |
 | --- | --- |
-| 复用已有证据 | 已成功的相同 structured read/search 在范围内 mutation 使其 stale 前不会重复执行 |
+| 提示但不阻断重复观察 | 已成功或反复失败的相同 structured read/search 仍可通过新的 one-use runner 执行并收到提示；相同 digest 的 runner 正在运行时仍会阻断 |
 | 提示但不阻断规划 | `update_plan` 仍然可用，但不能 stage、批准、替换或扩大 contract |
-| broad inventory 后提示缩小范围 | 不同 broad 请求仍可在提示下执行；相同 digest 的运行中或成功请求由独立复用 guard 阻止 |
+| broad inventory 后提示缩小范围 | 不同 broad 请求仍可在提示下执行；正在运行的相同 digest runner 由独立状态 interlock 阻止 |
+| 提示但不阻断普通 argv 重试 | 固定失败次数不会阻断新的 verification 重试；改变 protected repository content 的 verification 仍需要已批准 mutation |
 | 明确命令意图 | active 状态下含义不明确的 shell 工作改用 structured `inspect`、`mutate`、`service` 或 `verify` |
 | 所有检查共享一个预算 | 每项 local check 指定已注册的 `argv` source，累计预约必须符合批准规模 |
 | 按 source 跟踪完成 | 所有声明 source 必须 current；没有 `argv` source 时不会为了形式制造 local check |

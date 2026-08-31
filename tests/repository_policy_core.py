@@ -311,7 +311,7 @@ class RepositoryPolicyTests(unittest.TestCase):
         golden = (ROOT / "evals" / "golden-prompts.yaml").read_text(
             encoding="utf-8"
         )
-        self.assertIn("version: 20", golden)
+        self.assertIn("version: 21", golden)
         self.assertIn(
             "## Evidence-bound completion in v0.21.0",
             (ROOT / "README.md").read_text(encoding="utf-8"),
@@ -418,7 +418,7 @@ class RepositoryPolicyTests(unittest.TestCase):
         self.assertIn("does not maintain\nan append-only", constitution)
 
         self.assertIn(
-            "plan-tool and broad-inventory advisory migrations applied",
+            "plan, inventory, and logical-repeat advisory migrations applied",
             classification,
         )
         for tier in ("## CORE", "## USER_POLICY", "## HEURISTIC"):
@@ -428,6 +428,17 @@ class RepositoryPolicyTests(unittest.TestCase):
         self.assertIn("## Operational limits requiring disposition", classification)
         self.assertIn("## Migration order", classification)
         self.assertIn("Complete in the v0.25 candidate", classification)
+        self.assertIn("fresh, separately authorized retries", classification)
+        self.assertIn("verification-time mutation", classification)
+
+        gate_runtime = (ROOT / "hooks" / "click_gate.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertNotRegex(
+            gate_runtime,
+            r"\bmodel(?:_name|_id)?\b",
+            "Click Core must not branch on model identity",
+        )
 
     def test_click_supports_always_on_while_fix_remains_explicit(self) -> None:
         for skill_name in ("click", "fix"):
@@ -585,7 +596,7 @@ class RepositoryPolicyTests(unittest.TestCase):
         catalog = (
             ROOT / "evals" / "golden-prompts.yaml"
         ).read_text(encoding="utf-8")
-        self.assertIn("version: 20", catalog)
+        self.assertIn("version: 21", catalog)
         for case_id in (
             "unset-first-mutation-choice",
             "always-on-trivial-edit",
@@ -603,6 +614,7 @@ class RepositoryPolicyTests(unittest.TestCase):
         self.assertIn("id: distinct-turn-contract-approval", catalog)
         self.assertIn("id: active-lifecycle-plan-advisory", catalog)
         self.assertIn("id: broad-inventory-advisory", catalog)
+        self.assertIn("id: logical-repeat-advisory", catalog)
         self.assertIn("id: cheapest-evidence-browser-game", catalog)
 
     def test_multiplatform_adapter_is_documented_without_false_parity(self) -> None:

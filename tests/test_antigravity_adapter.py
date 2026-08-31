@@ -437,8 +437,9 @@ class AntigravityAdapterTests(unittest.TestCase):
         self.assertIn("already completed", second.stderr)
 
         identical = self.control("inspect", first_request)
-        self.assertNotEqual(identical.returncode, 0)
-        self.assertIn("identical successful read", identical.stderr)
+        self.assertEqual(identical.returncode, 0, identical.stderr)
+        self.assertIn("Click advisory", identical.stderr)
+        self.assertIn("identical read or search already succeeded", identical.stderr)
 
     def test_plain_cancel_is_recovered_from_the_transcript(self) -> None:
         self.pre_invocation("build this")
