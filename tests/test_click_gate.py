@@ -192,6 +192,19 @@ class ClickGateTests(unittest.TestCase):
             payload, expected_context, "run-verification"
         )
 
+    def assert_browser_advisory(
+        self, payload: dict | None, expected_context: str
+    ) -> None:
+        self.assertIsNotNone(payload)
+        assert payload is not None
+        output = payload["hookSpecificOutput"]
+        self.assertEqual(output["hookEventName"], "PreToolUse")
+        self.assertNotIn("permissionDecision", output)
+        self.assertNotIn("permissionDecisionReason", output)
+        self.assertNotIn("updatedInput", output)
+        self.assertIn("Click advisory", output["additionalContext"])
+        self.assertIn(expected_context, output["additionalContext"])
+
     def tool_hook(
         self,
         mode: str,
@@ -5656,7 +5669,7 @@ class ClickGateTests(unittest.TestCase):
             with self.subTest(response=response):
                 self.assertFalse(CLICK_GATE._tool_response_failed(response))
 
-    def test_lost_browser_post_event_expires_and_allows_bounded_retry(self) -> None:
+    def test_lost_browser_post_event_expires_and_allows_receipt_bound_retry(self) -> None:
         contract = self.contract()
         contract["verification"]["evidence"] = [
             {"id": "E-browser", "kind": "browser", "description": "one session"}
@@ -5685,18 +5698,33 @@ class ClickGateTests(unittest.TestCase):
         )
         state_path.write_text(json.dumps(state), encoding="utf-8")
 
-        invalid_retry = self.tool_hook(
+        long_retry_input = {"code": "await page.title()", "timeout_ms": 60000}
+        long_retry = self.tool_hook(
             "pre-tool",
             "mcp__node_repl__js",
-            {"code": "await page.title()", "timeout_ms": 60000},
-            tool_use_id="invalid-browser-retry",
+            long_retry_input,
+            tool_use_id="long-browser-retry",
         )
-        self.assertEqual(
-            invalid_retry["hookSpecificOutput"]["permissionDecision"], "deny"
-        )
+        self.assert_browser_advisory(long_retry, "timeout above 30 seconds")
         state = json.loads(state_path.read_text(encoding="utf-8"))
-        self.assertEqual(state["external_evidence"]["browser_running"], {})
-        self.assertEqual(state["external_evidence"]["browser_status"], "failed")
+        self.assertIn(
+            "long-browser-retry", state["external_evidence"]["browser_running"]
+        )
+        running_entry = state["external_evidence"]["browser_running"][
+            "long-browser-retry"
+        ]
+        self.assertGreater(
+            running_entry["expires_at"] - running_entry["started_at"], 60
+        )
+        self.assertIsNone(
+            self.tool_hook(
+                "post-tool",
+                "mcp__node_repl__js",
+                long_retry_input,
+                tool_use_id="long-browser-retry",
+                tool_response={"status": "error", "isError": True},
+            )
+        )
 
         self.assertIsNone(
             self.tool_hook(
@@ -5707,7 +5735,7 @@ class ClickGateTests(unittest.TestCase):
             )
         )
         state = json.loads(state_path.read_text(encoding="utf-8"))
-        self.assertEqual(state["external_evidence"]["browser_calls"], 2)
+        self.assertEqual(state["external_evidence"]["browser_calls"], 3)
         self.assertIn(
             "browser-retry", state["external_evidence"]["browser_running"]
         )
@@ -5743,7 +5771,117 @@ class ClickGateTests(unittest.TestCase):
         )
         self.assertFalse(CLICK_GATE._browser_evidence_required(non_browser))
 
-    def test_browser_evidence_deduplicates_success_without_a_three_call_cap(self) -> None:
+    def test_browser_receipt_binding_and_serial_interlock_remain_hard(self) -> None:
+        contract = self.contract()
+        contract["verification"]["evidence"] = [
+            {"id": "E-browser", "kind": "browser", "description": "one session"}
+        ]
+        contract["verification"]["done_when"] = [
+            {"condition": "the page works", "primary_evidence": "E-browser"}
+        ]
+        self.arm_gate("turn-1")
+        self.stage_gate(contract, "turn-1")
+        self.arm_gate("turn-2")
+        self.pass_gate(turn_id="turn-2")
+
+        input_value = {"code": "await page.title()", "timeout_ms": 5000}
+        missing_identity = self.tool_hook(
+            "pre-tool",
+            "mcp__node_repl__js",
+            input_value,
+            tool_use_id="",
+        )
+        self.assertEqual(
+            missing_identity["hookSpecificOutput"]["permissionDecision"], "deny"
+        )
+        self.assertIn(
+            "stable tool_use_id",
+            missing_identity["hookSpecificOutput"]["permissionDecisionReason"],
+        )
+
+        self.assertIsNone(
+            self.tool_hook(
+                "pre-tool",
+                "mcp__node_repl__js",
+                input_value,
+                tool_use_id="browser-serial-1",
+            )
+        )
+        parallel = self.tool_hook(
+            "pre-tool",
+            "mcp__node_repl__js",
+            {"code": "await page.url()", "timeout_ms": 5000},
+            tool_use_id="browser-serial-2",
+        )
+        self.assertEqual(parallel["hookSpecificOutput"]["permissionDecision"], "deny")
+        self.assertIn(
+            "already running",
+            parallel["hookSpecificOutput"]["permissionDecisionReason"],
+        )
+        self.assertIsNone(
+            self.tool_hook(
+                "post-tool",
+                "mcp__node_repl__js",
+                input_value,
+                tool_use_id="browser-serial-1",
+                tool_response={"status": "success"},
+            )
+        )
+
+    def test_browser_attempt_history_compacts_instead_of_blocking(self) -> None:
+        contract = self.contract()
+        contract["verification"]["evidence"] = [
+            {"id": "E-browser", "kind": "browser", "description": "one session"}
+        ]
+        contract["verification"]["done_when"] = [
+            {"condition": "the page works", "primary_evidence": "E-browser"}
+        ]
+        self.arm_gate("turn-1")
+        self.stage_gate(contract, "turn-1")
+        self.arm_gate("turn-2")
+        self.pass_gate(turn_id="turn-2")
+
+        state_path = next(
+            (self.plugin_data / "gate-state").glob("session-contract-*.json")
+        )
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        attempts = {
+            f"old-attempt-{index}": {
+                "status": "failed",
+                "attempts": 1,
+                "unchanged_retries": 0,
+                "successful_attempts": 0,
+                "failed_attempts": 1,
+            }
+            for index in range(CLICK_GATE.MAX_BROWSER_UNIQUE_INPUTS)
+        }
+        state["external_evidence"]["browser_attempts"] = attempts
+        state_path.write_text(json.dumps(state), encoding="utf-8")
+
+        input_value = {"code": "await page.title()", "timeout_ms": 5000}
+        advised = self.tool_hook(
+            "pre-tool",
+            "mcp__node_repl__js",
+            input_value,
+            tool_use_id="browser-after-compaction",
+        )
+        self.assert_browser_advisory(advised, "attempt guidance was compacted")
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        retained = state["external_evidence"]["browser_attempts"]
+        self.assertEqual(len(retained), CLICK_GATE.MAX_BROWSER_UNIQUE_INPUTS)
+        self.assertNotIn("old-attempt-0", retained)
+        self.assertIn(CLICK_GATE._browser_attempt_digest(input_value), retained)
+        self.assertIsNone(
+            self.tool_hook(
+                "post-tool",
+                "mcp__node_repl__js",
+                input_value,
+                tool_use_id="browser-after-compaction",
+                tool_response={"status": "success"},
+            )
+        )
+
+    def test_browser_workflow_tuning_is_advisory_without_a_call_cap(self) -> None:
         contract = self.contract()
         contract["verification"]["evidence"] = [
             {
@@ -5763,13 +5901,30 @@ class ClickGateTests(unittest.TestCase):
         self.arm_gate("turn-2")
         self.pass_gate(turn_id="turn-2")
 
+        timed_input = {
+            "code": "await page.waitForTimeout(55000)",
+            "timeout_ms": 60000,
+        }
         timed = self.tool_hook(
             "pre-tool",
             "mcp__node_repl__js",
-            {"code": "await page.waitForTimeout(55000)", "timeout_ms": 60000},
+            timed_input,
+            tool_use_id="browser-timed",
         )
-        self.assertEqual(timed["hookSpecificOutput"]["permissionDecision"], "deny")
-        self.assertIn("timeouts may not exceed", timed["hookSpecificOutput"]["permissionDecisionReason"])
+        self.assert_browser_advisory(timed, "timeout above 30 seconds")
+        self.assertIn(
+            "explicit wait above five seconds",
+            timed["hookSpecificOutput"]["additionalContext"],
+        )
+        self.assertIsNone(
+            self.tool_hook(
+                "post-tool",
+                "mcp__node_repl__js",
+                timed_input,
+                tool_use_id="browser-timed",
+                tool_response={"status": "error", "isError": True},
+            )
+        )
 
         self.assertIsNone(
             self.tool_hook(
@@ -5789,22 +5944,29 @@ class ClickGateTests(unittest.TestCase):
             )
         )
 
+        self.base_event["model"] = "another-frontier-model"
+        duplicate_input = {
+            "code": "  await page.title()\r\n",
+            "timeout_ms": 12000,
+            "_meta": {"trace": "different bookkeeping"},
+        }
         duplicate = self.tool_hook(
             "pre-tool",
             "mcp__node_repl__js",
-            {
-                "code": "  await page.title()\r\n",
-                "timeout_ms": 12000,
-                "_meta": {"trace": "different bookkeeping"},
-            },
+            duplicate_input,
             tool_use_id="browser-duplicate",
         )
-        self.assertEqual(
-            duplicate["hookSpecificOutput"]["permissionDecision"], "deny"
+        self.assert_browser_advisory(
+            duplicate, "normalized Browser interaction already succeeded"
         )
-        self.assertIn(
-            "already collected this successful Browser interaction",
-            duplicate["hookSpecificOutput"]["permissionDecisionReason"],
+        self.assertIsNone(
+            self.tool_hook(
+                "post-tool",
+                "mcp__node_repl__js",
+                duplicate_input,
+                tool_use_id="browser-duplicate",
+                tool_response={"status": "success"},
+            )
         )
 
         for index in range(2, 7):
@@ -5888,18 +6050,23 @@ class ClickGateTests(unittest.TestCase):
                 )
             )
 
-        blocked = self.tool_hook(
+        advised = self.tool_hook(
             "pre-tool",
             "mcp__node_repl__js",
             failing_input,
-            tool_use_id="browser-failure-blocked",
+            tool_use_id="browser-failure-advised",
         )
-        self.assertEqual(
-            blocked["hookSpecificOutput"]["permissionDecision"], "deny"
+        self.assert_browser_advisory(
+            advised, "failed or produced incomplete evidence twice"
         )
-        self.assertIn(
-            "already failed twice",
-            blocked["hookSpecificOutput"]["permissionDecisionReason"],
+        self.assertIsNone(
+            self.tool_hook(
+                "post-tool",
+                "mcp__node_repl__js",
+                failing_input,
+                tool_use_id="browser-failure-advised",
+                tool_response={"status": "error", "isError": True},
+            )
         )
         state_path = next(
             (self.plugin_data / "gate-state").glob("session-contract-*.json")

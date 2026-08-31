@@ -47,8 +47,7 @@ runtime authority.
   until an approved mutation repairs or reconciles the workspace.
 - Consumed-token replay, request substitution, active mutation or verification
   races, receipt mismatch, cancellation, tampering, and verification budget
-  enforcement remain hard. Browser duplicate and retry tuning is intentionally
-  deferred to its separate migration.
+  enforcement remain hard.
 
 ### Verification strategy, approved policy, and metering are separate
 
@@ -65,6 +64,24 @@ runtime authority.
   Contract and gate compatibility symbols, contract schema, error messages,
   one-use runners, evidence receipts, and completion behavior remain unchanged.
 
+### Browser receipt integrity is separate from workflow advice
+
+- Assigned-source admission, serial calls, stable `tool_use_id` and matching
+  `PostToolUse` results, current mutation revision, explicit finalization, and
+  completed-evidence replay remain hard receipt-integrity checks.
+- A normalized interaction seen after success or repeated failure is allowed as
+  a fresh host call with non-blocking reuse or repair guidance. This does not
+  replay an old result or manufacture completion evidence.
+- Requests above the previous 30-second timeout and five-second explicit-wait
+  recommendations remain allowed with timing guidance. Their active-call expiry
+  follows the declared runtime so a legitimate long call is not mistaken for a
+  lost result.
+- Browser attempt history remains bounded: after 256 normalized inputs, Click
+  compacts the oldest per-input guidance record instead of denying the next
+  receipt-bound call. Source and revision receipts are preserved.
+- These decisions depend on observable host input, result state, source and
+  revision—not model identity or a model-specific workflow test.
+
 ### Runtime authority remains hard
 
 - Distinct-turn approval and exact contract-digest binding remain required.
@@ -74,6 +91,13 @@ runtime authority.
 - One-use runners remain bound to their exact request, and evidence receipts
   remain bound to the active contract, mutation revision, protected workspace,
   execution environment, and executable fingerprint.
+
+### Skill authoring is structural, not word-count authority
+
+- The arbitrary 900-word Click and 350-word Fix CI caps are removed. Required
+  reference links, lifecycle markers, manifest shape, Skill validation, and
+  distribution consistency remain checked, while prose length and clarity stay
+  authoring-review concerns rather than runtime or CI permission rules.
 
 ## v0.24.6 — 2026-08-31
 

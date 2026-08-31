@@ -33,6 +33,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 if __package__:
     from . import (
+        click_browser_advisory,
         click_contract,
         click_evidence,
         click_process,
@@ -56,6 +57,7 @@ if __package__:
     )
     from .platform_protocol import CodexOutputAdapter, HookOutputAdapter
 else:  # Executed directly from the bundled hooks directory.
+    import click_browser_advisory
     import click_contract
     import click_evidence
     import click_process
@@ -168,8 +170,12 @@ MAX_VERIFICATION_BATCH_CHARS = 6_000
 MAX_OBSERVATION_OUTPUT_BYTES = 48_000
 MAX_OBSERVATION_ENTRIES = 64
 MAX_BROWSER_UNIQUE_INPUTS = 256
-MAX_BROWSER_TOOL_TIMEOUT_MS = 30_000
-MAX_BROWSER_WAIT_MS = 5_000
+# Compatibility names for callers that previously treated these advisory
+# thresholds as hard maxima.
+MAX_BROWSER_TOOL_TIMEOUT_MS = (
+    click_browser_advisory.RECOMMENDED_BROWSER_TOOL_TIMEOUT_MS
+)
+MAX_BROWSER_WAIT_MS = click_browser_advisory.RECOMMENDED_BROWSER_WAIT_MS
 BROWSER_RUNNING_TTL_SECONDS = 40
 OBSERVATION_RESERVATION_TTL_SECONDS = 30
 MUTATION_RUNNING_TTL_SECONDS = 10 * 60
@@ -208,10 +214,7 @@ PROCESS_CONTROL_EXECUTABLES = {
 }
 
 BROWSER_TOOL_NAMES = {"mcp__node_repl__js"}
-BROWSER_WAIT_PATTERNS = (
-    re.compile(r"(?i:waitForTimeout)\s*\(\s*(\d+)"),
-    re.compile(r"(?i:setTimeout)\s*\([^,]{0,240},\s*(\d+)"),
-)
+BROWSER_WAIT_PATTERNS = click_browser_advisory.BROWSER_WAIT_PATTERNS
 MANAGED_SERVICE_EXECUTABLES = {
     "flask",
     "gunicorn",
@@ -3375,24 +3378,30 @@ def _is_plan_tool(tool_name: str) -> bool:
 def _browser_input_error(tool_input: Any) -> str:
     if not isinstance(tool_input, dict):
         return "Browser evidence requires an object tool input."
-    timeout_ms = tool_input.get("timeout_ms")
-    if isinstance(timeout_ms, (int, float)) and not isinstance(timeout_ms, bool):
-        if timeout_ms > MAX_BROWSER_TOOL_TIMEOUT_MS:
-            return (
-                f"Browser evidence tool timeouts may not exceed "
-                f"{MAX_BROWSER_TOOL_TIMEOUT_MS // 1000} seconds."
-            )
-    code = tool_input.get("code")
-    if isinstance(code, str):
-        for pattern in BROWSER_WAIT_PATTERNS:
-            for match in pattern.finditer(code):
-                if int(match.group(1)) > MAX_BROWSER_WAIT_MS:
-                    return (
-                        "Click blocked a long timed browser progression. Use deterministic "
-                        "state or one representative interaction; individual waits may not "
-                        f"exceed {MAX_BROWSER_WAIT_MS // 1000} seconds."
-                    )
     return ""
+
+
+def _browser_running_expires_at(tool_input: Any, started_at: float) -> float:
+    declared_seconds = (
+        click_browser_advisory.longest_declared_runtime_ms(tool_input) / 1000.0
+    )
+    return started_at + max(BROWSER_RUNNING_TTL_SECONDS, declared_seconds + 10.0)
+
+
+def _browser_running_entry_is_active(entry: Any, now: float) -> bool:
+    if isinstance(entry, (int, float)) and not isinstance(entry, bool):
+        return now - float(entry) <= BROWSER_RUNNING_TTL_SECONDS
+    if not isinstance(entry, dict):
+        return False
+    expires_at = entry.get("expires_at")
+    if isinstance(expires_at, (int, float)) and not isinstance(expires_at, bool):
+        return now <= float(expires_at)
+    started_at = entry.get("started_at")
+    return bool(
+        isinstance(started_at, (int, float))
+        and not isinstance(started_at, bool)
+        and now - float(started_at) <= BROWSER_RUNNING_TTL_SECONDS
+    )
 
 
 def _browser_attempt_digest(tool_input: Any) -> str:
@@ -3457,19 +3466,24 @@ def _tool_response_failed(response: Any) -> bool:
     )
 
 
-def _prepare_browser_evidence(event: dict[str, Any]) -> tuple[bool, str]:
+def _prepare_browser_evidence(event: dict[str, Any]) -> tuple[bool, str, str]:
     state = _read_contract_state(event)
     if state.get("status") not in {"staged", "approved"}:
-        return False, ""
+        return False, "", ""
     if state.get("status") != "approved":
-        return True, "Approve the staged Click contract before collecting browser evidence."
+        return (
+            True,
+            "Approve the staged Click contract before collecting browser evidence.",
+            "",
+        )
     if _contract_is_completed(state):
         if _read_state(event).get("status") != "passed":
-            return False, ""
+            return False, "", ""
         return (
             True,
             "The approved Click contract is complete. Reuse its evidence instead of "
             "starting a shadow browser verification session.",
+            "",
         )
     external = state.get("external_evidence")
     if not isinstance(external, dict) or external.get("browser_required") is not True:
@@ -3478,6 +3492,7 @@ def _prepare_browser_evidence(event: dict[str, Any]) -> tuple[bool, str]:
             "Browser work has no referenced verification evidence source with kind "
             "`browser` in this contract. Use the cheaper assigned source instead of "
             "adding shadow verification.",
+            "",
         )
     sources = _evidence_sources(state)
     if sources is None:
@@ -3485,17 +3500,26 @@ def _prepare_browser_evidence(event: dict[str, Any]) -> tuple[bool, str]:
             True,
             "This active contract predates evidence-id completion tracking. Cancel it, "
             "stage the proposal again, and obtain fresh approval.",
+            "",
         )
     source_key = str(external.get("browser_source_key", ""))
     source = sources.get(source_key) if sources else None
     if not isinstance(source, dict) or source.get("kind") != "browser":
-        return True, "Click Browser evidence state is unavailable or malformed."
+        return True, "Click Browser evidence state is unavailable or malformed.", ""
     mutation = state.get("mutation")
     if _mutation_is_running(mutation):
-        return True, "Wait for the structured mutation to finish before browser evidence."
+        return (
+            True,
+            "Wait for the structured mutation to finish before browser evidence.",
+            "",
+        )
     verification = state.get("verification")
     if isinstance(verification, dict) and verification.get("status") == "running":
-        return True, "Wait for the final argv verification batch before browser evidence."
+        return (
+            True,
+            "Wait for the final argv verification batch before browser evidence.",
+            "",
+        )
     revision = (
         int(verification.get("mutation_revision", 0))
         if isinstance(verification, dict)
@@ -3506,6 +3530,7 @@ def _prepare_browser_evidence(event: dict[str, Any]) -> tuple[bool, str]:
             True,
             "The assigned Browser evidence already completed for the current revision. "
             "Reuse it instead of replaying the session.",
+            "",
         )
     running = external.get("browser_running")
     if isinstance(running, dict) and running:
@@ -3513,24 +3538,16 @@ def _prepare_browser_evidence(event: dict[str, Any]) -> tuple[bool, str]:
             external.get("browser_status") == "observed"
             or source.get("status") == "observed"
         )
-        started_values = [
-            float(value.get("started_at", 0.0))
-            if isinstance(value, dict)
-            else float(value)
-            for value in running.values()
-            if (
-                isinstance(value, (int, float))
-                and not isinstance(value, bool)
+        now = time.time()
+        if any(
+            _browser_running_entry_is_active(running_entry, now)
+            for running_entry in running.values()
+        ):
+            return (
+                True,
+                "One browser evidence call is already running; keep the session serial.",
+                "",
             )
-            or (
-                isinstance(value, dict)
-                and isinstance(value.get("started_at"), (int, float))
-                and not isinstance(value.get("started_at"), bool)
-            )
-        ]
-        started_at = min(started_values) if started_values else 0.0
-        if started_at and time.time() - started_at <= BROWSER_RUNNING_TTL_SECONDS:
-            return True, "One browser evidence call is already running; keep the session serial."
         attempts = external.get("browser_attempts")
         if not isinstance(attempts, dict):
             attempts = {}
@@ -3541,6 +3558,9 @@ def _prepare_browser_evidence(event: dict[str, Any]) -> tuple[bool, str]:
             attempt = attempts.get(attempt_digest)
             if isinstance(attempt, dict) and attempt.get("status") == "running":
                 attempt["status"] = "failed"
+                attempt["failed_attempts"] = int(
+                    attempt.get("failed_attempts", 0)
+                ) + 1
         external["browser_running"] = {}
         external["browser_attempts"] = attempts
         external["browser_status"] = "observed" if already_observed else "failed"
@@ -3553,41 +3573,58 @@ def _prepare_browser_evidence(event: dict[str, Any]) -> tuple[bool, str]:
         _save_contract_state(event, state)
     input_error = _browser_input_error(event.get("tool_input"))
     if input_error:
-        return True, input_error
+        return True, input_error, ""
+    advisories = list(
+        click_browser_advisory.input_advisories(event.get("tool_input"))
+    )
     tool_use_id = str(event.get("tool_use_id", ""))
     if not tool_use_id:
-        return True, "Browser evidence requires a stable tool_use_id for PostToolUse accounting."
+        return (
+            True,
+            "Browser evidence requires a stable tool_use_id for PostToolUse accounting.",
+            "",
+        )
     attempt_digest = _browser_attempt_digest(event.get("tool_input"))
     attempts = external.get("browser_attempts")
     if not isinstance(attempts, dict):
         attempts = {}
     prior_attempt = attempts.get(attempt_digest)
+    repeat_advisory = click_browser_advisory.repeat_advisory(prior_attempt)
+    if repeat_advisory:
+        advisories.append(repeat_advisory)
     unchanged_retries = 0
     if isinstance(prior_attempt, dict):
         prior_status = str(prior_attempt.get("status", ""))
         unchanged_retries = int(prior_attempt.get("unchanged_retries", 0))
-        if prior_status == "success":
-            return (
-                True,
-                "Click already collected this successful Browser interaction for the "
-                "current revision. Reuse it, collect a materially different interaction, "
-                "or finalize the assigned evidence source.",
-            )
         if prior_status in {"failed", "incomplete"}:
-            if unchanged_retries >= 1:
-                return (
-                    True,
-                    "The identical Browser interaction already failed twice without a "
-                    "mutation or changed input. Repair the implementation or collect a "
-                    "materially different interaction instead of replaying it.",
-                )
             unchanged_retries += 1
-    if not isinstance(prior_attempt, dict) and len(attempts) >= MAX_BROWSER_UNIQUE_INPUTS:
-        return (
-            True,
-            "Click reached its Browser evidence state-safety limit for unique "
-            "interactions. Finalize the representative evidence already collected or "
-            "mutate the implementation before collecting a new session.",
+    previous_successes = (
+        int(prior_attempt.get("successful_attempts", 0))
+        if isinstance(prior_attempt, dict)
+        else 0
+    )
+    if (
+        isinstance(prior_attempt, dict)
+        and prior_attempt.get("status") == "success"
+        and previous_successes == 0
+    ):
+        previous_successes = 1
+    previous_failures = (
+        int(prior_attempt.get("failed_attempts", 0))
+        if isinstance(prior_attempt, dict)
+        else 0
+    )
+    if isinstance(prior_attempt, dict):
+        attempts.pop(attempt_digest, None)
+    compacted = False
+    while len(attempts) >= MAX_BROWSER_UNIQUE_INPUTS:
+        attempts.pop(next(iter(attempts)))
+        compacted = True
+    if compacted:
+        advisories.append(
+            "Click advisory: older Browser attempt guidance was compacted to keep "
+            "receipt state bounded. This call remains tracked, and the current source "
+            "and revision receipt are unchanged."
         )
     already_observed = bool(
         external.get("browser_status") == "observed"
@@ -3599,13 +3636,19 @@ def _prepare_browser_evidence(event: dict[str, Any]) -> tuple[bool, str]:
         if isinstance(prior_attempt, dict)
         else 1,
         "unchanged_retries": unchanged_retries,
+        "successful_attempts": previous_successes,
+        "failed_attempts": previous_failures,
     }
     calls = int(external.get("browser_calls", 0))
     external["browser_calls"] = calls + 1
     external["browser_status"] = "observed" if already_observed else "running"
+    started_at = time.time()
     external["browser_running"] = {
         tool_use_id: {
-            "started_at": time.time(),
+            "started_at": started_at,
+            "expires_at": _browser_running_expires_at(
+                event.get("tool_input"), started_at
+            ),
             "attempt_digest": attempt_digest,
         }
     }
@@ -3615,7 +3658,7 @@ def _prepare_browser_evidence(event: dict[str, Any]) -> tuple[bool, str]:
         source["status"] = "running"
     state["external_evidence"] = external
     _save_contract_state(event, state)
-    return True, ""
+    return True, "", "\n".join(advisories)
 
 
 def _handle_post_tool(event: dict[str, Any]) -> None:
@@ -3656,10 +3699,16 @@ def _handle_post_tool(event: dict[str, Any]) -> None:
         attempts = {}
     attempt = attempts.get(attempt_digest)
     if not isinstance(attempt, dict):
-        attempt = {"attempts": 1, "unchanged_retries": 0}
+        attempt = {
+            "attempts": 1,
+            "unchanged_retries": 0,
+            "successful_attempts": 0,
+            "failed_attempts": 0,
+        }
         attempts[attempt_digest] = attempt
     if _tool_response_failed(event.get("tool_response")):
         attempt["status"] = "failed"
+        attempt["failed_attempts"] = int(attempt.get("failed_attempts", 0)) + 1
         already_observed = bool(
             external.get("browser_status") == "observed"
             or isinstance(source, dict)
@@ -3673,6 +3722,9 @@ def _handle_post_tool(event: dict[str, Any]) -> None:
             source["last_exit_code"] = 1
     else:
         attempt["status"] = "success"
+        attempt["successful_attempts"] = int(
+            attempt.get("successful_attempts", 0)
+        ) + 1
         external["browser_status"] = "observed"
         external["last_browser_error"] = ""
         if isinstance(source, dict):
@@ -3704,7 +3756,8 @@ def _handle_prompt_submit(event: dict[str, Any]) -> None:
             "Browser source or attest a collected hosted, manual, or existing source; use "
             "`click-gate service` start/stop for a recognizable long-running local server. "
             "Browser MCP work requires one referenced verification evidence source with "
-            "kind `browser` and must follow its serial input-deduplication policy. Use "
+            "kind `browser`; calls remain serial and receipt-bound while repeat and timing "
+            "guidance is advisory. Use "
             "`click-gate bypass` only when the user explicitly opts out for the current turn."
         )
     elif default_mode == "manual":
@@ -3789,9 +3842,11 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
     command = tool_input.get("command", "") if isinstance(tool_input, dict) else ""
 
     if tool_name in BROWSER_TOOL_NAMES:
-        handled, browser_error = _prepare_browser_evidence(event)
+        handled, browser_error, browser_advisory = _prepare_browser_evidence(event)
         if handled and browser_error:
             _deny(browser_error)
+        elif handled and browser_advisory:
+            _advise(browser_advisory)
         return
 
     if tool_name == "Bash":
