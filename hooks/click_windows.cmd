@@ -1,13 +1,13 @@
 @echo off
 setlocal
 
-py -3 -c "import sys; raise SystemExit(sys.version_info.major != 3)" >nul 2>&1
+"%ComSpec%" /d /c py -3 -c "import sys; raise SystemExit(sys.version_info.major != 3)" >nul 2>&1
 if not errorlevel 1 goto run_py
 
-python -c "import sys; raise SystemExit(sys.version_info.major != 3)" >nul 2>&1
+"%ComSpec%" /d /c python -c "import sys; raise SystemExit(sys.version_info.major != 3)" >nul 2>&1
 if not errorlevel 1 goto run_python
 
-python3 -c "import sys; raise SystemExit(sys.version_info.major != 3)" >nul 2>&1
+"%ComSpec%" /d /c python3 -c "import sys; raise SystemExit(sys.version_info.major != 3)" >nul 2>&1
 if not errorlevel 1 goto run_python3
 
 goto no_python
