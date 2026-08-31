@@ -193,7 +193,7 @@ The exact design is repository-dependent. The example shows the contract shape, 
 | Make command intent explicit | Ambiguous active shell work is replaced by structured `inspect`, `mutate`, `service`, or `verify` paths |
 | Keep verification in one budget | Each local check names its registered `argv` source and cumulative reservations must fit the approved scale |
 | Track completion by source | All declared sources must be current; no placeholder local check is invented when no `argv` source exists |
-| Deduplicate Browser evidence | Successful normalized Browser input is not repeated; one unchanged retry is allowed after failure |
+| Advise on Browser workflow repetition | Fresh normalized Browser repeats, retries, and long timed interactions remain allowed with guidance; assigned-source, serial-call, tool-result, revision, and completion-replay checks remain hard |
 
 ## Approved verification policy
 

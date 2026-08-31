@@ -101,7 +101,7 @@ global_invariants:
   - "Keeps broad-inventory count non-blocking and non-authoritative: a distinct-digest broad inventory receives narrowing guidance and may run despite prior broad running or success, while an active exact-digest reservation, mutation and verification interlocks, and runner safety remain hard"
   - "Keeps fresh logical repetition non-blocking and model-neutral: a completed identical observation or ordinary repeatedly failing argv check may receive a new one-use authorization with advisory context, while consumed-token replay, active same-request reservations, and verification-time repository mutation remain hard"
   - "Skips an exact successful argv check only for the same active contract and mutation revision when its check group, protected Git tree, canonical execution environment, and executable fingerprint match; a new mutation revision never auto-promotes stale evidence"
-  - "Deduplicates Browser work by normalized input: success blocks repetition, failure gets one identical retry, different input remains available, and serial 30-second-call and five-second-wait limits stay enforced without a normal three-call or 90-second cap"
+  - "Keeps Browser source admission, serial calls, stable tool_use_id/result mapping, current revision and completion replay hard while normalized repetition, retry count, 30-second timeout and five-second wait guidance remains non-blocking and model-neutral"
   - "Uses browser, manual, hosted, broad-suite, or timed end-to-end evidence only when cheaper evidence cannot prove the condition, then stops when all conditions have current evidence"
   - "Does not create parallel verification ceremonies or include an intermediate gate without an irreversible boundary"
   - "Avoids serial technical preference questions by exposing consequential assumptions in the single contract review"
@@ -600,7 +600,7 @@ cases:
       - "Allows an ordinary argv evidence source to retry after two unchanged failures with non-blocking repair guidance"
       - "Keeps an active same-digest observation reservation, consumed runner token replay, request substitution, cancellation, and tampering hard"
       - "Keeps verification that changed protected repository content blocked until an approved mutation repairs or reconciles the workspace"
-      - "Leaves Browser duplicate and retry tuning for its separate policy migration"
+      - "Keeps Browser source/result/revision and serial-call interlocks hard while its separate repeat, retry, and timing guidance remains advisory"
     minimality_expectations:
       reuse: "Existing observation digests, verification source state, one-use runners, advisory wire, and host adapters"
       reject_without_evidence:
@@ -621,6 +621,23 @@ cases:
       reuse: "The existing session contract completion predicate"
       reject_without_evidence:
         - "A new lifecycle state, extra approval round, or repository-local lock file"
+
+  - id: browser-workflow-advisory
+    prompt: "@Click Browser source와 tool result·revision 결속은 계속 막되 같은 입력 반복, 실패 재시도, 긴 timeout·wait는 모델별 hard gate 없이 advisory로만 처리해줘."
+    default_mode: on
+    expected_activation: true
+    expected_mode: build
+    expected_mutation_gate: none-before-approval
+    directive_semantics:
+      - "Keeps assigned Browser source admission, serial active-call exclusion, stable tool_use_id and matching result mapping, current mutation revision, and completed-evidence replay hard"
+      - "Allows fresh normalized repeats after success or repeated failure with non-blocking reuse or repair guidance"
+      - "Allows calls above the 30-second timeout and five-second explicit-wait recommendations with non-blocking timing guidance and an active receipt window that covers the declared runtime"
+      - "Compacts the oldest per-input guidance after the bounded history limit instead of denying a new receipt-bound call"
+      - "Does not branch on model identity, choose an interaction strategy, manufacture a successful result, or weaken Browser evidence finalization"
+    minimality_expectations:
+      reuse: "Existing Browser source ledger, PreToolUse/PostToolUse mapping, host advisory output, normalized input digest, and bounded state"
+      reject_without_evidence:
+        - "A model-specific workflow matrix, semantic Browser judge, hard retry counter, hard timing threshold, scheduler, or new approval step"
 
   - id: verification-scope-classification
     prompt: "@Click pytest filter와 파일 여러 개로 전체 테스트 비용을 targeted처럼 속이지 못하게 하고, 정확한 integration test 하나는 deep으로 과차단하지 마."
@@ -664,7 +681,7 @@ cases:
       - "Declares each evidence source once and assigns every done_when condition one cheapest sufficient primary_evidence id while allowing one id to cover several conditions"
       - "Uses deterministic game-logic tests for waves, rewards, damage, victory, and defeat instead of replaying the whole timed campaign"
       - "Uses one representative browser session only for integration, input, responsive layout, and visual behavior that logic tests cannot prove"
-      - "Declares one referenced evidence source with kind browser, keeps calls serial, blocks successful normalized-input repetition, permits one identical retry after failure, and keeps 30-second call and five-second explicit-wait bounds"
+      - "Declares one referenced evidence source with kind browser, keeps calls serial and result-bound, and treats normalized repetition, retry count, 30-second timeout, and five-second explicit-wait recommendations as advisory rather than evidence authority"
       - "Does not duplicate the same rule through both automated and browser evidence or add a shadow verification suite"
       - "Stops verification as soon as every declared primary source has current evidence"
     minimality_expectations:
@@ -672,4 +689,4 @@ cases:
       reject_without_evidence:
         - "A natural ten-wave victory playthrough followed by a separate full defeat playthrough"
         - "Repeated desktop and mobile checks of rules already proven by automated tests"
-        - "Repeated successful Browser input, a third identical failed attempt, a Browser timeout above 30 seconds, a timed wait above five seconds, or treating the 256-unique-input safety ceiling as a target"
+        - "A model-specific Browser workflow matrix, a hard duplicate/retry/timing gate, an unbounded attempt ledger, or treating the 256-record compaction boundary as a verification target"

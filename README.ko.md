@@ -192,7 +192,7 @@ ChatGPT 데스크톱 앱을 다시 시작하고 포함된 Click Hook을 확인�
 | 명령 의도 명시 | active 상태의 애매한 shell 작업 대신 structured `inspect`·`mutate`·`service`·`verify`를 사용 |
 | 검증을 한 예산에 결합 | local check마다 등록된 `argv` source를 지정하고 누적 예약이 승인 규모 안에 있어야 함 |
 | source별 완료 추적 | 선언한 모든 source가 current여야 하며 `argv` source가 없으면 억지 local check를 만들지 않음 |
-| Browser evidence 중복 제거 | 성공한 정규화 입력은 반복하지 않고 동일 실패는 한 번만 그대로 재시도 |
+| Browser workflow 반복 advisory | 정규화된 Browser 반복·재시도·긴 timed interaction은 안내와 함께 허용하고, 할당 source·직렬 호출·tool result·revision·완료 replay 결속은 계속 차단으로 보장 |
 
 ## 승인된 검증 정책
 

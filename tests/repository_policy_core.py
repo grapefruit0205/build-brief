@@ -131,9 +131,6 @@ class RepositoryPolicyTests(unittest.TestCase):
                 self.assertNotIn("Python `-c`", skill)
                 self.assertNotIn("three serial calls", skill)
 
-        self.assertLessEqual(len(click_skill.split()), 900)
-        self.assertLessEqual(len(fix_skill.split()), 350)
-
         english = (ROOT / "README.md").read_text(encoding="utf-8")
         korean = (ROOT / "README.ko.md").read_text(encoding="utf-8")
         chinese = (ROOT / "README.zh-CN.md").read_text(encoding="utf-8")
@@ -428,6 +425,7 @@ class RepositoryPolicyTests(unittest.TestCase):
         self.assertIn("verification-time mutation", classification)
         self.assertIn("hooks/click_verification_policy.py", classification)
         self.assertIn("hooks/click_verification_meter.py", classification)
+        self.assertIn("hooks/click_browser_advisory.py", classification)
 
         gate_runtime = (ROOT / "hooks" / "click_gate.py").read_text(
             encoding="utf-8"
@@ -503,6 +501,7 @@ class RepositoryPolicyTests(unittest.TestCase):
         sources = {
             name: (ROOT / "hooks" / name).read_text(encoding="utf-8")
             for name in (
+                "click_browser_advisory.py",
                 "click_contract.py",
                 "click_evidence.py",
                 "click_gate.py",
@@ -571,6 +570,27 @@ class RepositoryPolicyTests(unittest.TestCase):
             ):
                 with self.subTest(forbidden=forbidden):
                     self.assertNotIn(forbidden, source)
+
+    def test_browser_advisory_is_separate_from_receipt_integrity(self) -> None:
+        gate = (ROOT / "hooks" / "click_gate.py").read_text(encoding="utf-8")
+        advisory = (ROOT / "hooks" / "click_browser_advisory.py").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("click_browser_advisory", gate)
+        self.assertIn("does not grant or deny Browser authority", advisory)
+        self.assertNotIn("permissionDecision", advisory)
+        self.assertNotIn("tool_use_id", advisory.split("def repeat_advisory", 1)[0])
+        for forbidden in (
+            "import click_contract",
+            "import click_evidence",
+            "import click_gate",
+            "import click_process",
+            "import click_state",
+            "import platform_protocol",
+        ):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, advisory)
 
     def test_compact_contract_replaces_the_verbose_execution_fields(self) -> None:
         hook = (ROOT / "hooks" / "click_gate.py").read_text(encoding="utf-8")

@@ -191,7 +191,7 @@ codex plugin add click@click
 | 明确命令意图 | active 状态下含义不明确的 shell 工作改用 structured `inspect`、`mutate`、`service` 或 `verify` |
 | 所有检查共享一个预算 | 每项 local check 指定已注册的 `argv` source，累计预约必须符合批准规模 |
 | 按 source 跟踪完成 | 所有声明 source 必须 current；没有 `argv` source 时不会为了形式制造 local check |
-| 去重 Browser evidence | 成功的规范化输入不会重复；相同失败只允许原样再试一次 |
+| 提示 Browser workflow 重复 | 规范化 Browser 重复、重试和长定时交互在提示下仍可执行；已分配 source、串行调用、tool result、revision 与完成后 replay 的绑定仍为 hard gate |
 
 ## 已批准的验证政策
 

@@ -1,6 +1,6 @@
 # Click Guard Classification
 
-Status: **Living inventory; plan, inventory, logical-repeat, and verification-boundary migrations applied**
+Status: **Living inventory; plan, inventory, logical-repeat, and verification-boundary migrations applied; Browser boundary split complete**
 
 Baseline: **v0.24.6 plus the canonical product-boundary change at `73072a9`**
 
@@ -19,6 +19,7 @@ not claim that every hard gate has already been moved to its target layer.
 | Canonical state paths, locks, atomic writes and authorized state-root recovery | `hooks/click_state.py` | Preserves approval state across failure without weakening identity checks |
 | Cancellation, expiry, consumed-runner and tampering revocation | `hooks/click_state.py`; lifecycle branches in `hooks/click_gate.py` | Prevents stale authority from becoming executable again |
 | Evidence registry identity, current-revision state and receipt matching | `hooks/click_evidence.py`; verification claim/result paths in `hooks/click_gate.py` | Prevents evidence from a different request or revision from completing work |
+| Browser source admission, serial-call interlock, stable host-call/result mapping, current revision and finalization replay | Browser receipt transitions in `hooks/click_gate.py` | Prevents an unassigned, parallel, mismatched, stale or replayed Browser result from completing evidence without judging the model's interaction strategy |
 | Protected Git-tree, environment and executable fingerprints for argv verification; verification-time mutation detection | verification receipt helpers and runners in `hooks/click_gate.py` | Preserves the identity of the code and environment actually checked by Click's argv runner |
 | Enforcement of an approved verification budget against observable argv, including minimum-class inference from the submitted command | deterministic units in `hooks/click_verification_meter.py`; argv classification and enforcement in `hooks/click_gate.py` | Prevents an underdeclared check from bypassing the user's approved ceiling without choosing the verification strategy |
 | Direct-argv capability safety, executable/path/environment checks, process-control rejection and read-only side-effect defenses | capability constants and validators in `hooks/click_gate.py` | Prevents an admitted inspect, verify or service request from gaining unapproved effects |
@@ -41,9 +42,10 @@ not claim that every hard gate has already been moved to its target layer.
 | Advising after broad repository inventory | broad-exploration classifiers, observation preparation and host adapters | Advisory only — cross-digest running/success hard denial removed in the v0.25 candidate; active same-digest reservations and execution interlocks remain separate |
 | Advising on `update_plan` or equivalent host plan tools | plan-tool branch in `hooks/click_gate.py`; host matchers and adapters | Advisory only — hard denial removed in the v0.25 candidate |
 | Choosing the proposed evidence source and verification scale before approval, or concrete argv and the cheapest proof strategy during execution | Skill, eval and documentation policy | Model strategy or an explicit user constraint; runtime minimum-class enforcement of the approved ceiling remains Core |
-| Requiring a mutation after a fixed number of otherwise legitimate failed retries | argv verification and Browser retry handling | Argv verification count is advisory in the v0.25 candidate; Browser tuning remains pending and may become advisory or explicit user policy |
-| Browser wait thresholds, duplicate-input blocking, retry tuning, shadow-verification rules and interaction ceilings | Browser preparation and input validation | Advisory or explicit user policy |
+| Requiring a mutation after a fixed number of otherwise legitimate failed retries | argv verification and Browser retry handling | Advisory only in the v0.25 candidate; fresh authorization remains distinct from replay of an active or consumed runner |
+| Browser repeat/retry guidance, preferred timing thresholds and interaction-history depth | `hooks/click_browser_advisory.py`; bounded history compaction in Browser preparation | Advisory only — normalized repeats and long timed interactions remain receipt-bound and allowed; old per-input guidance is compacted instead of blocking a new call |
 | Contract compactness, planning prose and workflow-shape preferences beyond parser or transport safety | `hooks/click_contract.py` schema policy | Keep only identity-bearing protocol fields in Core |
+| Main Skill authoring compactness | reference split, plugin validation and review | Heuristic documentation quality — no word-count permission gate; required links and protocol structure remain testable without optimizing prose to an arbitrary number |
 
 ## Mixed guards that must be split carefully
 
@@ -103,9 +105,11 @@ stronger guarantee than the runtime can observe.
 4. **Complete in the v0.25 candidate:** Convert broad-inventory counting to advisory output while retaining active exact-digest reservations and Core execution interlocks.
 5. **Complete in the v0.25 candidate:** Convert fresh duplicate-read and fixed legitimate argv-retry denials to advisory output while retaining active-runner and verification-time mutation denials.
 6. **Complete in the v0.25 candidate:** Separate pre-approval verification strategy, approved scale policy, and deterministic argv cost metering while preserving the approved ceiling and minimum-class enforcement.
-7. Separate Browser receipt integrity from Browser workflow tuning.
-8. Update Skill, evals, manifest, README and host distributions together with the
-   behavior they describe.
+7. **Complete in the v0.25 candidate:** Separate Browser source, serial-call,
+   result, revision and replay integrity from non-blocking repeat, retry and
+   timing guidance.
+8. **Complete in the v0.25 candidate:** Update Skill, evals, manifest, README and
+   host distributions together with the behavior they describe.
 
 Each migration is a separate behavior-preserving-for-Core change. It must retain
 approval, side-effect authority, one-use runner, revision, receipt, cancellation,

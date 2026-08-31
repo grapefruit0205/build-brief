@@ -13,6 +13,7 @@ DESTINATION = ROOT / "dist" / "antigravity"
 
 HOOK_FILES = (
     "__init__.py",
+    "click_browser_advisory.py",
     "click_verification_policy.py",
     "click_verification_meter.py",
     "click_contract.py",
