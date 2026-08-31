@@ -39,6 +39,7 @@ if __package__:
         click_evidence,
         click_host_coverage,
         click_process,
+        click_service,
         click_verification_meter,
         click_verification_policy,
     )
@@ -65,6 +66,7 @@ else:  # Executed directly from the bundled hooks directory.
     import click_evidence
     import click_host_coverage
     import click_process
+    import click_service
     import click_verification_meter
     import click_verification_policy
     from click_state import (
@@ -107,6 +109,16 @@ _fresh_external_evidence_state = click_evidence.fresh_external_state
 # schema validation now lives in the one-way click_contract boundary.
 _validate_contract = click_contract.validate_contract
 
+# Compatibility aliases for direct callers and the deterministic suite. The
+# managed local-service state machine and runner lifecycle live in the one-way
+# click_service boundary; gate wrappers below provide only cross-domain routing.
+_fresh_service_state = click_service.fresh_state
+_looks_like_managed_service = click_service.looks_like_managed_service
+_request_service_stop = click_service.request_stop
+_service_snapshot = click_service.service_snapshot
+_record_service_fields = click_service.record_service_fields
+_claim_service_runner = click_service.claim_service_runner
+
 
 CONTROL_COMMAND = "click-gate"
 CLICK_AUTHORIZATION_PATTERNS = (
@@ -135,7 +147,7 @@ VERIFICATION_PROTOCOL_VERSION = 2
 CONTRACT_STATE_SCHEMA_VERSION = 2
 INSPECTION_REQUEST_FIELDS = {"version", "commands"}
 MUTATION_REQUEST_FIELDS = {"version", "argv"}
-SERVICE_REQUEST_FIELDS = {"version", "action", "argv"}
+SERVICE_REQUEST_FIELDS = click_service.SERVICE_REQUEST_FIELDS
 VERIFICATION_BATCH_FIELDS = {"version", "checks"}
 VERIFICATION_CHECK_FIELDS = {"evidence_id", "argv", "class"}
 EVIDENCE_RESULT_FIELDS = {"version", "evidence_id"}
@@ -216,27 +228,12 @@ PROCESS_CONTROL_EXECUTABLES = {
 
 BROWSER_TOOL_NAMES = click_host_coverage.CODEX_BROWSER_TOOL_NAMES
 BROWSER_WAIT_PATTERNS = click_browser_advisory.BROWSER_WAIT_PATTERNS
-MANAGED_SERVICE_EXECUTABLES = {
-    "flask",
-    "gunicorn",
-    "http-server",
-    "next",
-    "serve",
-    "uvicorn",
-    "vite",
-    "webpack-dev-server",
-}
-MANAGED_SERVICE_ACTIONS = {"start", "stop"}
-MANAGED_SERVICE_SCRIPT_MARKERS = {
-    "dev",
-    "preview",
-    "runserver",
-    "serve",
-    "start",
-}
-SERVICE_START_TIMEOUT_SECONDS = 8
-SERVICE_STOP_TIMEOUT_SECONDS = 8
-MANAGED_SERVICE_MAX_SECONDS = 2 * 60 * 60
+MANAGED_SERVICE_EXECUTABLES = click_service.MANAGED_SERVICE_EXECUTABLES
+MANAGED_SERVICE_ACTIONS = click_service.MANAGED_SERVICE_ACTIONS
+MANAGED_SERVICE_SCRIPT_MARKERS = click_service.MANAGED_SERVICE_SCRIPT_MARKERS
+SERVICE_START_TIMEOUT_SECONDS = click_service.SERVICE_START_TIMEOUT_SECONDS
+SERVICE_STOP_TIMEOUT_SECONDS = click_service.SERVICE_STOP_TIMEOUT_SECONDS
+MANAGED_SERVICE_MAX_SECONDS = click_service.MANAGED_SERVICE_MAX_SECONDS
 
 VERIFICATION_EXECUTABLES = {
     "bandit",
@@ -634,22 +631,6 @@ def _evidence_sources(state: dict[str, Any]) -> dict[str, Any] | None:
         state,
         expected_contract_schema_version=CONTRACT_STATE_SCHEMA_VERSION,
     )
-
-
-def _fresh_service_state() -> dict[str, Any]:
-    return {
-        "status": "idle",
-        "service_id": "",
-        "request_digest": "",
-        "runner_token_digest": "",
-        "runner_claimed_at": 0,
-        "supervisor_claimed_at": 0,
-        "stop_requested": False,
-        "supervisor_pid": 0,
-        "child_pid": 0,
-        "started_at": 0,
-        "last_exit_code": None,
-    }
 
 
 def _fresh_observation_state() -> dict[str, Any]:
@@ -1153,38 +1134,6 @@ def _policy_executable_name(value: str) -> str:
     return executable
 
 
-def _looks_like_managed_service(argv: list[str]) -> bool:
-    executable = Path(argv[0]).name.lower()
-    if executable.endswith(".exe"):
-        executable = executable[:-4]
-    arguments = [argument.lower() for argument in argv[1:]]
-    if executable in MANAGED_SERVICE_EXECUTABLES:
-        return True
-    if executable == "py" or re.fullmatch(r"(?:python|pypy)\d*(?:\.\d+)?", executable):
-        if executable == "py" and arguments and re.fullmatch(
-            r"-\d+(?:\.\d+)?(?:-\d+)?", arguments[0]
-        ):
-            arguments = arguments[1:]
-        if len(arguments) >= 2 and arguments[:2] == ["-m", "http.server"]:
-            return True
-        return any(marker in arguments for marker in {"runserver"})
-    if executable in {"npm", "pnpm", "yarn", "bun"}:
-        meaningful = {
-            argument
-            for argument in arguments
-            if argument not in {"run", "exec", "x", "--"}
-            and not argument.startswith("-")
-        }
-        return bool(meaningful & MANAGED_SERVICE_SCRIPT_MARKERS)
-    if executable in {"npx", "pnpx", "bunx"}:
-        return any(
-            Path(argument).name.lower() in MANAGED_SERVICE_EXECUTABLES
-            for argument in arguments
-            if not argument.startswith("-")
-        )
-    return any(marker in arguments for marker in {"runserver"})
-
-
 def _validate_inspection_request(
     raw: str,
 ) -> tuple[dict[str, Any] | None, bool, str]:
@@ -1246,37 +1195,11 @@ def _validate_mutation_request(raw: str) -> tuple[dict[str, Any] | None, str]:
 
 
 def _validate_service_request(raw: str) -> tuple[dict[str, Any] | None, str]:
-    value, error = _decode_capability_request(raw, "Managed service")
-    if error:
-        return None, error
-    assert value is not None
-    unknown = sorted(set(value) - SERVICE_REQUEST_FIELDS)
-    if unknown:
-        rendered = ", ".join(f"`{field}`" for field in unknown)
-        return None, f"Managed service request contains unsupported field(s): {rendered}."
-    action = value.get("action")
-    if action not in MANAGED_SERVICE_ACTIONS:
-        allowed = ", ".join(sorted(MANAGED_SERVICE_ACTIONS))
-        return None, f"Managed service `action` must be one of: {allowed}."
-    if action == "stop":
-        if "argv" in value:
-            return None, "Managed service stop must omit `argv`."
-        return {"version": CAPABILITY_PROTOCOL_VERSION, "action": "stop"}, ""
-    argv, argv_error = _validate_argv(value.get("argv"), "Managed service")
-    if argv_error:
-        return None, argv_error
-    assert argv is not None
-    if not _looks_like_managed_service(argv):
-        return (
-            None,
-            "Managed service start accepts a recognizable local development server, "
-            "not an arbitrary detached command.",
-        )
-    return {
-        "version": CAPABILITY_PROTOCOL_VERSION,
-        "action": "start",
-        "argv": argv,
-    }, ""
+    return click_service.validate_request(
+        raw,
+        validate_argv=_validate_argv,
+        protocol_version=CAPABILITY_PROTOCOL_VERSION,
+    )
 
 
 def _validate_verification_batch(
@@ -2773,97 +2696,26 @@ def _service_runner_command(
     service_id: str,
     runner_token: str = "",
 ) -> str:
-    arguments = [
-        *_stateful_runner_prefix(
-            "run-service-start" if request["action"] == "start" else "run-service-stop"
-        ),
-        str(_contract_path(event).resolve()),
+    return click_service.service_runner_command(
+        event,
+        request,
         service_id,
-    ]
-    if request["action"] == "start":
-        arguments.extend(
-            [
-                runner_token,
-                str(Path(str(event.get("cwd", ""))).resolve()),
-                _encoded_request(request),
-            ]
-        )
-    return _runner_shell_command(arguments)
-
-
-def _request_service_stop(event: dict[str, Any]) -> bool:
-    state = _read_contract_state(event)
-    service = state.get("service")
-    if not isinstance(service, dict) or service.get("status") not in {
-        "starting",
-        "launching",
-        "running",
-        "stopping",
-    }:
-        return False
-    service["status"] = "stopping"
-    service["stop_requested"] = True
-    state["service"] = service
-    _save_contract_state(event, state)
-    return True
+        runner_token=runner_token,
+        runner_script=Path(__file__).resolve(),
+        render_command=_runner_shell_command,
+    )
 
 
 def _prepare_service(event: dict[str, Any], raw: str) -> tuple[str, str]:
-    request, error = _validate_service_request(raw)
-    if error:
-        return "", error
-    assert request is not None
-    state = _read_contract_state(event)
-    if state.get("status") != "approved":
-        return "", "Approve the staged Click execution contract before managing a service."
-    service = state.get("service")
-    if not isinstance(service, dict):
-        service = _fresh_service_state()
-    if request["action"] == "stop":
-        if service.get("status") not in {
-            "starting",
-            "launching",
-            "running",
-            "stopping",
-        }:
-            return "echo Click managed service already stopped", ""
-        service["status"] = "stopping"
-        service["stop_requested"] = True
-        state["service"] = service
-        _save_contract_state(event, state)
-        return _service_runner_command(event, request, str(service["service_id"])), ""
-
-    if service.get("status") in {"starting", "launching", "running", "stopping"}:
-        started_at = int(service.get("started_at", 0))
-        if not (
-            service.get("status") == "starting"
-            and started_at
-            and time.time() - started_at > SERVICE_START_TIMEOUT_SECONDS * 2
-        ):
-            return "", "One Click-managed local service is already active. Stop it first."
-    mutation_error = _mark_contract_mutated(event)
-    if mutation_error:
-        return "", mutation_error
-    state = _read_contract_state(event)
-    service_id = secrets.token_urlsafe(24)
-    runner_token = secrets.token_urlsafe(24)
-    cwd_raw = str(Path(str(event.get("cwd", ""))).resolve())
-    request_digest = _capability_digest({"request": request, "cwd": cwd_raw})
-    state["service"] = {
-        "status": "starting",
-        "service_id": service_id,
-        "request_digest": request_digest,
-        "runner_token_digest": hashlib.sha256(runner_token.encode()).hexdigest(),
-        "runner_claimed_at": 0,
-        "supervisor_claimed_at": 0,
-        "stop_requested": False,
-        "supervisor_pid": 0,
-        "child_pid": 0,
-        "started_at": int(time.time()),
-        "last_exit_code": None,
-    }
-    _save_contract_state(event, state)
-    return _service_runner_command(event, request, service_id, runner_token), ""
+    return click_service.prepare_service(
+        event,
+        raw,
+        validate_argv=_validate_argv,
+        protocol_version=CAPABILITY_PROTOCOL_VERSION,
+        mark_contract_mutated=_mark_contract_mutated,
+        runner_script=Path(__file__).resolve(),
+        render_command=_runner_shell_command,
+    )
 
 
 def _verification_runner_command(
@@ -5703,323 +5555,29 @@ def _managed_observation_path(path: Path) -> bool:
     return _managed_state_path(path, ("session-contract-", "review-"))
 
 
-def _service_snapshot(path: Path, service_id: str) -> dict[str, Any] | None:
-    if not _managed_contract_path(path):
-        return None
-    state: Any = None
-    for attempt in range(5):
-        try:
-            state = json.loads(path.read_text(encoding="utf-8"))
-            break
-        except PermissionError:
-            # Windows may briefly deny a reader while another process replaces
-            # the state file. Do not mistake that sharing collision for a
-            # missing or stopped managed service.
-            if attempt == 4:
-                return None
-            time.sleep(0.02)
-        except (FileNotFoundError, json.JSONDecodeError, OSError):
-            return None
-    if not isinstance(state, dict) or state.get("status") != "approved":
-        return None
-    service = state.get("service")
-    if not isinstance(service, dict) or service.get("service_id") != service_id:
-        return None
-    return dict(service)
-
-
-def _record_service_fields(
-    path: Path,
-    service_id: str,
-    *,
-    expected_statuses: tuple[str, ...] | None = None,
-    **fields: Any,
-) -> bool:
-    if not _managed_contract_path(path):
-        return False
-    try:
-        state = json.loads(path.read_text(encoding="utf-8"))
-    except (FileNotFoundError, json.JSONDecodeError, OSError):
-        return False
-    if not isinstance(state, dict) or state.get("status") != "approved":
-        return False
-    service = state.get("service")
-    if not isinstance(service, dict) or service.get("service_id") != service_id:
-        return False
-    if expected_statuses is not None and service.get("status") not in expected_statuses:
-        return False
-    service.update(fields)
-    state["service"] = service
-    state["updated_at"] = int(time.time())
-    _write_json(path, state)
-    return True
-
-
-def _claim_service_runner(
-    path: Path,
-    service_id: str,
-    request: dict[str, Any],
-    cwd_raw: str,
-    runner_token: str,
-    *,
-    supervisor: bool,
-) -> str:
-    if not _managed_contract_path(path):
-        return "Click managed service runner received an unmanaged state path."
-    try:
-        state = json.loads(path.read_text(encoding="utf-8"))
-    except (FileNotFoundError, json.JSONDecodeError, OSError):
-        return "Click managed service runner could not read its contract state."
-    if not isinstance(state, dict) or state.get("status") != "approved":
-        return "Click managed service runner is no longer authorized to execute."
-    service = state.get("service")
-    expected_status = "launching" if supervisor else "starting"
-    if (
-        not isinstance(service, dict)
-        or service.get("service_id") != service_id
-        or service.get("status") != expected_status
-        or service.get("stop_requested") is True
-    ):
-        return "Click managed service runner is no longer authorized to execute."
-    request_digest = _capability_digest({"request": request, "cwd": cwd_raw})
-    if service.get("request_digest") != request_digest:
-        return "Click managed service runner request digest did not match active state."
-    token_digest = hashlib.sha256(runner_token.encode()).hexdigest()
-    if not secrets.compare_digest(
-        str(service.get("runner_token_digest", "")), token_digest
-    ):
-        return "Click managed service runner token did not match active state."
-    runner_claimed_at = service.get("runner_claimed_at", 0)
-    supervisor_claimed_at = service.get("supervisor_claimed_at", 0)
-    for claimed_at in (runner_claimed_at, supervisor_claimed_at):
-        if not isinstance(claimed_at, int) or isinstance(claimed_at, bool):
-            return "Click managed service runner claim state is malformed."
-    if supervisor:
-        if runner_claimed_at <= 0 or supervisor_claimed_at > 0:
-            return "Click managed service supervisor was already claimed or not launched."
-        if not _unclaimed_reservation_is_fresh(
-            runner_claimed_at, SERVICE_START_TIMEOUT_SECONDS * 2
-        ):
-            return "Click managed service supervisor authorization expired before launch."
-        service["supervisor_claimed_at"] = int(time.time()) or 1
-    else:
-        if runner_claimed_at > 0 or supervisor_claimed_at > 0:
-            return "Click managed service start runner was already claimed."
-        if not _unclaimed_reservation_is_fresh(
-            service.get("started_at", 0), SERVICE_START_TIMEOUT_SECONDS * 2
-        ):
-            return "Click managed service start authorization expired before launch."
-        service["runner_claimed_at"] = int(time.time()) or 1
-        service["status"] = "launching"
-    state["service"] = service
-    state["updated_at"] = int(time.time())
-    _write_json(path, state)
-    return ""
-
-
 def _run_service_supervisor(arguments: list[str]) -> int:
-    if len(arguments) != 5:
-        return 2
-    state_path = Path(arguments[0])
-    service_id, runner_token, cwd_raw, encoded = arguments[1:]
-    raw, error = _decode_encoded_request(encoded, "managed service")
-    if error:
-        return 2
-    request, error = _validate_service_request(raw)
-    if error or request is None or request.get("action") != "start":
-        return 2
-    with _state_lock():
-        claim_error = _claim_service_runner(
-            state_path,
-            service_id,
-            request,
-            cwd_raw,
-            runner_token,
-            supervisor=True,
-        )
-    if claim_error:
-        return 2
-    cwd = Path(cwd_raw)
-    if not cwd.is_dir():
-        with _state_lock():
-            _record_service_fields(
-                state_path,
-                service_id,
-                expected_statuses=("launching",),
-                status="failed",
-                last_exit_code=2,
-            )
-        return 2
-    try:
-        child = click_process.spawn_argv(
-            _execution_argv(request["argv"]),
-            cwd=cwd,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            close_fds=True,
-        )
-    except OSError:
-        with _state_lock():
-            _record_service_fields(
-                state_path,
-                service_id,
-                expected_statuses=("launching",),
-                status="failed",
-                last_exit_code=127,
-                stop_requested=False,
-            )
-        return 127
-
-    time.sleep(0.2)
-    early_exit = child.poll()
-    with _state_lock():
-        recorded = _record_service_fields(
-            state_path,
-            service_id,
-            expected_statuses=("launching",),
-            status="failed" if early_exit is not None else "running",
-            supervisor_pid=os.getpid(),
-            child_pid=child.pid,
-            last_exit_code=int(early_exit) if early_exit is not None else None,
-        )
-    if early_exit is not None or not recorded:
-        if early_exit is None:
-            _terminate_managed_child(child)
-        return int(early_exit or 2)
-
-    started = time.monotonic()
-    stop_requested = False
-    while True:
-        exit_code = child.poll()
-        if exit_code is not None:
-            break
-        snapshot = _service_snapshot(state_path, service_id)
-        if snapshot is None or snapshot.get("stop_requested") is True:
-            stop_requested = True
-            exit_code = _terminate_managed_child(child)
-            break
-        if time.monotonic() - started >= MANAGED_SERVICE_MAX_SECONDS:
-            stop_requested = True
-            exit_code = _terminate_managed_child(child)
-            break
-        time.sleep(0.2)
-
-    with _state_lock():
-        _record_service_fields(
-            state_path,
-            service_id,
-            expected_statuses=("running", "stopping", "launching"),
-            status="stopped" if stop_requested else "failed",
-            stop_requested=False,
-            child_pid=0,
-            supervisor_pid=0,
-            last_exit_code=int(exit_code or 0),
-        )
-    return int(exit_code or 0)
+    return click_service.run_service_supervisor(
+        arguments,
+        validate_argv=_validate_argv,
+        protocol_version=CAPABILITY_PROTOCOL_VERSION,
+        execution_argv=_execution_argv,
+    )
 
 
 def _run_service_start(arguments: list[str]) -> int:
-    if len(arguments) != 5:
-        sys.stderr.write(
-            "usage: click_gate.py run-service-start "
-            "<state> <id> <token> <cwd> <request>\n"
-        )
-        return 2
-    state_path = Path(arguments[0])
-    service_id, runner_token, cwd_raw, encoded = arguments[1:]
-    raw, error = _decode_encoded_request(encoded, "managed service")
-    if error:
-        sys.stderr.write(f"{error}\n")
-        return 2
-    request, error = _validate_service_request(raw)
-    if error or request is None or request.get("action") != "start":
-        sys.stderr.write(f"{error or 'Managed service start request is invalid.'}\n")
-        return 2
-    with _state_lock():
-        claim_error = _claim_service_runner(
-            state_path,
-            service_id,
-            request,
-            cwd_raw,
-            runner_token,
-            supervisor=False,
-        )
-    if claim_error:
-        sys.stderr.write(f"{claim_error}\n")
-        return 2
-    supervisor = [
-        *_stateful_runner_prefix("run-service-supervisor"),
-        str(state_path.resolve()),
-        service_id,
-        runner_token,
-        cwd_raw,
-        encoded,
-    ]
-    try:
-        click_process.spawn_argv(
-            supervisor,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            close_fds=True,
-        )
-    except OSError as exc:
-        with _state_lock():
-            _record_service_fields(
-                state_path,
-                service_id,
-                expected_statuses=("launching",),
-                status="failed",
-                last_exit_code=127,
-            )
-        sys.stderr.write(f"Click could not start the managed service supervisor: {exc}\n")
-        return 127
-    deadline = time.monotonic() + SERVICE_START_TIMEOUT_SECONDS
-    while time.monotonic() < deadline:
-        snapshot = _service_snapshot(state_path, service_id)
-        if snapshot is None:
-            return 2
-        if snapshot.get("status") == "running":
-            sys.stdout.write("Click managed service started\n")
-            return 0
-        if snapshot.get("status") == "failed":
-            sys.stderr.write("Click managed service exited during startup.\n")
-            return int(snapshot.get("last_exit_code") or 2)
-        if snapshot.get("status") in {"stopping", "stopped"}:
-            return 2
-        time.sleep(0.05)
-    with _state_lock():
-        _record_service_fields(
-            state_path,
-            service_id,
-            expected_statuses=("launching", "starting"),
-            status="stopping",
-            stop_requested=True,
-        )
-    sys.stderr.write("Click managed service did not start within its bounded timeout.\n")
-    return 2
+    return click_service.run_service_start(
+        arguments,
+        validate_argv=_validate_argv,
+        protocol_version=CAPABILITY_PROTOCOL_VERSION,
+        runner_script=Path(__file__).resolve(),
+    )
 
 
 def _run_service_stop(arguments: list[str]) -> int:
-    if len(arguments) != 2:
-        sys.stderr.write("usage: click_gate.py run-service-stop <state> <id>\n")
-        return 2
-    state_path = Path(arguments[0])
-    service_id = arguments[1]
-    deadline = time.monotonic() + SERVICE_STOP_TIMEOUT_SECONDS
-    while time.monotonic() < deadline:
-        snapshot = _service_snapshot(state_path, service_id)
-        if snapshot is not None and snapshot.get("status") in {
-            "failed",
-            "idle",
-            "stopped",
-        }:
-            sys.stdout.write("Click managed service stopped\n")
-            return 0
-        time.sleep(0.05)
-    sys.stderr.write("Click managed service did not stop within its bounded timeout.\n")
-    return 2
+    return click_service.run_service_stop(
+        arguments,
+        snapshot_reader=_service_snapshot,
+    )
 
 
 def _git_capture(cwd: Path, arguments: list[str]) -> bytes | None:

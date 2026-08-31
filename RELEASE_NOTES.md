@@ -1,5 +1,18 @@
 # Release notes
 
+## Unreleased v0.33 candidate — runtime domain boundaries
+
+- Managed local-service validation, admission, one-use start and supervisor
+  claims, stop polling, process ownership, and exact state updates now live in
+  the standard-library-only `click_service.py` runtime domain.
+- `click_gate.py` retains event routing and the existing compatibility surface,
+  while supplying the cross-domain contract-mutation transition required before
+  service start. The service domain imports only the lower `click_state.py` and
+  `click_process.py` leaves.
+- Service request schema, error text, runner argv transport, digest and
+  constant-time token bindings, timeout behavior, and public/private compatibility
+  symbols remain unchanged. Antigravity bundles the same extracted runtime.
+
 ## v0.32.0 — 2026-09-01
 
 - Codex and Antigravity now derive their known mutation, plan, Browser, and
