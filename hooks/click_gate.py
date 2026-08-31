@@ -162,9 +162,8 @@ DEEP_VERIFICATION_MARKERS = {
     "load_test",
     "security",
 }
-MAX_CAPABILITY_COMMANDS = 8
+MAX_INSPECTION_COMMANDS = 8
 MAX_ARGV_ITEMS = 128
-MAX_CONTRACT_CHARS = click_contract.MAX_CONTRACT_CHARS
 MAX_CAPABILITY_REQUEST_CHARS = 6_000
 MAX_VERIFICATION_BATCH_CHARS = 6_000
 MAX_OBSERVATION_OUTPUT_BYTES = 48_000
@@ -1121,11 +1120,11 @@ def _validate_inspection_request(
     commands = value.get("commands")
     if not isinstance(commands, list) or not commands:
         return None, False, "Inspection `commands` must be a non-empty argv-list list."
-    if len(commands) > MAX_CAPABILITY_COMMANDS:
+    if len(commands) > MAX_INSPECTION_COMMANDS:
         return (
             None,
             False,
-            f"Inspection may contain at most {MAX_CAPABILITY_COMMANDS} commands.",
+            f"Inspection may contain at most {MAX_INSPECTION_COMMANDS} commands.",
         )
     normalized: list[list[str]] = []
     broad = False
@@ -1229,8 +1228,6 @@ def _validate_verification_batch(
     checks = value.get("checks")
     if not isinstance(checks, list) or not checks:
         return None, 0, "Verification batch `checks` must be a non-empty list."
-    if len(checks) > MAX_CAPABILITY_COMMANDS:
-        return None, 0, f"Verification may contain at most {MAX_CAPABILITY_COMMANDS} checks."
     normalized: list[dict[str, Any]] = []
     units = 0
     for index, check in enumerate(checks, start=1):
@@ -1577,19 +1574,6 @@ def _verification_executable_payload(
         }
         for executable in executables
     ]
-
-
-def _verification_executable_digest(
-    checks: list[dict[str, Any]], *, cwd: Path, environment: dict[str, str] | None = None
-) -> str:
-    executables = _verification_executable_records(
-        checks, cwd=cwd, environment=environment
-    )
-    if executables is None:
-        return ""
-    return _capability_digest(
-        {"executables": _verification_executable_payload(executables)}
-    )
 
 
 def _verification_environment_digest_from_records(
@@ -2207,13 +2191,6 @@ def _is_broad_exploration_tokens(tokens: list[str]) -> bool:
             targets = remainder[remainder.index("--") + 1 :]
             return _targets_repository_root(targets)
     return False
-
-
-def _is_broad_exploration_command(command: str) -> bool:
-    segments = _shell_segments(command)
-    return bool(segments) and any(
-        _is_broad_exploration_tokens(segment) for segment in segments
-    )
 
 
 def _capability_digest(request: dict[str, Any]) -> str:

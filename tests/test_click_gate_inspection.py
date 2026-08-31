@@ -927,6 +927,20 @@ class ClickGateInspectionTests(ClickGateTestCase):
         self.assertEqual(denied["hookSpecificOutput"]["permissionDecision"], "deny")
         self.assertIn("version", denied["hookSpecificOutput"]["permissionDecisionReason"])
 
+    def test_inspection_request_retains_the_eight_command_operational_cap(self) -> None:
+        request, broad, error = CLICK_GATE._validate_inspection_request(
+            json.dumps(
+                {
+                    "version": 1,
+                    "commands": [["git", "status", "--short"] for _ in range(9)],
+                }
+            )
+        )
+
+        self.assertIsNone(request)
+        self.assertFalse(broad)
+        self.assertEqual(error, "Inspection may contain at most 8 commands.")
+
     def test_shell_chaining_is_not_treated_as_read_only(self) -> None:
         self.arm_gate()
         for command in (
