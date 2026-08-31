@@ -1,0 +1,83 @@
+name: Publish Click v0.24.6
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/publish-v0.24.6.yml
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    if: github.repository == 'grapefruit0205/click'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+
+      - name: Verify exact release target
+        env:
+          TARGET_SHA: cea4720aa834e1a6e36826bd56ef7e725f700359
+          VERSION: v0.24.6
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse "${TARGET_SHA}^{commit}")" = "${TARGET_SHA}"
+          python - "${TARGET_SHA}" <<'PY'
+          import json
+          import subprocess
+          import sys
+
+          target = sys.argv[1]
+          manifest = json.loads(
+              subprocess.check_output(
+                  ["git", "show", f"{target}:.codex-plugin/plugin.json"],
+                  text=True,
+              )
+          )
+          if manifest.get("version") != "0.24.6":
+              raise SystemExit("release target does not contain Click 0.24.6")
+          PY
+
+      - name: Publish immutable tag and GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_SHA: cea4720aa834e1a6e36826bd56ef7e725f700359
+          VERSION: v0.24.6
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          existing_tag="$(git ls-remote --tags --refs origin "refs/tags/${VERSION}" | awk '{print $1}')"
+          if [[ -n "${existing_tag}" && "${existing_tag}" != "${TARGET_SHA}" ]]; then
+            echo "${VERSION} already points to a different commit" >&2
+            exit 1
+          fi
+          if [[ -z "${existing_tag}" ]]; then
+            git tag "${VERSION}" "${TARGET_SHA}"
+            git push origin "refs/tags/${VERSION}"
+          fi
+
+          git show "${TARGET_SHA}:RELEASE_NOTES.md" > /tmp/CLICK_RELEASE_NOTES.md
+          python - <<'PY'
+          from pathlib import Path
+
+          text = Path("/tmp/CLICK_RELEASE_NOTES.md").read_text(encoding="utf-8")
+          start = text.index("## v0.24.6")
+          end = text.index("\n## v0.24.5", start)
+          Path("/tmp/click-v0.24.6.md").write_text(
+              text[start:end].strip() + "\n",
+              encoding="utf-8",
+          )
+          PY
+
+          if ! gh release view "${VERSION}" >/dev/null 2>&1; then
+            gh release create "${VERSION}" \
+              --verify-tag \
+              --title "Click v0.24.6" \
+              --notes-file /tmp/click-v0.24.6.md
+          fi
