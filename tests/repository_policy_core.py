@@ -518,6 +518,7 @@ class RepositoryPolicyTests(unittest.TestCase):
                 "click_process.py",
                 "click_service.py",
                 "click_state.py",
+                "click_verification.py",
                 "click_verification_meter.py",
                 "click_verification_policy.py",
             )
@@ -617,6 +618,9 @@ class RepositoryPolicyTests(unittest.TestCase):
 
     def test_verification_policy_and_meter_are_separate_runtime_boundaries(self) -> None:
         gate = (ROOT / "hooks" / "click_gate.py").read_text(encoding="utf-8")
+        verification = (ROOT / "hooks" / "click_verification.py").read_text(
+            encoding="utf-8"
+        )
         contract = (ROOT / "hooks" / "click_contract.py").read_text(
             encoding="utf-8"
         )
@@ -628,7 +632,9 @@ class RepositoryPolicyTests(unittest.TestCase):
         )
 
         self.assertIn("click_verification_policy", gate)
-        self.assertIn("click_verification_meter", gate)
+        self.assertNotIn("click_verification_meter", gate)
+        self.assertIn("click_verification_policy", verification)
+        self.assertIn("click_verification_meter", verification)
         self.assertIn("click_verification_policy", contract)
         self.assertIn("click_verification_meter", contract)
         self.assertIn("legacy numeric table", policy)
