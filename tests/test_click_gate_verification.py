@@ -402,6 +402,231 @@ class ClickGateVerificationTests(ClickGateTestCase):
             ),
         )
 
+    def test_approved_dependency_receipt_reuses_across_an_unrelated_revision(self) -> None:
+        (self.workspace / ".gitignore").write_text(
+            "__pycache__/\n", encoding="utf-8"
+        )
+        (self.workspace / "notes.md").write_text("before\n", encoding="utf-8")
+        self.initialize_git(".gitignore", "verification_fixture.py", "notes.md")
+        contract = self.contract()
+        contract["verification"]["evidence"][0]["dependencies"] = [
+            "verification_fixture.py"
+        ]
+        self.arm_gate("turn-1")
+        self.stage_gate(contract, "turn-1")
+        self.arm_gate("turn-2")
+        self.pass_gate(turn_id="turn-2")
+        command = self.verification_argv()
+
+        first = self.verify_gate([command])
+        completed = self.run_rewritten(first)
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertIsNone(
+            self.pre_tool("apply_patch", "*** Begin Patch\n*** End Patch", "turn-2")
+        )
+        (self.workspace / "notes.md").write_text("after\n", encoding="utf-8")
+        self.tool_hook(
+            "post-tool",
+            "apply_patch",
+            {"patch": "notes"},
+            tool_use_id="tool-1",
+        )
+
+        reused = self.verify_gate([command])
+
+        self.assertEqual(reused["hookSpecificOutput"]["permissionDecision"], "allow")
+        self.assertIn(
+            "dependency-safe cross-revision",
+            reused["hookSpecificOutput"]["updatedInput"]["command"],
+        )
+        state_path = next(
+            (self.plugin_data / "gate-state").glob("session-contract-*.json")
+        )
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        source = state["evidence_state"]["sources"][CLICK_GATE._evidence_key("E1")]
+        self.assertEqual(state["verification"]["mutation_revision"], 1)
+        self.assertEqual(source["status"], "passed")
+        self.assertEqual(source["verified_revision"], 1)
+        self.assertEqual(source["attempts"], 1)
+        self.assertEqual(source["dependency_reuse_count"], 1)
+        self.assertEqual(source["last_dependency_reused_from_revision"], 0)
+        self.assertEqual(
+            source["verified_dependency_paths"], ["verification_fixture.py"]
+        )
+
+    def _prepare_approved_dependency_receipt(self) -> list[str]:
+        (self.workspace / ".gitignore").write_text(
+            "__pycache__/\n", encoding="utf-8"
+        )
+        (self.workspace / "notes.md").write_text("before\n", encoding="utf-8")
+        self.initialize_git(".gitignore", "verification_fixture.py", "notes.md")
+        contract = self.contract()
+        contract["verification"]["evidence"][0]["dependencies"] = [
+            "verification_fixture.py"
+        ]
+        self.arm_gate("turn-1")
+        self.stage_gate(contract, "turn-1")
+        self.arm_gate("turn-2")
+        self.pass_gate(turn_id="turn-2")
+        command = self.verification_argv()
+        first = self.verify_gate([command])
+        self.assertEqual(self.run_rewritten(first).returncode, 0)
+        self.assertIsNone(
+            self.pre_tool("apply_patch", "*** Begin Patch\n*** End Patch", "turn-2")
+        )
+        return command
+
+    def test_dependency_change_reruns_cross_revision_check(self) -> None:
+        command = self._prepare_approved_dependency_receipt()
+        with (self.workspace / "verification_fixture.py").open(
+            "a", encoding="utf-8"
+        ) as handle:
+            handle.write("\n# dependency changed\n")
+        self.tool_hook(
+            "post-tool",
+            "apply_patch",
+            {"patch": "dependency"},
+            tool_use_id="tool-1",
+        )
+
+        repeated = self.verify_gate([command])
+
+        self.assertIn(
+            "run-verification",
+            split_runner_command(
+                repeated["hookSpecificOutput"]["updatedInput"]["command"]
+            ),
+        )
+
+    def test_environment_change_reruns_cross_revision_check(self) -> None:
+        command = self._prepare_approved_dependency_receipt()
+        (self.workspace / "notes.md").write_text("after\n", encoding="utf-8")
+        self.tool_hook(
+            "post-tool",
+            "apply_patch",
+            {"patch": "notes"},
+            tool_use_id="tool-1",
+        )
+
+        with mock.patch.dict(
+            os.environ, {"CLICK_DEPENDENCY_TEST_ENV": "changed"}
+        ):
+            repeated = self.verify_gate([command])
+
+        self.assertIn(
+            "run-verification",
+            split_runner_command(
+                repeated["hookSpecificOutput"]["updatedInput"]["command"]
+            ),
+        )
+
+    def test_change_after_approved_mutation_receipt_disables_dependency_reuse(
+        self,
+    ) -> None:
+        command = self._prepare_approved_dependency_receipt()
+        (self.workspace / "notes.md").write_text("approved change\n", encoding="utf-8")
+        self.tool_hook(
+            "post-tool",
+            "apply_patch",
+            {"patch": "notes"},
+            tool_use_id="tool-1",
+        )
+        (self.workspace / "notes.md").write_text(
+            "changed after PostToolUse\n", encoding="utf-8"
+        )
+
+        repeated = self.verify_gate([command])
+
+        self.assertIn(
+            "run-verification",
+            split_runner_command(
+                repeated["hookSpecificOutput"]["updatedInput"]["command"]
+            ),
+        )
+
+    def test_unrelated_committed_manifest_entry_does_not_invalidate_receipt(
+        self,
+    ) -> None:
+        (self.workspace / ".gitignore").write_text(
+            "__pycache__/\n", encoding="utf-8"
+        )
+        (self.workspace / "notes.md").write_text("notes\n", encoding="utf-8")
+        (self.workspace / "other.md").write_text("other\n", encoding="utf-8")
+        manifest_path = self.workspace / ".click" / "evidence-dependencies.json"
+        manifest_path.parent.mkdir()
+        command = self.verification_argv()
+
+        def write_manifest(unrelated_path: str) -> None:
+            manifest_path.write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "entries": [
+                            {
+                                "checks": [command],
+                                "paths": ["verification_fixture.py"],
+                            },
+                            {
+                                "checks": [["python3", "-m", "pytest", "docs"]],
+                                "paths": [unrelated_path],
+                            },
+                        ],
+                    },
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+        write_manifest("notes.md")
+        self.initialize_git(
+            ".gitignore",
+            "verification_fixture.py",
+            "notes.md",
+            "other.md",
+            ".click/evidence-dependencies.json",
+        )
+        self.approve_contract()
+        first = self.verify_gate([command])
+        self.assertEqual(self.run_rewritten(first).returncode, 0)
+        self.assertIsNone(
+            self.pre_tool("apply_patch", "*** Begin Patch\n*** End Patch", "turn-2")
+        )
+        write_manifest("other.md")
+        subprocess.run(
+            ["git", "add", ".click/evidence-dependencies.json"],
+            cwd=self.workspace,
+            check=True,
+        )
+        subprocess.run(
+            [
+                "git",
+                "-c",
+                "user.name=Click Tests",
+                "-c",
+                "user.email=click-tests@example.invalid",
+                "commit",
+                "--quiet",
+                "-m",
+                "unrelated dependency mapping",
+            ],
+            cwd=self.workspace,
+            check=True,
+        )
+        self.tool_hook(
+            "post-tool",
+            "apply_patch",
+            {"patch": "manifest"},
+            tool_use_id="tool-1",
+        )
+
+        reused = self.verify_gate([command])
+
+        self.assertIn(
+            "dependency-safe cross-revision",
+            reused["hookSpecificOutput"]["updatedInput"]["command"],
+        )
+
     def test_legacy_class_change_does_not_invalidate_exact_argv_receipt(self) -> None:
         (self.workspace / ".gitignore").write_text(
             "__pycache__/\n", encoding="utf-8"

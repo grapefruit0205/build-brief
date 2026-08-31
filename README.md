@@ -168,7 +168,7 @@ For the cancellation request above, repository evidence might produce a contract
   "verification": {
     "scale": "full",
     "evidence": [
-      {"id": "E1", "kind": "argv", "description": "cancellation and duplicate-refund tests"},
+      {"id": "E1", "kind": "argv", "description": "cancellation and duplicate-refund tests", "dependencies": ["src/orders/", "tests/test_cancellation.py"]},
       {"id": "E2", "kind": "argv", "description": "existing API regression tests"}
     ],
     "done_when": [
@@ -192,6 +192,7 @@ The exact design is repository-dependent. The example shows the contract shape, 
 | Advise on ordinary argv retries | A fixed failure count does not block a fresh verification retry; verification that changed protected repository content still requires an approved mutation |
 | Make command intent explicit | Ambiguous active shell work is replaced by structured `inspect`, `mutate`, `service`, or `verify` paths |
 | Keep verification strategy non-authoritative | The model chooses evidence and `argv`; Click binds exact check-group digests and observed results to receipts |
+| Reuse dependency-safe evidence | An approval-bound dependency declaration or committed repository mapping can carry an exact success across revisions only while its resolved files, check, environment, executable, and approved mutation snapshot still match |
 | Track completion by source | All declared sources must be current; no placeholder local check is invented when no `argv` source exists |
 | Advise on Browser workflow repetition | Fresh normalized Browser repeats, retries, and long timed interactions remain allowed with guidance; assigned-source, serial-call, tool-result, revision, and completion-replay checks remain hard |
 
@@ -208,6 +209,8 @@ Before approval, the Skill or model recommends the smallest sufficient verificat
 Legacy class-unit fields remain readable for persisted-state and direct-caller compatibility, but they are not receipt evidence and produce no runtime guidance. A numeric verification budget should be enforced only when a user or repository explicitly owns that policy.
 
 Evidence may come from local `argv` checks or explicitly declared Browser, hosted, manual, or existing sources. An `argv` source completes only through the real success of its linked local runner. Non-argv completion is an explicit attestation; the Hook records the approved source identity and current revision but does not independently prove unmatched external or manual work.
+
+An `argv` evidence source may optionally declare deterministic repository-relative `dependencies`. The model proposes them before staging, so approval binds them into the contract digest; uncertain sources omit the field and rerun normally. `*` stays within one path segment, `**` crosses directories only as a complete segment, and a trailing slash selects a directory prefix. A committed `.click/evidence-dependencies.json` can supply exact argv-to-path mappings. Click records the resolved file list, supports repository-internal relative symlinks, invalidates only a changed relevant mapping rather than every unrelated manifest entry, and reruns after missing mutation receipts or out-of-bound workspace drift.
 
 ## Structured capabilities
 
@@ -239,16 +242,16 @@ Antigravity IDE users may also copy `dist/antigravity` into `.agents/plugins/cli
 
 Antigravity's Hook contract differs from Codex. Native file/search and unrelated MCP or Skill tools remain available, but cross-tool deduplication and Browser evidence are not currently supported. See [`platforms/antigravity/README.md`](platforms/antigravity/README.md) for the exact limits.
 
-## Update an existing installation — v0.30.0
+## Update an existing installation — v0.31.0
 
-The current release is **v0.30.0**.
+The current release is **v0.31.0**.
 
 ```bash
 codex plugin marketplace upgrade click
 codex plugin add click@click
 ```
 
-Restart the ChatGPT desktop app and review/trust the updated Hook. v0.30.0 narrows runtime authority to approval, one-use execution, and evidence integrity. Strategy counters and numeric verification profiles no longer block work; contract prose length and verification check count are not permission gates. The eight-command inspection bound remains an operational runner limit. Begin a fresh contract after upgrading instead of reusing a pending runner from an older installation.
+Restart the ChatGPT desktop app and review/trust the updated Hook. v0.31.0 adds opt-in dependency-aware evidence reuse across approved revisions. Reuse is allowed only when the approved dependency set, exact check, environment, executable, and mutation receipt still match; otherwise Click runs the check again. Begin a fresh contract after upgrading instead of reusing a pending runner from an older installation.
 
 Detailed release history is in [RELEASE_NOTES.md](RELEASE_NOTES.md).
 

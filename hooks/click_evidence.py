@@ -1,4 +1,4 @@
-"""Content-free evidence registry and ledger primitives for Click.
+"""Prose-free evidence registry and ledger primitives for Click.
 
 This module owns deterministic evidence identifiers, initial ledger creation,
 ledger-shape validation, and current-revision lookup helpers. It deliberately
@@ -15,6 +15,11 @@ import re
 import secrets
 from typing import Any
 
+if __package__:
+    from . import click_dependency_cache
+else:  # Executed directly from the bundled hooks directory.
+    import click_dependency_cache
+
 
 EVIDENCE_KINDS = ("argv", "browser", "hosted", "manual", "existing")
 EVIDENCE_STATUSES = {"ready", "running", "observed", "passed", "failed", "stale"}
@@ -22,7 +27,7 @@ EVIDENCE_STATE_VERSION = 1
 
 
 def evidence_key(evidence_id: str) -> str:
-    """Return the content-free key persisted for one approved evidence id."""
+    """Return the prose-free key persisted for one approved evidence id."""
     return hashlib.sha256(evidence_id.encode()).hexdigest()
 
 
@@ -38,7 +43,7 @@ def registry_digest(sources: dict[str, Any]) -> str:
 
 
 def fresh_state(contract: dict[str, Any]) -> dict[str, Any]:
-    """Create a new content-free evidence ledger from a validated contract."""
+    """Create a prose-free evidence ledger from a validated contract."""
     verification = contract.get("verification")
     declared = verification.get("evidence") if isinstance(verification, dict) else []
     sources: dict[str, Any] = {}
@@ -50,8 +55,22 @@ def fresh_state(contract: dict[str, Any]) -> dict[str, Any]:
             kind = source.get("kind")
             if not isinstance(source_id, str) or kind not in EVIDENCE_KINDS:
                 continue
+            declared_patterns = source.get("dependencies", [])
+            normalized_patterns, dependency_error = (
+                click_dependency_cache.normalize_patterns(declared_patterns)
+                if declared_patterns
+                else ((), "")
+            )
+            if dependency_error or normalized_patterns is None:
+                normalized_patterns = ()
             sources[evidence_key(source_id)] = {
                 "kind": kind,
+                "dependency_patterns": list(normalized_patterns),
+                "dependency_declaration_digest": (
+                    click_dependency_cache.patterns_digest(normalized_patterns)
+                    if normalized_patterns
+                    else ""
+                ),
                 "status": "ready",
                 "verified_revision": -1,
                 "attempts": 0,
@@ -68,6 +87,14 @@ def fresh_state(contract: dict[str, Any]) -> dict[str, Any]:
                 "verified_tree_digest": "",
                 "verified_environment_digest": "",
                 "verified_at": 0,
+                "verified_dependency_provider": "",
+                "verified_dependency_manifest_digest": "",
+                "verified_dependency_entry_digest": "",
+                "verified_dependency_digest": "",
+                "verified_dependency_paths": [],
+                "dependency_reuse_count": 0,
+                "last_dependency_reused_at": 0,
+                "last_dependency_reused_from_revision": -1,
             }
     return {
         "version": EVIDENCE_STATE_VERSION,
@@ -75,6 +102,71 @@ def fresh_state(contract: dict[str, Any]) -> dict[str, Any]:
         "registry_digest": registry_digest(sources),
         "sources": sources,
     }
+
+
+def _dependency_fields_are_valid(source: dict[str, Any]) -> bool:
+    patterns = source.get("dependency_patterns", [])
+    declaration_digest = source.get("dependency_declaration_digest", "")
+    if not isinstance(patterns, list) or not isinstance(declaration_digest, str):
+        return False
+    if patterns:
+        normalized, error = click_dependency_cache.normalize_patterns(patterns)
+        if (
+            error
+            or normalized is None
+            or list(normalized) != patterns
+            or declaration_digest
+            != click_dependency_cache.patterns_digest(normalized)
+        ):
+            return False
+    elif declaration_digest:
+        return False
+
+    provider = source.get("verified_dependency_provider", "")
+    manifest_digest = source.get("verified_dependency_manifest_digest", "")
+    entry_digest = source.get("verified_dependency_entry_digest", "")
+    dependency_digest = source.get("verified_dependency_digest", "")
+    paths = source.get("verified_dependency_paths", [])
+    if not all(
+        isinstance(value, str)
+        for value in (provider, manifest_digest, entry_digest, dependency_digest)
+    ) or not isinstance(paths, list):
+        return False
+    if provider:
+        if (
+            provider not in click_dependency_cache.PROVIDER_NAMES
+            or re.fullmatch(r"[0-9a-f]{64}", entry_digest) is None
+            or re.fullmatch(r"[0-9a-f]{64}", dependency_digest) is None
+            or manifest_digest
+            and re.fullmatch(r"[0-9a-f]{64}", manifest_digest) is None
+            or not click_dependency_cache.receipt_paths_are_valid(paths)
+        ):
+            return False
+        if provider == click_dependency_cache.CONTRACT_PROVIDER_NAME:
+            if manifest_digest:
+                return False
+        elif re.fullmatch(r"[0-9a-f]{64}", manifest_digest) is None:
+            return False
+    elif any((manifest_digest, entry_digest, dependency_digest, paths)):
+        return False
+    reuse_count = source.get("dependency_reuse_count", 0)
+    reused_at = source.get("last_dependency_reused_at", 0)
+    reused_from = source.get("last_dependency_reused_from_revision", -1)
+    for value in (reuse_count, reused_at, reused_from):
+        if not isinstance(value, int) or isinstance(value, bool):
+            return False
+    if reuse_count < 0 or reused_at < 0 or reused_from < -1:
+        return False
+    if not provider:
+        return reuse_count == 0 and reused_at == 0 and reused_from == -1
+    return bool(
+        reuse_count == 0
+        and reused_at == 0
+        and reused_from == -1
+        or reuse_count > 0
+        and reused_at > 0
+        and reused_from >= 0
+    )
 
 
 def sources_from_state(
@@ -129,6 +221,7 @@ def sources_from_state(
             )
             or not isinstance(source.get("last_check_digest"), str)
             or not isinstance(source.get("locked_check_digest"), str)
+            or not _dependency_fields_are_valid(source)
             or (
                 "reserved_units" in source
                 and (
@@ -205,7 +298,7 @@ def fresh_external_state(
     required: bool | None = None,
     source_key: str | None = None,
 ) -> dict[str, Any]:
-    """Create the content-free Browser evidence session state."""
+    """Create the prose-free Browser evidence session state."""
     source_id = browser_source_id(contract or {})
     browser_source_key = (
         evidence_key(source_id)

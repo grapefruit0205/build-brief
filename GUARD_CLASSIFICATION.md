@@ -1,6 +1,6 @@
 # Click Guard Classification
 
-Status: **Living inventory; plan, inventory, logical-repeat, and verification-boundary migrations applied; Browser boundary split complete**
+Status: **Living inventory; v0.30 policy migrations complete; dependency-aware receipt reuse completed for v0.31.0**
 
 Baseline: **v0.24.6 plus the canonical product-boundary change at `73072a9`**
 
@@ -21,6 +21,7 @@ not claim that every hard gate has already been moved to its target layer.
 | Evidence registry identity, current-revision state and receipt matching | `hooks/click_evidence.py`; verification claim/result paths in `hooks/click_gate.py` | Prevents evidence from a different request or revision from completing work |
 | Browser source admission, serial-call interlock, stable host-call/result mapping, current revision and finalization replay | Browser receipt transitions in `hooks/click_gate.py` | Prevents an unassigned, parallel, mismatched, stale or replayed Browser result from completing evidence without judging the model's interaction strategy |
 | Protected Git-tree, environment and executable fingerprints for argv verification; verification-time mutation detection | verification receipt helpers and runners in `hooks/click_gate.py` | Preserves the identity of the code and environment actually checked by Click's argv runner |
+| Opt-in dependency provider, relevant-entry and resolved-path receipts, plus approved mutation pre/post binding | `hooks/click_dependency_cache.py`; mutation-boundary and receipt transitions in `hooks/click_gate.py` | Allows cross-revision reuse without treating a model's post-approval assertion, unrelated manifest content, or later workspace drift as proof |
 | Direct-argv capability safety, executable/path/environment checks, process-control rejection and read-only side-effect defenses | capability constants and validators in `hooks/click_gate.py` | Prevents an admitted inspect, verify or service request from gaining unapproved effects |
 | Mutation, verification and managed-service interlocks around active runner claims | runner reservation and claim state in `hooks/click_gate.py` | Prevents an authorized side effect or receipt from racing into a different state without treating distinct observation concurrency as authority |
 | Host event normalization and state/receipt-preserving result mapping | `hooks/click_hook.py`, `hooks/antigravity_gate.py`, `hooks/platform_protocol.py` | Ensures observable host actions reach the same authorization protocol |
@@ -77,9 +78,11 @@ not claim that every hard gate has already been moved to its target layer.
   model still interpret whether the user's words semantically grant approval.
 - Natural-language `boundary.in_scope` is digest-bound but is not semantically
   compared with every resulting diff by the runtime.
-- Direct `apply_patch`, Edit and Write surfaces receive approval gating and
-  revision tracking but do not all use the structured runner's one-use request
-  digest and result record.
+- Direct `apply_patch`, Edit and Write surfaces receive approval gating,
+  revision tracking, and observable pre/post Git snapshots, but they do not use
+  the structured runner's one-use request digest. Changes racing inside one
+  approved host-tool interval cannot be attributed independently without an
+  operating-system monitor.
 - Hosted, manual and existing evidence completion is an agent attestation, not
   an independently observed external fact.
 - Browser success proves an observed tool result and source binding, not the
@@ -119,6 +122,9 @@ stronger guarantee than the runtime can observe.
    timing guidance.
 8. **Complete in v0.30.0:** Update Skill, evals, manifest, README and
    host distributions together with the behavior they describe.
+9. **Complete in v0.31.0:** Add approval-bound, dependency-aware cross-revision
+   argv receipt reuse with exact check, environment, executable, relevant
+   manifest entry, resolved-path and mutation-boundary invalidation.
 
 Each migration is a separate behavior-preserving-for-Core change. It must retain
 approval, side-effect authority, one-use runner, revision, receipt, cancellation,

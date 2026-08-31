@@ -166,7 +166,7 @@ codex plugin add click@click
   "verification": {
     "scale": "full",
     "evidence": [
-      {"id": "E1", "kind": "argv", "description": "订单取消与重复退款测试"},
+      {"id": "E1", "kind": "argv", "description": "订单取消与重复退款测试", "dependencies": ["src/orders/", "tests/test_cancellation.py"]},
       {"id": "E2", "kind": "argv", "description": "现有 API 回归测试"}
     ],
     "done_when": [
@@ -190,6 +190,7 @@ codex plugin add click@click
 | 提示但不阻断普通 argv 重试 | 固定失败次数不会阻断新的 verification 重试；改变 protected repository content 的 verification 仍需要已批准 mutation |
 | 明确命令意图 | active 状态下含义不明确的 shell 工作改用 structured `inspect`、`mutate`、`service` 或 `verify` |
 | 不把验证策略变成权限 | 模型选择 evidence 与 `argv`；Click 把准确 check-group digest 和观察结果绑定到 receipt |
+| 复用 dependency-safe evidence | 只有解析文件、check、环境、可执行文件和已批准 mutation snapshot 都一致时，绑定到批准的 dependency 声明或已提交仓库映射才能跨 revision 复用成功证据 |
 | 按 source 跟踪完成 | 所有声明 source 必须 current；没有 `argv` source 时不会为了形式制造 local check |
 | 提示 Browser workflow 重复 | 规范化 Browser 重复、重试和长定时交互在提示下仍可执行；已分配 source、串行调用、tool result、revision 与完成后 replay 的绑定仍为 hard gate |
 
@@ -206,6 +207,8 @@ codex plugin add click@click
 旧 class-unit 字段仅为持久化 state 与直接调用者兼容而保留；它们不是 receipt 证据，也不会产生 runtime 提示。只有用户或仓库明确拥有该策略时，才应强制数字验证预算。
 
 证据可以来自 local `argv` check，也可以来自显式声明的 Browser、hosted、manual 或 existing source。`argv` source 只能通过关联 local runner 的真实成功完成。non-argv completion 是显式 attestation；Hook 会记录已批准 source 与当前 revision，但不会独立证明 matcher 外部执行或人工步骤确实发生。
+
+`argv` evidence source 可以选择声明确定性的仓库相对 `dependencies`。模型在 stage 前提出，因此声明会绑定到已批准 contract digest；不确定时应省略该字段并正常重新验证。`*` 只匹配一个 path segment，完整 segment 的 `**` 可跨目录，末尾 `/` 表示目录前缀。已提交的 `.click/evidence-dependencies.json` 也可提供精确 argv-to-path 映射。Click 会记录实际解析文件列表并支持仓库内部相对 symlink；无关 manifest entry 的变化不会使该 source 失效，但 mutation receipt 缺失或批准边界之后发生 workspace drift 时会重新运行验证。
 
 ## 结构化 capability
 
@@ -237,16 +240,16 @@ Antigravity IDE 用户也可以把 `dist/antigravity` 复制到工作区的 `.ag
 
 Antigravity 的 Hook contract 与 Codex 不同。native file/search 和其他 MCP、Skill 工具仍可使用，但目前还不支持 cross-tool 去重和 Browser evidence。准确限制请参阅 [`platforms/antigravity/README.md`](platforms/antigravity/README.md)。
 
-## 更新现有安装 — v0.30.0
+## 更新现有安装 — v0.31.0
 
-当前版本是 **v0.30.0**。
+当前版本是 **v0.31.0**。
 
 ```bash
 codex plugin marketplace upgrade click
 codex plugin add click@click
 ```
 
-重启 ChatGPT 桌面应用并检查、信任更新后的 Hook。v0.30.0 将 runtime 权限聚焦于批准、one-use 执行与 evidence 完整性。策略计数器和数字化验证 profile 不再阻断工作；contract prose 长度和 verification check 数量也不再是权限 gate。每次 inspection 最多八条命令仍作为 runner 的运行边界保留。升级后请开始新 contract，不要复用旧安装留下的待执行 runner。
+重启 ChatGPT 桌面应用并检查、信任更新后的 Hook。v0.31.0 可在已批准的 revision 之间选择性复用 dependency-aware evidence。只有已批准的 dependency 集、精确 check、环境、可执行文件和 mutation receipt 全部匹配时才会复用；任一项变化时 Click 都会重新运行 check。升级后请开始新 contract，不要复用旧安装留下的待执行 runner。
 
 详细发布历史见 [RELEASE_NOTES.md](RELEASE_NOTES.md)。
 

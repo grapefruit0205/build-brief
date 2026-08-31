@@ -453,9 +453,30 @@ def _pre_tool(raw: dict[str, Any]) -> dict[str, Any]:
 
 
 def _post_tool(raw: dict[str, Any]) -> dict[str, Any]:
-    # Antigravity's documented PostToolUse payload exposes errors but not tool
-    # results, and no Browser tool is currently bound to Click evidence.
-    return {}
+    # Antigravity does not expose a full result body here, but the stable tool
+    # identity is sufficient to close Click's approved mutation snapshot.
+    tool_call = raw.get("toolCall")
+    if not isinstance(tool_call, dict):
+        return {"decision": "allow"}
+    tool_name = str(tool_call.get("name", ""))
+    arguments = tool_call.get("args")
+    if not isinstance(arguments, dict):
+        arguments = {}
+    context = _context_for_raw(raw)
+    if not context:
+        return {"decision": "allow"}
+    event = _canonical_event(context)
+    event.update(
+        {
+            "hook_event_name": "PostToolUse",
+            "tool_name": ANTIGRAVITY_TOOL_MAP.get(tool_name, tool_name),
+            "tool_use_id": f"ag:{raw.get('stepIdx', '')}:{tool_name}",
+            "tool_input": arguments,
+        }
+    )
+    with click_state.state_lock():
+        click_gate._handle_post_tool(event)
+    return {"decision": "allow"}
 
 
 def _stop(raw: dict[str, Any]) -> dict[str, Any]:

@@ -1,4 +1,4 @@
-version: 21
+version: 22
 skill: click
 evaluation_conditions:
   - no-plugin
@@ -100,7 +100,7 @@ global_invariants:
   - "Finalizes observed Browser evidence explicitly, keeps observed status monotonic until mutation, and treats hosted, manual, and existing completion as attestations rather than claiming independently observed execution"
   - "Keeps broad-inventory count non-blocking and non-authoritative: a distinct-digest broad inventory receives narrowing guidance and may run despite prior broad running or success, while an active exact-digest reservation, mutation and verification interlocks, and runner safety remain hard"
   - "Keeps fresh logical repetition non-blocking and model-neutral: a completed identical observation or ordinary repeatedly failing argv check may receive a new one-use authorization with advisory context, while consumed-token replay, active same-request reservations, and verification-time repository mutation remain hard"
-  - "Skips an exact successful argv check only for the same active contract and mutation revision when its check group, protected Git tree, canonical execution environment, and executable fingerprint match; a new mutation revision never auto-promotes stale evidence"
+  - "Skips an exact successful argv check in the same revision only when its contract, check group, protected Git tree, canonical execution environment, and executable fingerprint match; cross-revision promotion requires an optional approval-bound dependency receipt, a matching host-recorded mutation snapshot, and unchanged relevant resolved files"
   - "Keeps Browser source admission, serial calls, stable tool_use_id/result mapping, current revision and completion replay hard while normalized repetition, retry count, 30-second timeout and five-second wait guidance remains non-blocking and model-neutral"
   - "Uses browser, manual, hosted, broad-suite, or timed end-to-end evidence only when cheaper evidence cannot prove the condition, then stops when all conditions have current evidence"
   - "Does not create parallel verification ceremonies or include an intermediate gate without an irreversible boundary"

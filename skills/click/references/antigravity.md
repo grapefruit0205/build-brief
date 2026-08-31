@@ -42,6 +42,10 @@ capabilities. Direct read-only `run_command` calls are denied rather than truste
 by executable basename. Native file and search tools plus unrelated MCP, Skill,
 and Plugin tools may still be used when relevant, but their successful reads are
 not deduplicated by Click's local observation runner.
+Antigravity's matching `PreToolUse` and `PostToolUse` identities close the
+approved mutation snapshot used by optional dependency-aware argv receipts. If
+the post event or Git snapshot is unavailable, Click safely runs verification
+instead of reusing a cross-revision receipt.
 Do not declare Browser evidence: no Antigravity Browser tool is currently bound
 to Click's Browser meter. Use the cheapest sufficient argv, hosted, manual, or
 existing source instead.

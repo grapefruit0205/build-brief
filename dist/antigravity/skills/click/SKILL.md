@@ -36,6 +36,8 @@ Keep the contract proportional. Prefer an existing capable structure and add no 
 
 Choosing evidence and a qualitative verification profile before approval, then concrete argv during execution, is model strategy. The selected profile remains digest-bound as part of the contract. The Hook binds exact check groups and observed results to receipts but does not score verification sufficiency or use legacy units for authority or advice.
 
+When repository evidence makes an argv source's dependency boundary clear, optionally declare its deterministic repository-relative `dependencies` in the contract. Approval binds that declaration. Use `*` only within one path segment, `**` only as a complete segment, or a trailing slash for a directory prefix. Omit the field rather than guess: omission merely reruns the check after a mutation. Never invent or change dependencies after approval to obtain a cache hit.
+
 ## Stage once and approve by id
 
 1. Run `click-gate stage '<Execution Contract JSON>'` once and capture the emitted `CLICK_CONTRACT_ID=ctr_<32hex>`.

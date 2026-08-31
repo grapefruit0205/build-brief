@@ -49,6 +49,28 @@
             "timeout": 7
           }
         ]
+      },
+      {
+        "matcher": "^(Bash|apply_patch|Edit|Write)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${PLUGIN_ROOT}/hooks/click_gate.py\" post-tool",
+            "commandWindows": "\"${PLUGIN_ROOT}\\hooks\\click_windows.cmd\" post-tool",
+            "timeout": 7
+          }
+        ]
+      },
+      {
+        "matcher": "^(shell_command|functions\\.shell_command|exec_command|functions\\.exec_command|unified_exec|functions\\.unified_exec|exec|functions\\.exec|code_mode_exec|functions\\.apply_patch)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${PLUGIN_ROOT}/hooks/click_hook.py\" post-tool",
+            "commandWindows": "\"${PLUGIN_ROOT}\\hooks\\click_windows.cmd\" post-tool",
+            "timeout": 7
+          }
+        ]
       }
     ],
     "SessionEnd": [
