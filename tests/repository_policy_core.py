@@ -511,6 +511,7 @@ class RepositoryPolicyTests(unittest.TestCase):
                 "click_evidence.py",
                 "click_host_coverage.py",
                 "click_gate.py",
+                "click_mutation.py",
                 "click_process.py",
                 "click_service.py",
                 "click_state.py",
@@ -566,6 +567,38 @@ class RepositoryPolicyTests(unittest.TestCase):
             with self.subTest(forbidden=forbidden):
                 self.assertNotIn(f"import {forbidden}", service)
                 self.assertNotIn(f"from {forbidden}", service)
+
+    def test_mutation_runtime_is_isolated_from_gate_and_sibling_domains(self) -> None:
+        gate = (ROOT / "hooks" / "click_gate.py").read_text(encoding="utf-8")
+        mutation = (ROOT / "hooks" / "click_mutation.py").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("click_mutation", gate)
+        for required in (
+            "def mark_contract_mutated(",
+            "def prepare(",
+            "def claim_run(",
+            "def record_result(",
+            "def record_boundary(",
+            "def run(",
+        ):
+            with self.subTest(required=required):
+                self.assertIn(required, mutation)
+        for forbidden in (
+            "click_browser",
+            "click_contract",
+            "click_gate",
+            "click_host_coverage",
+            "click_process",
+            "click_service",
+            "click_verification_meter",
+            "click_verification_policy",
+            "platform_protocol",
+        ):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(f"import {forbidden}", mutation)
+                self.assertNotIn(f"from {forbidden}", mutation)
 
     def test_evidence_ledger_is_isolated_from_gate_state_and_process(self) -> None:
         gate = (ROOT / "hooks" / "click_gate.py").read_text(encoding="utf-8")

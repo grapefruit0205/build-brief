@@ -39,6 +39,7 @@ if __package__:
         click_dependency_cache,
         click_evidence,
         click_host_coverage,
+        click_mutation,
         click_process,
         click_service,
         click_verification_meter,
@@ -67,6 +68,7 @@ else:  # Executed directly from the bundled hooks directory.
     import click_dependency_cache
     import click_evidence
     import click_host_coverage
+    import click_mutation
     import click_process
     import click_service
     import click_verification_meter
@@ -130,6 +132,14 @@ _browser_running_entry_is_active = click_browser.running_entry_is_active
 _browser_attempt_digest = click_browser.attempt_digest
 _tool_response_failed = click_browser.response_failed
 
+# Compatibility aliases for mutation state and direct result recording. The
+# gate wrappers below inject host routing and shared execution mechanics into
+# the one-way click_mutation boundary.
+_fresh_mutation_boundary = click_mutation.fresh_boundary
+_fresh_mutation_state = click_mutation.fresh_state
+_mutation_is_running = click_mutation.is_running
+_record_mutation_result = click_mutation.record_result
+
 
 CONTROL_COMMAND = "click-gate"
 CLICK_AUTHORIZATION_PATTERNS = (
@@ -157,7 +167,7 @@ CAPABILITY_PROTOCOL_VERSION = 1
 VERIFICATION_PROTOCOL_VERSION = 2
 CONTRACT_STATE_SCHEMA_VERSION = 2
 INSPECTION_REQUEST_FIELDS = {"version", "commands"}
-MUTATION_REQUEST_FIELDS = {"version", "argv"}
+MUTATION_REQUEST_FIELDS = click_mutation.REQUEST_FIELDS
 SERVICE_REQUEST_FIELDS = click_service.SERVICE_REQUEST_FIELDS
 VERIFICATION_BATCH_FIELDS = {"version", "checks"}
 VERIFICATION_CHECK_FIELDS = {"evidence_id", "argv", "class"}
@@ -202,7 +212,7 @@ MAX_BROWSER_TOOL_TIMEOUT_MS = (
 MAX_BROWSER_WAIT_MS = click_browser_advisory.RECOMMENDED_BROWSER_WAIT_MS
 BROWSER_RUNNING_TTL_SECONDS = click_browser.RUNNING_TTL_SECONDS
 OBSERVATION_RESERVATION_TTL_SECONDS = 30
-MUTATION_RUNNING_TTL_SECONDS = 10 * 60
+MUTATION_RUNNING_TTL_SECONDS = click_mutation.RUNNING_TTL_SECONDS
 VERIFY_RUNNING_TTL_SECONDS = 60 * 60
 EPHEMERAL_STATE_TTL_SECONDS = 7 * 24 * 60 * 60
 COMPLETED_CONTRACT_TTL_SECONDS = 30 * 24 * 60 * 60
@@ -589,18 +599,6 @@ def _read_default_mode() -> str:
     return "unset"
 
 
-def _fresh_mutation_boundary() -> dict[str, Any]:
-    return {
-        "revision": 0,
-        "tool_use_id": "",
-        "status": "none",
-        "lineage_valid": False,
-        "before_root": "",
-        "before_digest": "",
-        "after_root": "",
-        "after_digest": "",
-    }
-
 
 def _fresh_verification_state(contract: dict[str, Any]) -> dict[str, Any]:
     scale = str(contract["verification"]["scale"])
@@ -647,30 +645,6 @@ def _evidence_sources(state: dict[str, Any]) -> dict[str, Any] | None:
 def _fresh_observation_state() -> dict[str, Any]:
     return {"entries": {}}
 
-
-def _fresh_mutation_state() -> dict[str, Any]:
-    return {
-        "status": "idle",
-        "request_digest": "",
-        "runner_token_digest": "",
-        "runner_claimed_at": 0,
-        "started_at": 0,
-        "last_exit_code": None,
-    }
-
-
-def _mutation_is_running(mutation: Any) -> bool:
-    if not isinstance(mutation, dict) or mutation.get("status") != "running":
-        return False
-    # Expiry cannot prove that a claimed child has stopped. Keep a claimed
-    # mutation active until it records a result or the user explicitly cancels.
-    if mutation.get("runner_claimed_at"):
-        return True
-    started_at = int(mutation.get("started_at", 0))
-    return bool(
-        started_at
-        and time.time() - started_at <= MUTATION_RUNNING_TTL_SECONDS
-    )
 
 
 def _unclaimed_reservation_is_fresh(value: Any, ttl_seconds: int) -> bool:
@@ -914,145 +888,12 @@ def _session_contract_is_active(state: dict[str, Any]) -> bool:
 
 
 def _mark_contract_mutated(event: dict[str, Any]) -> str:
-    state = _read_contract_state(event)
-    if state.get("status") != "approved":
-        return ""
-    mutation = state.get("mutation")
-    if _mutation_is_running(mutation):
-        return "Click blocked a second mutation while a structured mutation is running."
-    if isinstance(mutation, dict) and mutation.get("status") == "running":
-        state["mutation"] = _fresh_mutation_state()
-    verification = state.get("verification")
-    if not isinstance(verification, dict):
-        return "Click verification state is unavailable; stage and approve the contract again."
-    if verification.get("status") == "running":
-        return "Click blocked this mutation while the final verification batch is running."
-    sources = _evidence_sources(state)
-    if sources is None:
-        return (
-            "This active contract predates evidence-id completion tracking. Cancel it, "
-            "stage the proposal again, and obtain fresh approval before mutation."
-        )
-    if not sources:
-        return (
-            "Click evidence state is unavailable or malformed; cancel and stage the "
-            "contract again before changing the implementation."
-        )
-
-    observations = state.get("observations")
-    if isinstance(observations, dict):
-        entries = observations.get("entries")
-        if isinstance(entries, dict):
-            for entry in entries.values():
-                if _observation_is_running(entry):
-                    return (
-                        "Click blocked this mutation while an approved read or search is "
-                        "running. Wait for that evidence before changing the implementation."
-                    )
-
-    previous_revision = int(verification.get("mutation_revision", 0))
-    workspace = Path(str(event.get("cwd", ""))).resolve()
-    snapshot = _git_workspace_snapshot(workspace)
-    snapshot_root = (
-        os.path.normcase(str(snapshot.get("root", "")))
-        if isinstance(snapshot, dict)
-        else ""
+    return click_mutation.mark_contract_mutated(
+        event,
+        expected_contract_schema_version=CONTRACT_STATE_SCHEMA_VERSION,
+        observation_is_running=_observation_is_running,
+        workspace_snapshot=_git_workspace_snapshot,
     )
-    snapshot_digest = (
-        str(snapshot.get("digest", "")) if isinstance(snapshot, dict) else ""
-    )
-    reusable_sources = [
-        source
-        for source in sources.values()
-        if isinstance(source, dict)
-        and source.get("verified_dependency_provider")
-        in click_dependency_cache.PROVIDER_NAMES
-        and isinstance(source.get("verified_revision"), int)
-        and not isinstance(source.get("verified_revision"), bool)
-        and int(source.get("verified_revision", -1)) >= 0
-    ]
-    current_receipts = [
-        source
-        for source in reusable_sources
-        if source.get("status") == "passed"
-        and int(source.get("verified_revision", -1)) == previous_revision
-    ]
-    prior_boundary = verification.get("mutation_boundary")
-    if current_receipts:
-        lineage_valid = bool(
-            snapshot_root
-            and snapshot_digest
-            and all(
-                source.get("verified_root") == snapshot_root
-                and source.get("verified_tree_digest") == snapshot_digest
-                for source in current_receipts
-            )
-        )
-    elif reusable_sources:
-        lineage_valid = bool(
-            isinstance(prior_boundary, dict)
-            and prior_boundary.get("status") == "recorded"
-            and prior_boundary.get("lineage_valid") is True
-            and prior_boundary.get("revision") == previous_revision
-            and prior_boundary.get("after_root") == snapshot_root
-            and prior_boundary.get("after_digest") == snapshot_digest
-        )
-    else:
-        lineage_valid = bool(snapshot_root and snapshot_digest)
-
-    revision = previous_revision + 1
-    verification["mutation_revision"] = revision
-    tool_use_id = str(event.get("tool_use_id", ""))
-    verification["mutation_boundary"] = {
-        "revision": revision,
-        "tool_use_id": tool_use_id,
-        "status": (
-            "running"
-            if tool_use_id and lineage_valid and snapshot_root and snapshot_digest
-            else "invalid"
-        ),
-        "lineage_valid": lineage_valid,
-        "before_root": snapshot_root,
-        "before_digest": snapshot_digest,
-        "after_root": "",
-        "after_digest": "",
-    }
-    if verification.get("status") == "passed":
-        verification["status"] = "stale"
-    elif verification.get("status") == "failed":
-        verification["status"] = "ready"
-        verification["failed_revision"] = -1
-        verification["unchanged_failure_retries"] = 0
-        verification["workspace_changed"] = False
-    state["verification"] = verification
-    for source in sources.values():
-        if not isinstance(source, dict):
-            continue
-        was_passed = source.get("status") == "passed"
-        source["status"] = "stale" if was_passed else "ready"
-        source["unchanged_failure_retries"] = 0
-        source["last_exit_code"] = None
-        if not source.get("locked_check_digest"):
-            source["last_check_digest"] = ""
-    external = state.get("external_evidence")
-    browser_required = bool(
-        isinstance(external, dict) and external.get("browser_required") is True
-    )
-    browser_source_key = (
-        str(external.get("browser_source_key", ""))
-        if isinstance(external, dict)
-        else ""
-    )
-    if not browser_source_key and isinstance(external, dict):
-        legacy_source_id = str(external.get("browser_source_id", ""))
-        browser_source_key = _evidence_key(legacy_source_id) if legacy_source_id else ""
-    state["external_evidence"] = _fresh_external_evidence_state(
-        required=browser_required,
-        source_key=browser_source_key,
-    )
-    state["observations"] = _fresh_observation_state()
-    _save_contract_state(event, state)
-    return ""
 
 
 def _prune_state() -> None:
@@ -1184,26 +1025,12 @@ def _validate_inspection_request(
 
 
 def _validate_mutation_request(raw: str) -> tuple[dict[str, Any] | None, str]:
-    value, error = _decode_capability_request(raw, "Mutation")
-    if error:
-        return None, error
-    assert value is not None
-    unknown = sorted(set(value) - MUTATION_REQUEST_FIELDS)
-    if unknown:
-        rendered = ", ".join(f"`{field}`" for field in unknown)
-        return None, f"Mutation request contains unsupported field(s): {rendered}."
-    argv, argv_error = _validate_argv(value.get("argv"), "Mutation")
-    if argv_error:
-        return None, argv_error
-    assert argv is not None
-    if _looks_like_managed_service(argv):
-        return (
-            None,
-            "Long-running local servers must use `click-gate service` so Click owns "
-            "the exact child lifecycle and cannot strand a foreground mutation.",
-        )
-    return {"version": CAPABILITY_PROTOCOL_VERSION, "argv": argv}, ""
-
+    return click_mutation.validate_request(
+        raw,
+        validate_argv=_validate_argv,
+        looks_like_managed_service=_looks_like_managed_service,
+        protocol_version=CAPABILITY_PROTOCOL_VERSION,
+    )
 
 def _validate_service_request(raw: str) -> tuple[dict[str, Any] | None, str]:
     return click_service.validate_request(
@@ -2662,44 +2489,29 @@ def _inspection_once_runner_command(request: dict[str, Any]) -> str:
 def _mutation_runner_command(
     event: dict[str, Any], request: dict[str, Any], request_digest: str, runner_token: str
 ) -> str:
-    arguments = [
-        *_stateful_runner_prefix("run-mutation"),
-        str(_contract_path(event).resolve()),
+    return click_mutation.runner_command(
+        event,
+        request,
         request_digest,
         runner_token,
-        _encoded_request(request),
-    ]
-    return _runner_shell_command(arguments)
+        runner_script=Path(__file__).resolve(),
+        render_command=_runner_shell_command,
+    )
 
 
 def _prepare_mutation(event: dict[str, Any], raw: str) -> tuple[str, str]:
-    state = _read_contract_state(event)
-    if state.get("status") != "approved":
-        return "", "Approve the staged Click execution contract before mutation."
-    request, error = _validate_mutation_request(raw)
-    if error:
-        return "", error
-    assert request is not None
-    mutation_error = _mark_contract_mutated(event)
-    if mutation_error:
-        return "", mutation_error
-
-    state = _read_contract_state(event)
-    request_digest = _capability_digest(request)
-    runner_token = secrets.token_urlsafe(24)
-    state["mutation"] = {
-        "status": "running",
-        "request_digest": request_digest,
-        "runner_token_digest": hashlib.sha256(runner_token.encode()).hexdigest(),
-        "runner_claimed_at": 0,
-        "started_at": int(time.time()),
-        "last_exit_code": None,
-    }
-    _save_contract_state(event, state)
-    return _mutation_runner_command(
-        event, request, request_digest, runner_token
-    ), ""
-
+    return click_mutation.prepare(
+        event,
+        raw,
+        validate_argv=_validate_argv,
+        looks_like_managed_service=_looks_like_managed_service,
+        protocol_version=CAPABILITY_PROTOCOL_VERSION,
+        expected_contract_schema_version=CONTRACT_STATE_SCHEMA_VERSION,
+        observation_is_running=_observation_is_running,
+        workspace_snapshot=_git_workspace_snapshot,
+        runner_script=Path(__file__).resolve(),
+        render_command=_runner_shell_command,
+    )
 
 def _service_runner_command(
     event: dict[str, Any],
@@ -3515,34 +3327,12 @@ def _prepare_browser_evidence(event: dict[str, Any]) -> tuple[bool, str, str]:
         mutation_is_running=_mutation_is_running,
     )
 
+
 def _record_mutation_boundary(event: dict[str, Any]) -> None:
-    state = _read_contract_state(event)
-    if state.get("status") != "approved":
-        return
-    verification = state.get("verification")
-    if not isinstance(verification, dict):
-        return
-    boundary = verification.get("mutation_boundary")
-    if (
-        not isinstance(boundary, dict)
-        or boundary.get("status") != "running"
-        or boundary.get("tool_use_id") != str(event.get("tool_use_id", ""))
-        or boundary.get("revision") != verification.get("mutation_revision")
-    ):
-        return
-    snapshot = _git_workspace_snapshot(
-        Path(str(event.get("cwd", ""))).resolve()
+    click_mutation.record_boundary(
+        event,
+        workspace_snapshot=_git_workspace_snapshot,
     )
-    if snapshot is None:
-        boundary["status"] = "invalid"
-        boundary["lineage_valid"] = False
-    else:
-        boundary["status"] = "recorded"
-        boundary["after_root"] = os.path.normcase(str(snapshot.get("root", "")))
-        boundary["after_digest"] = str(snapshot.get("digest", ""))
-    verification["mutation_boundary"] = boundary
-    state["verification"] = verification
-    _save_contract_state(event, state)
 
 
 def _handle_post_tool(event: dict[str, Any]) -> None:
@@ -3553,6 +3343,7 @@ def _handle_post_tool(event: dict[str, Any]) -> None:
         event,
         expected_contract_schema_version=CONTRACT_STATE_SCHEMA_VERSION,
     )
+
 
 def _handle_prompt_submit(event: dict[str, Any]) -> None:
     _prune_state()
@@ -5083,121 +4874,25 @@ def _run_observation(arguments: list[str]) -> int:
 def _claim_mutation_run(
     path: Path, raw: str, request_digest: str, runner_token: str
 ) -> tuple[dict[str, Any] | None, str]:
-    """Atomically authorize one mutation runner before any side effect."""
-    if not _managed_contract_path(path):
-        return None, "Click mutation runner received an unmanaged state path."
-    try:
-        state = json.loads(path.read_text(encoding="utf-8"))
-    except (FileNotFoundError, json.JSONDecodeError, OSError):
-        return None, "Click mutation runner could not read its contract state."
-    if not isinstance(state, dict) or state.get("status") != "approved":
-        return None, "Click mutation runner is no longer authorized to execute."
-    mutation = state.get("mutation")
-    if not isinstance(mutation, dict) or mutation.get("status") != "running":
-        return None, "Click mutation runner is no longer authorized to execute."
-    if mutation.get("request_digest") != request_digest:
-        return None, "Click mutation runner request digest did not match active state."
-    token_digest = hashlib.sha256(runner_token.encode()).hexdigest()
-    if not secrets.compare_digest(
-        str(mutation.get("runner_token_digest", "")), token_digest
-    ):
-        return None, "Click mutation runner token did not match active state."
-    claimed_at = mutation.get("runner_claimed_at", 0)
-    if not isinstance(claimed_at, int) or isinstance(claimed_at, bool):
-        return None, "Click mutation runner claim state is malformed."
-    if claimed_at:
-        return None, "Click mutation runner was already claimed; replay is blocked."
-    if not _unclaimed_reservation_is_fresh(
-        mutation.get("started_at", 0), MUTATION_RUNNING_TTL_SECONDS
-    ):
-        return None, "Click mutation runner authorization expired before execution."
-
-    request, error = _validate_mutation_request(raw)
-    if error:
-        return None, error
-    assert request is not None
-    if _capability_digest(request) != request_digest:
-        return None, "Click mutation runner request digest did not match."
-
-    mutation["runner_claimed_at"] = int(time.time()) or 1
-    state["mutation"] = mutation
-    state["updated_at"] = int(time.time())
-    _write_json(path, state)
-    return request, ""
-
-
-def _record_mutation_result(
-    path: Path, request_digest: str, runner_token: str, exit_code: int
-) -> bool:
-    if not _managed_contract_path(path):
-        return False
-    try:
-        state = json.loads(path.read_text(encoding="utf-8"))
-    except (FileNotFoundError, json.JSONDecodeError, OSError):
-        return False
-    if not isinstance(state, dict) or state.get("status") != "approved":
-        return False
-    mutation = state.get("mutation")
-    if not isinstance(mutation, dict) or mutation.get("status") != "running":
-        return False
-    if mutation.get("request_digest") != request_digest:
-        return False
-    token_digest = hashlib.sha256(runner_token.encode()).hexdigest()
-    if not secrets.compare_digest(
-        str(mutation.get("runner_token_digest", "")), token_digest
-    ):
-        return False
-    claimed_at = mutation.get("runner_claimed_at", 0)
-    if (
-        not isinstance(claimed_at, int)
-        or isinstance(claimed_at, bool)
-        or not claimed_at
-    ):
-        return False
-    mutation.update(
-        {
-            "status": "passed" if exit_code == 0 else "failed",
-            "runner_token_digest": "",
-            "runner_claimed_at": 0,
-            "started_at": 0,
-            "last_exit_code": exit_code,
-        }
+    return click_mutation.claim_run(
+        path,
+        raw,
+        request_digest,
+        runner_token,
+        validate_argv=_validate_argv,
+        looks_like_managed_service=_looks_like_managed_service,
+        protocol_version=CAPABILITY_PROTOCOL_VERSION,
     )
-    state["mutation"] = mutation
-    state["updated_at"] = int(time.time())
-    _write_json(path, state)
-    return True
 
 
 def _run_mutation(arguments: list[str]) -> int:
-    if len(arguments) != 4:
-        sys.stderr.write(
-            "usage: click_gate.py run-mutation <state> <digest> <token> <request>\n"
-        )
-        return 2
-    state_path = Path(arguments[0])
-    request_digest, runner_token, encoded = arguments[1:]
-    raw, error = _decode_encoded_request(encoded, "mutation")
-    if error:
-        sys.stderr.write(f"{error}\n")
-        return 2
-    with _state_lock():
-        request, error = _claim_mutation_run(
-            state_path, raw, request_digest, runner_token
-        )
-    if error:
-        sys.stderr.write(f"{error}\n")
-        return 2
-    assert request is not None
-    exit_code = _execute_argv_commands([request["argv"]])
-    with _state_lock():
-        recorded = _record_mutation_result(
-            state_path, request_digest, runner_token, exit_code
-        )
-    if not recorded:
-        sys.stderr.write("Click could not record the mutation result safely.\n")
-        return exit_code or 2
-    return exit_code
+    return click_mutation.run(
+        arguments,
+        validate_argv=_validate_argv,
+        looks_like_managed_service=_looks_like_managed_service,
+        protocol_version=CAPABILITY_PROTOCOL_VERSION,
+        execute_commands=_execute_argv_commands,
+    )
 
 
 def _managed_contract_path(path: Path) -> bool:

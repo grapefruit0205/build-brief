@@ -20,6 +20,13 @@
   `click_browser_advisory.py`; the extracted receipt runtime cannot emit a host
   allow/deny decision. Existing state fields, exact error text, compatibility
   helpers, retry compaction, and legacy running-entry handling are preserved.
+- Approved mutation request validation, revision invalidation, dependency-cache
+  lineage boundaries, one-use runner claims, execution receipts, and PostToolUse
+  workspace binding now live in `click_mutation.py`.
+- The mutation runtime imports only state, evidence, and dependency-cache leaves.
+  Host rendering, shared argv execution, workspace snapshots, and observation
+  activity predicates are injected by the gate, preserving exact command
+  transport, errors, state schema, replay behavior, and compatibility symbols.
 
 ## v0.32.0 — 2026-09-01
 
