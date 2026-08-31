@@ -40,6 +40,31 @@ class ClickGateVerificationTests(ClickGateTestCase):
         assert batch is not None
         self.assertEqual(len(batch["checks"]), 9)
 
+    def test_verification_batch_has_no_arbitrary_character_cap(self) -> None:
+        raw = json.dumps(
+            {
+                "version": 2,
+                "checks": [
+                    {
+                        "argv": [
+                            "git",
+                            "diff",
+                            "--check",
+                            "--",
+                            "x" * 6_500,
+                        ],
+                        "class": "targeted",
+                    }
+                ],
+            }
+        )
+        self.assertGreater(len(raw), 6_000)
+
+        batch, _, error = CLICK_GATE._validate_verification_batch(raw, "focused")
+
+        self.assertEqual(error, "")
+        self.assertIsNotNone(batch)
+
     def test_quick_profile_does_not_control_verification_authority(self) -> None:
         contract = self.contract()
         contract["verification"]["scale"] = "quick"
