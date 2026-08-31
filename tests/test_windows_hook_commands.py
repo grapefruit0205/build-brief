@@ -104,10 +104,12 @@ class WindowsHookCommandTests(unittest.TestCase):
                 self.assertNotIn("powershell", commands[event_name].lower())
                 self.assertNotIn("py -3", commands[event_name].lower())
                 command = hooks[event_name][0]["hooks"][0]["command"]
-                self.assertIn("click_hook.py", command)
+                self.assertIn("click_gate.py", command)
 
-        matcher = hooks["PreToolUse"][0]["matcher"]
-        compiled = re.compile(matcher)
+        matchers = [
+            re.compile(entry["matcher"])
+            for entry in hooks["PreToolUse"]
+        ]
         for name in DESKTOP_EXEC_NAMES | {
             "apply_patch",
             "functions.apply_patch",
@@ -116,7 +118,12 @@ class WindowsHookCommandTests(unittest.TestCase):
             "mcp__node_repl__js",
         }:
             with self.subTest(matcher=name):
-                self.assertIsNotNone(compiled.fullmatch(name))
+                self.assertTrue(
+                    any(compiled.fullmatch(name) for compiled in matchers),
+                    name,
+                )
+        desktop_handler = hooks["PreToolUse"][1]["hooks"][0]
+        self.assertIn("click_hook.py", desktop_handler["command"])
 
     @unittest.skipUnless(os.name == "nt", "Windows cmd integration test")
     def test_hooks_execute_via_cmd_and_exec_aliases_rewrite(self) -> None:
