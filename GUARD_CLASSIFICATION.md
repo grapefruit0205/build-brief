@@ -38,11 +38,11 @@ not claim that every hard gate has already been moved to its target layer.
 | Current strategic guard | Current owner | Target behavior |
 | --- | --- | --- |
 | Advising on a repeated successful read or search and on repeated incomplete/failing reads | observation preparation in `hooks/click_gate.py` | Advisory only — fresh separately authorized repeats use a new one-use runner; an active same-digest reservation remains a Core interlock |
-| Advising after broad repository inventory | broad-exploration classifiers, observation preparation and host adapters | Advisory only — cross-digest running/success hard denial removed in the v0.25 candidate; active same-digest reservations and execution interlocks remain separate |
-| Advising on `update_plan` or equivalent host plan tools | plan-tool branch in `hooks/click_gate.py`; host matchers and adapters | Advisory only — hard denial removed in the v0.25 candidate |
+| Advising after broad repository inventory | broad-exploration classifiers, observation preparation and host adapters | Advisory only — cross-digest running/success hard denial removed in v0.30.0; active same-digest reservations and execution interlocks remain separate |
+| Advising on `update_plan` or equivalent host plan tools | plan-tool branch in `hooks/click_gate.py`; host matchers and adapters | Advisory only — hard denial removed in v0.30.0 |
 | Choosing the proposed evidence source and qualitative verification profile before approval, concrete argv during execution, and the cheapest proof strategy | Skill, eval and documentation policy | Model strategy or an explicit user constraint; Click records the choice but does not interpret it as runtime authority |
 | Legacy verification class-unit values | `hooks/click_verification_policy.py` and `hooks/click_verification_meter.py` | Compatibility data only — they do not produce runtime advice, prove cost or sufficiency, or participate in receipt authority |
-| Requiring a mutation after a fixed number of otherwise legitimate failed retries | argv verification and Browser retry handling | Advisory only in the v0.25 candidate; fresh authorization remains distinct from replay of an active or consumed runner |
+| Requiring a mutation after a fixed number of otherwise legitimate failed retries | argv verification and Browser retry handling | Advisory only in v0.30.0; fresh authorization remains distinct from replay of an active or consumed runner |
 | Browser repeat/retry guidance, preferred timing thresholds and interaction-history depth | `hooks/click_browser_advisory.py`; bounded history compaction in Browser preparation | Advisory only — normalized repeats and long timed interactions remain receipt-bound and allowed; old per-input guidance is compacted instead of blocking a new call |
 | Contract compactness, planning prose and workflow-shape preferences beyond parser or transport safety | `hooks/click_contract.py` schema policy | Keep only identity-bearing protocol fields in Core |
 | Main Skill authoring compactness | reference split, plugin validation and review | Heuristic documentation quality — no word-count permission gate; required links and protocol structure remain testable without optimizing prose to an arbitrary number |
@@ -96,6 +96,13 @@ implementation safeguard, become an explicitly configured user policy, or stop
 hard-blocking. They must not be promoted as product identity merely because the
 current implementation enforces them.
 
+For v0.30.0, contract prose length, verification check count, and the former
+6,000-character raw capability threshold stop hard-blocking. Inspection retains
+an eight-command cap because one request is one atomic read-runner claim with
+bounded output exposure. Decoded transport, actual Windows command-line, argv,
+output and retained-state bounds remain implementation safeguards to review
+against the same rule rather than workflow-quality judgments.
+
 These gaps must remain explicit. Marketing and documentation must not claim a
 stronger guarantee than the runtime can observe.
 
@@ -103,14 +110,14 @@ stronger guarantee than the runtime can observe.
 
 1. **Complete:** Treat the v0.24.6 state-root recovery, distribution, tests and release as complete.
 2. **Complete:** Establish this classification without changing behavior.
-3. **Complete in the v0.25 candidate:** Convert plan-tool hard denial to advisory output.
-4. **Complete in the v0.25 candidate:** Convert broad-inventory counting to advisory output while retaining active exact-digest reservations and Core execution interlocks.
-5. **Complete in the v0.25 candidate:** Convert fresh duplicate-read and fixed legitimate argv-retry denials to advisory output while retaining active-runner and verification-time mutation denials.
-6. **Complete in the v0.25 candidate:** Separate model-selected verification strategy, qualitative profile metadata, legacy unit compatibility, and exact receipt binding; remove plugin-authored cumulative ceilings and numeric overage advice from runtime authority.
-7. **Complete in the v0.25 candidate:** Separate Browser source, serial-call,
+3. **Complete in v0.30.0:** Convert plan-tool hard denial to advisory output.
+4. **Complete in v0.30.0:** Convert broad-inventory counting to advisory output while retaining active exact-digest reservations and Core execution interlocks.
+5. **Complete in v0.30.0:** Convert fresh duplicate-read and fixed legitimate argv-retry denials to advisory output while retaining active-runner and verification-time mutation denials.
+6. **Complete in v0.30.0:** Separate model-selected verification strategy, qualitative profile metadata, legacy unit compatibility, and exact receipt binding; remove plugin-authored cumulative ceilings and numeric overage advice from runtime authority.
+7. **Complete in v0.30.0:** Separate Browser source, serial-call,
    result, revision and replay integrity from non-blocking repeat, retry and
    timing guidance.
-8. **Complete in the v0.25 candidate:** Update Skill, evals, manifest, README and
+8. **Complete in v0.30.0:** Update Skill, evals, manifest, README and
    host distributions together with the behavior they describe.
 
 Each migration is a separate behavior-preserving-for-Core change. It must retain

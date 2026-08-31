@@ -238,16 +238,16 @@ Antigravity IDE에서는 `dist/antigravity`를 워크스페이스의 `.agents/pl
 
 Antigravity의 Hook contract는 Codex와 다릅니다. native file/search와 별도 MCP·Skill 도구는 계속 사용할 수 있지만 cross-tool 중복 제거와 Browser evidence는 아직 지원하지 않습니다. 정확한 제한은 [`platforms/antigravity/README.md`](platforms/antigravity/README.md)를 확인하세요.
 
-## 기존 설치 업데이트 — v0.24.6
+## 기존 설치 업데이트 — v0.30.0
 
-현재 릴리스는 **v0.24.6**입니다.
+현재 릴리스는 **v0.30.0**입니다.
 
 ```bash
 codex plugin marketplace upgrade click
 codex plugin add click@click
 ```
 
-ChatGPT 데스크톱 앱을 다시 시작하고 갱신된 Hook을 검토해 신뢰하세요. Windows에서 v0.24.6은 Python launcher fallback을 추가하고, 호스트가 해당 Hook 이벤트를 전달하는 경우 Desktop의 `exec_command` 계열 실행을 Click 경로로 정규화합니다. 이전 설치가 만든 실행 대기 중 runner 명령은 재사용하지 말고 새 Hook이 다시 발급하게 합니다.
+ChatGPT 데스크톱 앱을 다시 시작하고 갱신된 Hook을 검토해 신뢰하세요. v0.30.0은 runtime 권한을 승인, one-use 실행, evidence 무결성에 집중합니다. 전략 카운터와 숫자형 검증 profile은 더 이상 작업을 차단하지 않으며, 계약 prose 길이와 verification check 개수도 권한 gate가 아닙니다. inspection 요청당 8개 제한은 실행기의 운영 경계로 유지됩니다. 이전 설치의 대기 중 runner를 재사용하지 말고 업그레이드 후 새 계약을 시작하세요.
 
 자세한 릴리스 이력은 [RELEASE_NOTES.md](RELEASE_NOTES.md)에 있습니다.
 

@@ -276,7 +276,7 @@ class RepositoryPolicyTests(unittest.TestCase):
         self.assertIn("workflow_dispatch:", workflow)
         self.assertTrue((ROOT / "scripts" / "validate_distribution.py").is_file())
 
-    def test_release_documents_identify_v0245_and_preserve_release_history(self) -> None:
+    def test_release_documents_identify_current_and_preserve_release_history(self) -> None:
         for readme_name in README_NAMES:
             with self.subTest(readme=readme_name):
                 readme = (ROOT / readme_name).read_text(encoding="utf-8")
@@ -288,7 +288,7 @@ class RepositoryPolicyTests(unittest.TestCase):
                 self.assertIn("v0.23.0", readme)
                 self.assertIn("v0.21.0", readme)
         notes = (ROOT / "RELEASE_NOTES.md").read_text(encoding="utf-8")
-        self.assertIn("## Unreleased v0.25 candidate", notes)
+        self.assertIn("## v0.30.0", notes)
         self.assertIn("## v0.24.5", notes)
         self.assertIn("## v0.24.4", notes)
         self.assertIn("## v0.24.3", notes)
@@ -420,7 +420,7 @@ class RepositoryPolicyTests(unittest.TestCase):
         self.assertIn("do not produce runtime advice", classification)
         self.assertIn("## Operational limits requiring disposition", classification)
         self.assertIn("## Migration order", classification)
-        self.assertIn("Complete in the v0.25 candidate", classification)
+        self.assertIn("Complete in v0.30.0", classification)
         self.assertIn("fresh, separately authorized retries", classification)
         self.assertIn("verification-time mutation", classification)
         self.assertIn("hooks/click_verification_policy.py", classification)
