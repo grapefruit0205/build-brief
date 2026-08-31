@@ -7,7 +7,7 @@
           {
             "type": "command",
             "command": "python3 \"${PLUGIN_ROOT}/hooks/click_gate.py\" prompt-submit",
-            "commandWindows": "py -3 \"${PLUGIN_ROOT}\\hooks\\click_gate.py\" prompt-submit",
+            "commandWindows": "powershell.exe -NoProfile -NonInteractive -Command \"& '${PLUGIN_ROOT}\\hooks\\click_windows.cmd' prompt-submit\"",
             "timeout": 7,
             "additionalContextLimit": 1400
           }
@@ -21,7 +21,7 @@
           {
             "type": "command",
             "command": "python3 \"${PLUGIN_ROOT}/hooks/click_gate.py\" pre-tool",
-            "commandWindows": "py -3 \"${PLUGIN_ROOT}\\hooks\\click_gate.py\" pre-tool",
+            "commandWindows": "powershell.exe -NoProfile -NonInteractive -Command \"& '${PLUGIN_ROOT}\\hooks\\click_windows.cmd' pre-tool\"",
             "timeout": 7
           }
         ]
@@ -34,7 +34,7 @@
           {
             "type": "command",
             "command": "python3 \"${PLUGIN_ROOT}/hooks/click_gate.py\" post-tool",
-            "commandWindows": "py -3 \"${PLUGIN_ROOT}\\hooks\\click_gate.py\" post-tool",
+            "commandWindows": "powershell.exe -NoProfile -NonInteractive -Command \"& '${PLUGIN_ROOT}\\hooks\\click_windows.cmd' post-tool\"",
             "timeout": 7
           }
         ]
@@ -46,7 +46,7 @@
           {
             "type": "command",
             "command": "python3 \"${PLUGIN_ROOT}/hooks/click_gate.py\" session-end",
-            "commandWindows": "py -3 \"${PLUGIN_ROOT}\\hooks\\click_gate.py\" session-end",
+            "commandWindows": "powershell.exe -NoProfile -NonInteractive -Command \"& '${PLUGIN_ROOT}\\hooks\\click_windows.cmd' session-end\"",
             "timeout": 3
           }
         ]
