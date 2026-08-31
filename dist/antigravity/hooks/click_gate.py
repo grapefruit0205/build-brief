@@ -35,11 +35,14 @@ if __package__:
     from . import (
         click_browser,
         click_browser_advisory,
+        click_capability,
         click_contract,
         click_dependency_cache,
         click_evidence,
         click_host_coverage,
+        click_inspection,
         click_mutation,
+        click_observation,
         click_process,
         click_service,
         click_verification_meter,
@@ -64,11 +67,14 @@ if __package__:
 else:  # Executed directly from the bundled hooks directory.
     import click_browser
     import click_browser_advisory
+    import click_capability
     import click_contract
     import click_dependency_cache
     import click_evidence
     import click_host_coverage
+    import click_inspection
     import click_mutation
+    import click_observation
     import click_process
     import click_service
     import click_verification_meter
@@ -140,6 +146,69 @@ _fresh_mutation_state = click_mutation.fresh_state
 _mutation_is_running = click_mutation.is_running
 _record_mutation_result = click_mutation.record_result
 
+# Compatibility aliases for shared shell-free capability validation. These
+# leaves are used by inspection, mutation, service, and verification without
+# importing the gate or one another.
+_decode_capability_request = click_capability.decode_request
+_validate_argv = click_capability.validate_argv
+_policy_executable_name = click_capability.policy_executable_name
+_shell_segments = click_capability.shell_segments
+_command_parts = click_capability.command_parts
+_positional_arguments = click_capability.positional_arguments
+_capability_digest = click_capability.digest
+_encoded_request = click_capability.encode_request
+_decode_encoded_request = click_capability.decode_encoded_request
+
+# Compatibility aliases for read-only admission and hardened execution. The
+# stateful reservation and receipt lifecycle lives separately in observation.
+_validate_inspection_request = click_inspection.validate_request
+_git_option_allowed = click_inspection.git_option_allowed
+_is_read_only_git_remote_arguments = click_inspection.is_read_only_git_remote_arguments
+_parse_read_only_git_tokens = click_inspection.parse_read_only_git_tokens
+_git_subcommand = click_inspection.git_subcommand
+_sanitized_git_environment = click_inspection.sanitized_git_environment
+_build_read_only_git_argv = click_inspection.build_read_only_git_argv
+_targets_repository_root = click_inspection.targets_repository_root
+_is_broad_exploration_tokens = click_inspection.is_broad_exploration_tokens
+_is_read_only_sed = click_inspection.is_read_only_sed
+_get_content_paths = click_inspection.get_content_paths
+_structured_ssh_parts = click_inspection.structured_ssh_parts
+_is_path_qualified_executable = click_inspection.is_path_qualified_executable
+_is_local_read_only_tokens = click_inspection.is_local_read_only_tokens
+_is_read_only_tokens = click_inspection.is_read_only_tokens
+_is_read_only_bash = click_inspection.is_read_only_bash
+_direct_command_tokens = click_inspection.direct_command_tokens
+_inspection_request_from_bash = click_inspection.request_from_bash
+_path_is_within = click_inspection.path_is_within
+_valid_git_worktree_marker = click_inspection.valid_git_worktree_marker
+_workspace_boundary = click_inspection.workspace_boundary
+_git_metadata_present = click_inspection.git_metadata_present
+_unsafe_inherited_environment_key = click_inspection.unsafe_inherited_environment_key
+_sanitized_executable_path = click_inspection.sanitized_executable_path
+_resolve_read_only_executable = click_inspection.resolve_read_only_executable
+_sanitized_read_only_environment = click_inspection.sanitized_read_only_environment
+_execution_argv = click_inspection.execution_argv
+_is_git_remote_output_request = click_inspection.is_git_remote_output_request
+_redact_git_remote_url = click_inspection.redact_git_remote_url
+_redact_git_remote_output = click_inspection.redact_git_remote_output
+_execute_argv_commands = click_inspection.execute_argv_commands
+_write_runner_stream = click_inspection.write_runner_stream
+_execute_native_get_content = click_inspection.execute_native_get_content
+_execute_read_only_git = click_inspection.execute_read_only_git
+_execute_inspection_commands = click_inspection.execute_commands
+
+# Compatibility aliases for observation state and result receipts. Cross-domain
+# runner wrappers remain below so existing patch points are resolved at call time.
+_fresh_observation_state = click_observation.fresh_state
+_unclaimed_reservation_is_fresh = click_observation.unclaimed_reservation_is_fresh
+_observation_is_running = click_observation.is_running
+_write_review_state = click_observation.write_review_state
+_read_review_state = click_observation.read_review_state
+_save_review_state = click_observation.save_review_state
+_clear_review_state = click_observation.clear_review_state
+_managed_observation_path = click_observation.managed_path
+_record_observation_result = click_observation.record_result
+
 
 CONTROL_COMMAND = "click-gate"
 CLICK_AUTHORIZATION_PATTERNS = (
@@ -163,10 +232,10 @@ EVIDENCE_ID_PATTERN = click_contract.EVIDENCE_ID_PATTERN
 CONTRACT_ID_PATTERN = re.compile(r"^ctr_[0-9a-f]{32}$")
 VERIFICATION_SCALES = click_verification_policy.VERIFICATION_SCALES
 VERIFICATION_UNIT_LIMITS = click_verification_policy.VERIFICATION_UNIT_LIMITS
-CAPABILITY_PROTOCOL_VERSION = 1
+CAPABILITY_PROTOCOL_VERSION = click_capability.PROTOCOL_VERSION
 VERIFICATION_PROTOCOL_VERSION = 2
 CONTRACT_STATE_SCHEMA_VERSION = 2
-INSPECTION_REQUEST_FIELDS = {"version", "commands"}
+INSPECTION_REQUEST_FIELDS = click_inspection.REQUEST_FIELDS
 MUTATION_REQUEST_FIELDS = click_mutation.REQUEST_FIELDS
 SERVICE_REQUEST_FIELDS = click_service.SERVICE_REQUEST_FIELDS
 VERIFICATION_BATCH_FIELDS = {"version", "checks"}
@@ -199,10 +268,10 @@ DEEP_VERIFICATION_MARKERS = {
     "load_test",
     "security",
 }
-MAX_INSPECTION_COMMANDS = 8
-MAX_ARGV_ITEMS = 128
-MAX_OBSERVATION_OUTPUT_BYTES = 48_000
-MAX_OBSERVATION_ENTRIES = 64
+MAX_INSPECTION_COMMANDS = click_inspection.MAX_COMMANDS
+MAX_ARGV_ITEMS = click_capability.MAX_ARGV_ITEMS
+MAX_OBSERVATION_OUTPUT_BYTES = click_observation.MAX_OUTPUT_BYTES
+MAX_OBSERVATION_ENTRIES = click_observation.MAX_ENTRIES
 MAX_BROWSER_UNIQUE_INPUTS = click_browser.MAX_UNIQUE_INPUTS
 # Compatibility names for callers that previously treated these advisory
 # thresholds as hard maxima.
@@ -211,41 +280,14 @@ MAX_BROWSER_TOOL_TIMEOUT_MS = (
 )
 MAX_BROWSER_WAIT_MS = click_browser_advisory.RECOMMENDED_BROWSER_WAIT_MS
 BROWSER_RUNNING_TTL_SECONDS = click_browser.RUNNING_TTL_SECONDS
-OBSERVATION_RESERVATION_TTL_SECONDS = 30
+OBSERVATION_RESERVATION_TTL_SECONDS = click_observation.RESERVATION_TTL_SECONDS
 MUTATION_RUNNING_TTL_SECONDS = click_mutation.RUNNING_TTL_SECONDS
 VERIFY_RUNNING_TTL_SECONDS = 60 * 60
 EPHEMERAL_STATE_TTL_SECONDS = 7 * 24 * 60 * 60
 COMPLETED_CONTRACT_TTL_SECONDS = 30 * 24 * 60 * 60
 DEFAULT_MODES = {"on", "manual"}
-SHELL_EXECUTABLES = {
-    "bash",
-    "cmd",
-    "cmd.exe",
-    "dash",
-    "fish",
-    "ksh",
-    "powershell",
-    "powershell.exe",
-    "pwsh",
-    "sh",
-    "zsh",
-}
-
-PROCESS_CONTROL_EXECUTABLES = {
-    "kill",
-    "kill.exe",
-    "killall",
-    "pkill",
-    "pskill",
-    "pskill.exe",
-    "skill",
-    "stop-process",
-    "taskkill",
-    "taskkill.exe",
-    "tskill",
-    "tskill.exe",
-    "xkill",
-}
+SHELL_EXECUTABLES = click_capability.SHELL_EXECUTABLES
+PROCESS_CONTROL_EXECUTABLES = click_capability.PROCESS_CONTROL_EXECUTABLES
 
 BROWSER_TOOL_NAMES = click_host_coverage.CODEX_BROWSER_TOOL_NAMES
 BROWSER_WAIT_PATTERNS = click_browser_advisory.BROWSER_WAIT_PATTERNS
@@ -335,154 +377,15 @@ NEW_SOURCE_PATH_SEGMENTS = {
     "migrations",
     "src",
 }
-READ_ONLY_COMMANDS = {
-    "basename",
-    "cat",
-    "cmp",
-    "cut",
-    "diff",
-    "dirname",
-    "du",
-    "file",
-    "find",
-    "grep",
-    "get-content",
-    "head",
-    "ls",
-    "pwd",
-    "readlink",
-    "realpath",
-    "rg",
-    "sed",
-    "sort",
-    "stat",
-    "tail",
-    "test",
-    "tree",
-    "tr",
-    "true",
-    "type",
-    "wc",
-    "where",
-    "which",
-}
-
-READ_ONLY_GIT_SUBCOMMANDS = {
-    "check-ignore",
-    "describe",
-    "diff",
-    "for-each-ref",
-    "log",
-    "ls-files",
-    "ls-tree",
-    "merge-base",
-    "name-rev",
-    "remote",
-    "rev-parse",
-    "show",
-    "status",
-}
-
-GIT_DIFF_RENDERING_SUBCOMMANDS = {"diff", "log", "show"}
-GIT_GLOBAL_ALLOWED_PREFIXES = ("--git-dir=", "--work-tree=")
-GIT_GLOBAL_REJECTED_OPTIONS = {"-p", "--paginate", "-c", "--config-env"}
-GIT_READ_ONLY_EXACT_OPTIONS = {
-    "check-ignore": {
-        "-q", "--quiet", "-v", "--verbose", "--stdin", "-z", "--no-index",
-        "--non-matching",
-    },
-    "describe": {
-        "--always", "--tags", "--all", "--long", "--exact-match", "--contains",
-        "--debug", "--first-parent", "--broken",
-    },
-    "diff": {
-        "--cached", "--staged", "--check", "--quiet", "--exit-code", "--stat",
-        "--shortstat", "--numstat", "--name-only", "--name-status", "--summary",
-        "--binary", "--patch", "--no-patch", "--raw", "--minimal", "--patience",
-        "--histogram", "--no-color", "--relative", "--ignore-space-at-eol",
-        "--ignore-all-space", "--ignore-space-change", "--ignore-blank-lines", "-w",
-        "-b", "--no-ext-diff", "--no-textconv",
-    },
-    "for-each-ref": {"--ignore-case", "--omit-empty"},
-    "log": {
-        "--oneline", "--no-decorate", "--decorate", "--stat", "--shortstat",
-        "--numstat", "--name-only", "--name-status", "--summary", "--no-merges",
-        "--merges", "--first-parent", "--all", "--branches", "--tags", "--remotes",
-        "--reflog", "--reverse", "--topo-order", "--date-order", "--author-date-order",
-        "--parents", "--children", "--boundary", "--simplify-by-decoration",
-        "--full-history", "--simplify-merges", "--ancestry-path", "--follow",
-        "--no-patch", "--patch", "--abbrev-commit", "--no-color", "--no-ext-diff",
-        "--no-textconv",
-    },
-    "ls-files": {
-        "--cached", "--deleted", "--modified", "--others", "--ignored", "--stage",
-        "--unmerged", "--killed", "--directory", "--no-empty-directory", "--eol",
-        "--deduplicate", "--sparse", "--debug", "--exclude-standard", "--error-unmatch",
-        "-c", "-d", "-m", "-o", "-i", "-s", "-u", "-k", "-t", "-v", "-f", "-z",
-    },
-    "ls-tree": {
-        "-d", "-r", "-t", "-l", "--long", "-z", "--name-only", "--name-status",
-        "--object-only", "--full-name", "--full-tree",
-    },
-    "merge-base": {"--all", "--octopus", "--independent", "--is-ancestor", "--fork-point"},
-    "name-rev": {"--tags", "--all", "--stdin", "--name-only", "--no-undefined", "--always"},
-    "remote": {"--all", "--push"},
-    "rev-parse": {
-        "--verify", "--short", "--abbrev-ref", "--symbolic-full-name", "--show-toplevel",
-        "--show-prefix", "--show-cdup", "--git-dir", "--is-inside-work-tree",
-        "--is-bare-repository", "--show-object-format", "--sq", "--revs-only",
-        "--no-revs", "--flags", "--no-flags", "--quiet", "-q",
-    },
-    "show": {
-        "--stat", "--shortstat", "--numstat", "--name-only", "--name-status", "--summary",
-        "--binary", "--patch", "--no-patch", "--raw", "--minimal", "--patience",
-        "--histogram", "--no-color", "--relative", "--ignore-space-at-eol",
-        "--ignore-all-space", "--ignore-space-change", "--ignore-blank-lines", "-w", "-b",
-        "--no-ext-diff", "--no-textconv", "--oneline", "--abbrev-commit",
-    },
-    "status": {
-        "--short", "--porcelain", "--branch", "--show-stash", "--long",
-        "--ignored", "--no-renames", "-s", "-b", "-sb",
-    },
-}
-GIT_READ_ONLY_OPTION_PREFIXES = {
-    "check-ignore": ("--exclude-standard",),
-    "describe": ("--abbrev=", "--candidates=", "--match=", "--exclude="),
-    "diff": (
-        "--stat=", "--relative=", "--unified=", "--word-diff=", "--word-diff-regex=",
-        "--src-prefix=", "--dst-prefix=", "--line-prefix=", "--ignore-submodules=",
-        "--submodule=", "--diff-filter=",
-    ),
-    "for-each-ref": (
-        "--sort=", "--count=", "--points-at=", "--merged=", "--no-merged=",
-        "--contains=", "--no-contains=",
-    ),
-    "log": (
-        "--date=", "--since=", "--after=", "--until=",
-        "--before=", "--author=", "--committer=", "--grep=", "--max-count=", "--skip=",
-        "--abbrev=", "--decorate=", "--stat=", "--relative=", "--unified=",
-        "--word-diff=", "--word-diff-regex=", "--src-prefix=", "--dst-prefix=",
-        "--line-prefix=", "--ignore-submodules=", "--submodule=", "--diff-filter=",
-    ),
-    "ls-files": (
-        "--exclude=", "--exclude-from=", "--exclude-per-directory=",
-        "--with-tree=", "--abbrev=",
-    ),
-    "ls-tree": ("--abbrev=",),
-    "name-rev": ("--refs=", "--exclude="),
-    "rev-parse": ("--short=", "--abbrev-ref=", "--path-format=", "--disambiguate="),
-    "show": (
-        "--date=", "--stat=", "--relative=", "--unified=",
-        "--word-diff=", "--word-diff-regex=", "--src-prefix=", "--dst-prefix=",
-        "--line-prefix=", "--ignore-submodules=", "--submodule=", "--diff-filter=",
-    ),
-    "status": ("--porcelain=", "--ignored=", "--find-renames="),
-}
-
-SHELL_CONTROL_PUNCTUATION = set("();<>|&")
-SED_READ_SCRIPT = re.compile(
-    r"^\s*(?:\d+|\$)(?:\s*,\s*(?:\d+|\$))?\s*[pq]\s*$"
-)
+READ_ONLY_COMMANDS = click_inspection.READ_ONLY_COMMANDS
+READ_ONLY_GIT_SUBCOMMANDS = click_inspection.READ_ONLY_GIT_SUBCOMMANDS
+GIT_DIFF_RENDERING_SUBCOMMANDS = click_inspection.GIT_DIFF_RENDERING_SUBCOMMANDS
+GIT_GLOBAL_ALLOWED_PREFIXES = click_inspection.GIT_GLOBAL_ALLOWED_PREFIXES
+GIT_GLOBAL_REJECTED_OPTIONS = click_inspection.GIT_GLOBAL_REJECTED_OPTIONS
+GIT_READ_ONLY_EXACT_OPTIONS = click_inspection.GIT_READ_ONLY_EXACT_OPTIONS
+GIT_READ_ONLY_OPTION_PREFIXES = click_inspection.GIT_READ_ONLY_OPTION_PREFIXES
+SHELL_CONTROL_PUNCTUATION = click_capability.SHELL_CONTROL_PUNCTUATION
+SED_READ_SCRIPT = click_inspection.SED_READ_SCRIPT
 
 
 _OUTPUT_ADAPTER: HookOutputAdapter = CodexOutputAdapter()
@@ -495,24 +398,11 @@ def _set_output_adapter(adapter: HookOutputAdapter) -> HookOutputAdapter:
     _OUTPUT_ADAPTER = adapter
     return previous
 
-RG_OPTIONS_WITH_VALUES = {
-    "-g",
-    "--glob",
-    "--iglob",
-    "--ignore-file",
-    "--max-depth",
-    "--path-separator",
-    "--sort",
-    "--sortr",
-    "-t",
-    "--type",
-    "-T",
-    "--type-not",
-}
-ENVIRONMENT_ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
-SSH_TARGET = re.compile(r"^[A-Za-z0-9_.-]+(?:@[A-Za-z0-9_.-]+)?$")
-SSH_READ_ONLY_GIT_SUBCOMMANDS = {"merge-base", "remote", "rev-parse", "status"}
-GIT_REMOTE_NAME = re.compile(r"^[A-Za-z0-9_.-]+$")
+RG_OPTIONS_WITH_VALUES = click_inspection.RG_OPTIONS_WITH_VALUES
+ENVIRONMENT_ASSIGNMENT = click_capability.ENVIRONMENT_ASSIGNMENT
+SSH_TARGET = click_inspection.SSH_TARGET
+SSH_READ_ONLY_GIT_SUBCOMMANDS = click_inspection.SSH_READ_ONLY_GIT_SUBCOMMANDS
+GIT_REMOTE_NAME = click_inspection.GIT_REMOTE_NAME
 
 
 def _emit(payload: dict[str, Any]) -> None:
@@ -642,65 +532,6 @@ def _evidence_sources(state: dict[str, Any]) -> dict[str, Any] | None:
     )
 
 
-def _fresh_observation_state() -> dict[str, Any]:
-    return {"entries": {}}
-
-
-
-def _unclaimed_reservation_is_fresh(value: Any, ttl_seconds: int) -> bool:
-    if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
-        return False
-    age = time.time() - value
-    return 0 <= age <= ttl_seconds
-
-
-def _observation_is_running(entry: Any) -> bool:
-    if not isinstance(entry, dict) or entry.get("status") != "running":
-        return False
-    claimed_at = entry.get("runner_claimed_at", 0)
-    if not isinstance(claimed_at, int) or isinstance(claimed_at, bool):
-        return True
-    if claimed_at > 0:
-        return True
-    started_at = entry.get("started_at", 0)
-    if not isinstance(started_at, int) or isinstance(started_at, bool):
-        return True
-    if started_at <= 0 or time.time() < started_at:
-        return True
-    return _unclaimed_reservation_is_fresh(
-        started_at, OBSERVATION_RESERVATION_TTL_SECONDS
-    )
-
-
-def _write_review_state(event: dict[str, Any]) -> None:
-    _write_json(
-        _review_path(event),
-        {
-            "status": "review",
-            "observations": _fresh_observation_state(),
-            "updated_at": int(time.time()),
-        },
-    )
-
-
-def _read_review_state(event: dict[str, Any]) -> dict[str, Any]:
-    try:
-        value = json.loads(_review_path(event).read_text(encoding="utf-8"))
-    except (FileNotFoundError, json.JSONDecodeError, OSError):
-        return {"status": "none"}
-    return value if isinstance(value, dict) else {"status": "none"}
-
-
-def _save_review_state(event: dict[str, Any], state: dict[str, Any]) -> None:
-    state["updated_at"] = int(time.time())
-    _write_json(_review_path(event), state)
-
-
-def _clear_review_state(event: dict[str, Any]) -> None:
-    try:
-        _review_path(event).unlink()
-    except OSError:
-        pass
 
 
 def _write_contract_state(
@@ -924,104 +755,6 @@ def _prune_state() -> None:
             continue
 
 
-def _decode_capability_request(
-    raw: str,
-    label: str,
-    *,
-    version: int = CAPABILITY_PROTOCOL_VERSION,
-) -> tuple[dict[str, Any] | None, str]:
-    try:
-        value = json.loads(raw)
-    except json.JSONDecodeError:
-        return None, f"{label} request must be valid JSON."
-    if not isinstance(value, dict):
-        return None, f"{label} request must be a JSON object."
-    if value.get("version") != version:
-        return (
-            None,
-            f"{label} request `version` must be {version}.",
-        )
-    return value, ""
-
-
-def _validate_argv(value: Any, label: str) -> tuple[list[str] | None, str]:
-    if not isinstance(value, list) or not value:
-        return None, f"{label} `argv` must be a non-empty string list."
-    if len(value) > MAX_ARGV_ITEMS:
-        return None, f"{label} `argv` may contain at most {MAX_ARGV_ITEMS} items."
-    if any(
-        not isinstance(item, str) or not item or "\x00" in item for item in value
-    ):
-        return None, f"Every {label} `argv` item must be a non-empty NUL-free string."
-    argv = list(value)
-    if ENVIRONMENT_ASSIGNMENT.match(argv[0]):
-        return (
-            None,
-            f"{label} cannot use a NAME=value environment prefix. Pass direct argv; "
-            "a future protocol may add an explicit environment field.",
-        )
-    executable = _policy_executable_name(argv[0])
-    if executable in SHELL_EXECUTABLES:
-        return (
-            None,
-            f"{label} cannot invoke a shell interpreter. Pass the executable and each "
-            "argument directly instead of using `-c` or `-Command`.",
-        )
-    if executable in PROCESS_CONTROL_EXECUTABLES:
-        return (
-            None,
-            f"{label} cannot invoke the process-control executable `{executable}`. "
-            "Use a target-specific lifecycle command that cannot terminate Codex or "
-            "unrelated processes.",
-        )
-    return argv, ""
-
-
-def _policy_executable_name(value: str) -> str:
-    """Normalize Win32 executable aliases before policy comparisons."""
-    executable = value.replace("\\", "/").rsplit("/", 1)[-1].lower()
-    executable = executable.rstrip(" .")
-    if executable.endswith(".exe"):
-        executable = executable[:-4].rstrip(" .")
-    return executable
-
-
-def _validate_inspection_request(
-    raw: str,
-) -> tuple[dict[str, Any] | None, bool, str]:
-    value, error = _decode_capability_request(raw, "Inspection")
-    if error:
-        return None, False, error
-    assert value is not None
-    unknown = sorted(set(value) - INSPECTION_REQUEST_FIELDS)
-    if unknown:
-        rendered = ", ".join(f"`{field}`" for field in unknown)
-        return None, False, f"Inspection request contains unsupported field(s): {rendered}."
-    commands = value.get("commands")
-    if not isinstance(commands, list) or not commands:
-        return None, False, "Inspection `commands` must be a non-empty argv-list list."
-    if len(commands) > MAX_INSPECTION_COMMANDS:
-        return (
-            None,
-            False,
-            f"Inspection may contain at most {MAX_INSPECTION_COMMANDS} commands.",
-        )
-    normalized: list[list[str]] = []
-    broad = False
-    for index, raw_argv in enumerate(commands, start=1):
-        argv, argv_error = _validate_argv(raw_argv, f"Inspection command {index}")
-        if argv_error:
-            return None, False, argv_error
-        assert argv is not None
-        if not _is_read_only_tokens(list(argv)):
-            return (
-                None,
-                False,
-                f"Inspection command {index} is not a supported read-only argv operation.",
-            )
-        broad = broad or _is_broad_exploration_tokens(argv)
-        normalized.append(argv)
-    return {"version": CAPABILITY_PROTOCOL_VERSION, "commands": normalized}, broad, ""
 
 
 def _validate_mutation_request(raw: str) -> tuple[dict[str, Any] | None, str]:
@@ -1714,185 +1447,6 @@ def _control_request(command: str) -> tuple[str | None, str, str]:
     )
 
 
-def _git_option_allowed(subcommand: str, token: str) -> bool:
-    if token in GIT_READ_ONLY_EXACT_OPTIONS.get(subcommand, set()):
-        return True
-    if any(
-        token.startswith(prefix)
-        for prefix in GIT_READ_ONLY_OPTION_PREFIXES.get(subcommand, ())
-    ):
-        return True
-    if subcommand in GIT_DIFF_RENDERING_SUBCOMMANDS and re.fullmatch(r"-U\d+", token):
-        return True
-    if subcommand == "log" and re.fullmatch(r"-\d+", token):
-        return True
-    return False
-
-
-def _is_read_only_git_remote_arguments(arguments: list[str]) -> bool:
-    if not arguments or arguments[0] != "get-url":
-        return False
-    remote_names = [
-        argument
-        for argument in arguments[1:]
-        if argument not in {"--", "--all", "--push"}
-    ]
-    return (
-        len(remote_names) == 1
-        and GIT_REMOTE_NAME.fullmatch(remote_names[0]) is not None
-    )
-
-
-def _parse_read_only_git_tokens(
-    tokens: list[str],
-) -> tuple[list[str], str, list[str]] | None:
-    if not tokens or Path(tokens[0]).name.lower() not in {"git", "git.exe"}:
-        return None
-    global_arguments: list[str] = []
-    index = 1
-    while index < len(tokens):
-        token = tokens[index]
-        if token == "-C":
-            if index + 1 >= len(tokens):
-                return None
-            global_arguments.extend([token, tokens[index + 1]])
-            index += 2
-            continue
-        if token.startswith(GIT_GLOBAL_ALLOWED_PREFIXES):
-            global_arguments.append(token)
-            index += 1
-            continue
-        if token in {"--no-pager", "--no-optional-locks"}:
-            index += 1
-            continue
-        if (
-            token in GIT_GLOBAL_REJECTED_OPTIONS
-            or token.startswith("--config-env=")
-            or (token.startswith("-c") and token != "-C")
-        ):
-            return None
-        if token.startswith("-"):
-            return None
-        subcommand = token
-        break
-    else:
-        return None
-
-    if subcommand not in READ_ONLY_GIT_SUBCOMMANDS:
-        return None
-    arguments = tokens[index + 1 :]
-    options_finished = False
-    for argument in arguments:
-        if options_finished:
-            continue
-        if argument == "--":
-            options_finished = True
-            continue
-        if argument.startswith("-") and not _git_option_allowed(subcommand, argument):
-            return None
-    if subcommand == "remote" and not _is_read_only_git_remote_arguments(arguments):
-        return None
-    return global_arguments, subcommand, arguments
-
-
-def _git_subcommand(tokens: list[str]) -> str:
-    parsed = _parse_read_only_git_tokens(tokens)
-    return parsed[1] if parsed is not None else ""
-
-
-def _sanitized_git_environment(
-    source: dict[str, str] | None = None,
-    *,
-    workspace: Path | None = None,
-) -> dict[str, str]:
-    inherited = os.environ if source is None else source
-    environment = {
-        key: value
-        for key, value in inherited.items()
-        if not key.upper().startswith("GIT_")
-        and key.upper() != "PATH"
-        and not _unsafe_inherited_environment_key(key)
-    }
-    environment["PATH"] = _sanitized_executable_path(
-        inherited.get("PATH", ""), workspace=workspace
-    )
-    environment["GIT_OPTIONAL_LOCKS"] = "0"
-    environment["GIT_CONFIG_NOSYSTEM"] = "1"
-    environment["GIT_CONFIG_GLOBAL"] = os.devnull
-    return environment
-
-
-def _build_read_only_git_argv(tokens: list[str]) -> tuple[list[str] | None, str]:
-    parsed = _parse_read_only_git_tokens(tokens)
-    if parsed is None:
-        return None, "Git argv is outside Click's supported read-only option policy."
-    global_arguments, subcommand, arguments = parsed
-    forced = ["--no-ext-diff", "--no-textconv"] if subcommand in GIT_DIFF_RENDERING_SUBCOMMANDS else []
-    safe_config = [
-        "-c",
-        "core.fsmonitor=false",
-        "-c",
-        "diff.external=",
-        "-c",
-        "log.showSignature=false",
-        "-c",
-        "format.pretty=medium",
-    ]
-    return [
-        "git",
-        "--no-pager",
-        "--no-optional-locks",
-        *safe_config,
-        *global_arguments,
-        subcommand,
-        *forced,
-        *arguments,
-    ], ""
-
-
-def _shell_segments(command: str) -> list[list[str]] | None:
-    if "\n" in command or "\r" in command or "`" in command:
-        return None
-    try:
-        lexer = shlex.shlex(
-            command,
-            posix=True,
-            punctuation_chars="".join(sorted(SHELL_CONTROL_PUNCTUATION)),
-        )
-        lexer.whitespace_split = True
-        lexer.commenters = ""
-        tokens = list(lexer)
-    except ValueError:
-        return None
-
-    segments: list[list[str]] = [[]]
-    for token in tokens:
-        if token in {"&&", "|"}:
-            if not segments[-1]:
-                return None
-            segments.append([])
-            continue
-        if token and set(token).issubset(SHELL_CONTROL_PUNCTUATION):
-            return None
-        segments[-1].append(token)
-    if not segments[-1]:
-        return None
-    return segments
-
-
-def _command_parts(tokens: list[str]) -> tuple[str, list[str]]:
-    remaining = list(tokens)
-    while remaining and "=" in remaining[0] and not remaining[0].startswith(("=", "-")):
-        name, _, _ = remaining[0].partition("=")
-        if not name.replace("_", "a").isalnum():
-            break
-        remaining.pop(0)
-    if not remaining:
-        return "", []
-    executable = Path(remaining[0]).name.lower()
-    if executable.endswith(".exe"):
-        executable = executable[:-4]
-    return executable, [item.lower() for item in remaining[1:]]
 
 
 def _contains_deep_verification_marker(values: list[str]) -> bool:
@@ -2131,81 +1685,6 @@ def _is_recognized_verification_command(command: str) -> bool:
     return _is_recognized_verification_tokens(fallback)
 
 
-def _positional_arguments(
-    arguments: list[str], options_with_values: set[str] | None = None
-) -> list[str]:
-    value_options = options_with_values or set()
-    positions: list[str] = []
-    skip_value = False
-    options_finished = False
-    for argument in arguments:
-        lowered = argument.lower()
-        if skip_value:
-            skip_value = False
-            continue
-        if not options_finished and lowered == "--":
-            options_finished = True
-            continue
-        if not options_finished and lowered in value_options:
-            skip_value = True
-            continue
-        if not options_finished and any(
-            lowered.startswith(f"{option}=") for option in value_options
-        ):
-            continue
-        if not options_finished and lowered.startswith("-"):
-            continue
-        positions.append(lowered)
-    return positions
-
-
-def _targets_repository_root(targets: list[str]) -> bool:
-    if not targets:
-        return True
-    return any(target.rstrip("/\\") in {"", ".", ".."} for target in targets)
-
-
-def _is_broad_exploration_tokens(tokens: list[str]) -> bool:
-    executable, arguments = _command_parts(tokens)
-    if executable == "rg" and "--files" in arguments:
-        targets = _positional_arguments(arguments, RG_OPTIONS_WITH_VALUES)
-        return _targets_repository_root(targets)
-    if executable == "find":
-        targets = _positional_arguments(arguments)
-        return _targets_repository_root(targets[:1])
-    if executable == "tree":
-        targets = _positional_arguments(arguments)
-        return _targets_repository_root(targets)
-    if executable == "ls":
-        recursive = any(
-            argument in {"-r", "--recursive"}
-            for argument in arguments
-        )
-        if not recursive:
-            return False
-        targets = _positional_arguments(arguments)
-        return _targets_repository_root(targets)
-    if executable == "git":
-        subcommand = _git_subcommand(tokens)
-        if subcommand == "ls-files":
-            index = tokens.index(subcommand)
-            targets = _positional_arguments(
-                [item.lower() for item in tokens[index + 1 :]]
-            )
-            return _targets_repository_root(targets)
-        if subcommand == "ls-tree":
-            index = tokens.index(subcommand)
-            remainder = [item.lower() for item in tokens[index + 1 :]]
-            if "--" not in remainder:
-                return True
-            targets = remainder[remainder.index("--") + 1 :]
-            return _targets_repository_root(targets)
-    return False
-
-
-def _capability_digest(request: dict[str, Any]) -> str:
-    canonical = json.dumps(request, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(canonical.encode()).hexdigest()
 
 
 def _windows_shell_quote(argument: str) -> str:
@@ -2313,17 +1792,14 @@ def _stateful_runner_prefix(action: str) -> list[str]:
 def _observation_runner_command(
     state_path: Path, request: dict[str, Any], request_digest: str, runner_token: str
 ) -> str:
-    encoded = base64.urlsafe_b64encode(
-        json.dumps(request, ensure_ascii=False, separators=(",", ":")).encode()
-    ).decode()
-    arguments = [
-        *_stateful_runner_prefix("run-observation"),
-        str(state_path.resolve()),
+    return click_observation.runner_command(
+        state_path,
+        request,
         request_digest,
         runner_token,
-        encoded,
-    ]
-    return _runner_shell_command(arguments)
+        runner_script=Path(__file__).resolve(),
+        render_command=_runner_shell_command,
+    )
 
 
 def _prepare_observation(
@@ -2333,157 +1809,24 @@ def _prepare_observation(
     *,
     review: bool = False,
 ) -> tuple[str, str, str]:
-    state_path = _review_path(event) if review else _contract_path(event)
-    if review:
-        state = _read_review_state(event)
-        if state.get("status") != "review":
-            return (
-                "",
-                "Click review state is unavailable; activate review mode again.",
-                "",
-            )
-        revision = 0
-    else:
-        state = _read_contract_state(event)
-        if state.get("status") != "approved":
-            return (
-                "",
-                "Click observation state is unavailable; approve the contract again.",
-                "",
-            )
-        mutation = state.get("mutation")
-        if _mutation_is_running(mutation):
-            return (
-                "",
-                "Wait for the structured Click mutation to finish before inspection.",
-                "",
-            )
-        if isinstance(mutation, dict) and mutation.get("status") == "running":
-            state["mutation"] = _fresh_mutation_state()
-        verification = state.get("verification")
-        if not isinstance(verification, dict):
-            return (
-                "",
-                "Click verification state is unavailable; approve the contract again.",
-                "",
-            )
-        if verification.get("status") == "running":
-            return "", "The final Click verification batch is already running.", ""
-        revision = int(verification.get("mutation_revision", 0))
-
-    observations = state.get("observations")
-    if not isinstance(observations, dict):
-        observations = _fresh_observation_state()
-    entries = observations.get("entries")
-    if not isinstance(entries, dict):
-        entries = {}
-
-    digest = _capability_digest(request)
-    advisories: list[str] = []
-    if broad_inventory:
-        prior_broad_success = False
-        prior_broad_running = False
-        for existing_digest, existing in entries.items():
-            if not (
-                existing_digest != digest
-                and isinstance(existing, dict)
-                and existing.get("broad_inventory") is True
-                and int(existing.get("revision", -1)) == revision
-            ):
-                continue
-            existing_status = str(existing.get("status", ""))
-            if existing_status == "success":
-                prior_broad_success = True
-            elif existing_status == "running" and _observation_is_running(existing):
-                prior_broad_running = True
-        if prior_broad_success:
-            advisories.append(
-                "Click advisory: a repository-wide inventory already completed for this "
-                "revision. This additional broad inventory is allowed through the same "
-                "read-only runner, but reuse existing results or narrow the query when "
-                "practical."
-            )
-        elif prior_broad_running:
-            advisories.append(
-                "Click advisory: another repository-wide inventory is already running for "
-                "this revision. This distinct broad inventory is allowed through the same "
-                "read-only runner, but waiting or narrowing avoids redundant work."
-            )
-
-    prior = entries.get(digest)
-    unchanged_retries = 0
-    if isinstance(prior, dict) and int(prior.get("revision", -1)) == revision:
-        status = str(prior.get("status", ""))
-        unchanged_retries = int(prior.get("unchanged_retries", 0))
-        if status == "success":
-            advisories.append(
-                "Click advisory: this identical read or search already succeeded for the "
-                "current revision. A fresh, separately authorized one-use runner is "
-                "allowed, but reuse the existing result or narrow the query when practical."
-            )
-        if status == "running":
-            if _observation_is_running(prior):
-                return (
-                    "",
-                    "An exact observation runner for this request is already active. Wait "
-                    "for it to record a result before issuing a fresh authorization.",
-                    "",
-                )
-            status = "failed"
-        if status in {"failed", "incomplete"}:
-            if unchanged_retries >= 1:
-                advisories.append(
-                    "Click advisory: this identical read or search already failed or "
-                    "produced incomplete output twice for the current revision. A fresh, "
-                    "separately authorized retry is allowed, but repair, narrow, or change "
-                    "the request when practical."
-                )
-            unchanged_retries += 1
-
-    runner_token = secrets.token_urlsafe(24)
-    entries[digest] = {
-        "revision": revision,
-        "status": "running",
-        "attempts": int(prior.get("attempts", 0)) + 1
-        if isinstance(prior, dict)
-        else 1,
-        "unchanged_retries": unchanged_retries,
-        "runner_token_digest": hashlib.sha256(runner_token.encode()).hexdigest(),
-        "runner_claimed_at": 0,
-        "started_at": int(time.time()),
-        "last_exit_code": None,
-        "output_bytes": 0,
-        "broad_inventory": broad_inventory,
-    }
-    while len(entries) > MAX_OBSERVATION_ENTRIES:
-        entries.pop(next(iter(entries)))
-    observations["entries"] = entries
-    state["observations"] = observations
-    if review:
-        _save_review_state(event, state)
-    else:
-        _save_contract_state(event, state)
-    return (
-        _observation_runner_command(state_path, request, digest, runner_token),
-        "",
-        "\n".join(advisories),
+    return click_observation.prepare(
+        event,
+        request,
+        broad_inventory,
+        review=review,
+        mutation_is_running=_mutation_is_running,
+        fresh_mutation_state=_fresh_mutation_state,
+        runner_script=Path(__file__).resolve(),
+        render_command=_runner_shell_command,
     )
 
 
-def _encoded_request(request: dict[str, Any]) -> str:
-    return base64.urlsafe_b64encode(
-        json.dumps(request, ensure_ascii=False, separators=(",", ":")).encode()
-    ).decode()
-
-
 def _inspection_once_runner_command(request: dict[str, Any]) -> str:
-    arguments = [
-        sys.executable,
-        str(Path(__file__).resolve()),
-        "run-inspection-once",
-        _encoded_request(request),
-    ]
-    return _runner_shell_command(arguments)
+    return click_inspection.runner_command(
+        request,
+        runner_script=Path(__file__).resolve(),
+        render_command=_runner_shell_command,
+    )
 
 
 def _mutation_runner_command(
@@ -3090,228 +2433,6 @@ def _prepare_verification(
     )
 
 
-def _is_read_only_sed(tokens: list[str]) -> bool:
-    index = 1
-    quiet = False
-    script = ""
-    while index < len(tokens) and not script:
-        token = tokens[index]
-        if token in {"-n", "--quiet", "--silent"}:
-            quiet = True
-        elif token in {"-e", "--expression"}:
-            index += 1
-            if index >= len(tokens):
-                return False
-            script = tokens[index]
-        elif token.startswith("-e") and len(token) > 2:
-            script = token[2:]
-        elif token.startswith("-"):
-            return False
-        else:
-            script = token
-        index += 1
-
-    if not quiet or not script or not SED_READ_SCRIPT.fullmatch(script):
-        return False
-    if index < len(tokens) and tokens[index] == "--":
-        index += 1
-    return index < len(tokens) and all(not token.startswith("-") for token in tokens[index:])
-
-
-def _get_content_paths(tokens: list[str]) -> list[str] | None:
-    if not tokens or Path(tokens[0]).name.lower() != "get-content":
-        return None
-    paths: list[str] = []
-    index = 1
-    while index < len(tokens):
-        argument = tokens[index]
-        lowered = argument.lower()
-        if lowered == "-raw":
-            index += 1
-            continue
-        if lowered in {"-path", "-literalpath"}:
-            if index + 1 >= len(tokens):
-                return None
-            paths.append(tokens[index + 1])
-            index += 2
-            continue
-        if argument.startswith("-"):
-            return None
-        paths.append(argument)
-        index += 1
-    return paths or None
-
-
-def _structured_ssh_parts(tokens: list[str]) -> tuple[str, list[str]] | None:
-    if len(tokens) < 4 or Path(tokens[0]).name.lower() not in {"ssh", "ssh.exe"}:
-        return None
-    target = tokens[1]
-    remote_argv = tokens[2:]
-    if target.startswith("-") or not SSH_TARGET.fullmatch(target):
-        return None
-    if remote_argv[0] != "git":
-        return None
-    parsed = _parse_read_only_git_tokens(remote_argv)
-    if parsed is None or parsed[1] not in SSH_READ_ONLY_GIT_SUBCOMMANDS:
-        return None
-    if parsed[1] == "rev-parse":
-        positional = [
-            argument
-            for argument in parsed[2]
-            if argument != "--" and not argument.startswith("-")
-        ]
-        if positional != ["HEAD"]:
-            return None
-    return target, remote_argv
-
-
-def _is_path_qualified_executable(value: str) -> bool:
-    return "/" in value or "\\" in value or bool(re.match(r"^[A-Za-z]:", value))
-
-
-def _is_local_read_only_tokens(tokens: list[str]) -> bool:
-    if not tokens:
-        return False
-    if ENVIRONMENT_ASSIGNMENT.match(tokens[0]):
-        return False
-    if _is_path_qualified_executable(tokens[0]):
-        return False
-
-    executable = tokens[0].lower()
-    if executable in {"git", "git.exe"}:
-        return _parse_read_only_git_tokens(tokens) is not None
-    if executable not in READ_ONLY_COMMANDS:
-        return False
-    if executable == "get-content":
-        return _get_content_paths(tokens) is not None
-    if executable == "sed":
-        return _is_read_only_sed(tokens)
-    if executable == "file" and any(
-        token in {"-C", "--compile"} for token in tokens[1:]
-    ):
-        return False
-    if executable == "find" and any(
-        token
-        in {
-            "-delete",
-            "-exec",
-            "-execdir",
-            "-fls",
-            "-fprint",
-            "-fprint0",
-            "-fprintf",
-            "-ok",
-            "-okdir",
-        }
-        for token in tokens[1:]
-    ):
-        return False
-    if executable == "rg" and any(
-        token == "--pre" or token.startswith("--pre=") for token in tokens[1:]
-    ):
-        return False
-    if executable in {"diff", "sort", "tree"} and any(
-        token == "-o" or token.startswith("-o") or token.startswith("--output")
-        for token in tokens[1:]
-    ):
-        return False
-    if executable == "sort" and any(
-        token.startswith("--compress-program") for token in tokens[1:]
-    ):
-        return False
-    return True
-
-
-def _is_read_only_tokens(tokens: list[str]) -> bool:
-    if not tokens:
-        return False
-    if _is_path_qualified_executable(tokens[0]):
-        return False
-    if tokens[0].lower() in {"ssh", "ssh.exe"}:
-        return _structured_ssh_parts(tokens) is not None
-    return _is_local_read_only_tokens(tokens)
-
-
-def _is_read_only_bash(command: str) -> bool:
-    request, _, _ = _inspection_request_from_bash(command)
-    return request is not None
-
-
-def _direct_command_tokens(
-    command: str, *, windows: bool | None = None
-) -> tuple[list[str] | None, str]:
-    windows_tokens = os.name == "nt" if windows is None else windows
-    try:
-        lexer = shlex.shlex(
-            command,
-            posix=not windows_tokens,
-            punctuation_chars="".join(sorted(SHELL_CONTROL_PUNCTUATION)),
-        )
-        lexer.whitespace_split = True
-        lexer.commenters = ""
-        tokens = list(lexer)
-    except ValueError:
-        return None, ""
-    if not windows_tokens:
-        return tokens, ""
-
-    normalized_tokens: list[str] = []
-    for token in tokens:
-        if (
-            len(token) >= 2
-            and token[0] == token[-1]
-            and token[0] in {'"', "'"}
-        ):
-            token = token[1:-1]
-        if '"' in token or "'" in token:
-            return (
-                None,
-                "Click could not safely normalize this Windows command line. "
-                "Use `click-gate inspect` with explicit argv JSON.",
-            )
-        normalized_tokens.append(token)
-    return normalized_tokens, ""
-
-
-def _inspection_request_from_bash(
-    command: str, *, windows: bool | None = None
-) -> tuple[dict[str, Any] | None, bool, str]:
-    if not command.strip() or "\n" in command or "\r" in command or "`" in command:
-        return None, False, ""
-    tokens, token_error = _direct_command_tokens(command, windows=windows)
-    if token_error:
-        return None, False, token_error
-    if tokens is None:
-        return None, False, ""
-
-    commands: list[list[str]] = [[]]
-    for token in tokens:
-        if token == "&&":
-            if not commands[-1]:
-                return None, False, ""
-            commands.append([])
-            continue
-        if token == "|":
-            return (
-                None,
-                False,
-                "Click structured inspection does not execute pipelines. Pass direct argv "
-                "commands or narrow the read instead.",
-            )
-        if token and set(token).issubset(SHELL_CONTROL_PUNCTUATION):
-            return None, False, ""
-        commands[-1].append(token)
-    if not commands[-1]:
-        return None, False, ""
-    raw = json.dumps(
-        {"version": CAPABILITY_PROTOCOL_VERSION, "commands": commands},
-        ensure_ascii=False,
-        separators=(",", ":"),
-    )
-    request, broad, error = _validate_inspection_request(raw)
-    if error and "not a supported read-only argv operation" in error:
-        return None, False, ""
-    return request, broad, error
 
 
 def _is_plan_tool(tool_name: str) -> bool:
@@ -4219,655 +3340,38 @@ def _record_verification_result(
 def _claim_observation_run(
     path: Path, raw: str, command_digest: str, runner_token: str
 ) -> tuple[dict[str, Any] | None, str]:
-    """Atomically authorize one observation runner before any read executes."""
-    if not _managed_observation_path(path):
-        return None, "Click observation runner received an unmanaged state path."
-    try:
-        state = json.loads(path.read_text(encoding="utf-8"))
-    except (FileNotFoundError, json.JSONDecodeError, OSError):
-        return None, "Click observation runner could not read its managed state."
-    status = state.get("status")
-    if status not in {"approved", "review"}:
-        return None, "Click observation runner is no longer authorized to execute."
-    observations = state.get("observations")
-    if not isinstance(observations, dict):
-        return None, "Click observation state is unavailable or malformed."
-    entries = observations.get("entries")
-    if not isinstance(entries, dict):
-        return None, "Click observation state is unavailable or malformed."
-    entry = entries.get(command_digest)
-    if not isinstance(entry, dict) or entry.get("status") != "running":
-        return None, "Click observation runner is no longer authorized to execute."
-
-    expected_revision = 0
-    if status == "approved":
-        verification = state.get("verification")
-        if not isinstance(verification, dict):
-            return None, "Click observation revision state is unavailable."
-        mutation_revision = verification.get("mutation_revision", 0)
-        if not isinstance(mutation_revision, int) or isinstance(
-            mutation_revision, bool
-        ):
-            return None, "Click observation revision state is malformed."
-        expected_revision = mutation_revision
-    if entry.get("revision") != expected_revision:
-        return None, "Click observation runner revision is stale."
-
-    token_digest = hashlib.sha256(runner_token.encode()).hexdigest()
-    if not secrets.compare_digest(
-        str(entry.get("runner_token_digest", "")), token_digest
-    ):
-        return None, "Click observation runner token did not match active state."
-    claimed_at = entry.get("runner_claimed_at", 0)
-    if not isinstance(claimed_at, int) or isinstance(claimed_at, bool):
-        return None, "Click observation runner claim state is malformed."
-    if claimed_at:
-        return None, "Click observation runner was already claimed; replay is blocked."
-    if not _unclaimed_reservation_is_fresh(
-        entry.get("started_at", 0), OBSERVATION_RESERVATION_TTL_SECONDS
-    ):
-        return None, "Click observation runner authorization expired before execution."
-
-    request, _, error = _validate_inspection_request(raw)
-    if error:
-        return None, error
-    assert request is not None
-    if _capability_digest(request) != command_digest:
-        return None, "Click observation runner request digest did not match."
-
-    entry["runner_claimed_at"] = int(time.time()) or 1
-    entries[command_digest] = entry
-    observations["entries"] = entries
-    state["observations"] = observations
-    state["updated_at"] = int(time.time())
-    _write_json(path, state)
-    return request, ""
-
-
-def _record_observation_result(
-    path: Path,
-    command_digest: str,
-    runner_token: str,
-    exit_code: int,
-    output_bytes: int,
-    incomplete: bool,
-) -> bool:
-    if not _managed_observation_path(path):
-        return False
-    try:
-        state = json.loads(path.read_text(encoding="utf-8"))
-    except (FileNotFoundError, json.JSONDecodeError, OSError):
-        return False
-    if state.get("status") not in {"approved", "review"}:
-        return False
-    observations = state.get("observations")
-    if not isinstance(observations, dict):
-        return False
-    entries = observations.get("entries")
-    if not isinstance(entries, dict):
-        return False
-    entry = entries.get(command_digest)
-    if not isinstance(entry, dict) or entry.get("status") != "running":
-        return False
-    token_digest = hashlib.sha256(runner_token.encode()).hexdigest()
-    if not secrets.compare_digest(
-        str(entry.get("runner_token_digest", "")), token_digest
-    ):
-        return False
-    claimed_at = entry.get("runner_claimed_at", 0)
-    if (
-        not isinstance(claimed_at, int)
-        or isinstance(claimed_at, bool)
-        or claimed_at <= 0
-    ):
-        return False
-
-    entry["runner_token_digest"] = ""
-    entry["runner_claimed_at"] = 0
-    entry["started_at"] = 0
-    entry["last_exit_code"] = exit_code
-    entry["output_bytes"] = output_bytes
-    if exit_code != 0:
-        entry["status"] = "failed"
-    elif incomplete:
-        entry["status"] = "incomplete"
-    else:
-        entry["status"] = "success"
-    entries[command_digest] = entry
-    observations["entries"] = entries
-    state["observations"] = observations
-    state["updated_at"] = int(time.time())
-    _write_json(path, state)
-    return True
-
-
-def _decode_encoded_request(encoded: str, label: str) -> tuple[str, str]:
-    try:
-        return base64.urlsafe_b64decode(encoded.encode()).decode(), ""
-    except (ValueError, UnicodeDecodeError):
-        return "", f"Click {label} runner received an invalid request."
-
-
-def _path_is_within(path: Path, root: Path) -> bool:
-    try:
-        path.relative_to(root)
-        return True
-    except ValueError:
-        pass
-
-    # `relative_to` is lexical and can miss case aliases on a case-insensitive
-    # filesystem. Compare filesystem identity for existing ancestors as well.
-    try:
-        root_stat = root.stat()
-        current = path if path.is_dir() else path.parent
-        for candidate in (current, *current.parents):
-            if os.path.samestat(candidate.stat(), root_stat):
-                return True
-    except OSError:
-        pass
-    return False
-
-
-def _valid_git_worktree_marker(marker: Path) -> bool:
-    """Recognize real Git metadata, not an unrelated empty ancestor named .git."""
-    try:
-        if marker.is_dir():
-            return (marker / "HEAD").is_file() and (
-                (marker / "objects").is_dir() or (marker / "commondir").is_file()
-            )
-        if not marker.is_file():
-            return False
-        first_line = marker.read_text(encoding="utf-8", errors="strict").splitlines()[0]
-        if not first_line.lower().startswith("gitdir:"):
-            return False
-        target = Path(first_line.split(":", 1)[1].strip())
-        if not target.is_absolute():
-            target = marker.parent / target
-        target = target.resolve(strict=True)
-        return (target / "HEAD").is_file() and (
-            (target / "objects").is_dir() or (target / "commondir").is_file()
-        )
-    except (IndexError, OSError, RuntimeError, UnicodeError):
-        return False
-
-
-def _workspace_boundary(workspace: Path | None = None) -> Path:
-    candidate = workspace or Path.cwd()
-    try:
-        current = candidate.resolve()
-    except (OSError, RuntimeError):
-        current = Path(os.path.abspath(candidate))
-    for possible in (current, *current.parents):
-        marker = possible / ".git"
-        if _valid_git_worktree_marker(marker):
-            return possible
-    return current
-
-
-def _git_metadata_present(workspace: Path | None = None) -> bool:
-    root = _workspace_boundary(workspace)
-    return _valid_git_worktree_marker(root / ".git")
-
-
-def _unsafe_inherited_environment_key(key: str) -> bool:
-    upper = key.upper()
-    return upper.startswith(("LD_", "DYLD_")) or upper in {
-        "GCONV_PATH",
-        "LOCPATH",
-    }
-
-
-def _sanitized_executable_path(
-    source: str | None = None, *, workspace: Path | None = None
-) -> str:
-    root = _workspace_boundary(workspace)
-    value = os.environ.get("PATH", "") if source is None else source
-    entries: list[str] = []
-    seen: set[str] = set()
-    for raw_entry in value.split(os.pathsep):
-        normalized_entry = raw_entry.strip()
-        if (
-            len(normalized_entry) >= 2
-            and normalized_entry[0] == normalized_entry[-1]
-            and normalized_entry[0] in {'"', "'"}
-        ):
-            normalized_entry = normalized_entry[1:-1]
-        normalized_entry = os.path.expandvars(normalized_entry)
-        if not normalized_entry or not os.path.isabs(normalized_entry):
-            continue
-        lexical = Path(os.path.abspath(normalized_entry))
-        if _path_is_within(lexical, root):
-            continue
-        try:
-            resolved = Path(normalized_entry).resolve()
-        except (OSError, RuntimeError):
-            continue
-        if _path_is_within(resolved, root):
-            continue
-        rendered = str(resolved)
-        key = os.path.normcase(rendered)
-        if key in seen:
-            continue
-        seen.add(key)
-        entries.append(rendered)
-    return os.pathsep.join(entries)
-
-
-def _resolve_read_only_executable(
-    executable: str, *, workspace: Path | None = None
-) -> tuple[str | None, str]:
-    if _is_path_qualified_executable(executable):
-        return None, "read-only executables must use an unqualified trusted name"
-    root = _workspace_boundary(workspace)
-
-    inherited = shutil.which(executable)
-    if inherited is not None:
-        inherited_lexical = Path(os.path.abspath(inherited))
-        if _path_is_within(inherited_lexical, root):
-            return None, "the inherited executable path is inside the workspace"
-        try:
-            inherited_path = Path(inherited).resolve(strict=True)
-        except (OSError, RuntimeError):
-            return None, "the inherited executable path could not be resolved safely"
-        if _path_is_within(inherited_path, root):
-            return None, "the inherited executable resolves inside the workspace"
-
-    sanitized_path = _sanitized_executable_path(workspace=root)
-    resolved = shutil.which(executable, path=sanitized_path)
-    if resolved is None:
-        return None, "the executable was not found on Click's sanitized PATH"
-    resolved_lexical = Path(os.path.abspath(resolved))
-    if _path_is_within(resolved_lexical, root):
-        return None, "the executable path is inside the workspace"
-    try:
-        resolved_path = Path(resolved).resolve(strict=True)
-    except (OSError, RuntimeError):
-        return None, "the executable path could not be resolved safely"
-    if _path_is_within(resolved_path, root):
-        return None, "the executable resolves inside the workspace"
-    if not resolved_path.is_file():
-        return None, "the executable does not resolve to a regular file"
-    return str(resolved_path), ""
-
-
-def _sanitized_read_only_environment(
-    *, workspace: Path | None = None
-) -> dict[str, str]:
-    environment = {
-        key: value
-        for key, value in os.environ.items()
-        if key.upper() != "PATH" and not _unsafe_inherited_environment_key(key)
-    }
-    environment["PATH"] = _sanitized_executable_path(workspace=workspace)
-    return environment
-
-
-def _execution_argv(argv: list[str]) -> list[str]:
-    parts = _structured_ssh_parts(argv)
-    if parts is None:
-        return argv
-    target, remote_argv = parts
-    safe_git_argv, error = _build_read_only_git_argv(remote_argv)
-    if error or safe_git_argv is None:
-        return argv
-    return [
-        argv[0],
-        "-n",
-        "-F",
-        "none",
-        "-o",
-        "BatchMode=yes",
-        "-o",
-        "KbdInteractiveAuthentication=no",
-        "-o",
-        "PasswordAuthentication=no",
-        "-o",
-        "NumberOfPasswordPrompts=0",
-        "-o",
-        "StrictHostKeyChecking=yes",
-        "-o",
-        "UpdateHostKeys=no",
-        "-o",
-        "ConnectTimeout=10",
-        "-o",
-        "ConnectionAttempts=1",
-        "-o",
-        "ServerAliveInterval=5",
-        "-o",
-        "ServerAliveCountMax=1",
-        "-o",
-        "ClearAllForwardings=yes",
-        "-o",
-        "ForwardAgent=no",
-        "-o",
-        "PermitLocalCommand=no",
-        "-o",
-        "RemoteCommand=none",
-        "-o",
-        "RequestTTY=no",
-        target,
-        shlex.join(safe_git_argv),
-    ]
-
-
-def _is_git_remote_output_request(argv: list[str]) -> bool:
-    parts = _structured_ssh_parts(argv)
-    git_argv = parts[1] if parts is not None else argv
-    return _git_subcommand(git_argv) == "remote"
-
-
-def _redact_git_remote_url(value: str) -> str:
-    try:
-        parsed = urlsplit(value)
-    except ValueError:
-        if "://" not in value:
-            return value
-        scheme, remainder = value.split("://", 1)
-        remainder = remainder.rsplit("@", 1)[-1]
-        return f"{scheme}://{remainder.split('?', 1)[0].split('#', 1)[0]}"
-    if parsed.scheme and parsed.netloc:
-        netloc = parsed.netloc.rsplit("@", 1)[-1]
-        return urlunsplit((parsed.scheme, netloc, parsed.path, "", ""))
-    if re.fullmatch(r"[^/@\s]+@[^/\s:]+:.+", value):
-        return value.rsplit("@", 1)[-1].split("?", 1)[0].split("#", 1)[0]
-    return value
-
-
-def _redact_git_remote_output(data: bytes) -> bytes:
-    lines = []
-    for line in data.decode("utf-8", errors="replace").splitlines(keepends=True):
-        value = line.rstrip("\r\n")
-        lines.append(_redact_git_remote_url(value) + line[len(value) :])
-    return "".join(lines).encode()
-
-
-def _execute_argv_commands(
-    commands: list[list[str]],
-    stdout_file: Any | None = None,
-    stderr_file: Any | None = None,
-    *,
-    trusted_read_only: bool = False,
-    workspace: Path | None = None,
-    environment: dict[str, str] | None = None,
-) -> int:
-    exit_code = 0
-    for argv in commands:
-        try:
-            redact = _is_git_remote_output_request(argv)
-            execution_argv = _execution_argv(argv)
-            if trusted_read_only:
-                executable, error = _resolve_read_only_executable(
-                    argv[0], workspace=workspace
-                )
-                if error or executable is None:
-                    _write_runner_stream(
-                        stderr_file,
-                        (
-                            "Click rejected the read-only executable at execution time: "
-                            f"{error}.\n"
-                        ).encode(),
-                        error=True,
-                    )
-                    return 2
-                execution_argv[0] = executable
-            result = click_process.run_argv(
-                execution_argv,
-                stdout=subprocess.PIPE if redact else stdout_file,
-                stderr=subprocess.PIPE if redact else stderr_file,
-                env=(
-                    _sanitized_read_only_environment(workspace=workspace)
-                    if trusted_read_only
-                    else environment
-                ),
-            )
-            if redact:
-                _write_runner_stream(
-                    stdout_file, _redact_git_remote_output(result.stdout or b"")
-                )
-                _write_runner_stream(
-                    stderr_file,
-                    _redact_git_remote_output(result.stderr or b""),
-                    error=True,
-                )
-            exit_code = int(result.returncode)
-        except OSError as exc:
-            message = f"Click could not start `{argv[0]}`: {exc}\n"
-            if stderr_file is None:
-                sys.stderr.write(message)
-            else:
-                stderr_file.write(message.encode())
-            exit_code = 127
-        if exit_code != 0:
-            break
-    return exit_code
-
-
-def _write_runner_stream(handle: Any | None, data: bytes, *, error: bool = False) -> None:
-    if handle is not None:
-        handle.write(data)
-        return
-    target = sys.stderr.buffer if error else sys.stdout.buffer
-    target.write(data)
-    target.flush()
-
-
-def _execute_native_get_content(
-    argv: list[str], stdout_file: Any | None, stderr_file: Any | None
-) -> int | None:
-    if Path(argv[0]).name.lower() != "get-content":
-        return None
-    paths = _get_content_paths(argv)
-    if paths is None:
-        _write_runner_stream(
-            stderr_file,
-            (
-                b"Click Get-Content inspection supports only positional paths, "
-                b"-Path, -LiteralPath, and -Raw.\n"
-            ),
-            error=True,
-        )
-        return 2
-    try:
-        for path in paths:
-            _write_runner_stream(stdout_file, Path(path).read_bytes())
-    except OSError as exc:
-        _write_runner_stream(
-            stderr_file, f"Click could not read {path}: {exc}\n".encode(), error=True
-        )
-        return 1
-    return 0
-
-
-def _execute_read_only_git(
-    argv: list[str],
-    stdout_file: Any | None,
-    stderr_file: Any | None,
-    *,
-    workspace: Path | None = None,
-) -> int:
-    safe_argv, error = _build_read_only_git_argv(argv)
-    if error or safe_argv is None:
-        _write_runner_stream(
-            stderr_file,
-            f"Click rejected Git inspection at execution time: {error}\n".encode(),
-            error=True,
-        )
-        return 2
-    executable, executable_error = _resolve_read_only_executable(
-        argv[0], workspace=workspace
+    return click_observation.claim_run(
+        path,
+        raw,
+        command_digest,
+        runner_token,
+        protocol_version=CAPABILITY_PROTOCOL_VERSION,
     )
-    if executable_error or executable is None:
-        _write_runner_stream(
-            stderr_file,
-            (
-                "Click rejected the Git executable at execution time: "
-                f"{executable_error}.\n"
-            ).encode(),
-            error=True,
-        )
-        return 2
-    safe_argv[0] = executable
-    try:
-        redact = _is_git_remote_output_request(argv)
-        result = click_process.run_argv(
-            safe_argv,
-            stdout=subprocess.PIPE if redact else stdout_file,
-            stderr=subprocess.PIPE if redact else stderr_file,
-            env=_sanitized_git_environment(workspace=workspace),
-        )
-        if redact:
-            _write_runner_stream(
-                stdout_file, _redact_git_remote_output(result.stdout or b"")
-            )
-            _write_runner_stream(
-                stderr_file,
-                _redact_git_remote_output(result.stderr or b""),
-                error=True,
-            )
-        return int(result.returncode)
-    except OSError as exc:
-        _write_runner_stream(
-            stderr_file,
-            f"Click could not start `git`: {exc}\n".encode(),
-            error=True,
-        )
-        return 127
-
-
-def _execute_inspection_commands(
-    commands: list[list[str]],
-    stdout_file: Any | None = None,
-    stderr_file: Any | None = None,
-    *,
-    workspace: Path | None = None,
-) -> int:
-    for argv in commands:
-        native_result = _execute_native_get_content(argv, stdout_file, stderr_file)
-        if native_result is not None:
-            if native_result != 0:
-                return native_result
-            continue
-        if argv[0].lower() in {"git", "git.exe"}:
-            exit_code = _execute_read_only_git(
-                argv, stdout_file, stderr_file, workspace=workspace
-            )
-        else:
-            exit_code = _execute_argv_commands(
-                [argv],
-                stdout_file,
-                stderr_file,
-                trusted_read_only=True,
-                workspace=workspace,
-            )
-        if exit_code != 0:
-            return exit_code
-    return 0
 
 
 def _run_inspection_request(
     request: dict[str, Any], state_result: tuple[Path, str, str] | None = None
 ) -> int:
-    commands = request["commands"]
-    recorded_result = False
-    try:
-        with tempfile.TemporaryFile() as stdout_file, tempfile.TemporaryFile() as stderr_file:
-            exit_code = _execute_inspection_commands(commands, stdout_file, stderr_file)
-
-            stdout_bytes = stdout_file.tell()
-            stderr_bytes = stderr_file.tell()
-            output_bytes = stdout_bytes + stderr_bytes
-            incomplete = output_bytes > MAX_OBSERVATION_OUTPUT_BYTES
-            if state_result is not None:
-                state_path, request_digest, runner_token = state_result
-                with _state_lock():
-                    recorded = _record_observation_result(
-                        state_path,
-                        request_digest,
-                        runner_token,
-                        exit_code,
-                        output_bytes,
-                        incomplete,
-                    )
-                if not recorded:
-                    sys.stderr.write("Click could not record the observation result safely.\n")
-                    return exit_code or 2
-                recorded_result = True
-
-            stdout_file.seek(0)
-            stderr_file.seek(0)
-            remaining = MAX_OBSERVATION_OUTPUT_BYTES
-            if exit_code == 0:
-                remaining -= _copy_limited_output(
-                    stdout_file, sys.stdout.buffer, remaining
-                )
-                _copy_limited_output(stderr_file, sys.stderr.buffer, remaining)
-            else:
-                remaining -= _copy_limited_output(
-                    stderr_file, sys.stderr.buffer, remaining
-                )
-                _copy_limited_output(stdout_file, sys.stdout.buffer, remaining)
-            if incomplete:
-                sys.stderr.write(
-                    "\n[Click] Read/search output exceeded 48,000 bytes. Narrow or "
-                    "paginate the next command; one unchanged retry is available.\n"
-                )
-    except OSError as exc:
-        if state_result is not None and not recorded_result:
-            state_path, request_digest, runner_token = state_result
-            with _state_lock():
-                recorded = _record_observation_result(
-                    state_path,
-                    request_digest,
-                    runner_token,
-                    127,
-                    0,
-                    False,
-                )
-            if not recorded:
-                sys.stderr.write("Click could not record the observation failure safely.\n")
-        sys.stderr.write(f"Click observation runner failed: {exc}\n")
-        return 127
-    return exit_code
+    return click_observation.run_request(
+        request,
+        state_result,
+        execute_commands=_execute_inspection_commands,
+    )
 
 
 def _run_inspection_once(arguments: list[str]) -> int:
-    if len(arguments) != 1:
-        sys.stderr.write("usage: click_gate.py run-inspection-once <request>\n")
-        return 2
-    raw, error = _decode_encoded_request(arguments[0], "inspection")
-    if error:
-        sys.stderr.write(f"{error}\n")
-        return 2
-    request, _, error = _validate_inspection_request(raw)
-    if error:
-        sys.stderr.write(f"{error}\n")
-        return 2
-    assert request is not None
-    return _run_inspection_request(request)
+    return click_inspection.run_once(
+        arguments,
+        run_request=_run_inspection_request,
+        protocol_version=CAPABILITY_PROTOCOL_VERSION,
+    )
 
 
 def _run_observation(arguments: list[str]) -> int:
-    if len(arguments) != 4:
-        sys.stderr.write(
-            "usage: click_gate.py run-observation <state> <digest> <token> <request>\n"
-        )
-        return 2
-    state_path = Path(arguments[0])
-    request_digest, runner_token, encoded = arguments[1:]
-    raw, error = _decode_encoded_request(encoded, "observation")
-    if error:
-        sys.stderr.write(f"{error}\n")
-        return 2
-    with _state_lock():
-        request, error = _claim_observation_run(
-            state_path, raw, request_digest, runner_token
-        )
-    if error:
-        sys.stderr.write(f"{error}\n")
-        return 2
-    assert request is not None
-    return _run_inspection_request(
-        request, (state_path, request_digest, runner_token)
+    return click_observation.run(
+        arguments,
+        run_inspection_request=_run_inspection_request,
+        protocol_version=CAPABILITY_PROTOCOL_VERSION,
     )
 
 
@@ -4897,10 +3401,6 @@ def _run_mutation(arguments: list[str]) -> int:
 
 def _managed_contract_path(path: Path) -> bool:
     return _managed_state_path(path, ("session-contract-",))
-
-
-def _managed_observation_path(path: Path) -> bool:
-    return _managed_state_path(path, ("session-contract-", "review-"))
 
 
 def _run_service_supervisor(arguments: list[str]) -> int:
