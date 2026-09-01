@@ -8,21 +8,21 @@ English | [한국어](README.ko.md) | [简体中文](README.zh-CN.md)
 
 > ## Make coding agents prove what they changed.
 >
-> **Revision-aware evidence for everyday coding. Approval-bound execution for risky changes.**
+> **Evidence by default. Approval-bound execution when the risk calls for it.**
 
 Click is a Codex plugin that moves **execution authority and verification evidence out of the model's memory and into persistent Hooks**.
 
-For normal work, Codex keeps working normally while Click records which code revision the evidence actually belongs to.
+For normal work, Codex keeps working normally while Click records **prompt lineage, mutation revisions, and reusable verification evidence** that still matches the current code.
 
 For higher-risk work, Click can require one human-readable contract to be approved **before observable mutations are allowed**.
 
 ```text
 Evidence (default)
-request → implement → verify → current-revision evidence → honest receipt
+request → implementation → current-revision evidence → honest receipt
 
 Guarded
 request → Goal / Changes / Unchanged / Completion checks
-        → later user approval
+        → Later user turn approval
         → bounded execution
         → current-revision evidence
         → receipt
@@ -30,9 +30,11 @@ request → Goal / Changes / Unchanged / Completion checks
 
 **The model still decides how to solve the problem. Click keeps track of what was authorized and whether the proof still matches the code.**
 
+**One default with no Click approval friction. One opt-in guard for work that needs it.**
+
 ---
 
-## Why Click exists
+## Why Click?
 
 Coding agents are good at solving local problems. Long-running sessions have a different problem: **state drifts**.
 
@@ -123,7 +125,7 @@ Completion checks
 What evidence means the work is actually done?
 ```
 
-Click stages that contract once, emits an opaque `contract_id`, and requires approval from a **later user turn**. The same turn cannot both stage and approve it.
+Click stages that contract once, emits an opaque `contract_id`, and requires approval from a **Later user turn**. The same turn cannot both stage and approve it.
 
 ---
 
@@ -166,7 +168,9 @@ Explicit controls remain available:
 
 Neither silently unlocks an active incomplete Guarded contract.
 
-### Upgrade an existing installation
+### Upgrade an existing installation — v0.36.0
+
+The current release is **v0.36.0**.
 
 ```bash
 codex plugin marketplace upgrade click
@@ -215,7 +219,9 @@ If the dependency mapping, resolved files, environment, executable, host coverag
 
 ## What Click actually enforces
 
-Click separates **hard runtime guarantees** from **workflow advice**.
+Click is a **workflow guardrail** that separates **hard runtime guarantees** from **workflow advice**.
+
+Hard enforcement applies only on the **observable tool path**. The model's planning and search strategy remain non-authoritative.
 
 ### Hard runtime boundaries
 
@@ -229,7 +235,7 @@ Click can enforce observable invariants such as:
 - mutation advances the revision and invalidates stale evidence
 - argv verification is bound to the exact request and observed result
 - environment, executable, workspace, and known host coverage can participate in evidence identity
-- managed local-service execution tracks and cleans up the owned child process
+- managed service execution tracks and cleans up the owned child process
 - completion receipts cannot invent a successful result that the Hook did not observe
 
 ### Advisory, not authority
@@ -244,9 +250,23 @@ These remain non-blocking guidance:
 - which implementation strategy is best
 - whether the model's chosen verification scope is semantically sufficient
 
-`update_plan` may still be used. Repeated reads and broad inventories may still run. They cannot approve, replace, or widen a Guarded contract.
+`update_plan` may still be used. A **distinct-digest broad inventory remains available** with narrowing guidance, and a **fresh identical structured read/search** may run through a new one-use authorization rather than being confused with replay of an old runner.
+
+They cannot approve, replace, or widen a Guarded contract.
 
 > **Click constrains observable execution, not hidden reasoning.**
+
+### Advisory verification profiles
+
+Guarded can recommend a qualitative verification profile before approval. Evidence mode does not use these profiles as execution authority.
+
+| Profile | Typical use |
+| --- | --- |
+| `quick` | Small, local, reversible change |
+| `focused` | Ordinary bounded feature or repair |
+| `full` | Payments, auth, deletion, migrations, public contracts, or cross-boundary concurrency |
+
+The model still chooses concrete checks. Click binds the exact `evidence_id`, check request, revision, environment, executable, known host coverage, and observed result rather than turning a profile label into proof.
 
 ---
 
@@ -327,7 +347,7 @@ A digest-bound follow-up can be recorded and an incomplete approved contract can
 
 ## Completion receipts
 
-When current evidence is complete and managed execution has stopped, Click can export a canonical completion receipt:
+When every required source is current and no managed service remains active, Click can export a canonical completion receipt:
 
 ```text
 click-gate receipt export
@@ -386,10 +406,14 @@ click-gate mutate '{"version":1,"argv":["python3","scripts/generate.py","--targe
 
 click-gate service '{"version":1,"action":"start","argv":["python3","-m","http.server","4173","--bind","127.0.0.1"]}'
 
+click-gate evidence '{"version":1,"evidence_id":"E-browser"}'
+
 click-gate verify '{"version":2,"checks":[{"evidence_id":"E1","argv":["python3","-m","pytest","tests/test_cancellation.py"],"class":"targeted"}]}'
 ```
 
 Supported structured argv requests reject shell interpreters and process-control executables on the direct capability path. Exact schemas, executable policy, environment handling, process boundaries, and runner transport are documented in the [capability protocol](skills/click/references/capability-protocol.md).
+
+Click is a **workflow guardrail**, not an operating-system sandbox.
 
 ---
 
@@ -422,7 +446,7 @@ Antigravity's Hook surface is not identical to Codex. Native file/search and unr
 
 ## Honest limits
 
-Click is a **workflow execution-integrity guardrail**, not an OS sandbox and not a semantic correctness oracle.
+Click is a **workflow guardrail**, not an OS sandbox and not a semantic correctness oracle.
 
 It does **not** claim to:
 
