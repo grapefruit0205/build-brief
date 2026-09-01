@@ -542,6 +542,7 @@ class RepositoryPolicyTests(unittest.TestCase):
                 "click_mutation.py",
                 "click_observation.py",
                 "click_process.py",
+                "click_prompt.py",
                 "click_service.py",
                 "click_state.py",
                 "click_verification.py",
