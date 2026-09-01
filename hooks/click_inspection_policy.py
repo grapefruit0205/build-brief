@@ -241,7 +241,6 @@ def git_option_allowed(subcommand: str, token: str) -> bool:
         return True
     return False
 
-
 def is_read_only_git_remote_arguments(arguments: list[str]) -> bool:
     if not arguments or arguments[0] != "get-url":
         return False
@@ -613,4 +612,3 @@ def is_broad_exploration_tokens(tokens: list[str]) -> bool:
             targets = remainder[remainder.index("--") + 1 :]
             return targets_repository_root(targets)
     return False
-
