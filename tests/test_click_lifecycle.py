@@ -100,6 +100,12 @@ class ClickLifecycleTests(unittest.TestCase):
             ("receipt-verify", "completion receipt.json", ""),
         )
         self.assertEqual(
+            click_lifecycle.control_request(
+                r"click-gate receipt verify C:\temp\completion-receipt.json"
+            ),
+            ("receipt-verify", r"C:\temp\completion-receipt.json", ""),
+        )
+        self.assertEqual(
             click_lifecycle.control_request("click-gate stage 'unterminated"),
             (
                 None,

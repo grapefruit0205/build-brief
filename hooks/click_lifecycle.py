@@ -353,6 +353,24 @@ def _validate_evidence_result(raw: str) -> tuple[str, str]:
 
 
 def _control_request(command: str) -> tuple[str | None, str, str]:
+    stripped = command.strip()
+    receipt_verify_prefix = f"{CONTROL_COMMAND} receipt verify"
+    if stripped.startswith(receipt_verify_prefix):
+        remainder = stripped[len(receipt_verify_prefix) :]
+        if remainder and remainder[0].isspace():
+            raw_path = remainder.strip()
+            if raw_path and not any(character.isspace() for character in raw_path):
+                # Preserve unquoted Windows drive and UNC separators. POSIX shlex
+                # treats their backslashes as escapes even when Click is running
+                # under cmd or PowerShell.
+                return "receipt-verify", raw_path, ""
+            if raw_path:
+                try:
+                    path_tokens = shlex.split(raw_path, posix=True)
+                except ValueError as exc:
+                    return None, "", f"Malformed {CONTROL_COMMAND} command: {exc}."
+                if len(path_tokens) == 1:
+                    return "receipt-verify", path_tokens[0], ""
     try:
         tokens = shlex.split(command, posix=True)
     except ValueError as exc:

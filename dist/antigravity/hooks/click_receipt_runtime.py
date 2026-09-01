@@ -113,7 +113,8 @@ def _evidence_receipts(
                 return None, "Completed argv evidence is missing a bound runtime fingerprint."
             if (
                 not workspace_root
-                or source.get("verified_root") != workspace_root
+                or os.path.normcase(str(source.get("verified_root", "")))
+                != workspace_root
                 or source.get("verified_tree_digest") != workspace_digest
             ):
                 return None, "The final workspace drifted after argv evidence completed."
