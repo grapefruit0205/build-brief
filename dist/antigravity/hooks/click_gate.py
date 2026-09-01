@@ -31,6 +31,7 @@ else:  # Executed directly from the bundled hooks directory.
     click_browser_advisory,
     click_capability,
     click_contract,
+    click_contract_state,
     click_evidence,
     click_host_coverage,
     click_host_router,
@@ -53,6 +54,7 @@ else:  # Executed directly from the bundled hooks directory.
     "click_browser_advisory",
     "click_capability",
     "click_contract",
+    "click_contract_state",
     "click_evidence",
     "click_host_coverage",
     "click_host_router",
@@ -392,9 +394,9 @@ _read_default_mode = click_lifecycle.read_default_mode
 _evidence_sources = click_lifecycle.evidence_sources
 _write_contract_state = click_lifecycle.write_contract_state
 _contract_id_from_state = click_lifecycle.contract_id_from_state
-_read_contract_state = click_lifecycle.read_contract_state
-_clear_contract_state = click_lifecycle.clear_contract_state
-_save_contract_state = click_lifecycle.save_contract_state
+_read_contract_state = click_contract_state.read_contract_state
+_clear_contract_state = click_contract_state.clear_contract_state
+_save_contract_state = click_contract_state.save_contract_state
 _prompt_authorization = click_prompt.prompt_authorization
 _record_user_prompt = click_prompt.record_user_prompt
 _read_user_prompt_state = click_prompt.read_user_prompt_state

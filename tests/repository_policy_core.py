@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import json
 from pathlib import Path
 import unittest
@@ -7,6 +8,20 @@ import unittest
 
 ROOT = Path(__file__).parents[1]
 README_NAMES = ("README.md", "README.ko.md", "README.zh-CN.md")
+
+
+def _imported_module_names(source: str) -> set[str]:
+    imported: set[str] = set()
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Import):
+            imported.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            module = node.module or ""
+            imported.add(module)
+            imported.update(
+                f"{module}.{alias.name}".strip(".") for alias in node.names
+            )
+    return imported
 
 
 class RepositoryPolicyTests(unittest.TestCase):
@@ -525,6 +540,7 @@ class RepositoryPolicyTests(unittest.TestCase):
                 "click_capability.py",
                 "click_claims.py",
                 "click_contract.py",
+                "click_contract_state.py",
                 "click_dependency_cache.py",
                 "click_evidence.py",
                 "click_receipt.py",
@@ -574,6 +590,7 @@ class RepositoryPolicyTests(unittest.TestCase):
         service = (ROOT / "hooks" / "click_service.py").read_text(
             encoding="utf-8"
         )
+        service_imports = _imported_module_names(service)
 
         self.assertIn("click_service", gate)
         for required in (
@@ -596,14 +613,17 @@ class RepositoryPolicyTests(unittest.TestCase):
             "click_verification_policy",
         ):
             with self.subTest(forbidden=forbidden):
-                self.assertNotIn(f"import {forbidden}", service)
-                self.assertNotIn(f"from {forbidden}", service)
+                self.assertFalse(
+                    any(forbidden in name.split(".") for name in service_imports),
+                    service_imports,
+                )
 
     def test_mutation_runtime_is_isolated_from_gate_and_sibling_domains(self) -> None:
         gate = (ROOT / "hooks" / "click_gate.py").read_text(encoding="utf-8")
         mutation = (ROOT / "hooks" / "click_mutation.py").read_text(
             encoding="utf-8"
         )
+        mutation_imports = _imported_module_names(mutation)
 
         self.assertIn("click_mutation", gate)
         for required in (
@@ -628,8 +648,10 @@ class RepositoryPolicyTests(unittest.TestCase):
             "platform_protocol",
         ):
             with self.subTest(forbidden=forbidden):
-                self.assertNotIn(f"import {forbidden}", mutation)
-                self.assertNotIn(f"from {forbidden}", mutation)
+                self.assertFalse(
+                    any(forbidden in name.split(".") for name in mutation_imports),
+                    mutation_imports,
+                )
 
     def test_evidence_ledger_is_isolated_from_gate_state_and_process(self) -> None:
         gate = (ROOT / "hooks" / "click_gate.py").read_text(encoding="utf-8")
@@ -757,6 +779,7 @@ class RepositoryPolicyTests(unittest.TestCase):
         browser = (ROOT / "hooks" / "click_browser.py").read_text(
             encoding="utf-8"
         )
+        browser_imports = _imported_module_names(browser)
         advisory = (ROOT / "hooks" / "click_browser_advisory.py").read_text(
             encoding="utf-8"
         )
@@ -786,16 +809,19 @@ class RepositoryPolicyTests(unittest.TestCase):
             with self.subTest(forbidden=forbidden):
                 self.assertNotIn(forbidden, advisory)
         for forbidden in (
-            "import click_contract",
-            "import click_gate",
-            "import click_process",
-            "import click_service",
-            "import click_verification_meter",
-            "import click_verification_policy",
-            "import platform_protocol",
+            "click_contract",
+            "click_gate",
+            "click_process",
+            "click_service",
+            "click_verification_meter",
+            "click_verification_policy",
+            "platform_protocol",
         ):
             with self.subTest(browser_forbidden=forbidden):
-                self.assertNotIn(forbidden, browser)
+                self.assertFalse(
+                    any(forbidden in name.split(".") for name in browser_imports),
+                    browser_imports,
+                )
 
     def test_compact_contract_replaces_the_verbose_execution_fields(self) -> None:
         hook = (ROOT / "hooks" / "click_gate.py").read_text(encoding="utf-8")

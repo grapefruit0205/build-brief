@@ -22,6 +22,7 @@ from typing import Any
 if __package__:
     from . import (
         click_claims,
+        click_contract_state,
         click_dependency_cache,
         click_evidence,
         click_runtime_state,
@@ -29,6 +30,7 @@ if __package__:
     )
 else:  # Executed directly from the bundled hooks directory.
     import click_claims
+    import click_contract_state
     import click_dependency_cache
     import click_evidence
     import click_runtime_state
@@ -129,19 +131,8 @@ def validate_request(
     return {"version": protocol_version, "argv": argv}, ""
 
 
-def _read_contract_state(event: dict[str, Any]) -> dict[str, Any]:
-    try:
-        value = json.loads(
-            click_state.contract_path(event).read_text(encoding="utf-8")
-        )
-    except (FileNotFoundError, json.JSONDecodeError, OSError):
-        return {"status": "none", "contract_digest": ""}
-    return value if isinstance(value, dict) else {"status": "none", "contract_digest": ""}
-
-
-def _save_contract_state(event: dict[str, Any], state: dict[str, Any]) -> None:
-    state["updated_at"] = int(time.time())
-    click_state.write_json(click_state.contract_path(event), state)
+_read_contract_state = click_contract_state.read_contract_state
+_save_contract_state = click_contract_state.save_contract_state
 
 
 def _sources(

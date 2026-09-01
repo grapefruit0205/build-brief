@@ -40,6 +40,7 @@ class ClickMutationTests(unittest.TestCase):
                 )
         for required in (
             "click_claims",
+            "click_contract_state",
             "click_dependency_cache",
             "click_evidence",
             "click_runtime_state",

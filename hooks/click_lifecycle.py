@@ -22,6 +22,7 @@ if __package__:
         click_capability,
         click_claims,
         click_contract,
+        click_contract_state,
         click_evidence,
         click_mode,
         click_mutation,
@@ -37,6 +38,7 @@ else:  # Executed directly from the bundled hooks directory.
     import click_capability
     import click_claims
     import click_contract
+    import click_contract_state
     import click_evidence
     import click_mode
     import click_mutation
@@ -68,6 +70,9 @@ _read_user_prompt_state = click_prompt.read_user_prompt_state
 _read_user_prompt_turn = click_prompt.read_user_prompt_turn
 _consume_user_authorization = click_prompt.consume_user_authorization
 _active_prompt_turn_error = click_prompt.active_prompt_turn_error
+_read_contract_state = click_contract_state.read_contract_state
+_clear_contract_state = click_contract_state.clear_contract_state
+_save_contract_state = click_contract_state.save_contract_state
 
 
 def _write_state(
@@ -209,31 +214,6 @@ def _contract_id_from_state(state: dict[str, Any]) -> str:
         )
     # Compatibility only for a staged or incomplete state created before ids existed.
     return f"ctr_{digest[:32]}"
-
-
-def _read_contract_state(event: dict[str, Any]) -> dict[str, Any]:
-    try:
-        value = json.loads(
-            click_state.contract_path(event).read_text(encoding="utf-8")
-        )
-    except (FileNotFoundError, json.JSONDecodeError, OSError):
-        return {"status": "none", "contract_digest": ""}
-    return value if isinstance(value, dict) else {
-        "status": "none",
-        "contract_digest": "",
-    }
-
-
-def _clear_contract_state(event: dict[str, Any]) -> None:
-    try:
-        click_state.contract_path(event).unlink()
-    except OSError:
-        pass
-
-
-def _save_contract_state(event: dict[str, Any], state: dict[str, Any]) -> None:
-    state["updated_at"] = int(time.time())
-    click_state.write_json(click_state.contract_path(event), state)
 
 
 def _contract_is_completed(state: dict[str, Any]) -> bool:
@@ -794,9 +774,9 @@ consume_migration_notice = click_mode.consume_migration_notice
 evidence_sources = _evidence_sources
 write_contract_state = _write_contract_state
 contract_id_from_state = _contract_id_from_state
-read_contract_state = _read_contract_state
-clear_contract_state = _clear_contract_state
-save_contract_state = _save_contract_state
+read_contract_state = click_contract_state.read_contract_state
+clear_contract_state = click_contract_state.clear_contract_state
+save_contract_state = click_contract_state.save_contract_state
 prompt_authorization = click_prompt.prompt_authorization
 record_user_prompt = click_prompt.record_user_prompt
 read_user_prompt_state = click_prompt.read_user_prompt_state

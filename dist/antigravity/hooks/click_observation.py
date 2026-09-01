@@ -21,6 +21,7 @@ if __package__:
     from . import (
         click_capability,
         click_claims,
+        click_contract_state,
         click_inspection,
         click_process,
         click_state,
@@ -28,6 +29,7 @@ if __package__:
 else:  # Executed directly from the bundled hooks directory.
     import click_capability
     import click_claims
+    import click_contract_state
     import click_inspection
     import click_process
     import click_state
@@ -103,17 +105,8 @@ def clear_review_state(event: dict[str, Any]) -> None:
         pass
 
 
-def _read_contract_state(event: dict[str, Any]) -> dict[str, Any]:
-    try:
-        value = json.loads(click_state.contract_path(event).read_text(encoding="utf-8"))
-    except (FileNotFoundError, json.JSONDecodeError, OSError):
-        return {"status": "none", "contract_digest": ""}
-    return value if isinstance(value, dict) else {"status": "none", "contract_digest": ""}
-
-
-def _save_contract_state(event: dict[str, Any], state: dict[str, Any]) -> None:
-    state["updated_at"] = int(time.time())
-    click_state.write_json(click_state.contract_path(event), state)
+_read_contract_state = click_contract_state.read_contract_state
+_save_contract_state = click_contract_state.save_contract_state
 
 
 def runner_command(
