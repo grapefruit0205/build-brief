@@ -3,6 +3,7 @@ from __future__ import annotations
 from click_gate_test_support import (
     CLICK_GATE,
     CLICK_PROCESS,
+    CLICK_SERVICE,
     HOOK_CONFIG,
     Path,
     ClickGateTestCase,
@@ -62,7 +63,7 @@ class ClickGateServiceTests(ClickGateTestCase):
         def launch_supervisor(*_args: object, **_kwargs: object) -> mock.Mock:
             with CLICK_GATE._state_lock():
                 self.assertTrue(
-                    CLICK_GATE._record_service_fields(
+                    CLICK_SERVICE.record_service_fields(
                         state_path,
                         "service-id",
                         expected_statuses=("launching",),
@@ -192,7 +193,7 @@ class ClickGateServiceTests(ClickGateTestCase):
             CLICK_GATE._state_lock(),
         ):
             self.assertEqual(
-                CLICK_GATE._claim_service_runner(
+                CLICK_SERVICE.claim_service_runner(
                     state_path,
                     "service-id",
                     normalized,
@@ -251,7 +252,7 @@ class ClickGateServiceTests(ClickGateTestCase):
             CLICK_GATE._state_lock(),
         ):
             self.assertEqual(
-                CLICK_GATE._claim_service_runner(
+                CLICK_SERVICE.claim_service_runner(
                     state_path,
                     "stale-supervisor-id",
                     normalized,
@@ -393,7 +394,7 @@ class ClickGateServiceTests(ClickGateTestCase):
         )
         state = json.loads(state_path.read_text(encoding="utf-8"))
         state["service"] = {
-            **CLICK_GATE._fresh_service_state(),
+            **CLICK_SERVICE.fresh_state(),
             "status": "stopped",
             "service_id": "service-1",
         }

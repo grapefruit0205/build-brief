@@ -35,6 +35,10 @@ finally:
     sys.path.pop(0)
 
 CLICK_PROCESS = CLICK_GATE.click_process
+CLICK_BROWSER = CLICK_GATE.click_browser
+CLICK_EVIDENCE = CLICK_GATE.click_evidence
+CLICK_MUTATION = CLICK_GATE.click_mutation
+CLICK_SERVICE = CLICK_GATE.click_service
 
 
 def mark_git_boundary(root: Path) -> None:

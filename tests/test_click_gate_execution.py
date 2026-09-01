@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from click_gate_test_support import (
     CLICK_GATE,
+    CLICK_MUTATION,
     CLICK_PROCESS,
     HOOK_CONFIG,
     Path,
@@ -250,7 +251,7 @@ class ClickGateExecutionTests(ClickGateTestCase):
             CLICK_GATE.os.environ, {"PLUGIN_DATA": str(self.plugin_data)}
         ):
             self.assertFalse(
-                CLICK_GATE._record_mutation_result(
+                CLICK_MUTATION.record_result(
                     Path(arguments[0]), arguments[1], arguments[2], 0
                 )
             )

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from click_gate_test_support import (
+    CLICK_EVIDENCE,
     CLICK_GATE,
     CLICK_PROCESS,
     HOOK_CONFIG,
@@ -181,7 +182,7 @@ class ClickGateContractTests(ClickGateTestCase):
         browser_contract["verification"]["done_when"] = [
             {"condition": "the page works", "primary_evidence": "E-browser"}
         ]
-        sources = CLICK_GATE._fresh_evidence_state(browser_contract)["sources"]
+        sources = CLICK_EVIDENCE.fresh_state(browser_contract)["sources"]
         raw = json.dumps(
             {
                 "version": 2,
@@ -225,10 +226,10 @@ class ClickGateContractTests(ClickGateTestCase):
         state = json.loads(state_path.read_text(encoding="utf-8"))
         sources = state["evidence_state"]["sources"]
         self.assertEqual(
-            sources[CLICK_GATE._evidence_key("E1")]["status"], "passed"
+            sources[CLICK_EVIDENCE.evidence_key("E1")]["status"], "passed"
         )
         self.assertEqual(
-            sources[CLICK_GATE._evidence_key("E2")]["status"], "ready"
+            sources[CLICK_EVIDENCE.evidence_key("E2")]["status"], "ready"
         )
         self.assertEqual(state["verification"]["status"], "ready")
         self.assertFalse(CLICK_GATE._contract_is_completed(state))
@@ -264,7 +265,7 @@ class ClickGateContractTests(ClickGateTestCase):
         revision = state["verification"]["mutation_revision"]
         sources = state["evidence_state"]["sources"]
         for evidence_id in ("E1", "E2"):
-            source = sources[CLICK_GATE._evidence_key(evidence_id)]
+            source = sources[CLICK_EVIDENCE.evidence_key(evidence_id)]
             self.assertEqual(source["status"], "passed")
             self.assertEqual(source["verified_revision"], revision)
         self.assertTrue(CLICK_GATE._contract_is_completed(state))
@@ -293,10 +294,10 @@ class ClickGateContractTests(ClickGateTestCase):
         state = json.loads(state_path.read_text(encoding="utf-8"))
         sources = state["evidence_state"]["sources"]
         self.assertEqual(
-            sources[CLICK_GATE._evidence_key("E1")]["status"], "passed"
+            sources[CLICK_EVIDENCE.evidence_key("E1")]["status"], "passed"
         )
         self.assertEqual(
-            sources[CLICK_GATE._evidence_key("E2")]["status"], "failed"
+            sources[CLICK_EVIDENCE.evidence_key("E2")]["status"], "failed"
         )
         self.assertFalse(CLICK_GATE._contract_is_completed(state))
 
@@ -361,7 +362,7 @@ class ClickGateContractTests(ClickGateTestCase):
         revision = state["verification"]["mutation_revision"]
         for evidence_id in ("E1", "E2"):
             source = state["evidence_state"]["sources"][
-                CLICK_GATE._evidence_key(evidence_id)
+                CLICK_EVIDENCE.evidence_key(evidence_id)
             ]
             self.assertEqual(source["status"], "passed")
             self.assertEqual(source["verified_revision"], revision)

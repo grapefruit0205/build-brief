@@ -33,15 +33,14 @@ class ClickProcessTests(unittest.TestCase):
                     imported,
                 )
 
-    def test_gate_keeps_compatibility_aliases_for_process_primitives(self) -> None:
-        aliases = {
-            "_copy_limited_output": click_process.copy_limited_output,
-            "_isolated_subprocess_kwargs": click_process.isolated_subprocess_kwargs,
-            "_terminate_managed_child": click_process.terminate_process_group,
-        }
-        for name, expected in aliases.items():
+    def test_gate_does_not_reexport_process_primitives(self) -> None:
+        for name in (
+            "_copy_limited_output",
+            "_isolated_subprocess_kwargs",
+            "_terminate_managed_child",
+        ):
             with self.subTest(name=name):
-                self.assertIs(getattr(click_gate, name), expected)
+                self.assertFalse(hasattr(click_gate, name))
 
     def test_isolation_kwargs_are_platform_specific(self) -> None:
         with mock.patch.object(click_process.os, "name", "posix"):

@@ -103,7 +103,8 @@ class ClickCompatibilitySurfaceTests(unittest.TestCase):
     def test_policy_explains_that_the_legacy_surface_must_shrink(self) -> None:
         policy = (ROOT / "COMPATIBILITY_SURFACE.md").read_text(encoding="utf-8")
 
-        self.assertIn("144 private module-forwarding bindings", policy)
+        self.assertIn("started with 144 private module-forwarding bindings", policy)
+        self.assertIn("123 private module-forwarding bindings", policy)
         self.assertIn("baseline must not grow", policy)
         self.assertIn("not a general public extension API", policy)
         self.assertIn("formal host API", policy)

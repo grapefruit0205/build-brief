@@ -49,14 +49,16 @@ class ClickMutationTests(unittest.TestCase):
 
     def test_gate_keeps_mutation_compatibility_aliases(self) -> None:
         aliases = {
-            "_fresh_mutation_boundary": click_mutation.fresh_boundary,
             "_fresh_mutation_state": click_mutation.fresh_state,
             "_mutation_is_running": click_mutation.is_running,
-            "_record_mutation_result": click_mutation.record_result,
         }
         for name, expected in aliases.items():
             with self.subTest(name=name):
                 self.assertIs(getattr(click_gate, name), expected)
+
+        for name in ("_fresh_mutation_boundary", "_record_mutation_result"):
+            with self.subTest(name=name):
+                self.assertFalse(hasattr(click_gate, name))
 
         self.assertIs(
             click_gate.MUTATION_REQUEST_FIELDS,

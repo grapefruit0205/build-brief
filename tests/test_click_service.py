@@ -43,16 +43,21 @@ class ClickServiceTests(unittest.TestCase):
 
     def test_gate_keeps_service_compatibility_aliases(self) -> None:
         aliases = {
-            "_fresh_service_state": click_service.fresh_state,
             "_looks_like_managed_service": click_service.looks_like_managed_service,
             "_request_service_stop": click_service.request_stop,
             "_service_snapshot": click_service.service_snapshot,
-            "_record_service_fields": click_service.record_service_fields,
-            "_claim_service_runner": click_service.claim_service_runner,
         }
         for name, expected in aliases.items():
             with self.subTest(name=name):
                 self.assertIs(getattr(click_gate, name), expected)
+
+        for name in (
+            "_fresh_service_state",
+            "_record_service_fields",
+            "_claim_service_runner",
+        ):
+            with self.subTest(name=name):
+                self.assertFalse(hasattr(click_gate, name))
 
         self.assertIs(
             click_gate.SERVICE_REQUEST_FIELDS,

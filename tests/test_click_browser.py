@@ -44,17 +44,16 @@ class ClickBrowserTests(unittest.TestCase):
             with self.subTest(required=required):
                 self.assertIn(required, imported)
 
-    def test_gate_keeps_browser_compatibility_aliases(self) -> None:
-        aliases = {
-            "_browser_input_error": click_browser.input_error,
-            "_browser_running_expires_at": click_browser.running_expires_at,
-            "_browser_running_entry_is_active": click_browser.running_entry_is_active,
-            "_browser_attempt_digest": click_browser.attempt_digest,
-            "_tool_response_failed": click_browser.response_failed,
-        }
-        for name, expected in aliases.items():
+    def test_gate_does_not_reexport_browser_helpers(self) -> None:
+        for name in (
+            "_browser_input_error",
+            "_browser_running_expires_at",
+            "_browser_running_entry_is_active",
+            "_browser_attempt_digest",
+            "_tool_response_failed",
+        ):
             with self.subTest(name=name):
-                self.assertIs(getattr(click_gate, name), expected)
+                self.assertFalse(hasattr(click_gate, name))
 
         self.assertEqual(
             click_gate.MAX_BROWSER_UNIQUE_INPUTS,

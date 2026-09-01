@@ -44,20 +44,19 @@ class ClickEvidenceTests(unittest.TestCase):
                     imported,
                 )
 
-    def test_gate_keeps_compatibility_aliases_for_evidence_primitives(self) -> None:
-        aliases = {
-            "_evidence_key": click_evidence.evidence_key,
-            "_evidence_registry_digest": click_evidence.registry_digest,
-            "_fresh_evidence_state": click_evidence.fresh_state,
-            "_evidence_is_current": click_evidence.is_current,
-            "_evidence_keys_for_kind": click_evidence.keys_for_kind,
-            "_browser_evidence_source_id": click_evidence.browser_source_id,
-            "_browser_evidence_required": click_evidence.browser_required,
-            "_fresh_external_evidence_state": click_evidence.fresh_external_state,
-        }
-        for name, expected in aliases.items():
+    def test_gate_does_not_reexport_evidence_primitives(self) -> None:
+        for name in (
+            "_evidence_key",
+            "_evidence_registry_digest",
+            "_fresh_evidence_state",
+            "_evidence_is_current",
+            "_evidence_keys_for_kind",
+            "_browser_evidence_source_id",
+            "_browser_evidence_required",
+            "_fresh_external_evidence_state",
+        ):
             with self.subTest(name=name):
-                self.assertIs(getattr(click_gate, name), expected)
+                self.assertFalse(hasattr(click_gate, name))
 
     def test_fresh_state_hashes_ids_and_omits_descriptions(self) -> None:
         ledger = click_evidence.fresh_state(self.contract)
