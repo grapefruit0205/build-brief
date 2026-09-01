@@ -29,7 +29,7 @@ class RepositoryPolicyTests(core.RepositoryPolicyTests):
             (ROOT / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8")
         )
         self.assertEqual(manifest["name"], "click")
-        self.assertEqual(manifest["version"], "0.36.1")
+        self.assertEqual(manifest["version"], "0.36.2")
         self.assertEqual(manifest["license"], "MIT")
         description = manifest["description"].lower()
         long_description = manifest["interface"]["longDescription"].lower()
@@ -64,7 +64,7 @@ class RepositoryPolicyTests(core.RepositoryPolicyTests):
         self.assertEqual(marketplace["name"], "click")
         self.assertEqual(marketplace["plugins"][0]["name"], "click")
         self.assertEqual(
-            marketplace["plugins"][0]["source"]["ref"], "v0.36.1"
+            marketplace["plugins"][0]["source"]["ref"], "v0.36.2"
         )
 
     def test_readmes_lead_with_evidence_first_positioning(self) -> None:
@@ -191,11 +191,12 @@ class RepositoryPolicyTests(core.RepositoryPolicyTests):
 
     def test_release_documents_identify_current_and_preserve_release_history(self) -> None:
         for readme in _readmes().values():
-            self.assertIn("v0.36.1", readme)
+            self.assertIn("v0.36.2", readme)
             self.assertIn("codex plugin marketplace upgrade click", readme)
             self.assertIn("codex plugin add click@click", readme)
         notes = (ROOT / "RELEASE_NOTES.md").read_text(encoding="utf-8")
         for marker in (
+            "## v0.36.2",
             "## v0.36.1",
             "## v0.36.0",
             "## v0.35.0",
