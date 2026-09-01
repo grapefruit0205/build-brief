@@ -9,7 +9,7 @@ from hooks import click_gate, click_service
 
 
 class ClickServiceTests(unittest.TestCase):
-    def test_service_module_depends_only_on_state_and_process_runtime_leaves(self) -> None:
+    def test_service_module_depends_only_on_contract_state_and_process_leaves(self) -> None:
         source = Path(click_service.__file__).read_text(encoding="utf-8")
         imported: set[str] = set()
         for node in ast.walk(ast.parse(source)):
@@ -38,6 +38,7 @@ class ClickServiceTests(unittest.TestCase):
                     imported,
                 )
         self.assertIn("click_claims", imported)
+        self.assertIn("click_contract_state", imported)
         self.assertIn("click_process", imported)
         self.assertIn("click_state", imported)
 

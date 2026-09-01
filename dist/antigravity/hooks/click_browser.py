@@ -15,10 +15,17 @@ import time
 from typing import Any
 
 if __package__:
-    from . import click_browser_advisory, click_claims, click_evidence, click_state
+    from . import (
+        click_browser_advisory,
+        click_claims,
+        click_contract_state,
+        click_evidence,
+        click_state,
+    )
 else:  # Executed directly from the bundled hooks directory.
     import click_browser_advisory
     import click_claims
+    import click_contract_state
     import click_evidence
     import click_state
 
@@ -31,14 +38,7 @@ ContractCompleted = Callable[[dict[str, Any]], bool]
 MutationRunning = Callable[[Any], bool]
 
 
-def _read_contract_state(event: dict[str, Any]) -> dict[str, Any]:
-    try:
-        value = json.loads(
-            click_state.contract_path(event).read_text(encoding="utf-8")
-        )
-    except (FileNotFoundError, json.JSONDecodeError, OSError):
-        return {"status": "none", "contract_digest": ""}
-    return value if isinstance(value, dict) else {"status": "none", "contract_digest": ""}
+_read_contract_state = click_contract_state.read_contract_state
 
 
 def _read_turn_state(event: dict[str, Any]) -> dict[str, Any]:
@@ -49,9 +49,7 @@ def _read_turn_state(event: dict[str, Any]) -> dict[str, Any]:
     return value if isinstance(value, dict) else {"status": "idle"}
 
 
-def _save_contract_state(event: dict[str, Any], state: dict[str, Any]) -> None:
-    state["updated_at"] = int(time.time())
-    click_state.write_json(click_state.contract_path(event), state)
+_save_contract_state = click_contract_state.save_contract_state
 
 
 def _sources(

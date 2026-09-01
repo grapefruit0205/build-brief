@@ -38,6 +38,7 @@ class ClickBrowserTests(unittest.TestCase):
         for required in (
             "click_browser_advisory",
             "click_claims",
+            "click_contract_state",
             "click_evidence",
             "click_state",
         ):

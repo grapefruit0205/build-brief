@@ -4,7 +4,13 @@ import ast
 from pathlib import Path
 import unittest
 
-from hooks import click_gate, click_lifecycle, click_mode, click_prompt
+from hooks import (
+    click_contract_state,
+    click_gate,
+    click_lifecycle,
+    click_mode,
+    click_prompt,
+)
 
 
 class ClickLifecycleTests(unittest.TestCase):
@@ -35,6 +41,7 @@ class ClickLifecycleTests(unittest.TestCase):
             "click_capability",
             "click_claims",
             "click_contract",
+            "click_contract_state",
             "click_evidence",
             "click_mode",
             "click_mutation",
@@ -104,6 +111,29 @@ class ClickLifecycleTests(unittest.TestCase):
         self.assertIs(
             click_lifecycle.CLICK_AUTHORIZATION_PATTERNS,
             click_prompt.CLICK_AUTHORIZATION_PATTERNS,
+        )
+
+    def test_lifecycle_delegates_contract_storage_to_the_leaf(self) -> None:
+        source = Path(click_lifecycle.__file__).read_text(encoding="utf-8")
+        for extracted in (
+            "def _read_contract_state(",
+            "def _save_contract_state(",
+            "def _clear_contract_state(",
+        ):
+            with self.subTest(extracted=extracted):
+                self.assertNotIn(extracted, source)
+
+        self.assertIs(
+            click_lifecycle.read_contract_state,
+            click_contract_state.read_contract_state,
+        )
+        self.assertIs(
+            click_lifecycle.save_contract_state,
+            click_contract_state.save_contract_state,
+        )
+        self.assertIs(
+            click_lifecycle.clear_contract_state,
+            click_contract_state.clear_contract_state,
         )
 
     def test_gate_keeps_lifecycle_compatibility_aliases(self) -> None:

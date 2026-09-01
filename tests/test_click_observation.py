@@ -41,6 +41,7 @@ class ClickObservationTests(unittest.TestCase):
         for required in (
             "click_capability",
             "click_claims",
+            "click_contract_state",
             "click_inspection",
             "click_process",
             "click_state",

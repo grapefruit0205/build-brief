@@ -24,9 +24,10 @@ import time
 from typing import Any
 
 if __package__:
-    from . import click_claims, click_process, click_state
+    from . import click_claims, click_contract_state, click_process, click_state
 else:  # Executed from the bundled hooks directory.
     import click_claims
+    import click_contract_state
     import click_process
     import click_state
 
@@ -186,19 +187,8 @@ def _decode_encoded_request(encoded: str) -> tuple[str, str]:
         return "", "Click managed service runner received an invalid request."
 
 
-def _read_contract_state(event: dict[str, Any]) -> dict[str, Any]:
-    try:
-        value = json.loads(
-            click_state.contract_path(event).read_text(encoding="utf-8")
-        )
-    except (FileNotFoundError, json.JSONDecodeError, OSError):
-        return {"status": "none", "contract_digest": ""}
-    return value if isinstance(value, dict) else {"status": "none", "contract_digest": ""}
-
-
-def _save_contract_state(event: dict[str, Any], state: dict[str, Any]) -> None:
-    state["updated_at"] = int(time.time())
-    click_state.write_json(click_state.contract_path(event), state)
+_read_contract_state = click_contract_state.read_contract_state
+_save_contract_state = click_contract_state.save_contract_state
 
 
 def _runner_prefix(action: str, runner_script: Path) -> list[str]:
