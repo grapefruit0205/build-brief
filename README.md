@@ -9,7 +9,13 @@ Community: [LINUX DO](https://linux.do/)
 
 > **Keep Codex inside the change you approved — and make “done” mean current evidence, not model confidence.**
 
+### Prompt-only coding workflows are over.
+
+> **Prompts can suggest behavior. Hooks can enforce the workflow.**
+
 **Click is a Codex plugin that turns a software-change request into one compact contract, binds later user approval to that exact intent, controls observable mutation authority at the supported Hook boundary, and ties completion evidence to the current code revision.**
+
+Click uses a **persistent Hook state machine** to mediate supported actions on the **observable execution path**. Workflow optimization stays advisory: exploration and planning receive **non-blocking guidance** rather than becoming execution authority.
 
 Click does not make the model smarter. It makes **approval, mutation authority, and completion evidence persistent and inspectable instead of relying on the model to remember them.**
 
