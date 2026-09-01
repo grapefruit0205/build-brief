@@ -92,23 +92,6 @@ else:  # Executed directly from the bundled hooks directory.
     from platform_protocol import CodexOutputAdapter, HookOutputAdapter
 
 
-# Compatibility aliases for direct callers and the existing deterministic
-# suite. Runtime process mechanics live in the one-way click_process boundary.
-_copy_limited_output = click_process.copy_limited_output
-_isolated_subprocess_kwargs = click_process.isolated_subprocess_kwargs
-_terminate_managed_child = click_process.terminate_process_group
-
-# Compatibility aliases for direct callers and the deterministic suite.
-# Prose-free registry mechanics live in the one-way click_evidence boundary.
-_evidence_key = click_evidence.evidence_key
-_evidence_registry_digest = click_evidence.registry_digest
-_fresh_evidence_state = click_evidence.fresh_state
-_evidence_is_current = click_evidence.is_current
-_evidence_keys_for_kind = click_evidence.keys_for_kind
-_browser_evidence_source_id = click_evidence.browser_source_id
-_browser_evidence_required = click_evidence.browser_required
-_fresh_external_evidence_state = click_evidence.fresh_external_state
-
 # Compatibility alias for direct callers and the deterministic suite. Contract
 # schema validation now lives in the one-way click_contract boundary.
 _validate_contract = click_contract.validate_contract
@@ -116,29 +99,15 @@ _validate_contract = click_contract.validate_contract
 # Compatibility aliases for direct callers and the deterministic suite. The
 # managed local-service state machine and runner lifecycle live in the one-way
 # click_service boundary; gate wrappers below provide only cross-domain routing.
-_fresh_service_state = click_service.fresh_state
 _looks_like_managed_service = click_service.looks_like_managed_service
 _request_service_stop = click_service.request_stop
 _service_snapshot = click_service.service_snapshot
-_record_service_fields = click_service.record_service_fields
-_claim_service_runner = click_service.claim_service_runner
-
-# Compatibility aliases for Browser receipt helpers. Admission and PostToolUse
-# state transitions live in click_browser; the gate keeps only host routing and
-# supplies cross-domain lifecycle predicates.
-_browser_input_error = click_browser.input_error
-_browser_running_expires_at = click_browser.running_expires_at
-_browser_running_entry_is_active = click_browser.running_entry_is_active
-_browser_attempt_digest = click_browser.attempt_digest
-_tool_response_failed = click_browser.response_failed
 
 # Compatibility aliases for mutation state and direct result recording. The
 # gate wrappers below inject host routing and shared execution mechanics into
 # the one-way click_mutation boundary.
-_fresh_mutation_boundary = click_mutation.fresh_boundary
 _fresh_mutation_state = click_mutation.fresh_state
 _mutation_is_running = click_mutation.is_running
-_record_mutation_result = click_mutation.record_result
 
 # Compatibility aliases for shared shell-free capability validation. These
 # leaves are used by inspection, mutation, service, and verification without

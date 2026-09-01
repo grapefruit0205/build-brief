@@ -887,7 +887,7 @@ class ClickGateInspectionTests(ClickGateTestCase):
     def test_subprocess_isolation_kwargs_are_platform_specific(self) -> None:
         with mock.patch.object(CLICK_PROCESS.os, "name", "posix"):
             self.assertEqual(
-                CLICK_GATE._isolated_subprocess_kwargs(),
+                CLICK_PROCESS.isolated_subprocess_kwargs(),
                 {"start_new_session": True},
             )
         with (
@@ -900,7 +900,7 @@ class ClickGateInspectionTests(ClickGateTestCase):
             ),
         ):
             self.assertEqual(
-                CLICK_GATE._isolated_subprocess_kwargs(),
+                CLICK_PROCESS.isolated_subprocess_kwargs(),
                 {"creationflags": 512},
             )
 

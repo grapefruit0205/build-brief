@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from click_gate_test_support import (
+    CLICK_EVIDENCE,
     CLICK_GATE,
     CLICK_PROCESS,
     HOOK_CONFIG,
@@ -169,7 +170,7 @@ class ClickGateVerificationTests(ClickGateTestCase):
         state = json.loads(state_path.read_text(encoding="utf-8"))
         sources = state["evidence_state"]["sources"]
         for evidence_id in ("E1", "E2"):
-            source = sources[CLICK_GATE._evidence_key(evidence_id)]
+            source = sources[CLICK_EVIDENCE.evidence_key(evidence_id)]
             self.assertEqual(source["status"], "passed")
             self.assertRegex(source["reserved_check_digest"], r"^[0-9a-f]{64}$")
 
@@ -486,7 +487,7 @@ class ClickGateVerificationTests(ClickGateTestCase):
             (self.plugin_data / "gate-state").glob("session-contract-*.json")
         )
         state = json.loads(state_path.read_text(encoding="utf-8"))
-        source = state["evidence_state"]["sources"][CLICK_GATE._evidence_key("E1")]
+        source = state["evidence_state"]["sources"][CLICK_EVIDENCE.evidence_key("E1")]
         self.assertEqual(state["verification"]["mutation_revision"], 1)
         self.assertEqual(source["status"], "passed")
         self.assertEqual(source["verified_revision"], 1)
@@ -703,7 +704,7 @@ class ClickGateVerificationTests(ClickGateTestCase):
             (self.plugin_data / "gate-state").glob("session-contract-*.json")
         )
         prepared = json.loads(state_path.read_text(encoding="utf-8"))
-        source_key = CLICK_GATE._evidence_key("E1")
+        source_key = CLICK_EVIDENCE.evidence_key("E1")
         prepared_digest = prepared["verification"][
             "running_environment_digests"
         ][source_key]
@@ -740,7 +741,7 @@ class ClickGateVerificationTests(ClickGateTestCase):
             (self.plugin_data / "gate-state").glob("session-contract-*.json")
         )
         prepared = json.loads(state_path.read_text(encoding="utf-8"))
-        source_key = CLICK_GATE._evidence_key("E1")
+        source_key = CLICK_EVIDENCE.evidence_key("E1")
         prepared_digest = prepared["verification"][
             "running_environment_digests"
         ][source_key]
@@ -1047,7 +1048,7 @@ class ClickGateVerificationTests(ClickGateTestCase):
         self.assertEqual(state["verification"]["status"], "ready")
         self.assertEqual(state["verification"]["runner_claimed_at"], 0)
         self.assertEqual(state["verification"]["runner_token_digest"], "")
-        source = state["evidence_state"]["sources"][CLICK_GATE._evidence_key("E1")]
+        source = state["evidence_state"]["sources"][CLICK_EVIDENCE.evidence_key("E1")]
         self.assertEqual(source["status"], "ready")
 
     def test_verification_environment_mismatch_rebinds_before_execution(
@@ -1084,7 +1085,7 @@ class ClickGateVerificationTests(ClickGateTestCase):
         self.assertEqual(verification["runner_token_digest"], "")
         self.assertEqual(verification["runner_claimed_at"], 0)
         self.assertEqual(verification["running_evidence_keys"], [])
-        source = state["evidence_state"]["sources"][CLICK_GATE._evidence_key("E1")]
+        source = state["evidence_state"]["sources"][CLICK_EVIDENCE.evidence_key("E1")]
         self.assertEqual(source["status"], "passed")
         self.assertEqual(source["unchanged_failure_retries"], 0)
 
@@ -1107,7 +1108,7 @@ class ClickGateVerificationTests(ClickGateTestCase):
         self.assertEqual(verification["status"], "ready")
         self.assertEqual(verification["runner_claimed_at"], 0)
         self.assertEqual(verification["runner_token_digest"], "")
-        source = state["evidence_state"]["sources"][CLICK_GATE._evidence_key("E1")]
+        source = state["evidence_state"]["sources"][CLICK_EVIDENCE.evidence_key("E1")]
         self.assertEqual(source["status"], "ready")
 
     def test_tampered_verification_token_does_not_release_reservation(self) -> None:
@@ -1233,7 +1234,7 @@ class ClickGateVerificationTests(ClickGateTestCase):
         )
         state_path = Path(tokens[5])
         state = json.loads(state_path.read_text(encoding="utf-8"))
-        source = state["evidence_state"]["sources"][CLICK_GATE._evidence_key("E1")]
+        source = state["evidence_state"]["sources"][CLICK_EVIDENCE.evidence_key("E1")]
         source["reserved_check_digest"] = "0" * 64
         state_path.write_text(json.dumps(state), encoding="utf-8")
 
@@ -1583,8 +1584,8 @@ class ClickGateVerificationTests(ClickGateTestCase):
         )
         state = json.loads(state_path.read_text(encoding="utf-8"))
         sources = state["evidence_state"]["sources"]
-        executed = sources[CLICK_GATE._evidence_key("E1")]
-        unrun = sources[CLICK_GATE._evidence_key("E2")]
+        executed = sources[CLICK_EVIDENCE.evidence_key("E1")]
+        unrun = sources[CLICK_EVIDENCE.evidence_key("E2")]
         self.assertEqual((executed["status"], executed["attempts"]), ("failed", 1))
         self.assertEqual((unrun["status"], unrun["attempts"]), ("ready", 0))
         self.assertEqual(unrun["unchanged_failure_retries"], 0)
@@ -1800,7 +1801,7 @@ class ClickGateVerificationTests(ClickGateTestCase):
         )
         self.assertEqual(state["verification"]["runner_claimed_at"], 0)
         original_source = state["evidence_state"]["sources"][
-            CLICK_GATE._evidence_key("E1")
+            CLICK_EVIDENCE.evidence_key("E1")
         ]
         reserved_digest = original_source["reserved_check_digest"]
         reserved_units = original_source["reserved_units"]
@@ -1811,14 +1812,14 @@ class ClickGateVerificationTests(ClickGateTestCase):
         retry = self.verify_gate([self.verification_argv()])
         self.assertEqual(retry["hookSpecificOutput"]["permissionDecision"], "allow")
         state = json.loads(state_path.read_text(encoding="utf-8"))
-        source = state["evidence_state"]["sources"][CLICK_GATE._evidence_key("E1")]
+        source = state["evidence_state"]["sources"][CLICK_EVIDENCE.evidence_key("E1")]
         self.assertEqual(source["status"], "running")
         self.assertEqual(source["attempts"], 0)
         self.assertEqual(source["unchanged_failure_retries"], 0)
         self.assertEqual(source["reserved_check_digest"], reserved_digest)
         self.assertEqual(source["reserved_units"], reserved_units)
         verification = state["verification"]
-        source_key = CLICK_GATE._evidence_key("E1")
+        source_key = CLICK_EVIDENCE.evidence_key("E1")
         for field in (
             "running_environment_digests",
             "running_executable_digests",
@@ -1923,7 +1924,7 @@ class ClickGateVerificationTests(ClickGateTestCase):
         )
         state = json.loads(state_path.read_text(encoding="utf-8"))
         source = state["evidence_state"]["sources"][
-            CLICK_GATE._evidence_key("E1")
+            CLICK_EVIDENCE.evidence_key("E1")
         ]
         self.assertEqual(
             source["verified_host_coverage"],

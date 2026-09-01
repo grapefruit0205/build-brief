@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from click_gate_test_support import (
+    CLICK_BROWSER,
+    CLICK_EVIDENCE,
     CLICK_GATE,
     CLICK_PROCESS,
     HOOK_CONFIG,
@@ -46,7 +48,7 @@ class ClickGateBrowserTests(ClickGateTestCase):
             {"status": "cancelled", "content": ["diagnostic"]},
         ):
             with self.subTest(response=response):
-                self.assertTrue(CLICK_GATE._tool_response_failed(response))
+                self.assertTrue(CLICK_BROWSER.response_failed(response))
         for response in (
             {"status": "success"},
             {"status": "completed"},
@@ -54,7 +56,7 @@ class ClickGateBrowserTests(ClickGateTestCase):
             {"result": False},
         ):
             with self.subTest(response=response):
-                self.assertFalse(CLICK_GATE._tool_response_failed(response))
+                self.assertFalse(CLICK_BROWSER.response_failed(response))
 
     def test_lost_browser_post_event_expires_and_allows_receipt_bound_retry(self) -> None:
         contract = self.contract()
@@ -150,13 +152,13 @@ class ClickGateBrowserTests(ClickGateTestCase):
                         "primary_evidence": "E-browser",
                     }
                 ]
-                self.assertTrue(CLICK_GATE._browser_evidence_required(contract))
+                self.assertTrue(CLICK_EVIDENCE.browser_required(contract))
 
         non_browser = self.contract()
         non_browser["verification"]["evidence"][0]["description"] = (
             "a local test whose name happens to contain browser"
         )
-        self.assertFalse(CLICK_GATE._browser_evidence_required(non_browser))
+        self.assertFalse(CLICK_EVIDENCE.browser_required(non_browser))
 
     def test_browser_receipt_binding_and_serial_interlock_remain_hard(self) -> None:
         contract = self.contract()
@@ -257,7 +259,7 @@ class ClickGateBrowserTests(ClickGateTestCase):
         retained = state["external_evidence"]["browser_attempts"]
         self.assertEqual(len(retained), CLICK_GATE.MAX_BROWSER_UNIQUE_INPUTS)
         self.assertNotIn("old-attempt-0", retained)
-        self.assertIn(CLICK_GATE._browser_attempt_digest(input_value), retained)
+        self.assertIn(CLICK_BROWSER.attempt_digest(input_value), retained)
         self.assertIsNone(
             self.tool_hook(
                 "post-tool",
@@ -460,7 +462,7 @@ class ClickGateBrowserTests(ClickGateTestCase):
         )
         state = json.loads(state_path.read_text(encoding="utf-8"))
         source = state["evidence_state"]["sources"][
-            CLICK_GATE._evidence_key("E-browser")
+            CLICK_EVIDENCE.evidence_key("E-browser")
         ]
         self.assertEqual(state["external_evidence"]["browser_status"], "observed")
         self.assertEqual(source["status"], "observed")
@@ -491,7 +493,7 @@ class ClickGateBrowserTests(ClickGateTestCase):
         state = json.loads(state_path.read_text(encoding="utf-8"))
         self.assertEqual(
             state["external_evidence"]["browser_source_key"],
-            CLICK_GATE._evidence_key("E-browser"),
+            CLICK_EVIDENCE.evidence_key("E-browser"),
         )
         self.assertFalse(CLICK_GATE._contract_is_completed(state))
         premature = self.complete_evidence("E-browser")

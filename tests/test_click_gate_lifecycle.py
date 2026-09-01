@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from click_gate_test_support import (
+    CLICK_EVIDENCE,
     CLICK_GATE,
     CLICK_PROCESS,
     HOOK_CONFIG,
@@ -291,7 +292,7 @@ class ClickGateLifecycleTests(ClickGateTestCase):
         )
         self.assertEqual(len(state_paths), 1)
         state = json.loads(state_paths[0].read_text(encoding="utf-8"))
-        source = state["evidence_state"]["sources"][CLICK_GATE._evidence_key("E1")]
+        source = state["evidence_state"]["sources"][CLICK_EVIDENCE.evidence_key("E1")]
         self.assertEqual(state["contract_id"], contract_id)
         self.assertEqual(state["approved_turn_id"], "turn-2")
         self.assertEqual(state["follow_up_turns"][0]["turn_id"], "turn-3")
@@ -579,7 +580,7 @@ class ClickGateLifecycleTests(ClickGateTestCase):
             (self.plugin_data / "gate-state").glob("session-contract-*.json")
         )
         state = json.loads(state_path.read_text(encoding="utf-8"))
-        source = state["evidence_state"]["sources"][CLICK_GATE._evidence_key("E1")]
+        source = state["evidence_state"]["sources"][CLICK_EVIDENCE.evidence_key("E1")]
         source["status"] = "passed"
         source["verified_revision"] = state["verification"]["mutation_revision"]
         state["state_schema_version"] = 999
@@ -629,9 +630,9 @@ class ClickGateLifecycleTests(ClickGateTestCase):
         )
         state = json.loads(state_path.read_text(encoding="utf-8"))
         del state["evidence_state"]["sources"][
-            CLICK_GATE._evidence_key("E-manual")
+            CLICK_EVIDENCE.evidence_key("E-manual")
         ]
-        remaining = state["evidence_state"]["sources"][CLICK_GATE._evidence_key("E1")]
+        remaining = state["evidence_state"]["sources"][CLICK_EVIDENCE.evidence_key("E1")]
         remaining["status"] = "passed"
         remaining["verified_revision"] = state["verification"]["mutation_revision"]
         state_path.write_text(json.dumps(state), encoding="utf-8")
@@ -1070,7 +1071,7 @@ class ClickGateLifecycleTests(ClickGateTestCase):
         self.assertNotIn("existing notification mechanism", state_text)
         self.assertNotIn("재고가 임계값", state_text)
         self.assertNotIn('"E1"', state_text)
-        self.assertIn(CLICK_GATE._evidence_key("E1"), state_text)
+        self.assertIn(CLICK_EVIDENCE.evidence_key("E1"), state_text)
         self.assertNotIn("private-marker.txt", state_text)
         self.assertNotIn("private marker", state_text)
 
