@@ -241,16 +241,16 @@ Antigravity IDE 用户也可以把 `dist/antigravity` 复制到工作区的 `.ag
 
 Antigravity 的 Hook contract 与 Codex 不同。native file/search 和其他 MCP、Skill 工具仍可使用，但目前还不支持 cross-tool 去重和 Browser evidence。准确限制请参阅 [`platforms/antigravity/README.md`](platforms/antigravity/README.md)。
 
-## 更新现有安装 — v0.32.0
+## 更新现有安装 — v0.33.0
 
-当前版本是 **v0.32.0**。
+当前版本是 **v0.33.0**。
 
 ```bash
 codex plugin marketplace upgrade click
 codex plugin add click@click
 ```
 
-重启 ChatGPT 桌面应用并检查、信任更新后的 Hook。v0.32.0 还会把每个 verification runner 和成功的 argv receipt 绑定到当前 host 及其确定性的 known-surface Hook coverage digest。精确复用和 dependency-aware 复用只有在该 coverage identity、已批准的 dependency 集、精确 check、环境、可执行文件和 mutation receipt 全部匹配时才会发生；任一项变化时 Click 都会重新运行 check。该 receipt 不会声称观察到了 host 中不产生 Hook event 的路径。升级后请开始新 contract，不要复用旧安装留下的待执行 runner。
+重启 ChatGPT 桌面应用并检查、信任更新后的 Hook。v0.33.0 将 service、Browser admission、mutation、capability、inspection、observation、verification 和 approval lifecycle 职责拆分为明确的单向 runtime domain。`click_gate.py` 仅保留 host event routing 和兼容 facade，同时保持既有 contract schema、精确错误信息、one-use authorization、replay 防护以及 revision-bound receipt 行为不变。Codex 与内置的 Antigravity 发行版使用相同的拆分模块。升级后请开始新 contract，不要复用旧安装留下的待执行 runner。
 
 详细发布历史见 [RELEASE_NOTES.md](RELEASE_NOTES.md)。
 
