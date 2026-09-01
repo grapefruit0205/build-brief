@@ -461,6 +461,9 @@ class RepositoryPolicyTests(unittest.TestCase):
 
     def test_contract_id_is_the_canonical_approval_handoff(self) -> None:
         hook = (ROOT / "hooks" / "click_gate.py").read_text(encoding="utf-8")
+        lifecycle = (ROOT / "hooks" / "click_lifecycle.py").read_text(
+            encoding="utf-8"
+        )
         directive = (
             ROOT / "skills" / "click" / "references" / "directive-format.md"
         ).read_text(encoding="utf-8")
@@ -469,10 +472,10 @@ class RepositoryPolicyTests(unittest.TestCase):
         )
 
         self.assertIn("CONTRACT_ID_PATTERN", hook)
-        self.assertIn("secrets.token_hex(16)", hook)
-        self.assertIn('"contract_id": contract_id', hook)
-        self.assertIn("not the Execution ", hook)
-        self.assertIn("Contract JSON", hook)
+        self.assertIn("secrets.token_hex(16)", lifecycle)
+        self.assertIn('"contract_id": contract_id', lifecycle)
+        self.assertIn("not the Execution ", lifecycle)
+        self.assertIn("Contract JSON", lifecycle)
         self.assertNotIn("pass '<Execution Contract JSON>'", hook)
 
         for document in (directive, grader):
@@ -512,6 +515,7 @@ class RepositoryPolicyTests(unittest.TestCase):
                 "click_evidence.py",
                 "click_host_coverage.py",
                 "click_inspection.py",
+                "click_lifecycle.py",
                 "click_gate.py",
                 "click_mutation.py",
                 "click_observation.py",
@@ -615,6 +619,30 @@ class RepositoryPolicyTests(unittest.TestCase):
             with self.subTest(forbidden=forbidden):
                 self.assertNotIn(f"import {forbidden}", evidence)
                 self.assertNotIn(f"from {forbidden}", evidence)
+
+    def test_lifecycle_orchestration_is_isolated_from_host_routing(self) -> None:
+        gate = (ROOT / "hooks" / "click_gate.py").read_text(encoding="utf-8")
+        lifecycle = (ROOT / "hooks" / "click_lifecycle.py").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("click_lifecycle", gate)
+        for required in (
+            "def prompt_context(",
+            "def stage_contract(",
+            "def pass_contract(",
+            "def record_evidence_completion(",
+        ):
+            with self.subTest(required=required):
+                self.assertIn(required, lifecycle)
+        for forbidden in (
+            "click_gate",
+            "click_host_coverage",
+            "platform_protocol",
+        ):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(f"import {forbidden}", lifecycle)
+                self.assertNotIn(f"from {forbidden}", lifecycle)
 
     def test_verification_policy_and_meter_are_separate_runtime_boundaries(self) -> None:
         gate = (ROOT / "hooks" / "click_gate.py").read_text(encoding="utf-8")

@@ -169,9 +169,11 @@ class RepositoryPolicyTests(core.RepositoryPolicyTests):
         self.assertIn("다음 turn의 사용자 승인", readmes["README.ko.md"])
         self.assertIn("后续用户 turn 批准", readmes["README.zh-CN.md"])
 
-        hook = (ROOT / "hooks" / "click_gate.py").read_text(encoding="utf-8")
-        self.assertIn("staged_turn_id", hook)
-        self.assertIn("approved_turn_id", hook)
+        lifecycle = (ROOT / "hooks" / "click_lifecycle.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("staged_turn_id", lifecycle)
+        self.assertIn("approved_turn_id", lifecycle)
         hook_config = json.loads((ROOT / "hooks" / "hooks.json").read_text(encoding="utf-8"))
         self.assertIn("UserPromptSubmit", hook_config["hooks"])
         directive = _reference("directive-format.md")
