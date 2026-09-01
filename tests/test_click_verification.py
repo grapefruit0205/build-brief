@@ -43,6 +43,7 @@ class ClickVerificationTests(unittest.TestCase):
             "click_mutation",
             "click_observation",
             "click_process",
+            "click_runtime_state",
             "click_state",
             "click_verification_meter",
             "click_verification_policy",

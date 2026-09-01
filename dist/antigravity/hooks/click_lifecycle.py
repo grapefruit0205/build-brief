@@ -25,6 +25,7 @@ if __package__:
         click_evidence,
         click_mutation,
         click_observation,
+        click_runtime_state,
         click_service,
         click_state,
         click_verification,
@@ -37,6 +38,7 @@ else:  # Executed directly from the bundled hooks directory.
     import click_evidence
     import click_mutation
     import click_observation
+    import click_runtime_state
     import click_service
     import click_state
     import click_verification
@@ -269,11 +271,12 @@ def _fresh_evidence_state(
 
 
 def _evidence_state_is_usable(state: dict[str, Any]) -> bool:
+    runtime = click_runtime_state.view(state)
     return bool(
-        state.get("status") == "evidence"
-        and state.get("runtime_mode") == "evidence"
-        and state.get("state_schema_version") == CONTRACT_STATE_SCHEMA_VERSION
-        and re.fullmatch(r"[0-9a-f]{64}", str(state.get("intent_digest", "")))
+        runtime.evidence
+        and runtime.runtime_mode == "evidence"
+        and runtime.state_schema_version == CONTRACT_STATE_SCHEMA_VERSION
+        and re.fullmatch(r"[0-9a-f]{64}", runtime.intent_digest)
         and isinstance(state.get("verification"), dict)
         and _evidence_sources(state) is not None
     )
@@ -281,11 +284,12 @@ def _evidence_state_is_usable(state: dict[str, Any]) -> bool:
 
 def _ensure_evidence_state(event: dict[str, Any]) -> tuple[dict[str, Any], bool]:
     state = _read_contract_state(event)
-    if state.get("status") == "staged" or (
-        state.get("status") == "approved" and not _contract_is_completed(state)
+    runtime = click_runtime_state.view(state)
+    if runtime.staged or (
+        runtime.guarded_approved and not _contract_is_completed(state)
     ):
         return state, False
-    recovered = state.get("status") == "evidence" and not _evidence_state_is_usable(state)
+    recovered = runtime.evidence and not _evidence_state_is_usable(state)
     if not _evidence_state_is_usable(state) or _contract_is_completed(state):
         state = _fresh_evidence_state(event, history_complete=not recovered)
         _save_contract_state(event, state)
@@ -296,15 +300,15 @@ def _ensure_evidence_state(event: dict[str, Any]) -> tuple[dict[str, Any], bool]
 
 
 def _contract_id_from_state(state: dict[str, Any]) -> str:
-    digest = state.get("contract_digest")
-    if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
+    runtime = click_runtime_state.view(state)
+    digest = runtime.contract_digest
+    if not re.fullmatch(r"[0-9a-f]{64}", digest):
         return ""
-    contract_id = state.get("contract_id")
-    if "contract_id" in state:
+    contract_id = runtime.contract_id
+    if runtime.contains("contract_id"):
         return (
             contract_id
-            if isinstance(contract_id, str)
-            and CONTRACT_ID_PATTERN.fullmatch(contract_id)
+            if CONTRACT_ID_PATTERN.fullmatch(contract_id)
             else ""
         )
     # Compatibility only for a staged or incomplete state created before ids existed.
@@ -410,7 +414,7 @@ def _active_prompt_turn_error(event: dict[str, Any]) -> str:
 
 
 def _contract_is_completed(state: dict[str, Any]) -> bool:
-    if state.get("status") not in {"approved", "evidence"}:
+    if not click_runtime_state.view(state).execution_authorized:
         return False
     verification = state.get("verification")
     if not isinstance(verification, dict):
@@ -446,12 +450,16 @@ def _contract_is_completed(state: dict[str, Any]) -> bool:
 
 
 def _approved_contract_is_active(state: dict[str, Any]) -> bool:
-    return bool(state.get("status") == "approved" and not _contract_is_completed(state))
+    return bool(
+        click_runtime_state.view(state).guarded_approved
+        and not _contract_is_completed(state)
+    )
 
 
 def _session_contract_is_active(state: dict[str, Any]) -> bool:
     return bool(
-        state.get("status") == "staged" or _approved_contract_is_active(state)
+        click_runtime_state.view(state).staged
+        or _approved_contract_is_active(state)
     )
 
 
@@ -585,8 +593,9 @@ def prompt_context(event: dict[str, Any]) -> str:
     recovered_evidence = False
     if default_mode == "evidence" and not active_guarded:
         contract_state, recovered_evidence = _ensure_evidence_state(event)
-    elif contract_state.get("status") == "approved" and _append_follow_up(
-        event, contract_state
+    elif (
+        click_runtime_state.view(contract_state).guarded_approved
+        and _append_follow_up(event, contract_state)
     ):
         _save_contract_state(event, contract_state)
 
@@ -656,7 +665,7 @@ def prompt_context(event: dict[str, Any]) -> str:
             "work remains available."
         )
     contract_id = _contract_id_from_state(contract_state)
-    contract_status = contract_state.get("status")
+    contract_status = click_runtime_state.view(contract_state).status
     contract_completed = _contract_is_completed(contract_state)
     contract_sources = (
         _evidence_sources(contract_state)
@@ -867,7 +876,7 @@ def record_evidence_completion(
     if error:
         return "", error
     state = _read_contract_state(event)
-    if state.get("status") not in {"approved", "evidence"}:
+    if not click_runtime_state.view(state).execution_authorized:
         return "", "Start Guarded or Evidence runtime state before recording evidence."
     verification = state.get("verification")
     if not isinstance(verification, dict):

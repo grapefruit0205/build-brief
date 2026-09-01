@@ -35,6 +35,7 @@ if __package__:
         click_mutation,
         click_observation,
         click_process,
+        click_runtime_state,
         click_state,
         click_verification_meter,
         click_verification_policy,
@@ -49,6 +50,7 @@ else:  # Executed directly from the bundled hooks directory.
     import click_mutation
     import click_observation
     import click_process
+    import click_runtime_state
     import click_state
     import click_verification_meter
     import click_verification_policy
@@ -1267,7 +1269,8 @@ def _prepare_verification(
     git_capture: Callable[[Path, list[str]], bytes | None] = _git_capture,
 ) -> tuple[str, str, str]:
     state = _read_contract_state(event)
-    if state.get("status") not in {"approved", "evidence"}:
+    runtime = click_runtime_state.view(state)
+    if not runtime.execution_authorized:
         return "", "Start Guarded or Evidence runtime state before verification.", ""
     mutation = state.get("mutation")
     if _mutation_is_running(mutation):
@@ -1304,7 +1307,7 @@ def _prepare_verification(
             "stage the proposal again, and obtain fresh approval.",
             "",
         )
-    if not sources and state.get("status") == "approved":
+    if not sources and runtime.guarded_approved:
         return (
             "",
             "Click evidence state is unavailable or malformed; cancel and restage.",
@@ -1331,7 +1334,7 @@ def _prepare_verification(
                         "",
                     )
 
-    if state.get("status") == "evidence":
+    if runtime.evidence:
         provisional, _, error = _validate_verification_batch(raw, scale, None)
         if error:
             return "", error, ""
@@ -2044,7 +2047,7 @@ def _claim_verification_run(
         state = json.loads(state_path.read_text(encoding="utf-8"))
     except (FileNotFoundError, json.JSONDecodeError, OSError):
         return None, "Click verification runner could not read its contract state."
-    if not isinstance(state, dict) or state.get("status") not in {"approved", "evidence"}:
+    if not click_runtime_state.view(state).execution_authorized:
         return None, "Click verification runner is no longer authorized to execute."
     verification = state.get("verification")
     if not isinstance(verification, dict):
@@ -2215,7 +2218,7 @@ def _release_unclaimed_verification_reservation(
         state = json.loads(state_path.read_text(encoding="utf-8"))
     except (FileNotFoundError, json.JSONDecodeError, OSError):
         return False
-    if not isinstance(state, dict) or state.get("status") not in {"approved", "evidence"}:
+    if not click_runtime_state.view(state).execution_authorized:
         return False
     verification = state.get("verification")
     if not isinstance(verification, dict) or verification.get("status") != "running":

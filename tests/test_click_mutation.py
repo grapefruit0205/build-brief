@@ -42,6 +42,7 @@ class ClickMutationTests(unittest.TestCase):
             "click_claims",
             "click_dependency_cache",
             "click_evidence",
+            "click_runtime_state",
             "click_state",
         ):
             with self.subTest(required=required):
