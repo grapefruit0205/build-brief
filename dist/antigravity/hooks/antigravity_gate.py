@@ -19,11 +19,17 @@ import time
 from typing import Any, Callable
 
 if __package__:
-    from . import click_gate, click_host_coverage, click_state
+    from . import (
+        click_gate,
+        click_host_coverage,
+        click_runner_transport,
+        click_state,
+    )
     from .platform_protocol import AntigravityOutputAdapter, CodexOutputAdapter
 else:  # Executed directly from the bundled hooks directory.
     import click_gate
     import click_host_coverage
+    import click_runner_transport
     import click_state
     from platform_protocol import AntigravityOutputAdapter, CodexOutputAdapter
 
@@ -263,7 +269,7 @@ def _control_launcher_prefix() -> list[str]:
     interpreter = Path(sys.executable).resolve(strict=True)
     script = Path(__file__).resolve(strict=True)
     if os.name == "nt" and not all(
-        click_gate._windows_launcher_path_is_safe(str(path))
+        click_runner_transport.windows_launcher_path_is_safe(str(path))
         for path in (interpreter, script)
     ):
         raise ValueError(

@@ -30,6 +30,7 @@ HOOK_FILES = (
     "click_mutation.py",
     "click_observation.py",
     "click_process.py",
+    "click_runner_transport.py",
     "click_service.py",
     "click_state.py",
     "click_verification.py",

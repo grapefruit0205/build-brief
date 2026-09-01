@@ -11,11 +11,11 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-import click_gate
-import click_hook
-
-
-_ORIGINAL_RUNNER_SHELL_COMMAND = click_gate._runner_shell_command
+if __package__:
+    from . import click_hook, click_runner_transport
+else:  # Executed directly from the bundled hooks directory.
+    import click_hook
+    import click_runner_transport
 
 
 def _powershell_single_quote(value: str) -> str:
@@ -24,7 +24,7 @@ def _powershell_single_quote(value: str) -> str:
 
 def _runner_shell_command(arguments: list[str]) -> str:
     if os.name != "nt":
-        return _ORIGINAL_RUNNER_SHELL_COMMAND(arguments)
+        return click_runner_transport.default_runner_shell_command(arguments)
     if len(arguments) < 3:
         return "exit 2"
     try:
@@ -35,12 +35,12 @@ def _runner_shell_command(arguments: list[str]) -> str:
     if not interpreter.is_file() or not script_path.is_file():
         return "exit 2"
     if not all(
-        click_gate._windows_launcher_path_is_safe(value)
+        click_runner_transport.windows_launcher_path_is_safe(value)
         for value in (str(interpreter), str(script_path))
     ):
         return "exit 2"
 
-    encoded = click_gate._encode_runner_transport(arguments[2:])
+    encoded = click_runner_transport.encode_runner_transport(arguments[2:])
     script = " ".join(
         (
             "&",
@@ -52,16 +52,16 @@ def _runner_shell_command(arguments: list[str]) -> str:
     )
     command = (
         "powershell.exe -NoProfile -NonInteractive -Command "
-        + click_gate._windows_shell_quote(script)
+        + click_runner_transport.windows_shell_quote(script)
     )
-    if len(command) > click_gate.WINDOWS_COMMAND_LINE_LIMIT:
+    if len(command) > click_runner_transport.WINDOWS_COMMAND_LINE_LIMIT:
         return "exit 2"
     return command
 
 
 def main() -> int:
     if os.name == "nt":
-        click_gate._runner_shell_command = _runner_shell_command
+        click_runner_transport.install_runner_shell_renderer(_runner_shell_command)
     return click_hook.main()
 
 

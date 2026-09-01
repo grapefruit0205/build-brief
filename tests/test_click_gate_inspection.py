@@ -20,6 +20,9 @@ from click_gate_test_support import (
 )
 
 
+CLICK_RUNNER_TRANSPORT = CLICK_GATE.click_runner_transport
+
+
 class ClickGateInspectionTests(ClickGateTestCase):
     def test_hook_config_loads_mode_for_each_prompt(self) -> None:
         config = json.loads(HOOK_CONFIG.read_text(encoding="utf-8"))
@@ -322,7 +325,9 @@ class ClickGateInspectionTests(ClickGateTestCase):
             ["Get-Content", "-LiteralPath", r"C:\Program Files\README.md"],
         )
         self.assertEqual(
-            CLICK_GATE._windows_shell_quote(r"C:\plugin&data\gate-state"),
+            CLICK_RUNNER_TRANSPORT.windows_shell_quote(
+                r"C:\plugin&data\gate-state"
+            ),
             r'"C:\plugin&data\gate-state"',
         )
 
@@ -338,20 +343,20 @@ class ClickGateInspectionTests(ClickGateTestCase):
             "token",
             "encoded-request",
         ]
-        with mock.patch.object(CLICK_GATE.os, "name", "nt"):
-            command = CLICK_GATE._runner_shell_command(arguments)
+        with mock.patch.object(CLICK_RUNNER_TRANSPORT.os, "name", "nt"):
+            command = CLICK_RUNNER_TRANSPORT.default_runner_shell_command(arguments)
         self.assertTrue(command.startswith('py -3 "C:\\Users\\safe user'))
         self.assertNotIn(arguments[0], command)
         self.assertIn('"--encoded-runner"', command)
         self.assertNotIn("%PATH%", command)
         self.assertNotIn("!CLICK!", command)
         encoded = command.rsplit('"', 2)[1]
-        decoded, error = CLICK_GATE._decode_runner_transport(encoded)
+        decoded, error = CLICK_RUNNER_TRANSPORT.decode_runner_transport(encoded)
         self.assertEqual(error, "")
         self.assertEqual(decoded, arguments[2:])
 
     def test_windows_runner_refuses_expandable_launcher_paths(self) -> None:
-        with mock.patch.object(CLICK_GATE.os, "name", "nt"):
+        with mock.patch.object(CLICK_RUNNER_TRANSPORT.os, "name", "nt"):
             for launcher in (
                 r"C:\%PATH%\python.exe",
                 r"C:\!CLICK!\python.exe",
@@ -360,23 +365,26 @@ class ClickGateInspectionTests(ClickGateTestCase):
             ):
                 with self.subTest(launcher=launcher):
                     self.assertEqual(
-                        CLICK_GATE._runner_shell_command(
+                        CLICK_RUNNER_TRANSPORT.default_runner_shell_command(
                             [launcher, r"C:\click_gate.py", "run-inspection-once", "x"]
                         ),
                         "exit 2",
                     )
 
     def test_runner_transport_rejects_malformed_or_oversized_payloads(self) -> None:
-        for encoded in ("not-base64%", CLICK_GATE._encode_runner_transport([])):
+        for encoded in (
+            "not-base64%",
+            CLICK_RUNNER_TRANSPORT.encode_runner_transport([]),
+        ):
             with self.subTest(encoded=encoded):
-                decoded, error = CLICK_GATE._decode_runner_transport(encoded)
+                decoded, error = CLICK_RUNNER_TRANSPORT.decode_runner_transport(encoded)
                 self.assertIsNone(decoded)
                 self.assertTrue(error)
 
-        bomb = CLICK_GATE.base64.urlsafe_b64encode(
-            CLICK_GATE.zlib.compress(b'"' + b"x" * 30_000 + b'"')
+        bomb = CLICK_RUNNER_TRANSPORT.base64.urlsafe_b64encode(
+            CLICK_RUNNER_TRANSPORT.zlib.compress(b'"' + b"x" * 30_000 + b'"')
         ).decode()
-        decoded, error = CLICK_GATE._decode_runner_transport(bomb)
+        decoded, error = CLICK_RUNNER_TRANSPORT.decode_runner_transport(bomb)
         self.assertIsNone(decoded)
         self.assertIn("bounded payload", error)
 
