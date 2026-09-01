@@ -449,7 +449,7 @@ class AntigravityAdapterTests(unittest.TestCase):
 
     @unittest.skipUnless(os.name == "nt", "Windows argv parser regression")
     def test_windows_encoded_runner_round_trips_without_shell_expansion(self) -> None:
-        from hooks import antigravity_gate, click_gate
+        from hooks import antigravity_gate, click_runner_transport
 
         arguments = [
             str(Path(sys.executable).resolve()),
@@ -459,18 +459,18 @@ class AntigravityAdapterTests(unittest.TestCase):
             "run-verification",
             "encoded-payload",
         ]
-        command = click_gate._runner_shell_command(arguments)
+        command = click_runner_transport.default_runner_shell_command(arguments)
         parsed = antigravity_gate._command_argv(command)
         self.assertEqual(parsed[:3], ["py", "-3", arguments[1]])
         self.assertEqual(parsed[3], "--encoded-runner")
-        decoded, error = click_gate._decode_runner_transport(parsed[4])
+        decoded, error = click_runner_transport.decode_runner_transport(parsed[4])
         self.assertEqual(error, "")
         self.assertEqual(decoded, arguments[2:])
 
         direct = antigravity_gate._runner_command_argv(command)
         self.assertEqual(direct[:2], arguments[:2])
         self.assertEqual(direct[2], "--encoded-runner")
-        decoded, error = click_gate._decode_runner_transport(direct[3])
+        decoded, error = click_runner_transport.decode_runner_transport(direct[3])
         self.assertEqual(error, "")
         self.assertEqual(decoded, arguments[2:])
 

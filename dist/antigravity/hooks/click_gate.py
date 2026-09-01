@@ -10,17 +10,14 @@ sufficiency. Structured argv requests execute without a shell.
 
 from __future__ import annotations
 
-import base64
 import json
 import os
 from pathlib import Path
 import secrets
-import shlex
 import shutil
 import subprocess
 import sys
 import time
-import zlib
 from typing import Any
 
 if __package__:
@@ -37,6 +34,7 @@ if __package__:
         click_observation,
         click_process,
         click_receipt_runtime,
+        click_runner_transport,
         click_service,
         click_verification,
         click_verification_policy,
@@ -70,6 +68,7 @@ else:  # Executed directly from the bundled hooks directory.
     import click_observation
     import click_process
     import click_receipt_runtime
+    import click_runner_transport
     import click_service
     import click_verification
     import click_verification_policy
@@ -442,97 +441,6 @@ _validate_evidence_result = click_lifecycle.validate_evidence_result
 _control_request = click_lifecycle.control_request
 
 
-def _windows_shell_quote(argument: str) -> str:
-    """Quote one argv item for cmd.exe while preserving CRT argv decoding."""
-    if any(character in argument for character in ("\0", "\r", "\n")):
-        raise ValueError("Click runner arguments cannot contain control characters.")
-    result = ['"']
-    backslashes = 0
-    for character in argument:
-        if character == "\\":
-            backslashes += 1
-            continue
-        if character == '"':
-            result.append("\\" * (backslashes * 2 + 1))
-            result.append('"')
-            backslashes = 0
-            continue
-        if backslashes:
-            result.append("\\" * backslashes)
-            backslashes = 0
-        result.append(character)
-    if backslashes:
-        result.append("\\" * (backslashes * 2))
-    result.append('"')
-    return "".join(result)
-
-
-MAX_RUNNER_TRANSPORT_BYTES = 24_000
-WINDOWS_COMMAND_LINE_LIMIT = 8_191
-
-
-def _encode_runner_transport(arguments: list[str]) -> str:
-    raw = json.dumps(arguments, ensure_ascii=False, separators=(",", ":")).encode()
-    return base64.urlsafe_b64encode(zlib.compress(raw, level=9)).decode()
-
-
-def _decode_runner_transport(encoded: str) -> tuple[list[str] | None, str]:
-    try:
-        compressed = base64.b64decode(
-            encoded.encode(), altchars=b"-_", validate=True
-        )
-        decompressor = zlib.decompressobj()
-        raw = decompressor.decompress(compressed, MAX_RUNNER_TRANSPORT_BYTES + 1)
-        if (
-            len(raw) > MAX_RUNNER_TRANSPORT_BYTES
-            or not decompressor.eof
-            or decompressor.unconsumed_tail
-            or decompressor.unused_data
-        ):
-            return None, "Click runner transport exceeded its bounded payload."
-        value = json.loads(raw.decode())
-    except (UnicodeDecodeError, ValueError, json.JSONDecodeError, zlib.error):
-        return None, "Click runner transport was malformed."
-    if (
-        not isinstance(value, list)
-        or not value
-        or any(not isinstance(item, str) or "\x00" in item for item in value)
-    ):
-        return None, "Click runner transport did not contain a valid argv list."
-    return value, ""
-
-
-def _windows_launcher_path_is_safe(value: str) -> bool:
-    # Arguments after the launcher are encoded. These characters remain unsafe
-    # in the two launcher paths because cmd.exe and PowerShell expand them even
-    # inside double quotes under some configurations.
-    return not any(character in value for character in ("%", "!", "$", "`"))
-
-
-def _runner_shell_command(arguments: list[str]) -> str:
-    if os.name == "nt":
-        if len(arguments) < 3 or not all(
-            _windows_launcher_path_is_safe(argument) for argument in arguments[:2]
-        ):
-            return "exit 2"
-        transported = [
-            arguments[1],
-            "--encoded-runner",
-            _encode_runner_transport(arguments[2:]),
-        ]
-        # hooks.json already requires the Windows py launcher. Reuse its bare
-        # command form here so the rewritten runner is valid in both cmd.exe
-        # and PowerShell; a quoted executable path in command position is only
-        # an expression in PowerShell unless prefixed with its call operator.
-        command = "py -3 " + " ".join(
-            _windows_shell_quote(argument) for argument in transported
-        )
-        if len(command) > WINDOWS_COMMAND_LINE_LIMIT:
-            return "exit 2"
-        return command
-    return shlex.join(arguments)
-
-
 def _stateful_runner_prefix(action: str) -> list[str]:
     """Bind a rewritten runner to the state root selected by the Hook process."""
     return [
@@ -553,7 +461,7 @@ def _observation_runner_command(
         request_digest,
         runner_token,
         runner_script=Path(__file__).resolve(),
-        render_command=_runner_shell_command,
+        render_command=click_runner_transport.render_runner_shell_command,
     )
 
 
@@ -572,7 +480,7 @@ def _prepare_observation(
         mutation_is_running=_mutation_is_running,
         fresh_mutation_state=_fresh_mutation_state,
         runner_script=Path(__file__).resolve(),
-        render_command=_runner_shell_command,
+        render_command=click_runner_transport.render_runner_shell_command,
     )
 
 
@@ -580,7 +488,7 @@ def _inspection_once_runner_command(request: dict[str, Any]) -> str:
     return click_inspection.runner_command(
         request,
         runner_script=Path(__file__).resolve(),
-        render_command=_runner_shell_command,
+        render_command=click_runner_transport.render_runner_shell_command,
     )
 
 
@@ -593,7 +501,7 @@ def _mutation_runner_command(
         request_digest,
         runner_token,
         runner_script=Path(__file__).resolve(),
-        render_command=_runner_shell_command,
+        render_command=click_runner_transport.render_runner_shell_command,
     )
 
 
@@ -608,8 +516,9 @@ def _prepare_mutation(event: dict[str, Any], raw: str) -> tuple[str, str]:
         observation_is_running=_observation_is_running,
         workspace_snapshot=_git_workspace_snapshot,
         runner_script=Path(__file__).resolve(),
-        render_command=_runner_shell_command,
+        render_command=click_runner_transport.render_runner_shell_command,
     )
+
 
 def _service_runner_command(
     event: dict[str, Any],
@@ -623,7 +532,7 @@ def _service_runner_command(
         service_id,
         runner_token=runner_token,
         runner_script=Path(__file__).resolve(),
-        render_command=_runner_shell_command,
+        render_command=click_runner_transport.render_runner_shell_command,
     )
 
 
@@ -637,7 +546,7 @@ def _prepare_service(event: dict[str, Any], raw: str) -> tuple[str, str]:
             value, host_tool_use=False
         ),
         runner_script=Path(__file__).resolve(),
-        render_command=_runner_shell_command,
+        render_command=click_runner_transport.render_runner_shell_command,
     )
 
 
@@ -650,7 +559,7 @@ def _verification_runner_command(
         batch_digest,
         runner_token,
         runner_script=Path(__file__).resolve(),
-        render_command=_runner_shell_command,
+        render_command=click_runner_transport.render_runner_shell_command,
     )
 
 
@@ -668,7 +577,7 @@ def _tool_working_directory(event: dict[str, Any]) -> Path:
 
 def _receipt_export_runner_command(event: dict[str, Any]) -> str:
     host_id = click_host_coverage.host_id_from_event(event)
-    return _runner_shell_command(
+    return click_runner_transport.render_runner_shell_command(
         [
             *_stateful_runner_prefix("run-receipt-export"),
             str(_contract_path(event).resolve()),
@@ -679,7 +588,7 @@ def _receipt_export_runner_command(event: dict[str, Any]) -> str:
 
 
 def _receipt_verify_runner_command(path: str) -> str:
-    return _runner_shell_command(
+    return click_runner_transport.render_runner_shell_command(
         [
             sys.executable,
             str(Path(__file__).resolve()),
@@ -700,7 +609,7 @@ def _prepare_verification(
         event,
         raw,
         runner_script=Path(__file__).resolve(),
-        render_command=_runner_shell_command,
+        render_command=click_runner_transport.render_runner_shell_command,
         git_workspace_snapshot=_git_workspace_snapshot,
         git_capture=_git_capture,
     )
@@ -1457,7 +1366,9 @@ def main() -> int:
         if len(arguments) != 2:
             sys.stderr.write("Click runner transport was malformed.\n")
             return 2
-        decoded, transport_error = _decode_runner_transport(arguments[1])
+        decoded, transport_error = click_runner_transport.decode_runner_transport(
+            arguments[1]
+        )
         if transport_error or decoded is None:
             sys.stderr.write(f"{transport_error}\n")
             return 2

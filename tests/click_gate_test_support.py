@@ -73,7 +73,7 @@ def split_runner_command(command: str) -> list[str]:
         len(parsed) == encoded_index + 2
         and parsed[encoded_index] == "--encoded-runner"
     ):
-        decoded, error = CLICK_GATE._decode_runner_transport(
+        decoded, error = CLICK_GATE.click_runner_transport.decode_runner_transport(
             parsed[encoded_index + 1]
         )
         if error or decoded is None:

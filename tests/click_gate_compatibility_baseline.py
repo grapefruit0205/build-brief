@@ -20,19 +20,9 @@ HOST_ADAPTER_SURFACE: dict[str, frozenset[str]] = {
             "_handle_session_end",
             "_is_read_only_bash",
             "_set_output_adapter",
-            "_windows_launcher_path_is_safe",
         }
     ),
     "hooks/click_hook.py": frozenset({"main"}),
-    "hooks/click_windows.py": frozenset(
-        {
-            "WINDOWS_COMMAND_LINE_LIMIT",
-            "_encode_runner_transport",
-            "_runner_shell_command",
-            "_windows_launcher_path_is_safe",
-            "_windows_shell_quote",
-        }
-    ),
 }
 
 PRIVATE_FORWARDERS: dict[str, str] = {
