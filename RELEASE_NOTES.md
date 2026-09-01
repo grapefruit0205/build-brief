@@ -1,5 +1,21 @@
 # Release notes
 
+## v0.36.2 — 2026-09-02
+
+- Mode and preference persistence plus read-only inspection policy now live in
+  explicit leaf modules, keeping lifecycle orchestration and the gate facade
+  focused on coordination without changing public authority behavior.
+- Prompt lineage, exact bypass/cancel authorization, follow-up digests, and
+  active-turn validation now share one state-only prompt leaf while preserving
+  the existing lifecycle and gate compatibility symbols.
+- Contract JSON read, atomic save, and clear operations now share one
+  `click_contract_state` leaf across lifecycle, Browser, mutation, observation,
+  service, verification, and the gate facade. Clear still revokes the runner
+  recovery mirror, malformed state keeps the exact fallback shape, and all
+  established compatibility identities remain intact.
+- Codex and Antigravity distributions remain byte-synchronized, and the full
+  468-test regression suite passes with three documented skips.
+
 ## v0.36.1 — 2026-09-02
 
 - Receipt export now recovers a nested execution workdir omitted by the host

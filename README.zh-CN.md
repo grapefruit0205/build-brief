@@ -282,16 +282,16 @@ Antigravity IDE 用户也可以把 `dist/antigravity` 复制到工作区的 `.ag
 
 Antigravity 的 Hook contract 与 Codex 不同。native file/search 和其他 MCP、Skill 工具仍可使用，但目前还不支持 cross-tool 去重和 Browser evidence。准确限制请参阅 [`platforms/antigravity/README.md`](platforms/antigravity/README.md)。
 
-## 更新现有安装 — v0.36.1
+## 更新现有安装 — v0.36.2
 
-当前版本是 **v0.36.1**。
+当前版本是 **v0.36.2**。
 
 ```bash
 codex plugin marketplace upgrade click
 codex plugin add click@click
 ```
 
-重启 ChatGPT 桌面应用并检查、信任更新后的 Hook。v0.36.1 在 host 未把嵌套执行的 working directory 传给 receipt export 时，只有所有 current argv evidence 都绑定到同一个规范 Git 根目录，才会恢复该目录。stale、缺失、非规范或冲突的 binding 仍会 fail-closed。Codex 与内置 Antigravity 发行版使用相同 runtime module。升级后请新建任务，以加载新的 Hook 代码。
+重启 ChatGPT 桌面应用并检查、信任更新后的 Hook。v0.36.2 将 mode、inspection policy、prompt lineage 和 contract-state persistence 分离到明确的 runtime leaf 边界中。现有 lifecycle 与 gate 兼容符号、Evidence/Guarded 权限、runner 恢复、receipt 语义以及 Antigravity runtime 行为保持不变。升级后请新建任务，以加载新的 Hook 代码。
 
 详细发布历史见 [RELEASE_NOTES.md](RELEASE_NOTES.md)。
 
