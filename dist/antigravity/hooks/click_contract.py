@@ -46,32 +46,87 @@ VERIFICATION_CLASSES = click_verification_meter.VERIFICATION_CLASSES
 def human_view(contract: dict[str, Any]) -> dict[str, Any]:
     """Return the deterministic four-section approval projection.
 
-    The structured contract remains canonical. This projection is stored with
-    staged state so hosts and skills can present a readable approval without
-    making raw JSON the default interface.
+    The structured contract remains canonical. This projection is returned on
+    the staging Hook path so hosts and skills can present a readable approval
+    without persisting contract prose or making raw JSON the default interface.
     """
     boundary = contract.get("boundary")
+    build = contract.get("build")
     verification = contract.get("verification")
     done_when = (
         verification.get("done_when") if isinstance(verification, dict) else []
     )
     return {
         "goal": str(contract.get("outcome", "")),
-        "changes": list(boundary.get("in_scope", []))
-        if isinstance(boundary, dict)
-        else [],
+        "changes": {
+            "scope": list(boundary.get("in_scope", []))
+            if isinstance(boundary, dict)
+            else [],
+            "approach": list(build.get("approach", []))
+            if isinstance(build, dict)
+            else [],
+        },
         "unchanged": {
             "out_of_scope": list(boundary.get("out_of_scope", []))
             if isinstance(boundary, dict)
             else [],
             "must_hold": list(contract.get("must_hold", [])),
         },
-        "completion": [
-            str(item.get("condition", ""))
-            for item in done_when
-            if isinstance(item, dict)
-        ],
+        "completion": {
+            "scale": str(verification.get("scale", ""))
+            if isinstance(verification, dict)
+            else "",
+            "checks": [
+                str(item.get("condition", ""))
+                for item in done_when
+                if isinstance(item, dict)
+            ],
+        },
     }
+
+
+def _human_view_lines(values: list[Any], *, indent: str) -> list[str]:
+    lines: list[str] = []
+    for value in values:
+        rendered = str(value).splitlines() or [""]
+        lines.append(f"{indent}- {rendered[0]}")
+        lines.extend(f"{indent}  {line}" for line in rendered[1:])
+    return lines or [f"{indent}- (none)"]
+
+
+def render_human_view(contract_id: str, contract: dict[str, Any]) -> str:
+    """Render the exact staged projection for Hook-provided approval context."""
+    view = human_view(contract)
+    changes = view["changes"]
+    unchanged = view["unchanged"]
+    completion = view["completion"]
+    lines = [
+        "Click Guarded contract staged. Present this Hook-generated projection "
+        "as the approval surface; do not replace it with raw contract JSON.",
+        f"CLICK_CONTRACT_ID={contract_id}",
+        "",
+        "Goal",
+        str(view["goal"]),
+        "",
+        "Changes",
+        "  Scope",
+        *_human_view_lines(changes["scope"], indent="    "),
+        "  Approach",
+        *_human_view_lines(changes["approach"], indent="    "),
+        "",
+        "Unchanged",
+        "  Out of scope",
+        *_human_view_lines(unchanged["out_of_scope"], indent="    "),
+        "  Must hold",
+        *_human_view_lines(unchanged["must_hold"], indent="    "),
+        "",
+        "Completion checks",
+        f"  Scale: {completion['scale']}",
+        *_human_view_lines(completion["checks"], indent="    "),
+        "",
+        "The canonical JSON remains optional Technical contract detail."
+    ]
+    return "\n".join(lines)
 
 
 def validate_contract(raw: str) -> tuple[dict[str, Any] | None, str]:

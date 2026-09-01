@@ -1,6 +1,6 @@
 # Click Guard Classification
 
-Status: **Living inventory; v0.30 policy migrations complete; dependency-aware receipt reuse completed for v0.31.0; host coverage identity completed for v0.32.0; runtime domain boundaries completed for v0.33.0; approval-bound completion receipts completed for v0.34.0**
+Status: **Living inventory; v0.30 policy migrations complete; dependency-aware receipt reuse completed for v0.31.0; host coverage identity completed for v0.32.0; runtime domain boundaries completed for v0.33.0; completion receipts completed for v0.34.0; Evidence/Guarded dual authority completed for v0.35.0; authority-preserving migration and Hook-rendered approval projection completed for v0.36.0**
 
 Baseline: **v0.24.6 plus the canonical product-boundary change at `73072a9`**
 
@@ -13,8 +13,8 @@ not claim that every hard gate has already been moved to its target layer.
 
 | Guard or invariant | Current owner | Why it remains Core |
 | --- | --- | --- |
-| Canonical contract validation, digest and ID binding, later-turn approval, session and working-directory identity | `hooks/click_contract.py`; approval lifecycle in `hooks/click_lifecycle.py` | Prevents mutation under an unapproved or substituted intent |
-| Mutation and external side-effect authorization | `hooks/click_mutation.py`; managed-service prepare/claim/record paths in `hooks/click_service.py` | Controls observable effects rather than model strategy |
+| Authority-mode identity, Evidence intent/follow-up lineage, and Guarded contract validation, digest, ID, later-turn approval, session and working-directory identity | `hooks/click_contract.py`; mode and authority lifecycle in `hooks/click_lifecycle.py` | Prevents receipts from claiming approval in Evidence and prevents mutation under a substituted or unapproved Guarded intent |
+| Mode-aware mutation and external side-effect handling | `hooks/click_mutation.py`; managed-service prepare/claim/record paths in `hooks/click_service.py` | Records host-authorized effects in Evidence and controls them under contract authority in Guarded without turning model strategy into permission |
 | Exact one-use runner token, action, request, root and state binding | mutation claims in `hooks/click_mutation.py`; managed-service claims in `hooks/click_service.py`; observation claims in `hooks/click_observation.py`; verification claims in `hooks/click_verification.py` | Prevents replay, request substitution and cross-state execution |
 | Canonical state paths, locks, atomic writes and authorized state-root recovery | `hooks/click_state.py` | Preserves approval state across failure without weakening identity checks |
 | Cancellation, expiry, consumed-runner and tampering revocation | `hooks/click_state.py`; lifecycle transitions in `hooks/click_lifecycle.py`; host routing in `hooks/click_gate.py` | Prevents stale authority from becoming executable again |
@@ -25,13 +25,13 @@ not claim that every hard gate has already been moved to its target layer.
 | Direct-argv capability safety, executable/path/environment checks, process-control rejection and read-only side-effect defenses | shared protocol validation in `hooks/click_capability.py`; inspection policy and hardened execution in `hooks/click_inspection.py`; mutation admission in `hooks/click_mutation.py` | Prevents an admitted inspect, verify or service request from gaining unapproved effects |
 | Mutation, observation, verification and managed-service interlocks around active runner claims | mutation reservation and claim state in `hooks/click_mutation.py`; observation reservations and claims in `hooks/click_observation.py`; verification state in `hooks/click_verification.py`; managed-service state in `hooks/click_service.py` | Prevents an authorized side effect or receipt from racing into a different state without treating distinct observation concurrency as authority |
 | Host coverage identity, event normalization and state/receipt-preserving result mapping | `hooks/click_host_coverage.py`, `hooks/click_hook.py`, `hooks/antigravity_gate.py`, `hooks/platform_protocol.py` | Keeps the known pre/post surface symmetric and prevents verification receipts from crossing a host or coverage-registry revision while making the limited assurance explicit |
-| Approval-bound capability ledger and canonical completion receipt export/offline integrity verification | `hooks/click_claims.py`, pure schema in `hooks/click_receipt.py`, assembly in `hooks/click_receipt_runtime.py`, and routing in `hooks/click_gate.py` | Binds the approved contract, one-use and host-tool-use claims, final workspace revision, and evidence lineage without exposing tokens or overstating unsigned authenticity |
+| Mode-aware capability ledger and canonical completion receipt export/offline integrity verification | `hooks/click_claims.py`, pure schema in `hooks/click_receipt.py`, assembly in `hooks/click_receipt_runtime.py`, and routing in `hooks/click_gate.py` | Binds honest authority metadata, intent or contract identity, one-use and host-tool-use claims, final workspace revision, and evidence lineage without exposing tokens or overstating unsigned authenticity |
 
 ## USER_POLICY
 
 | Policy | Current owner | Constitutional boundary |
 | --- | --- | --- |
-| Always ON, Manual, review and bypass availability | mode state and `skills/click/references/modes.md` | Choosing the mode is policy; exact one-use enforcement after selection is Core |
+| Evidence, Guarded and Off defaults; review, bypass and cancel availability | mode state and `skills/click/references/modes.md` | Choosing authority mode is policy; legacy `on` maps to Guarded and `manual` maps to Off so upgrades preserve that choice; exact receipt and one-use enforcement after selection is Core |
 | An explicit numeric verification budget | Not currently implemented | A numeric ceiling becomes policy only when the user deliberately opts into that exact restriction; Click's built-in profile suggestions are not a substitute for user choice |
 | Acceptance of hosted, manual or existing attestations | evidence-completion handling in `hooks/click_lifecycle.py` | Acceptance must be explicit and must not be described as independent proof |
 
@@ -42,7 +42,7 @@ not claim that every hard gate has already been moved to its target layer.
 | Advising on a repeated successful read or search and on repeated incomplete/failing reads | observation preparation in `hooks/click_observation.py` | Advisory only — fresh separately authorized repeats use a new one-use runner; an active same-digest reservation remains a Core interlock |
 | Advising after broad repository inventory | classifiers in `hooks/click_inspection.py`, preparation in `hooks/click_observation.py`, and host adapters | Advisory only — cross-digest running/success hard denial removed in v0.30.0; active same-digest reservations and execution interlocks remain separate |
 | Advising on `update_plan` or equivalent host plan tools | plan-tool branch in `hooks/click_gate.py`; host matchers and adapters | Advisory only — hard denial removed in v0.30.0 |
-| Choosing the proposed evidence source and qualitative verification profile before approval, concrete argv during execution, and the cheapest proof strategy | Skill, eval and documentation policy | Model strategy or an explicit user constraint; Click records the choice but does not interpret it as runtime authority |
+| Choosing Guarded evidence sources and qualitative verification profile before approval, Evidence ids and concrete argv during execution, and the cheapest proof strategy | Skill, eval and documentation policy | Model strategy or an explicit user constraint; Click records the choice but does not interpret it as runtime authority |
 | Legacy verification class-unit values | `hooks/click_verification_policy.py` and `hooks/click_verification_meter.py` | Compatibility data only — they do not produce runtime advice, prove cost or sufficiency, or participate in receipt authority |
 | Requiring a mutation after a fixed number of otherwise legitimate failed retries | argv handling in `hooks/click_verification.py` and Browser retry handling | Advisory only in v0.30.0; fresh authorization remains distinct from replay of an active or consumed runner |
 | Browser repeat/retry guidance, preferred timing thresholds and interaction-history depth | `hooks/click_browser_advisory.py`; bounded history compaction in Browser preparation | Advisory only — normalized repeats and long timed interactions remain receipt-bound and allowed; old per-input guidance is compacted instead of blocking a new call |
@@ -78,6 +78,9 @@ not claim that every hard gate has already been moved to its target layer.
 
 - The Hook proves a later user turn and the exact staged ID, while the Skill and
   model still interpret whether the user's words semantically grant approval.
+- A follow-up digest proves that the request was recorded under the active
+  lineage; the runtime does not prove that its meaning was inside the prior
+  scope or merely narrowed it.
 - Natural-language `boundary.in_scope` is digest-bound but is not semantically
   compared with every resulting diff by the runtime.
 - Direct `apply_patch`, Edit and Write surfaces receive approval gating,
@@ -137,6 +140,16 @@ stronger guarantee than the runtime can observe.
     capability, inspection, observation, verification and approval lifecycle
     domains while retaining `click_gate.py` as host routing and compatibility
     facade with unchanged Core behavior.
+12. **Complete in v0.34.0:** Export and offline-verify deterministic completion
+    receipts with capability-claim, workspace, environment, executable,
+    host-coverage and evidence lineage.
+13. **Complete in v0.35.0:** Make Evidence the new-install default, represent
+    host authority without manufactured approval, and retain Guarded as the
+    approval-bound authority.
+14. **Complete in v0.36.0:** Preserve legacy stored authority choices by
+    translating `on` to Guarded and `manual` to Off; deliver the exact human
+    approval projection through the stage Hook response; and cover same-ID
+    follow-up mutation through stale-evidence transition.
 
 Each migration is a separate behavior-preserving-for-Core change. It must retain
 approval, side-effect authority, one-use runner, revision, receipt, cancellation,

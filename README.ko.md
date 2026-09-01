@@ -110,7 +110,7 @@ revision 14  인증 코드 변경  → proof input 변경 → 테스트 재실�
 | **Guarded** | 목표·변경 범위·유지 항목·완료 확인을 한 번 승인한 뒤 범위 안에서 연속 실행 | 승인된 계약 |
 | **Off** | 일반 작업은 Click이 관리하지 않으며 명시적 `@Click`은 Guarded 시작 가능 | host |
 
-기존에 저장된 `on` 또는 `manual` 설정도 업그레이드 시 한 번 Evidence로 전환됩니다. 다만 이미 stage되었거나 완료되지 않은 Guarded 계약은 완료하거나 명시적으로 취소할 때까지 잠금이 유지됩니다.
+기존에 저장된 권한 선택은 업그레이드해도 의미가 유지됩니다. `on`은 Guarded로, `manual`은 Off로 바뀌며 새 설치와 미설정 사용자만 Evidence를 기본값으로 사용합니다. 이미 stage되었거나 완료되지 않은 Guarded 계약은 완료하거나 명시적으로 취소할 때까지 잠금이 유지됩니다.
 
 Evidence 영수증은 `approval_bound: false`, `execution_authority: host`라고 명시하며 Click이 승인했다고 가장하지 않습니다. Guarded 영수증은 contract digest, 승인 turn, one-use claim, replay·변조 방지, mutation revision, 환경과 evidence lineage를 그대로 결속합니다.
 
@@ -132,7 +132,7 @@ Hook이 제어하는 것은 **관찰 가능한 tool path**입니다. 숨은 추�
 
 ## Guarded 계약
 
-Guarded 내부에서는 schema 검증과 digest 결속을 위해 canonical JSON을 유지합니다. 하지만 사용자는 기본적으로 **작업 목표**, **변경 범위**, **변경하지 않는 부분**, **완료 확인** 네 부분만 승인합니다. 원본 JSON은 선택적인 ‘기술 계약 보기’에 둡니다.
+Guarded 내부에서는 schema 검증과 digest 결속을 위해 canonical JSON을 유지합니다. 성공한 stage Hook 응답이 정확한 **작업 목표**, **변경 범위**, **변경하지 않는 부분**, **완료 확인** projection과 ID를 함께 주므로 Skill이 내용을 다시 요약할 필요가 없습니다. 원본 JSON은 선택적인 ‘기술 계약 보기’에 두며, 사람용 projection은 contract plaintext로 저장하지 않습니다.
 
 | 필드 | 고정하는 것 |
 | --- | --- |
@@ -145,7 +145,7 @@ Guarded 내부에서는 schema 검증과 digest 결속을 위해 canonical JSON�
 
 계약이 고정하는 것은 **의미, 경계, 완료 약속**입니다. 모든 파일·의존성·라이브러리·저수준 구현 선택을 얼려 두는 것이 아닙니다.
 
-승인 범위 안에서 필요한 파일·도구·의존성이 발견되거나 세부 지시·범위 축소 follow-up이 들어오면 audit digest를 남기고 계속할 수 있습니다. 승인한 결과·사용자에게 보이는 동작·경계·must-hold·권한·검증 약속이 실질적으로 바뀔 때만 다시 승인합니다.
+승인 범위 안에서 필요한 파일·도구·의존성이 발견되거나 세부 지시·범위 축소 follow-up이 들어오면 audit digest를 남기고 계속할 수 있습니다. 승인한 결과·사용자에게 보이는 동작·경계·must-hold·권한·검증 약속이 실질적으로 바뀔 때만 다시 승인합니다. Follow-up digest는 요청이 기록됐음을 증명하지만, 그 의미가 기존 범위 안이라고 runtime이 판정했다는 증명은 아닙니다.
 
 ## Guarded 작동 방식
 
@@ -285,16 +285,16 @@ Antigravity IDE에서는 `dist/antigravity`를 워크스페이스의 `.agents/pl
 
 Antigravity의 Hook contract는 Codex와 다릅니다. native file/search와 별도 MCP·Skill 도구는 계속 사용할 수 있지만 cross-tool 중복 제거와 Browser evidence는 아직 지원하지 않습니다. 정확한 제한은 [`platforms/antigravity/README.md`](platforms/antigravity/README.md)를 확인하세요.
 
-## 기존 설치 업데이트 — v0.35.0
+## 기존 설치 업데이트 — v0.36.0
 
-현재 릴리스는 **v0.35.0**입니다.
+현재 릴리스는 **v0.36.0**입니다.
 
 ```bash
 codex plugin marketplace upgrade click
 codex plugin add click@click
 ```
 
-ChatGPT 데스크톱 앱을 다시 시작하고 갱신된 Hook을 검토해 신뢰하세요. v0.35.0은 Evidence를 Click 재승인 없는 기본값으로 만들고 저장된 `on`·`manual` 설정을 한 번 migration하면서 진행 중인 Guarded 계약은 잠긴 상태로 보존합니다. Guarded 승인은 기술 JSON 대신 사람이 읽는 네 섹션을 먼저 보여주며, 범위 안의 세부·축소 요청은 반복 승인 없이 digest audit lineage로 이어집니다. Evidence의 receipt v2는 host 권한을 정직하게 표시하고, 누락된 host `PostToolUse`는 이후 current-revision 검증이 있을 때만 `observed`로 정산합니다. Codex와 번들 Antigravity 배포본은 같은 runtime module을 사용합니다. 새 모드와 Hook 코드를 로드하려면 업그레이드 후 새 작업을 시작하세요.
+ChatGPT 데스크톱 앱을 다시 시작하고 갱신된 Hook을 검토해 신뢰하세요. v0.36.0은 기존 권한 의도를 유지해 저장된 `on`을 Guarded로, `manual`을 Off로 migration하며 새 설치와 미설정 사용자는 계속 Evidence를 기본값으로 사용합니다. Guarded stage는 Hook이 만든 정확한 네 섹션을 제공하고, 범위 안의 follow-up은 새 사용자 승인 없이 같은 contract ID로 resume하여 실제 mutation까지 이어집니다. 완료된 Guarded 작업은 새 Evidence session으로 넘어가지만 미완료 Guarded 작업은 계속 잠깁니다. Receipt export는 host tool이 실제로 선택한 working directory도 반영합니다. Codex와 번들 Antigravity 배포본은 같은 runtime module을 사용합니다. 새 모드와 Hook 코드를 로드하려면 업그레이드 후 새 작업을 시작하세요.
 
 자세한 릴리스 이력은 [RELEASE_NOTES.md](RELEASE_NOTES.md)에 있습니다.
 

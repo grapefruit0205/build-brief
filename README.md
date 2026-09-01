@@ -99,7 +99,7 @@ tests are still valid.
 | **Guarded** | One four-section approval, then uninterrupted in-scope execution | The approved contract |
 | **Off** | No ordinary Click governance; explicit `@Click` can start Guarded | The host |
 
-Existing stored `on` or `manual` preferences migrate once to Evidence. An already staged or incomplete Guarded contract remains locked until it completes or is explicitly cancelled.
+Existing stored authority choices keep their meaning during migration: `on` becomes Guarded and `manual` becomes Off. New and unset installations still default to Evidence. An already staged or incomplete Guarded contract remains locked until it completes or is explicitly cancelled.
 
 Evidence receipts say `approval_bound: false` and `execution_authority: host`; they never pretend that Click approved the work. Guarded receipts preserve contract digest, approval turn, one-use claims, replay/tamper protection, mutation revisions, environment bindings, and evidence lineage.
 
@@ -121,7 +121,7 @@ The Hook controls the **observable tool path**. It does not inspect hidden reaso
 
 ## The Guarded contract
 
-Internally, Guarded mode keeps one canonical JSON object for schema validation and digest binding. Users approve four readable sections by default: **Goal**, **Changes**, **Unchanged**, and **Completion checks**. Raw JSON is optional Technical contract detail, not the primary approval UI.
+Internally, Guarded mode keeps one canonical JSON object for schema validation and digest binding. A successful stage Hook response now injects the exact runtime-generated **Goal**, **Changes**, **Unchanged**, and **Completion checks** projection alongside the emitted ID, so the Skill does not have to recreate it. Raw JSON is optional Technical contract detail, not the primary approval UI, and the projection is not persisted as contract plaintext.
 
 The internal fields are:
 
@@ -136,7 +136,7 @@ The internal fields are:
 
 The contract locks the **meaning, boundary, and completion commitment**. It does not freeze every file, dependency, library, or low-level implementation choice.
 
-If the agent discovers that an in-scope file, tool, or dependency is necessary—or receives a narrowing or in-scope follow-up—it can continue and audit-bind the follow-up digest. Reapproval is needed only when the approved outcome, visible behavior, boundary, must-hold behavior, authority, or verification commitment materially changes.
+If the agent discovers that an in-scope file, tool, or dependency is necessary—or receives a narrowing or in-scope follow-up—it can continue and audit-bind the follow-up digest. Reapproval is needed only when the approved outcome, visible behavior, boundary, must-hold behavior, authority, or verification commitment materially changes. The digest proves that the follow-up was recorded; it does not prove that the runtime semantically classified the request as in scope.
 
 ## How Guarded works
 
@@ -276,16 +276,16 @@ Antigravity IDE users may also copy `dist/antigravity` into `.agents/plugins/cli
 
 Antigravity's Hook contract differs from Codex. Native file/search and unrelated MCP or Skill tools remain available, but cross-tool deduplication and Browser evidence are not currently supported. See [`platforms/antigravity/README.md`](platforms/antigravity/README.md) for the exact limits.
 
-## Update an existing installation — v0.35.0
+## Update an existing installation — v0.36.0
 
-The current release is **v0.35.0**.
+The current release is **v0.36.0**.
 
 ```bash
 codex plugin marketplace upgrade click
 codex plugin add click@click
 ```
 
-Restart the ChatGPT desktop app and review/trust the updated Hook. v0.35.0 makes Evidence the approval-free default, migrates stored `on` and `manual` preferences once, and keeps active Guarded contracts locked. Guarded approval now leads with four readable sections while technical JSON stays optional, and in-scope or narrowing follow-ups continue with digest-bound audit lineage instead of routine reapproval. Receipt v2 names host authority honestly in Evidence mode and can settle an omitted host `PostToolUse` only as `observed` after later current-revision verification. Codex and the bundled Antigravity distribution use the same runtime modules. Begin a fresh task after upgrading so the new mode and Hook code are loaded.
+Restart the ChatGPT desktop app and review/trust the updated Hook. v0.36.0 preserves existing authority intent while upgrading stored names: `on` becomes Guarded and `manual` becomes Off, while new and unset installations still default to Evidence. Guarded stage now supplies the exact four-section human view through the Hook, and a digest-bound in-scope follow-up can resume the same contract ID and mutate without another user approval. Completed Guarded work rolls into a fresh Evidence session, but incomplete Guarded work stays locked. Receipt export also honors the host tool's actual working directory. Codex and the bundled Antigravity distribution use the same runtime modules. Begin a fresh task after upgrading so the new mode and Hook code are loaded.
 
 Detailed release history is in [RELEASE_NOTES.md](RELEASE_NOTES.md).
 

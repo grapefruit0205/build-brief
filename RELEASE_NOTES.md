@@ -1,5 +1,29 @@
 # Release notes
 
+## v0.36.0 — 2026-09-01
+
+- Legacy stored authority choices now preserve their meaning during the public
+  mode-schema migration: `on` becomes Guarded and `manual` becomes Off. New and
+  unset installations continue to default to Evidence, and active Guarded
+  contracts remain locked.
+- The canonical Product Constitution and guard inventory now describe the
+  shared integrity layer plus separate Evidence host authority and Guarded
+  contract authority instead of implying that every receipt is approval-bound.
+- A successful Guarded stage Hook response now carries the exact runtime-made
+  Goal, Changes, Unchanged, and Completion checks projection. It includes build
+  approach and verification scale without persisting contract plaintext.
+- Integration coverage now follows an approved Guarded contract through a
+  digest-bound in-scope follow-up, same-ID resume, actual mutation, revision
+  increment, and stale-evidence transition without a second user approval.
+- Receipt export now snapshots the working directory actually selected by the
+  host tool while retaining the event workspace for contract-state identity,
+  so a valid nested-worktree export is not rejected as the wrong final tree.
+- A completed Guarded state now rolls into a fresh Evidence session when
+  Evidence is the default. Staged and approved-incomplete Guarded states remain
+  locked and cannot be silently converted or discarded.
+- Codex and Antigravity distributions are rebuilt from the same source, and the
+  complete 423-test regression suite passes with three documented skips.
+
 ## v0.35.0 — 2026-09-01
 
 - Evidence is now the default mode. It leaves execution authority with the

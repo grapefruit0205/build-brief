@@ -2,11 +2,13 @@
 
 Status: **Canonical**
 
-Effective: **2026-08-31**
+Effective: **2026-09-01**
 
-> **Click binds AI execution to approved intent and returns verifiable evidence.**
+> **Click returns revision-aware evidence for host-authorized AI execution and,
+> when Guarded is selected, binds higher-risk execution to approved intent.**
 >
-> **Click은 사용자가 승인한 의도에 AI 실행을 결속하고, 실제 수행 증거를 돌려준다.**
+> **Click은 host가 승인한 AI 실행의 revision-aware evidence를 돌려주며,
+> Guarded를 선택하면 고위험 실행을 사용자가 승인한 의도에 결속한다.**
 
 This document defines the stable product boundary for Click. Runtime behavior,
 documentation, tests, host adapters, and future features must remain consistent
@@ -14,12 +16,16 @@ with it.
 
 ## Core purpose
 
-Click is an authorization-and-evidence runtime for AI execution. It binds a
-canonical statement of user intent to a later approval, mediates observable
-mutations and external side effects, and records evidence that is tied to the
-execution revision. When Click directly runs argv verification, it records a
-stronger receipt for the protected workspace, environment, and executable that
-produced the result.
+Click is a mode-aware execution-integrity and evidence runtime. Its common
+integrity layer records revision-bound evidence, exact runner claims, and honest
+authority metadata. In **Evidence**, the host remains the execution authority
+and Click records intent and follow-up lineage without creating or approving a
+contract. In **Guarded**, Click additionally binds a canonical statement of
+intent to later user approval and mediates observable mutations and external
+side effects under that approved authority. When Click directly runs argv
+verification in either mode, it records a stronger receipt for the protected
+workspace, environment, executable, and known host coverage that produced the
+result.
 
 Click Core does not decide how a capable model should explore, plan, or choose
 the best implementation or verification strategy. It supplies guarantees that
@@ -61,22 +67,42 @@ host without changing Click's constitutional guarantees.
 
 ## Core guarantees
 
-Click Core owns:
+Click Core owns these common integrity guarantees:
 
-- binding later user approval to the exact canonical contract digest;
-- controlling authority for mutations and observable external side effects;
-- binding one-use runners to the exact approved action and request;
+- stating the selected authority mode accurately and never manufacturing an
+  approval that did not occur;
+- binding one-use runners to the exact action, request, runtime state, and
+  mutation revision;
 - preventing cancellation bypass, replay, token substitution, and state tampering;
-- binding every evidence ledger entry to the contract and mutation revision;
+- binding every evidence ledger entry to the active intent or contract identity
+  and mutation revision;
 - binding argv verification receipts additionally to the protected workspace
-  state, execution environment, and executable identity;
+  state, execution environment, executable identity, and known host coverage;
 - invalidating stale evidence when the protected implementation changes;
-- recovering outstanding approved runner state without weakening exact binding,
+- recovering outstanding runner state without weakening exact binding,
   expiry, cancellation, or replay checks;
-- preserving auditable current authorization state and evidence receipts;
-- exporting a deterministic completion receipt that binds approval, observable
-  capability claims, the final workspace revision, and evidence lineage; and
+- preserving an append-only capability-claim ledger for the active session and
+  auditable current authority state and evidence receipts;
+- exporting a deterministic completion receipt that binds the authority mode,
+  observable capability claims, final workspace revision, and evidence lineage;
+  and
 - adapting Codex, Antigravity, and other hosts onto the same Core protocol.
+
+In **Evidence authority**, Core additionally guarantees:
+
+- `execution_authority: host` and `approval_bound: false`;
+- intent and follow-up prompt digest lineage without a canonical approval
+  contract; and
+- host-observed mutation revision tracking without treating Click as the source
+  of mutation permission.
+
+In **Guarded authority**, Core additionally guarantees:
+
+- binding later user approval to the exact canonical contract digest and ID;
+- controlling authority for observable mutations and external side effects;
+- binding one-use execution capabilities to the approved contract; and
+- exporting the contract, staging turn, and approval turn in the completion
+  receipt.
 
 Host adapters may normalize host events and output formats. They may not weaken
 the Core identity, authorization, runner-binding, or receipt invariants.
@@ -97,27 +123,34 @@ These features may exist as explicit `USER_POLICY`, non-blocking `HEURISTIC`, or
 isolated experiments. They must not be presented as universal runtime security
 or evidence guarantees.
 
-## Constitutional execution chain
+## Constitutional execution chains
 
 ```text
-approved intent
-    -> canonical contract digest
-    -> later user authorization
-    -> exact one-use execution request
+Evidence authority
+host-authorized request
+    -> intent and follow-up digests
+    -> host-observed mutation revision
+    -> exact one-use verification request
+    -> revision-, tree-, environment-, executable-, and coverage-bound evidence
+    -> receipt: approval_bound=false, execution_authority=host
+
+Guarded authority
+canonical contract digest and ID
+    -> later user approval
+    -> exact one-use approved execution request
     -> observable action or side effect
     -> contract- and revision-bound evidence record
     -> stronger tree-, environment-, and executable-bound argv receipt
-    -> canonical completion receipt with capability-claim lineage
-    -> auditable current state and receipts
+    -> receipt: approval_bound=true, execution_authority=click-contract
 ```
 
-The runtime can prove only the observable bindings in this chain. It cannot by
-itself prove that natural-language approval was semantically informed, that a
-natural-language scope matches every changed line, or that an unmatched manual
-or external attestation is true. The current implementation maintains an
-append-only capability-claim ledger for one contract and can export its
-unsigned completion receipt; it does not yet provide a signed, independently
-authentic durable history of every state transition.
+The runtime can prove only the observable bindings in the selected chain. It
+cannot by itself prove that a follow-up was semantically inside an earlier
+scope, that natural-language approval was informed, that a scope matches every
+changed line, or that an unmatched manual or external attestation is true. The
+current implementation can export an unsigned completion receipt; it
+does not yet provide a signed, independently authentic durable history of every
+state transition.
 
 ## Change rule
 

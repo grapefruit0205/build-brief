@@ -38,8 +38,8 @@ When repository evidence makes an argv source's dependency boundary clear, optio
 
 ## Guarded mode: stage once and approve by id
 
-1. Run `click-gate stage '<Execution Contract JSON>'` once and capture the emitted `CLICK_CONTRACT_ID=ctr_<32hex>`.
-2. Show four human sections in the user's language: **Goal**, **Changes**, **Unchanged**, and **Completion checks**. The canonical `plain_language` remains digest-bound and its meaning is projected once into that human view. Show the exact `contract_id`. Keep canonical JSON behind an optional **Technical contract** disclosure; do not make raw JSON the default approval surface.
+1. Run `click-gate stage '<Execution Contract JSON>'` once and capture the emitted `CLICK_CONTRACT_ID=ctr_<32hex>` plus the Hook-generated human projection.
+2. Show that exact projection in the user's language as **Goal**, **Changes**, **Unchanged**, and **Completion checks**. Do not independently re-summarize its values. The canonical `plain_language` remains digest-bound. Show the exact `contract_id`. Keep canonical JSON behind an optional **Technical contract** disclosure; do not make raw JSON the default approval surface.
 3. Ask one compact approval/change/cancel question, then stop without mutating project files.
 
 The original request is not approval of an unseen proposal. A revision after another user response must be staged and shown again and receives a new id.
@@ -52,6 +52,6 @@ Before implementation, read the [anti-loop policy](references/anti-loop-policy.m
 
 Collect each assigned source once after the last mutation that can invalidate it. Reuse successful evidence, keep Browser or hosted work out of a shadow verification suite, and stop verification when each condition has current evidence. Treat repeat, retry, and timing notices as non-authoritative guidance, not permission failures; active runner conflicts, Browser receipt binding, and verification-time repository mutation remain hard. Stop any managed service before declaring completion. A failed or stale source may be repaired or replaced under the documented retry rules; it is not a reason to accumulate another proof path.
 
-In Guarded mode, do not request reapproval for an in-scope detail, a narrowing instruction, or a technical choice. Record the follow-up turn digest and continue. Reapproval is required only when the approved outcome, visible behavior, boundary, invariant, authority, or verification commitment materially changes. In Evidence mode there is no Click approval to repeat; follow the host's authority prompts.
+In Guarded mode, do not request reapproval for an in-scope detail, a narrowing instruction, or a technical choice. Record the follow-up turn digest and continue. Reapproval is required only when the approved outcome, visible behavior, boundary, invariant, authority, or verification commitment materially changes. The digest proves that the follow-up was recorded, not that the Hook semantically proved it was inside the prior boundary; interpret that distinction faithfully. In Evidence mode there is no Click approval to repeat; follow the host's authority prompts.
 
 The Hook enforces observable contract shape, id/digest binding, turn order, supported tool paths, one-use runners, and evidence receipts. It cannot prove semantic approval, hidden reasoning, unmatched connector behavior, architecture truth, implementation fidelity, or the optimal amount of verification. If Hook enforcement is unavailable, preserve the same ordering and disclose that limitation.
