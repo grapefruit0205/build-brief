@@ -4,7 +4,7 @@ import ast
 from pathlib import Path
 import unittest
 
-from hooks import click_gate, click_lifecycle
+from hooks import click_gate, click_lifecycle, click_mode
 
 
 class ClickLifecycleTests(unittest.TestCase):
@@ -36,6 +36,7 @@ class ClickLifecycleTests(unittest.TestCase):
             "click_claims",
             "click_contract",
             "click_evidence",
+            "click_mode",
             "click_mutation",
             "click_observation",
             "click_runtime_state",
@@ -45,6 +46,33 @@ class ClickLifecycleTests(unittest.TestCase):
         ):
             with self.subTest(required=required):
                 self.assertIn(required, imported)
+
+    def test_lifecycle_delegates_mode_storage_and_migration_to_the_leaf(self) -> None:
+        source = Path(click_lifecycle.__file__).read_text(encoding="utf-8")
+        for extracted in (
+            "def _write_mode(",
+            "def _read_mode(",
+            "def _write_default_mode(",
+            "def _read_default_mode(",
+            "def _consume_migration_notice(",
+        ):
+            with self.subTest(extracted=extracted):
+                self.assertNotIn(extracted, source)
+
+        self.assertIs(click_lifecycle.write_mode, click_mode.write_mode)
+        self.assertIs(click_lifecycle.read_mode, click_mode.read_mode)
+        self.assertIs(
+            click_lifecycle.write_default_mode,
+            click_mode.write_default_mode,
+        )
+        self.assertIs(
+            click_lifecycle.read_default_mode,
+            click_mode.read_default_mode,
+        )
+        self.assertIs(
+            click_lifecycle.consume_migration_notice,
+            click_mode.consume_migration_notice,
+        )
 
     def test_gate_keeps_lifecycle_compatibility_aliases(self) -> None:
         aliases = {

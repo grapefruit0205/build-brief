@@ -5,11 +5,11 @@ import json
 from pathlib import Path
 import unittest
 
-from hooks import click_gate, click_inspection
+from hooks import click_gate, click_inspection, click_inspection_policy
 
 
 class ClickInspectionTests(unittest.TestCase):
-    def test_inspection_depends_only_on_capability_and_process_leaves(self) -> None:
+    def test_inspection_depends_only_on_policy_capability_and_process_leaves(self) -> None:
         source = Path(click_inspection.__file__).read_text(encoding="utf-8")
         imported: set[str] = set()
         for node in ast.walk(ast.parse(source)):
@@ -38,6 +38,7 @@ class ClickInspectionTests(unittest.TestCase):
                     imported,
                 )
         self.assertIn("click_capability", imported)
+        self.assertIn("click_inspection_policy", imported)
         self.assertIn("click_process", imported)
 
     def test_gate_keeps_inspection_compatibility_aliases(self) -> None:
@@ -85,12 +86,12 @@ class ClickInspectionTests(unittest.TestCase):
         )
         for raw, expected in cases:
             with self.subTest(expected=expected):
-                request, broad, error = click_inspection.validate_request(raw)
+                request, broad, error = click_inspection_policy.validate_request(raw)
                 self.assertIsNone(request)
                 self.assertFalse(broad)
                 self.assertEqual(error, expected)
 
-        request, broad, error = click_inspection.validate_request(
+        request, broad, error = click_inspection_policy.validate_request(
             json.dumps({"version": 1, "commands": [["rg", "--files"]]})
         )
         self.assertEqual(error, "")
