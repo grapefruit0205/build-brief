@@ -38,6 +38,7 @@ class ClickLifecycleTests(unittest.TestCase):
             "click_evidence",
             "click_mutation",
             "click_observation",
+            "click_runtime_state",
             "click_service",
             "click_state",
             "click_verification",
