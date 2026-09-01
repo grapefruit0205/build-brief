@@ -1,4 +1,4 @@
-# Click — Revision-aware evidence for Codex coding agents
+# Click — Revision-aware evidence and approval-bound execution for Codex
 
 English | [한국어](README.ko.md) | [简体中文](README.zh-CN.md)
 
@@ -7,35 +7,42 @@ Community: [LINUX DO](https://linux.do/)
 [![CI](https://github.com/grapefruit0205/click/actions/workflows/ci.yml/badge.svg)](https://github.com/grapefruit0205/click/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
+> **Keep Codex inside the change you approved — and make “done” mean current evidence, not model confidence.**
+
 ### Work normally. Keep proof that still matches the code.
 
 > **Evidence by default. Approval-bound execution when the risk calls for it.**
 
 **Click is a Codex plugin that records prompt lineage, mutation revisions, and reusable verification evidence while the host runs normally. For higher-risk work, Guarded mode binds execution to one human-readable approved contract.**
 
-Most coding-agent workflows still rely on the model remembering instructions such as:
+Click uses a **persistent Hook state machine** to mediate supported actions on the **observable execution path**. Workflow optimization stays advisory: exploration and planning receive **non-blocking guidance** rather than becoming execution authority.
+
+Click does not make the model smarter. It makes **approval, mutation authority, and completion evidence persistent and inspectable instead of relying on the model to remember them.**
+
+## Why Click?
+
+Coding-agent sessions can lose a stable execution boundary as context grows. The agent may revisit broad repository context, rewrite its plan, widen the task, begin changing files before review, or repeat verification that is no longer necessary.
+
+Prompts can ask the model not to do those things. Click moves the parts that require real authority or trustworthy evidence into persistent runtime state.
+
+| Common problem | What Click changes |
+| --- | --- |
+| The plan gets rewritten as the session grows | The approved contract remains canonical; `update_plan` stays advisory and cannot alter contract authority |
+| The agent starts modifying files before review | Mutation stays locked until the exact staged `contract_id` is approved in a later user turn |
+| Repository context is repeatedly rediscovered | Broad and repeated reads remain available, but Click can provide non-blocking narrowing and reuse guidance |
+| The same proof is run again | Current structured evidence and exact receipts can be reused when they are still valid |
+| Code changes after verification | A mutation advances the revision and makes older completion evidence stale |
+| The agent says the work is done | Declared evidence must be current for the latest mutation revision |
+
+This design can **reduce unnecessary replanning, broad repository re-scans, and duplicate verification** by giving the agent a stable approved target and reusable current evidence. These are workflow benefits, not universal hard guarantees: Click intentionally keeps exploration and planning strategy advisory, and it does not claim project-wide improvements in tool calls, tokens, time, or success rate without independent measurements.
 
 ```text
-Plan once.
-Stay in scope.
-Do not rescan the repository.
-Do not keep rewriting the plan.
-Run only the checks that are actually needed.
+normal work: request → implementation → current-revision evidence → honest receipt
+
+higher risk: request → four-section contract → later approval → guarded execution → receipt
 ```
 
-That works until context grows, the task branches, or the agent decides to plan and prove the same thing again.
-
-Click moves authority and evidence guarantees into the supported tool boundary.
-Exploration preferences remain non-blocking guidance there; they do not become
-execution authority.
-
-```text
-request → implementation → current-revision evidence → honest receipt
-
-higher risk: four-section contract → later approval → guarded execution → receipt
-```
-
-> **The model decides how to implement the change. The Hook decides whether the workflow is allowed to move forward.**
+> **The model decides how to implement the change. Click decides whether observable execution has the authority and evidence required to move forward.**
 
 **One default with no Click approval friction. One opt-in guard for work that needs it.**
 
@@ -43,34 +50,13 @@ higher risk: four-section contract → later approval → guarded execution → 
 
 > **Click returns revision-aware evidence for normal host-authorized work, and can bind AI execution to approved intent when Guarded mode is selected.**
 
-Click's stable product boundary is an authorization-and-evidence runtime, not a
-model workflow optimizer. The canonical admission test and policy layers are in
-the [Click Product Constitution](PRODUCT_CONSTITUTION.md); the current guard
-inventory and migration status are in [Click Guard Classification](GUARD_CLASSIFICATION.md).
+Click's stable product boundary is an authorization-and-evidence runtime, not a model workflow optimizer. The canonical admission test and policy layers are in the [Click Product Constitution](PRODUCT_CONSTITUTION.md); the current guard inventory and migration status are in [Click Guard Classification](GUARD_CLASSIFICATION.md).
 
-Click keeps authority and evidence integrity as hard runtime guarantees while
-treating model workflow strategy as non-authoritative guidance. In particular,
-`update_plan` remains available: it cannot approve, replace, or widen the active
-contract, and it does not change the contract digest or evidence state.
-
-## Why Click?
-
-A prompt can tell an agent what it *should* do. Click adds persistent state around what the agent is *allowed* to do on the observable tool path.
-
-| Prompt-only workflow | Click |
-| --- | --- |
-| Hope the model remembers the plan | Persist the approved workflow state |
-| Have no durable link between a request and its checks | Record intent lineage, mutation revision, and exact evidence receipts |
-| Need stronger authorization for risky work | In Guarded mode, stage a digest-bound `contract_id` and require a later user turn |
-| Ask the agent not to rescan | Offer non-blocking narrowing guidance; inventory count does not alter authority |
-| Ask the agent not to replan | Offer non-blocking guidance; `update_plan` cannot alter contract authority |
-| Ask the agent not to rerun proof | Reuse current structured evidence and receipts |
-| Let verification drift away from the task | Bind each completion condition to revision-bound evidence and exact receipts |
-| Stop when the agent says it is done | Require declared evidence to be current for the latest mutation revision |
+Click keeps authority and evidence integrity as hard runtime guarantees while treating model workflow strategy as non-authoritative guidance. In particular, `update_plan` remains available: it cannot approve, replace, or widen the active contract, and it does not change the contract digest or evidence state.
 
 The core idea is simple:
 
-> **Do not keep asking the coding agent to remember the process. Put the process in the execution boundary.**
+> **Do not keep asking the coding agent to remember the process. Put authority and evidence in the execution boundary.**
 
 ### Enforce the boundary, not the reasoning
 
