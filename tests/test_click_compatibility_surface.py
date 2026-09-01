@@ -88,7 +88,7 @@ class ClickCompatibilitySurfaceTests(unittest.TestCase):
                 continue
             attributes = _click_gate_surface(path)
             if attributes:
-                actual[str(path.relative_to(ROOT))] = attributes
+                actual[path.relative_to(ROOT).as_posix()] = attributes
 
         self.assertEqual(actual, HOST_ADAPTER_SURFACE)
 
