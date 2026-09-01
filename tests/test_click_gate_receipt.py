@@ -3,12 +3,72 @@ from __future__ import annotations
 from click_gate_test_support import (
     ClickGateTestCase,
     json,
+    shlex,
     split_runner_command,
     unittest,
 )
 
 
 class ClickGateReceiptTests(ClickGateTestCase):
+    def test_export_uses_bash_workdir_for_final_workspace(self) -> None:
+        (self.workspace / ".gitignore").write_text(
+            "__pycache__/\n", encoding="utf-8"
+        )
+        self.initialize_git(".gitignore", "verification_fixture.py")
+        # Codex may keep session identity at the task root while Bash executes
+        # the rewritten command in its explicit workdir.
+        host_cwd = self.workspace.parent / "host-cwd"
+        host_cwd.mkdir()
+        self.base_event["cwd"] = str(host_cwd)
+        self.approve_contract()
+
+        batch = {
+            "version": 2,
+            "checks": [
+                {
+                    "evidence_id": "E1",
+                    "argv": self.verification_argv(),
+                    "class": "targeted",
+                }
+            ],
+        }
+        verification = self.tool_hook(
+            "pre-tool",
+            "Bash",
+            {
+                "command": (
+                    f"click-gate verify {shlex.quote(json.dumps(batch))}"
+                ),
+                "workdir": str(self.workspace),
+            },
+            turn_id="turn-2",
+            tool_use_id="verification-tool",
+        )
+        self.assertIsNotNone(verification)
+        assert verification is not None
+        verified = self.run_rewritten(verification)
+        self.assertEqual(verified.returncode, 0, verified.stderr)
+
+        export = self.tool_hook(
+            "pre-tool",
+            "Bash",
+            {
+                "command": "click-gate receipt export",
+                "workdir": str(self.workspace),
+            },
+            turn_id="turn-2",
+            tool_use_id="receipt-tool",
+        )
+        self.assertIsNotNone(export)
+        assert export is not None
+        exported = self.run_rewritten(export)
+        self.assertEqual(exported.returncode, 0, exported.stderr)
+        envelope = json.loads(exported.stdout)
+        self.assertEqual(
+            envelope["receipt"]["execution"]["workspace"]["assurance"],
+            "git-protected-tree",
+        )
+
     def test_export_requires_completion_then_verify_runs_offline(self) -> None:
         (self.workspace / ".gitignore").write_text(
             "__pycache__/\n", encoding="utf-8"

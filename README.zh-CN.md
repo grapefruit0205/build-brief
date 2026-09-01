@@ -107,7 +107,7 @@ revision 14  认证代码改变   → proof input 改变 → 重新运行测试
 | **Guarded** | 一次批准 Goal、Changes、Unchanged、Completion checks，随后在范围内连续执行 | 已批准 contract |
 | **Off** | 普通工作不受 Click 管理；显式 `@Click` 可启动 Guarded | host |
 
-旧的已存储 `on` 或 `manual` 设置升级后会一次性迁移到 Evidence。已经 stage 或尚未完成的 Guarded contract 不会被解锁，必须完成或显式取消。
+升级时会保留已有权限选择的含义：`on` 迁移为 Guarded，`manual` 迁移为 Off；只有新安装和未设置的用户默认使用 Evidence。已经 stage 或尚未完成的 Guarded contract 不会被解锁，必须完成或显式取消。
 
 Evidence receipt 明确写入 `approval_bound: false` 和 `execution_authority: host`，不会假装工作由 Click 批准。Guarded receipt 继续绑定 contract digest、批准 turn、one-use claim、replay/篡改防护、mutation revision、环境和 evidence lineage。
 
@@ -129,7 +129,7 @@ Hook 控制的是**可观察的 tool path**。它不会读取隐藏推理，不�
 
 ## Guarded contract
 
-Guarded 内部仍保留 canonical JSON，用于 schema 校验与 digest 绑定；但用户默认只批准 **Goal**、**Changes**、**Unchanged**、**Completion checks** 四部分。原始 JSON 只放在可选的 Technical contract 详情中。
+Guarded 内部仍保留 canonical JSON，用于 schema 校验与 digest 绑定；成功的 stage Hook 响应会同时提供 runtime 生成的 **Goal**、**Changes**、**Unchanged**、**Completion checks** projection 与 ID，因此 Skill 无需重新概括。原始 JSON 只放在可选的 Technical contract 详情中，且该 projection 不作为 contract 明文持久化。
 
 | 字段 | 固定的内容 |
 | --- | --- |
@@ -142,7 +142,7 @@ Guarded 内部仍保留 canonical JSON，用于 schema 校验与 digest 绑定�
 
 contract 锁定的是**语义、边界和完成承诺**，而不是每个文件、依赖、库或底层实现选择。
 
-如果发现范围内需要文件、工具、依赖，或收到细节补充与缩小范围的 follow-up，可以记录 audit digest 后继续。只有结果、可见行为、边界、must-hold、权限或验证承诺发生实质变化时，才重新批准。
+如果发现范围内需要文件、工具、依赖，或收到细节补充与缩小范围的 follow-up，可以记录 audit digest 后继续。只有结果、可见行为、边界、must-hold、权限或验证承诺发生实质变化时，才重新批准。Follow-up digest 只能证明请求已记录，不能证明 runtime 已在语义上判定它属于原范围。
 
 ## Guarded 工作原理
 
@@ -282,16 +282,16 @@ Antigravity IDE 用户也可以把 `dist/antigravity` 复制到工作区的 `.ag
 
 Antigravity 的 Hook contract 与 Codex 不同。native file/search 和其他 MCP、Skill 工具仍可使用，但目前还不支持 cross-tool 去重和 Browser evidence。准确限制请参阅 [`platforms/antigravity/README.md`](platforms/antigravity/README.md)。
 
-## 更新现有安装 — v0.35.0
+## 更新现有安装 — v0.36.0
 
-当前版本是 **v0.35.0**。
+当前版本是 **v0.36.0**。
 
 ```bash
 codex plugin marketplace upgrade click
 codex plugin add click@click
 ```
 
-重启 ChatGPT 桌面应用并检查、信任更新后的 Hook。v0.35.0 将 Evidence 设为无需 Click 再批准的默认模式，对已保存的 `on` 与 `manual` 设置执行一次 migration，同时保持活动 Guarded contract 的锁定状态。Guarded 批准默认展示四个易读部分，技术 JSON 保持可选；范围内的细化或收窄请求通过 digest audit lineage 继续，而不再例行重复批准。Evidence receipt v2 如实标记 host 权限；缺失的 host `PostToolUse` 只有在后续 current-revision verification 通过时才会结算为 `observed`。Codex 与内置 Antigravity 发行版使用相同 runtime module。升级后请新建任务，以加载新模式和 Hook 代码。
+重启 ChatGPT 桌面应用并检查、信任更新后的 Hook。v0.36.0 在迁移存储设置时保留既有权限意图：`on` 迁移为 Guarded，`manual` 迁移为 Off；新安装和未设置用户仍默认使用 Evidence。Guarded stage 现在通过 Hook 提供准确的四部分 human view，范围内 follow-up 无需新的用户批准即可使用同一 contract ID 恢复并完成实际 mutation。已完成的 Guarded 工作会进入新的 Evidence session，未完成的 Guarded 工作仍保持锁定。Receipt export 也会采用 host tool 实际选择的 working directory。Codex 与内置 Antigravity 发行版使用相同 runtime module。升级后请新建任务，以加载新模式和 Hook 代码。
 
 详细发布历史见 [RELEASE_NOTES.md](RELEASE_NOTES.md)。
 

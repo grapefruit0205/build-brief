@@ -202,10 +202,10 @@ class ClickGateLifecycleTests(ClickGateTestCase):
             ),
         )
 
-    def test_legacy_preferences_migrate_once_to_evidence(self) -> None:
+    def test_legacy_preferences_preserve_authority_choice_during_migration(self) -> None:
         preference = self.plugin_data / "preferences.json"
         preference.parent.mkdir(parents=True, exist_ok=True)
-        for legacy in ("on", "manual"):
+        for legacy, expected in (("on", "guarded"), ("manual", "off")):
             with self.subTest(legacy=legacy):
                 preference.write_text(
                     json.dumps({"default_mode": legacy, "updated_at": 1}),
@@ -216,7 +216,7 @@ class ClickGateLifecycleTests(ClickGateTestCase):
                 )["hookSpecificOutput"]["additionalContext"]
                 self.assertIn("migrated", context)
                 stored = json.loads(preference.read_text(encoding="utf-8"))
-                self.assertEqual(stored["default_mode"], "evidence")
+                self.assertEqual(stored["default_mode"], expected)
                 self.assertEqual(stored["migrated_from"], legacy)
                 self.assertFalse(stored["migration_notice_pending"])
                 later = self.prompt_submit(
@@ -238,12 +238,73 @@ class ClickGateLifecycleTests(ClickGateTestCase):
         self.assertRegex(state["follow_up_turns"][0]["digest"], r"^[0-9a-f]{64}$")
         self.assertEqual(state["approved_turn_id"], "turn-2")
 
+    def test_guarded_follow_up_resumes_and_mutates_without_new_approval(self) -> None:
+        (self.workspace / ".gitignore").write_text(
+            "__pycache__/\n", encoding="utf-8"
+        )
+        self.initialize_git(".gitignore", "verification_fixture.py")
+        contract = self.contract()
+        contract["verification"]["evidence"].append(
+            {
+                "id": "E-manual",
+                "kind": "manual",
+                "description": "final operator review",
+            }
+        )
+        contract["verification"]["done_when"].append(
+            {
+                "condition": "the final display is acceptable",
+                "primary_evidence": "E-manual",
+            }
+        )
+        self.arm_gate("turn-1")
+        self.stage_gate(contract, "turn-1")
+        contract_id = self.active_contract_id()
+        self.arm_gate("turn-2")
+        self.pass_gate(contract_id, "turn-2")
+        verification = self.verify_gate([self.verification_argv()], "turn-2")
+        result = self.run_rewritten(verification)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+        context = self.prompt_submit("표시 문자열만 빼줘", "turn-3")[
+            "hookSpecificOutput"
+        ]["additionalContext"]
+        self.assertIn(f"incomplete approved contract_id is `{contract_id}`", context)
+        self.arm_gate("turn-3")
+        resumed = self.pass_gate(contract_id, "turn-3")
+        self.assertEqual(
+            resumed["hookSpecificOutput"]["permissionDecision"], "allow"
+        )
+        mutation = self.mutate_gate(
+            [
+                sys.executable,
+                "-c",
+                "from pathlib import Path; Path('generated.txt').write_text('updated')",
+            ],
+            "turn-3",
+        )
+        mutated = self.run_rewritten(mutation)
+        self.assertEqual(mutated.returncode, 0, mutated.stderr)
+
+        state_paths = list(
+            (self.plugin_data / "gate-state").glob("session-contract-*.json")
+        )
+        self.assertEqual(len(state_paths), 1)
+        state = json.loads(state_paths[0].read_text(encoding="utf-8"))
+        source = state["evidence_state"]["sources"][CLICK_GATE._evidence_key("E1")]
+        self.assertEqual(state["contract_id"], contract_id)
+        self.assertEqual(state["approved_turn_id"], "turn-2")
+        self.assertEqual(state["follow_up_turns"][0]["turn_id"], "turn-3")
+        self.assertEqual(state["verification"]["mutation_revision"], 1)
+        self.assertEqual(state["verification"]["status"], "stale")
+        self.assertEqual(source["status"], "stale")
+
     def test_legacy_migration_does_not_unlock_an_active_guarded_contract(self) -> None:
         self.set_default("guarded", "turn-0")
         self.stage_gate(turn_id="turn-1")
         preference = self.plugin_data / "preferences.json"
         preference.write_text(
-            json.dumps({"default_mode": "on", "updated_at": 1}),
+            json.dumps({"default_mode": "manual", "updated_at": 1}),
             encoding="utf-8",
         )
 
@@ -252,6 +313,8 @@ class ClickGateLifecycleTests(ClickGateTestCase):
         ]["additionalContext"]
         self.assertIn("active staged contract_id", context)
         self.assertIn("migrated", context)
+        stored = json.loads(preference.read_text(encoding="utf-8"))
+        self.assertEqual(stored["default_mode"], "off")
         blocked = self.pre_tool(
             "apply_patch",
             "*** Begin Patch\n*** End Patch",
@@ -771,6 +834,7 @@ class ClickGateLifecycleTests(ClickGateTestCase):
         self.assertEqual(state["approved_turn_id"], "turn-2")
 
     def test_completed_contract_cannot_be_passed_again(self) -> None:
+        self.set_default("guarded", "turn-0")
         self.approve_contract()
         verification = self.verify_gate([self.verification_argv()])
         result = self.run_rewritten(verification)
@@ -864,6 +928,31 @@ class ClickGateLifecycleTests(ClickGateTestCase):
         self.assertEqual(state["observations"], {"entries": {}})
         self.assertEqual(state["mutation"]["status"], "idle")
 
+    def test_completed_guarded_contract_rolls_into_default_evidence(self) -> None:
+        (self.workspace / ".gitignore").write_text(
+            "__pycache__/\n", encoding="utf-8"
+        )
+        self.initialize_git(".gitignore", "verification_fixture.py")
+        self.approve_contract()
+        completed_id = self.active_contract_id()
+        passed = self.verify_gate([self.verification_argv()])
+        result = self.run_rewritten(passed)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+        context = self.prompt_submit("start a new task", "turn-3")[
+            "hookSpecificOutput"
+        ]["additionalContext"]
+        self.assertIn("Evidence mode is enabled", context)
+        state_path = next(
+            (self.plugin_data / "gate-state").glob("session-contract-*.json")
+        )
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        self.assertEqual(state["status"], "evidence")
+        self.assertEqual(state["runtime_mode"], "evidence")
+        self.assertEqual(state["contract_id"], "")
+        self.assertNotEqual(state["contract_id"], completed_id)
+        self.assertEqual(state["verification"]["mutation_revision"], 0)
+
     def test_approved_contract_cannot_be_restaged_unchanged(self) -> None:
         self.approve_contract()
         payload = self.stage_gate(turn_id="turn-2")
@@ -930,6 +1019,11 @@ class ClickGateLifecycleTests(ClickGateTestCase):
             staged["hookSpecificOutput"]["updatedInput"]["command"],
             f"echo CLICK_CONTRACT_ID={contract_id}",
         )
+        projection = staged["hookSpecificOutput"]["additionalContext"]
+        self.assertIn(f"CLICK_CONTRACT_ID={contract_id}", projection)
+        self.assertIn("Goal\n" + self.contract()["outcome"], projection)
+        self.assertIn(self.contract()["build"]["approach"][0], projection)
+        self.assertIn("Completion checks\n  Scale: focused", projection)
         self.assertNotIn("inventory", contract_id)
         self.arm_gate("turn-2")
         payload = self.pass_gate(turn_id="turn-2")

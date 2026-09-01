@@ -397,9 +397,13 @@ class RepositoryPolicyTests(unittest.TestCase):
 
         self.assertIn("Status: **Canonical**", constitution)
         self.assertIn(
-            "Click binds AI execution to approved intent and returns verifiable evidence.",
+            "Click returns revision-aware evidence for host-authorized AI execution",
             constitution,
         )
+        self.assertIn("Evidence authority", constitution)
+        self.assertIn("Guarded authority", constitution)
+        self.assertIn("execution_authority: host", constitution)
+        self.assertIn("approval_bound: false", constitution)
         self.assertIn("## Core admission test", constitution)
         self.assertIn("if the model were perfect", constitution)
         self.assertIn("runtime observe the relevant action or result", constitution)
@@ -418,6 +422,10 @@ class RepositoryPolicyTests(unittest.TestCase):
             "v0.30 policy migrations complete; dependency-aware receipt reuse",
             classification,
         )
+        self.assertIn("Evidence/Guarded dual authority completed for v0.35.0", classification)
+        self.assertIn("approval projection completed for v0.36.0", classification)
+        self.assertIn("`on` maps to Guarded and `manual` maps to Off", classification)
+        self.assertIn("does not prove that its meaning was inside", classification)
         for tier in ("## CORE", "## USER_POLICY", "## HEURISTIC"):
             self.assertIn(tier, classification)
         self.assertIn("## Known assurance gaps", classification)

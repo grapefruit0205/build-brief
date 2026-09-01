@@ -654,13 +654,25 @@ def _verification_runner_command(
     )
 
 
+def _tool_working_directory(event: dict[str, Any]) -> Path:
+    event_cwd = Path(str(event.get("cwd", "")))
+    tool_input = event.get("tool_input")
+    requested = tool_input.get("workdir") if isinstance(tool_input, dict) else None
+    if not isinstance(requested, str) or not requested:
+        return event_cwd.resolve()
+    workdir = Path(requested)
+    if not workdir.is_absolute():
+        workdir = event_cwd / workdir
+    return workdir.resolve()
+
+
 def _receipt_export_runner_command(event: dict[str, Any]) -> str:
     host_id = click_host_coverage.host_id_from_event(event)
     return _runner_shell_command(
         [
             *_stateful_runner_prefix("run-receipt-export"),
             str(_contract_path(event).resolve()),
-            str(Path(str(event.get("cwd", ""))).resolve()),
+            str(_tool_working_directory(event)),
             host_id,
         ]
     )
@@ -978,7 +990,21 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
                 if lifecycle_error:
                     _deny(lifecycle_error)
                     return
-                _allow_rewritten(rewritten)
+                if action == "stage":
+                    contract, projection_error = click_contract.validate_contract(value)
+                    contract_id = _contract_id_from_state(_read_contract_state(event))
+                    if projection_error or contract is None or not contract_id:
+                        _deny(
+                            projection_error
+                            or "Click could not render the staged approval projection."
+                        )
+                        return
+                    _allow_rewritten_with_advisory(
+                        rewritten,
+                        click_contract.render_human_view(contract_id, contract),
+                    )
+                else:
+                    _allow_rewritten(rewritten)
                 return
 
     status = _read_state(event).get("status")

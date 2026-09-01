@@ -65,20 +65,20 @@ Keep `plain_language` inside the canonical digest-bound object, but do not show 
 3. **Unchanged** — out-of-scope behavior plus every must-hold promise;
 4. **Completion checks** — the qualitative scale and human-readable evidence conditions.
 
-Offer the canonical JSON only as optional **Technical contract** details. The human view is a projection of the exact staged object, not a second or weaker contract.
+Offer the canonical JSON only as optional **Technical contract** details. The human view is a projection of the exact staged object, not a second or weaker contract. Use the projection supplied by the successful stage Hook response instead of independently reconstructing it.
 
 ## Single approval
 
-Run `click-gate stage '<Execution Contract JSON>'` once. The Hook validates and binds the canonical contract digest, creates a fresh opaque lifecycle handle, and returns:
+Run `click-gate stage '<Execution Contract JSON>'` once. The Hook validates and binds the canonical contract digest, creates a fresh opaque lifecycle handle, emits the ID marker below, and injects the exact four-section projection into the successful stage Hook context:
 
 ```text
 CLICK_CONTRACT_ID=ctr_<32 lowercase hex characters>
 ```
 
-`contract_id` is not a contract field and does not replace the stored digest. Show the emitted id with the four human sections, then end with one compact question equivalent to:
+`contract_id` is not a contract field and does not replace the stored digest. Show the emitted id with the Hook-generated four human sections, then end with one compact question equivalent to:
 
 > Do you approve contract `ctr_...` and its verification scale? If approved, I will implement it in one shot and run the completion checks once.
 
-Stop without mutation. The original request is not approval of an unseen contract. Staging records `staged_turn_id`; the Hook rejects pass and a replacement stage in that same `UserPromptSubmit` turn. A materially revised proposal receives a new id. An in-scope detail or narrowing follow-up is digest-recorded on the existing contract and does not require reapproval.
+Stop without mutation. The original request is not approval of an unseen contract. Staging records `staged_turn_id`; the Hook rejects pass and a replacement stage in that same `UserPromptSubmit` turn. A materially revised proposal receives a new id. An in-scope detail or narrowing follow-up is digest-recorded on the existing contract and does not require reapproval. That digest proves the request was recorded; the runtime does not semantically prove that it was in scope.
 
 Only after a later user turn explicitly approves the shown proposal, run `click-gate pass ctr_<32hex>`. Pass only the exact emitted id—never resend or reconstruct the contract JSON. The Hook matches the id to the staged digest, records `approved_turn_id`, and preserves the derived verification state. An approved but incomplete contract reuses the same id when implementation resumes in a later turn. Turn separation proves that another user response occurred; the Skill still must interpret that response faithfully because the Hook does not semantically classify approval words.

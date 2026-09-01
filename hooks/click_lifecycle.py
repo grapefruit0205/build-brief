@@ -127,20 +127,22 @@ def _read_default_mode() -> str:
         and stored in PUBLIC_DEFAULT_MODES
     ):
         return str(stored)
-    if stored in DEFAULT_MODES:
-        # Every pre-v2 preference migrates once, including prior Always ON and
-        # Manual choices. An already staged or approved contract is stored in a
-        # separate session state and remains locked until completion or cancel.
+    if isinstance(stored, str) and stored in DEFAULT_MODES:
+        # Preserve the user's prior authority choice while upgrading the public
+        # names: Always ON becomes Guarded and Manual becomes Off. An already
+        # staged or approved contract is stored separately and remains locked.
+        migrated_mode = LEGACY_DEFAULT_MODE_ALIASES.get(stored, stored)
         click_state.write_json(
             path,
             {
                 "schema_version": PREFERENCE_SCHEMA_VERSION,
-                "default_mode": "evidence",
-                "migrated_from": str(stored),
+                "default_mode": migrated_mode,
+                "migrated_from": stored,
                 "migration_notice_pending": True,
                 "updated_at": int(time.time()),
             },
         )
+        return migrated_mode
     return "evidence"
 
 
@@ -279,7 +281,9 @@ def _evidence_state_is_usable(state: dict[str, Any]) -> bool:
 
 def _ensure_evidence_state(event: dict[str, Any]) -> tuple[dict[str, Any], bool]:
     state = _read_contract_state(event)
-    if state.get("status") in {"staged", "approved"}:
+    if state.get("status") == "staged" or (
+        state.get("status") == "approved" and not _contract_is_completed(state)
+    ):
         return state, False
     recovered = state.get("status") == "evidence" and not _evidence_state_is_usable(state)
     if not _evidence_state_is_usable(state) or _contract_is_completed(state):
@@ -634,10 +638,16 @@ def prompt_context(event: dict[str, Any]) -> str:
             "Guarded approval, or `click-gate default guarded` for a persistent choice."
         )
     if migrated_from:
+        migrated_label = {
+            "evidence": "Evidence",
+            "guarded": "Guarded",
+            "off": "Off",
+        }.get(default_mode, default_mode)
         context += (
-            f" Click migrated the previous `{migrated_from}` preference to Evidence once. "
-            "No past approval was recreated. Any already active Guarded contract remains "
-            "locked until completion or explicit cancel."
+            f" Click migrated the previous `{migrated_from}` preference to "
+            f"{migrated_label} once, preserving the prior authority choice. No past "
+            "approval was recreated. Any already active Guarded contract remains locked "
+            "until completion or explicit cancel."
         )
     if recovered_evidence:
         context += (

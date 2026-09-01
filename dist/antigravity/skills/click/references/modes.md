@@ -4,7 +4,7 @@ Click stores one user-level default outside the target repository. The setting p
 
 ## Default and migration
 
-New and unset installations use Evidence mode without asking a setup question. Existing pre-v2 `on` and `manual` preferences migrate once to Evidence so an upgrade does not silently impose approval friction or disable evidence collection. A staged or incomplete Guarded contract is never unlocked by that migration.
+New and unset installations use Evidence mode without asking a setup question. Existing pre-v2 preferences preserve the user's authority choice: `on` migrates to Guarded and `manual` migrates to Off. A staged or incomplete Guarded contract is never unlocked by migration.
 
 Use one of:
 
@@ -14,7 +14,7 @@ click-gate default guarded
 click-gate default off
 ```
 
-`click-gate default status` reports the stored value. Legacy `default on` and `default manual` remain command aliases for Guarded and Off when explicitly entered, but old stored preferences migrate to Evidence.
+`click-gate default status` reports the stored value. Legacy `default on` and `default manual` remain command aliases for Guarded and Off when explicitly entered, and stored legacy values migrate to those same public names.
 
 ## Evidence (default)
 
@@ -30,7 +30,7 @@ For a read-only code review, use `click-gate review`, remain read-only, and coll
 
 Guarded applies one compact contract to software creation, modification, deletion, refactoring, and repair. The Hook blocks matched mutations until the opaque id emitted for the staged contract is passed from a later approving user turn. Plans remain available as non-authoritative guidance and cannot approve, replace, or widen the contract.
 
-Show the user Goal, Changes, Unchanged, and Completion checks. Keep canonical JSON behind optional Technical contract details. Once approved, in-scope details, narrowing instructions, files, tools, dependencies, and implementation tactics do not require reapproval. A material change to the outcome, visible behavior, boundary, must-hold promise, authority, or verification commitment requires a replacement contract.
+Show the user the Hook-generated Goal, Changes, Unchanged, and Completion checks projection. Keep canonical JSON behind optional Technical contract details. Once approved, in-scope details, narrowing instructions, files, tools, dependencies, and implementation tactics do not require reapproval. A material change to the outcome, visible behavior, boundary, must-hold promise, authority, or verification commitment requires a replacement contract. A recorded follow-up digest proves lineage, not the runtime's semantic judgment that the request stayed inside the boundary.
 
 After every declared evidence source is current for the final mutation revision and no managed service remains active, a later change may stage a fresh contract. A contract with no argv source needs no ceremonial local batch. Missing, running, failed, or stale evidence—and an active managed service—still block replacement.
 
