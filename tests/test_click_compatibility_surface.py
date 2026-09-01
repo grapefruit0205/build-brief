@@ -4,12 +4,20 @@ import ast
 from pathlib import Path
 import unittest
 
-from click_gate_compatibility_baseline import (
-    DOCUMENTED_LEGACY_FORWARDERS,
-    HOST_ADAPTER_SURFACE,
-    MAX_PRIVATE_FORWARDERS,
-    PRIVATE_FORWARDERS,
-)
+try:
+    from .click_gate_compatibility_baseline import (
+        DOCUMENTED_LEGACY_FORWARDERS,
+        HOST_ADAPTER_SURFACE,
+        MAX_PRIVATE_FORWARDERS,
+        PRIVATE_FORWARDERS,
+    )
+except ImportError:  # unittest discovery with tests/ as the import root.
+    from click_gate_compatibility_baseline import (
+        DOCUMENTED_LEGACY_FORWARDERS,
+        HOST_ADAPTER_SURFACE,
+        MAX_PRIVATE_FORWARDERS,
+        PRIVATE_FORWARDERS,
+    )
 
 
 ROOT = Path(__file__).resolve().parents[1]

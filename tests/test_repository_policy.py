@@ -3,7 +3,10 @@ from __future__ import annotations
 import json
 import unittest
 
-import repository_policy_core as core
+try:
+    from . import repository_policy_core as core
+except ImportError:  # unittest discovery with tests/ as the import root.
+    import repository_policy_core as core
 
 
 ROOT = core.ROOT

@@ -19,17 +19,16 @@ an underscore are not a general public extension API.
 The current host adapters still call a small, explicit set of gate symbols:
 
 - `hooks/click_hook.py`: `main`
-- `hooks/antigravity_gate.py`: `SHELL_CONTROL_PUNCTUATION`, `_emit`,
-  `_handle_post_tool`, `_handle_pre_tool`, `_handle_prompt_submit`,
-  `_handle_session_end`, `_is_read_only_bash`, and `_set_output_adapter`
+- `hooks/antigravity_gate.py`: public `host_router`
 
 `hooks/click_windows.py` and the Antigravity launcher-path check use the formal
 `click_runner_transport` boundary. They no longer reach through private gate
 symbols to configure or decode runner commands.
 
-This bridge is compatibility state, not the desired final host API. A later
-refactor should replace it with named host-routing and runner-transport
-interfaces before removing the gate symbols.
+The named `click_host_router` and `click_runner_transport` interfaces now own
+adapter routing and runner transport. The remaining `click_gate.main` and
+`click_gate.host_router` entries are the explicit host-facing facade rather
+than private compatibility reach-through.
 
 ## Documented legacy symbol
 
