@@ -243,18 +243,40 @@ Antigravity IDE users may also copy `dist/antigravity` into `.agents/plugins/cli
 
 Antigravity's Hook contract differs from Codex. Native file/search and unrelated MCP or Skill tools remain available, but cross-tool deduplication and Browser evidence are not currently supported. See [`platforms/antigravity/README.md`](platforms/antigravity/README.md) for the exact limits.
 
-## Update an existing installation — v0.33.0
+## Update an existing installation — v0.34.0
 
-The current release is **v0.33.0**.
+The current release is **v0.34.0**.
 
 ```bash
 codex plugin marketplace upgrade click
 codex plugin add click@click
 ```
 
-Restart the ChatGPT desktop app and review/trust the updated Hook. v0.33.0 separates service, Browser admission, mutation, capability, inspection, observation, verification, and approval lifecycle responsibilities into explicit one-way runtime domains. `click_gate.py` now serves as the host event router and compatibility facade while retaining the existing contract schema, exact errors, one-use authorization, replay protection, and revision-bound receipt behavior. Codex and the bundled Antigravity distribution use the same extracted modules. Begin a fresh contract after upgrading instead of reusing a pending runner from an older installation.
+Restart the ChatGPT desktop app and review/trust the updated Hook. v0.34.0 adds an approval-bound capability ledger and canonical completion receipts that bind contract, approval turn, one-use and host-tool-use claims, final workspace revision, and evidence lineage. `click-gate receipt export` emits an `unsigned-integrity-only` envelope, and `click-gate receipt verify` checks its canonical digest offline. Legacy runner state remains recoverable, but incomplete pre-receipt history cannot be exported as a complete receipt. Codex and the bundled Antigravity distribution use the same runtime modules. Begin a fresh contract after upgrading instead of reusing a pending runner from an older installation.
 
 Detailed release history is in [RELEASE_NOTES.md](RELEASE_NOTES.md).
+
+## Completion receipts
+
+After every declared evidence source is current and managed services are
+stopped, `click-gate receipt export` prints one canonical completion envelope.
+It binds the contract ID and digest, staging and approval turns, Click runner
+claims and host-tool-use boundaries, the final mutation revision and protected
+workspace digest, and each evidence result with its environment, executable,
+host-coverage, and dependency-reuse lineage. Raw argv, runner tokens, contract
+prose, and the workspace path are excluded.
+
+Save that JSON outside the running command, then check it without network or
+active Click state:
+
+```text
+click-gate receipt verify ./completion-receipt.json
+```
+
+The current envelope reports `unsigned-integrity-only`. Verification rejects a
+malformed body or mismatched canonical digest, but it cannot detect an attacker
+who rewrites both body and digest. Publisher authenticity and non-repudiation
+require the planned public-key signing layer.
 
 ## Honest limits
 

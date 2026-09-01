@@ -1,5 +1,29 @@
 # Release notes
 
+## v0.34.0 — 2026-09-01
+
+- A versioned append-only capability ledger now records approval-bound
+  one-use runner and host-tool-use claims across mutation, observation,
+  verification, Browser, managed-service, and explicit evidence-attestation
+  paths. Receipts expose commitments and results without storing raw runner
+  tokens, argv, contract prose, or workspace paths.
+- `click-gate receipt export` emits one canonical completion envelope after all
+  declared evidence is current and managed execution has stopped. It binds the
+  contract ID and digest, staging and approval turns, mutation revision, final
+  protected Git workspace digest, capability claims, and per-source result,
+  environment, executable, host-coverage, and dependency-reuse lineage.
+- `click-gate receipt verify <path>` performs bounded strict JSON parsing and
+  canonical digest verification without network access or active Click state.
+  The envelope is deliberately labelled `unsigned-integrity-only`: it detects
+  malformed or mismatched content but does not claim publisher identity or
+  resist an attacker who can rewrite both the body and digest.
+- Legacy and minimal authorized runner state remains recoverable with revision
+  zero compatibility, while consumed-runner replay stays blocked. A backfilled
+  ledger is marked incomplete and cannot be exported as a complete receipt,
+  preventing missing historical authority from being invented during upgrade.
+- Codex and the bundled Antigravity distribution ship the same claim, receipt,
+  recovery, routing, documentation, and deterministic regression behavior.
+
 ## v0.33.0 — 2026-09-01
 
 - Managed local-service validation, admission, one-use start and supervisor

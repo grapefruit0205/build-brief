@@ -87,6 +87,7 @@ def fresh_state(contract: dict[str, Any]) -> dict[str, Any]:
                 "verified_root": "",
                 "verified_tree_digest": "",
                 "verified_environment_digest": "",
+                "verified_executable_digest": "",
                 "verified_host_coverage": {},
                 "verified_at": 0,
                 "verified_dependency_provider": "",
@@ -231,6 +232,13 @@ def sources_from_state(
             )
             or not isinstance(source.get("last_check_digest"), str)
             or not isinstance(source.get("locked_check_digest"), str)
+            or not isinstance(source.get("verified_executable_digest", ""), str)
+            or source.get("verified_executable_digest", "")
+            and re.fullmatch(
+                r"[0-9a-f]{64}",
+                str(source.get("verified_executable_digest", "")),
+            )
+            is None
             or not _dependency_fields_are_valid(source)
             or not _host_coverage_field_is_valid(source)
             or (

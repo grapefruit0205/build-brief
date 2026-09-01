@@ -73,6 +73,32 @@ The current manifest must be a regular file identical to the committed `HEAD` bl
 
 In a Git worktree, the runner compares tracked and pre-existing non-ignored untracked content before and after the batch. If the initial protected snapshot cannot be established, no check executes. A protected-content change fails stale, increments the mutation revision, and invalidates every evidence source. Every new non-ignored untracked path created during the batch also fails stale and advances the mutation revision; source or configuration classification affects only the clarity of the message, not whether the workspace changed. Expected generated artifacts should be ignored or created during the approved mutation phase. Git-ignored paths, external dependencies, and external system state are outside this protected snapshot. Non-Git worktrees are outside the content snapshot and receipt-reuse boundary.
 
+## Completion receipt export and offline integrity verification
+
+After every declared source is current for the final mutation revision and no
+managed service or capability claim remains active, export the canonical
+unsigned envelope once:
+
+```text
+click-gate receipt export
+```
+
+The envelope binds the approved contract identity and turns, capability claim
+commitments, final protected workspace digest, and per-source evidence result,
+environment, executable, host-coverage, and dependency lineage. It excludes
+raw argv, runner tokens and token digests, contract prose, and the workspace
+path. Save the stdout JSON separately, then verify it without network access or
+active contract state:
+
+```text
+click-gate receipt verify ./completion-receipt.json
+```
+
+This command performs strict schema, canonicalization, and digest checks and
+reports `unsigned-integrity-only`. It does not claim publisher authenticity: a
+coordinated rewrite of both body and digest remains detectable only after a
+separate public-key signing layer is configured.
+
 ## Non-argv evidence completion
 
 After collecting the assigned source, record it once:

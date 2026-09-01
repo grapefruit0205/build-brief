@@ -38,7 +38,12 @@ class ClickMutationTests(unittest.TestCase):
                     any(forbidden in name.split(".") for name in imported),
                     imported,
                 )
-        for required in ("click_dependency_cache", "click_evidence", "click_state"):
+        for required in (
+            "click_claims",
+            "click_dependency_cache",
+            "click_evidence",
+            "click_state",
+        ):
             with self.subTest(required=required):
                 self.assertIn(required, imported)
 

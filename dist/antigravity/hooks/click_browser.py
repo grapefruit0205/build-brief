@@ -15,9 +15,10 @@ import time
 from typing import Any
 
 if __package__:
-    from . import click_browser_advisory, click_evidence, click_state
+    from . import click_browser_advisory, click_claims, click_evidence, click_state
 else:  # Executed directly from the bundled hooks directory.
     import click_browser_advisory
+    import click_claims
     import click_evidence
     import click_state
 
@@ -356,6 +357,17 @@ def prepare(
     external["last_browser_error"] = ""
     if not already_observed:
         source["status"] = "running"
+    _, claim_error = click_claims.record_claim(
+        state,
+        capability="browser",
+        claim_mode="host-tool-use",
+        request_digest=digest,
+        binding_digest=click_claims.host_binding_digest(tool_use_id),
+        mutation_revision=revision,
+        claimed_at=int(started_at) or 1,
+    )
+    if claim_error:
+        return True, claim_error, ""
     state["external_evidence"] = external
     _save_contract_state(event, state)
     return True, "", "\n".join(advisories)
@@ -410,6 +422,7 @@ def record_result(
         }
         attempts[digest] = attempt
     if response_failed(event.get("tool_response")):
+        exit_code = 1
         attempt["status"] = "failed"
         attempt["failed_attempts"] = int(attempt.get("failed_attempts", 0)) + 1
         already_observed = bool(
@@ -424,6 +437,7 @@ def record_result(
             source["verified_revision"] = -1
             source["last_exit_code"] = 1
     else:
+        exit_code = 0
         attempt["status"] = "success"
         attempt["successful_attempts"] = int(
             attempt.get("successful_attempts", 0)
@@ -434,6 +448,16 @@ def record_result(
             source["status"] = "observed"
             source["verified_revision"] = revision
             source["last_exit_code"] = 0
+    if not click_claims.complete_claim(
+        state,
+        capability="browser",
+        claim_mode="host-tool-use",
+        request_digest=digest,
+        binding_digest=click_claims.host_binding_digest(tool_use_id),
+        mutation_revision=revision,
+        exit_code=exit_code,
+    ):
+        return
     external["browser_attempts"] = attempts
     state["external_evidence"] = external
     _save_contract_state(event, state)

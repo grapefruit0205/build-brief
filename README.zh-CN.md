@@ -241,18 +241,39 @@ Antigravity IDE 用户也可以把 `dist/antigravity` 复制到工作区的 `.ag
 
 Antigravity 的 Hook contract 与 Codex 不同。native file/search 和其他 MCP、Skill 工具仍可使用，但目前还不支持 cross-tool 去重和 Browser evidence。准确限制请参阅 [`platforms/antigravity/README.md`](platforms/antigravity/README.md)。
 
-## 更新现有安装 — v0.33.0
+## 更新现有安装 — v0.34.0
 
-当前版本是 **v0.33.0**。
+当前版本是 **v0.34.0**。
 
 ```bash
 codex plugin marketplace upgrade click
 codex plugin add click@click
 ```
 
-重启 ChatGPT 桌面应用并检查、信任更新后的 Hook。v0.33.0 将 service、Browser admission、mutation、capability、inspection、observation、verification 和 approval lifecycle 职责拆分为明确的单向 runtime domain。`click_gate.py` 仅保留 host event routing 和兼容 facade，同时保持既有 contract schema、精确错误信息、one-use authorization、replay 防护以及 revision-bound receipt 行为不变。Codex 与内置的 Antigravity 发行版使用相同的拆分模块。升级后请开始新 contract，不要复用旧安装留下的待执行 runner。
+重启 ChatGPT 桌面应用并检查、信任更新后的 Hook。v0.34.0 新增 approval-bound capability ledger 和 canonical 完成收据，把 contract、批准 turn、one-use 与 host-tool-use claim、最终 workspace revision 以及 evidence lineage 绑定在一起。`click-gate receipt export` 输出 `unsigned-integrity-only` envelope，`click-gate receipt verify` 可离线检查其 canonical digest。legacy runner state 仍可恢复，但 receipt 追踪之前的不完整历史不能导出为完整收据。Codex 与内置的 Antigravity 发行版使用相同的 runtime module。升级后请开始新 contract，不要复用旧安装留下的待执行 runner。
 
 详细发布历史见 [RELEASE_NOTES.md](RELEASE_NOTES.md)。
+
+## 完成收据
+
+当所有声明的 evidence 都已在当前 revision 完成且受管服务已停止时，
+`click-gate receipt export` 会向 stdout 输出一个 canonical 完成 envelope。
+它绑定 contract ID 与 digest、stage 与批准 turn、Click runner claim 与
+host-tool-use 边界、最终 mutation revision 与受保护 workspace digest，
+以及每项 evidence 的结果、环境、可执行文件、host coverage 和 dependency
+复用 lineage。原始 argv、runner token、contract 正文和实际 workspace 路径
+不会写入收据。
+
+在运行命令之外保存输出的 JSON 后，可以在无网络、无活动 Click state 的
+情况下验证：
+
+```text
+click-gate receipt verify ./completion-receipt.json
+```
+
+当前 envelope 的 assurance 是 `unsigned-integrity-only`。它会拒绝 malformed
+正文或不匹配的 canonical digest，但无法识别同时重写正文和 digest 的攻击者。
+发布者真实性与不可否认性需要后续的公钥签名层。
 
 ## 证据与诚实边界
 

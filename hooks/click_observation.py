@@ -18,9 +18,16 @@ import time
 from typing import Any
 
 if __package__:
-    from . import click_capability, click_inspection, click_process, click_state
+    from . import (
+        click_capability,
+        click_claims,
+        click_inspection,
+        click_process,
+        click_state,
+    )
 else:  # Executed directly from the bundled hooks directory.
     import click_capability
+    import click_claims
     import click_inspection
     import click_process
     import click_state
@@ -335,7 +342,20 @@ def claim_run(
     if click_capability.digest(request) != command_digest:
         return None, "Click observation runner request digest did not match."
 
-    entry["runner_claimed_at"] = int(time.time()) or 1
+    claimed_at = int(time.time()) or 1
+    if status == "approved":
+        _, claim_error = click_claims.record_claim(
+            state,
+            capability="observation",
+            claim_mode="one-use-runner",
+            request_digest=command_digest,
+            token_digest=token_digest,
+            mutation_revision=expected_revision,
+            claimed_at=claimed_at,
+        )
+        if claim_error:
+            return None, claim_error
+    entry["runner_claimed_at"] = claimed_at
     entries[command_digest] = entry
     observations["entries"] = entries
     state["observations"] = observations
@@ -380,6 +400,18 @@ def record_result(
     ):
         return False
 
+    status = state.get("status")
+    if status == "approved":
+        verification = state.get("verification")
+        if not isinstance(verification, dict) or not click_claims.complete_claim(
+            state,
+            capability="observation",
+            claim_mode="one-use-runner",
+            request_digest=command_digest,
+            mutation_revision=int(verification.get("mutation_revision", 0)),
+            exit_code=exit_code,
+        ):
+            return False
     entry["runner_token_digest"] = ""
     entry["runner_claimed_at"] = 0
     entry["started_at"] = 0

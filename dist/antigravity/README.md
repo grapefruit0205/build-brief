@@ -50,6 +50,8 @@ Antigravity lifecycle and mutation tools onto that common runtime.
 - Successful argv receipts bind the registered Antigravity tool surface with a
   `known-surfaces-only` digest. This prevents cross-host or registry-drift reuse
   but cannot observe a capability for which Antigravity emits no Hook event.
+- `receipt export` and `receipt verify <path>` run through the same exact
+  launcher and retain the explicit `unsigned-integrity-only` assurance.
 - `update_plan` and `create_plan` remain available. While a Click lifecycle is
   active, the adapter returns advisory context explaining that plan output
   cannot grant mutation authority or replace, widen, or complete the contract.

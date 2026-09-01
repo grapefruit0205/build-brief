@@ -73,7 +73,9 @@ Click Core owns:
 - invalidating stale evidence when the protected implementation changes;
 - recovering outstanding approved runner state without weakening exact binding,
   expiry, cancellation, or replay checks;
-- preserving auditable current authorization state and evidence receipts; and
+- preserving auditable current authorization state and evidence receipts;
+- exporting a deterministic completion receipt that binds approval, observable
+  capability claims, the final workspace revision, and evidence lineage; and
 - adapting Codex, Antigravity, and other hosts onto the same Core protocol.
 
 Host adapters may normalize host events and output formats. They may not weaken
@@ -105,14 +107,17 @@ approved intent
     -> observable action or side effect
     -> contract- and revision-bound evidence record
     -> stronger tree-, environment-, and executable-bound argv receipt
+    -> canonical completion receipt with capability-claim lineage
     -> auditable current state and receipts
 ```
 
 The runtime can prove only the observable bindings in this chain. It cannot by
 itself prove that natural-language approval was semantically informed, that a
 natural-language scope matches every changed line, or that an unmatched manual
-or external attestation is true. The current implementation does not maintain
-an append-only, durable history of every state transition.
+or external attestation is true. The current implementation maintains an
+append-only capability-claim ledger for one contract and can export its
+unsigned completion receipt; it does not yet provide a signed, independently
+authentic durable history of every state transition.
 
 ## Change rule
 

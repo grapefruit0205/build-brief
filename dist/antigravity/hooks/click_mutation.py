@@ -20,8 +20,9 @@ import time
 from typing import Any
 
 if __package__:
-    from . import click_dependency_cache, click_evidence, click_state
+    from . import click_claims, click_dependency_cache, click_evidence, click_state
 else:  # Executed directly from the bundled hooks directory.
+    import click_claims
     import click_dependency_cache
     import click_evidence
     import click_state
@@ -43,6 +44,9 @@ def fresh_boundary() -> dict[str, Any]:
     return {
         "revision": 0,
         "tool_use_id": "",
+        "claim_mode": "",
+        "claim_request_digest": "",
+        "claim_binding_digest": "",
         "status": "none",
         "lineage_valid": False,
         "before_root": "",
@@ -148,6 +152,7 @@ def mark_contract_mutated(
     expected_contract_schema_version: int,
     observation_is_running: ObservationIsRunning,
     workspace_snapshot: WorkspaceSnapshot,
+    host_tool_use: bool = True,
 ) -> str:
     state = _read_contract_state(event)
     if state.get("status") != "approved":
@@ -188,6 +193,9 @@ def mark_contract_mutated(
                         "running. Wait for that evidence before changing the implementation."
                     )
 
+    tool_use_id = str(event.get("tool_use_id", ""))
+    if host_tool_use and not tool_use_id:
+        return "Click requires a stable host tool_use_id for a direct mutation claim."
     previous_revision = int(verification.get("mutation_revision", 0))
     workspace = Path(str(event.get("cwd", ""))).resolve()
     snapshot = workspace_snapshot(workspace)
@@ -240,10 +248,18 @@ def mark_contract_mutated(
 
     revision = previous_revision + 1
     verification["mutation_revision"] = revision
-    tool_use_id = str(event.get("tool_use_id", ""))
+    claim_request_digest = (
+        click_claims.host_request_digest(event) if host_tool_use else ""
+    )
+    claim_binding_digest = (
+        click_claims.host_binding_digest(tool_use_id) if host_tool_use else ""
+    )
     verification["mutation_boundary"] = {
         "revision": revision,
         "tool_use_id": tool_use_id,
+        "claim_mode": "host-tool-use" if host_tool_use else "",
+        "claim_request_digest": claim_request_digest,
+        "claim_binding_digest": claim_binding_digest,
         "status": (
             "running"
             if tool_use_id and lineage_valid and snapshot_root and snapshot_digest
@@ -291,6 +307,18 @@ def mark_contract_mutated(
         source_key=browser_source_key,
     )
     state["observations"] = {"entries": {}}
+    if host_tool_use:
+        _, claim_error = click_claims.record_claim(
+            state,
+            capability="mutation",
+            claim_mode="host-tool-use",
+            request_digest=claim_request_digest,
+            binding_digest=claim_binding_digest,
+            mutation_revision=revision,
+            claimed_at=int(time.time()) or 1,
+        )
+        if claim_error:
+            return claim_error
     _save_contract_state(event, state)
     return ""
 
@@ -372,6 +400,7 @@ def prepare(
         expected_contract_schema_version=expected_contract_schema_version,
         observation_is_running=observation_is_running,
         workspace_snapshot=workspace_snapshot,
+        host_tool_use=False,
     )
     if mutation_error:
         return "", mutation_error
@@ -463,7 +492,25 @@ def claim_run(
     if _capability_digest(request) != request_digest:
         return None, "Click mutation runner request digest did not match."
 
-    mutation["runner_claimed_at"] = int(time.time()) or 1
+    verification = state.get("verification")
+    mutation_revision = (
+        int(verification.get("mutation_revision", 0))
+        if isinstance(verification, dict)
+        else 0
+    )
+    claimed_at = int(time.time()) or 1
+    _, claim_error = click_claims.record_claim(
+        state,
+        capability="mutation",
+        claim_mode="one-use-runner",
+        request_digest=request_digest,
+        token_digest=token_digest,
+        mutation_revision=mutation_revision,
+        claimed_at=claimed_at,
+    )
+    if claim_error:
+        return None, claim_error
+    mutation["runner_claimed_at"] = claimed_at
     state["mutation"] = mutation
     state["updated_at"] = int(time.time())
     click_state.write_json(path, state)
@@ -496,6 +543,21 @@ def record_result(
         not isinstance(claimed_at, int)
         or isinstance(claimed_at, bool)
         or not claimed_at
+    ):
+        return False
+    verification = state.get("verification")
+    mutation_revision = (
+        int(verification.get("mutation_revision", 0))
+        if isinstance(verification, dict)
+        else 0
+    )
+    if not click_claims.complete_claim(
+        state,
+        capability="mutation",
+        claim_mode="one-use-runner",
+        request_digest=request_digest,
+        mutation_revision=mutation_revision,
+        exit_code=exit_code,
     ):
         return False
     mutation.update(
@@ -582,6 +644,18 @@ def record_boundary(
         boundary["status"] = "recorded"
         boundary["after_root"] = os.path.normcase(str(snapshot.get("root", "")))
         boundary["after_digest"] = str(snapshot.get("digest", ""))
+    if boundary.get("claim_mode") == "host-tool-use":
+        if not click_claims.complete_claim(
+            state,
+            capability="mutation",
+            claim_mode="host-tool-use",
+            request_digest=str(boundary.get("claim_request_digest", "")),
+            binding_digest=str(boundary.get("claim_binding_digest", "")),
+            mutation_revision=int(verification.get("mutation_revision", 0)),
+            exit_code=None,
+        ):
+            boundary["status"] = "invalid"
+            boundary["lineage_valid"] = False
     verification["mutation_boundary"] = boundary
     state["verification"] = verification
     _save_contract_state(event, state)

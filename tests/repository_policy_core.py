@@ -81,6 +81,9 @@ class RepositoryPolicyTests(unittest.TestCase):
         chinese = (ROOT / "README.zh-CN.md").read_text(encoding="utf-8")
         for readme in (english, korean, chinese):
             self.assertIn("click-gate verify", readme)
+            self.assertIn("click-gate receipt export", readme)
+            self.assertIn("click-gate receipt verify", readme)
+            self.assertIn("unsigned-integrity-only", readme)
         self.assertIn("Advisory verification profiles", english)
         self.assertIn("Advisory 검증 profile", korean)
         self.assertIn("Advisory 验证 profile", chinese)
@@ -408,7 +411,8 @@ class RepositoryPolicyTests(unittest.TestCase):
         self.assertIn("Cross-model, cross-host invariants", constitution)
         self.assertIn("model-specific workflow tuning", constitution)
         self.assertIn("argv verification receipts", constitution)
-        self.assertIn("does not maintain\nan append-only", constitution)
+        self.assertIn("append-only capability-claim ledger", constitution)
+        self.assertIn("does not yet provide a signed", constitution)
 
         self.assertIn(
             "v0.30 policy migrations complete; dependency-aware receipt reuse",
@@ -510,9 +514,12 @@ class RepositoryPolicyTests(unittest.TestCase):
                 "click_browser.py",
                 "click_browser_advisory.py",
                 "click_capability.py",
+                "click_claims.py",
                 "click_contract.py",
                 "click_dependency_cache.py",
                 "click_evidence.py",
+                "click_receipt.py",
+                "click_receipt_runtime.py",
                 "click_host_coverage.py",
                 "click_inspection.py",
                 "click_lifecycle.py",
@@ -619,6 +626,55 @@ class RepositoryPolicyTests(unittest.TestCase):
             with self.subTest(forbidden=forbidden):
                 self.assertNotIn(f"import {forbidden}", evidence)
                 self.assertNotIn(f"from {forbidden}", evidence)
+
+    def test_completion_receipt_has_a_pure_body_and_separate_runtime(self) -> None:
+        gate = (ROOT / "hooks" / "click_gate.py").read_text(encoding="utf-8")
+        lifecycle = (ROOT / "hooks" / "click_lifecycle.py").read_text(
+            encoding="utf-8"
+        )
+        receipt = (ROOT / "hooks" / "click_receipt.py").read_text(
+            encoding="utf-8"
+        )
+        receipt_runtime = (ROOT / "hooks" / "click_receipt_runtime.py").read_text(
+            encoding="utf-8"
+        )
+        claims = (ROOT / "hooks" / "click_claims.py").read_text(encoding="utf-8")
+        builder = (
+            ROOT / "scripts" / "build_antigravity_distribution.py"
+        ).read_text(encoding="utf-8")
+
+        for required in (
+            "RECEIPT_VERSION = 1",
+            "def validate_receipt(",
+            "def canonical_bytes(",
+            "def receipt_digest(",
+            "def create_envelope(",
+            "def validate_envelope(",
+            "known-surfaces-only",
+        ):
+            with self.subTest(required=required):
+                self.assertIn(required, receipt)
+        for forbidden in (
+            "import click_",
+            "from .",
+            "from click_",
+            "click_state",
+            "runner_token_digest",
+        ):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, receipt)
+        self.assertIn("click_receipt_runtime", gate)
+        self.assertNotIn("import click_receipt\n", gate)
+        self.assertNotIn("click_receipt", lifecycle)
+        self.assertIn('"click_receipt.py"', builder)
+        self.assertIn('"click_receipt_runtime.py"', builder)
+        self.assertIn('"click_claims.py"', builder)
+        for forbidden in ("click_gate", "click_lifecycle", "click_state", "click_process"):
+            with self.subTest(runtime_forbidden=forbidden):
+                self.assertNotIn(f"import {forbidden}", receipt_runtime)
+                self.assertNotIn(f"from {forbidden}", receipt_runtime)
+        self.assertIn("click_receipt", receipt_runtime)
+        self.assertNotIn("import click_", claims)
 
     def test_lifecycle_orchestration_is_isolated_from_host_routing(self) -> None:
         gate = (ROOT / "hooks" / "click_gate.py").read_text(encoding="utf-8")

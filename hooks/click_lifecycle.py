@@ -20,6 +20,7 @@ if __package__:
     from . import (
         click_browser,
         click_capability,
+        click_claims,
         click_contract,
         click_evidence,
         click_mutation,
@@ -31,6 +32,7 @@ if __package__:
 else:  # Executed directly from the bundled hooks directory.
     import click_browser
     import click_capability
+    import click_claims
     import click_contract
     import click_evidence
     import click_mutation
@@ -133,6 +135,7 @@ def _write_contract_state(
             "contract_id": contract_id,
             "staged_turn_id": str(event.get("turn_id", "")),
             "approved_turn_id": "",
+            "capability_ledger": click_claims.fresh_state(),
             "verification": click_verification.fresh_state(contract),
             "evidence_state": click_evidence.fresh_state(contract),
             "external_evidence": click_evidence.fresh_external_state(contract),
@@ -350,6 +353,24 @@ def _validate_evidence_result(raw: str) -> tuple[str, str]:
 
 
 def _control_request(command: str) -> tuple[str | None, str, str]:
+    stripped = command.strip()
+    receipt_verify_prefix = f"{CONTROL_COMMAND} receipt verify"
+    if stripped.startswith(receipt_verify_prefix):
+        remainder = stripped[len(receipt_verify_prefix) :]
+        if remainder and remainder[0].isspace():
+            raw_path = remainder.strip()
+            if raw_path and not any(character.isspace() for character in raw_path):
+                # Preserve unquoted Windows drive and UNC separators. POSIX shlex
+                # treats their backslashes as escapes even when Click is running
+                # under cmd or PowerShell.
+                return "receipt-verify", raw_path, ""
+            if raw_path:
+                try:
+                    path_tokens = shlex.split(raw_path, posix=True)
+                except ValueError as exc:
+                    return None, "", f"Malformed {CONTROL_COMMAND} command: {exc}."
+                if len(path_tokens) == 1:
+                    return "receipt-verify", path_tokens[0], ""
     try:
         tokens = shlex.split(command, posix=True)
     except ValueError as exc:
@@ -369,6 +390,10 @@ def _control_request(command: str) -> tuple[str | None, str, str]:
         "strict",
     }:
         return "mode", tokens[2], ""
+    if len(tokens) == 3 and tokens[1:3] == ["receipt", "export"]:
+        return "receipt-export", "", ""
+    if len(tokens) == 4 and tokens[1:3] == ["receipt", "verify"]:
+        return "receipt-verify", tokens[3], ""
     if len(tokens) == 3 and tokens[1] in {
         "evidence",
         "inspect",
@@ -389,6 +414,8 @@ def _control_request(command: str) -> tuple[str | None, str, str]:
         f"`{CONTROL_COMMAND} service '<Managed Service JSON>'`, "
         f"`{CONTROL_COMMAND} evidence '<Evidence Completion JSON>'`, "
         f"`{CONTROL_COMMAND} verify '<Verification Batch JSON>'`, "
+        f"`{CONTROL_COMMAND} receipt export`, "
+        f"`{CONTROL_COMMAND} receipt verify <path>`, "
         f"`{CONTROL_COMMAND} review`, `{CONTROL_COMMAND} bypass`, "
         f"`{CONTROL_COMMAND} cancel`, "
         f"`{CONTROL_COMMAND} default on|manual|status`, or "
@@ -709,6 +736,31 @@ def record_evidence_completion(
     source["verified_revision"] = revision
     source["attempts"] = int(source.get("attempts", 0)) + 1
     source["last_exit_code"] = 0
+    source["verified_at"] = int(time.time()) or 1
+    tool_use_id = str(event.get("tool_use_id", ""))
+    if not tool_use_id:
+        return "", "Click evidence completion requires a stable host tool_use_id."
+    request_digest = click_claims.host_request_digest(event)
+    binding_digest = click_claims.host_binding_digest(tool_use_id)
+    _, claim_error = click_claims.record_claim(
+        state,
+        capability="evidence-attestation",
+        claim_mode="host-tool-use",
+        request_digest=request_digest,
+        binding_digest=binding_digest,
+        mutation_revision=revision,
+        claimed_at=int(time.time()) or 1,
+    )
+    if claim_error or not click_claims.complete_claim(
+        state,
+        capability="evidence-attestation",
+        claim_mode="host-tool-use",
+        request_digest=request_digest,
+        binding_digest=binding_digest,
+        mutation_revision=revision,
+        exit_code=0,
+    ):
+        return "", claim_error or "Click could not complete its evidence claim safely."
     _save_contract_state(event, state)
     return f"echo Click evidence {evidence_id} completed for revision {revision}", ""
 

@@ -24,8 +24,9 @@ import time
 from typing import Any
 
 if __package__:
-    from . import click_process, click_state
+    from . import click_claims, click_process, click_state
 else:  # Executed from the bundled hooks directory.
+    import click_claims
     import click_process
     import click_state
 
@@ -74,6 +75,8 @@ def fresh_state() -> dict[str, Any]:
         "child_pid": 0,
         "started_at": 0,
         "last_exit_code": None,
+        "stop_claim_request_digest": "",
+        "stop_claim_binding_digest": "",
     }
 
 
@@ -287,6 +290,27 @@ def prepare_service(
             return "echo Click managed service already stopped", ""
         service["status"] = "stopping"
         service["stop_requested"] = True
+        verification = state.get("verification")
+        tool_use_id = str(event.get("tool_use_id", ""))
+        if not isinstance(verification, dict) or not tool_use_id:
+            return "", "Click managed service stop requires a stable host tool-use claim."
+        stop_request_digest = _capability_digest(
+            {"action": "stop", "service_id": str(service["service_id"])}
+        )
+        stop_binding_digest = click_claims.host_binding_digest(tool_use_id)
+        _, claim_error = click_claims.record_claim(
+            state,
+            capability="managed-service-stop",
+            claim_mode="host-tool-use",
+            request_digest=stop_request_digest,
+            binding_digest=stop_binding_digest,
+            mutation_revision=int(verification.get("mutation_revision", 0)),
+            claimed_at=int(time.time()) or 1,
+        )
+        if claim_error:
+            return "", claim_error
+        service["stop_claim_request_digest"] = stop_request_digest
+        service["stop_claim_binding_digest"] = stop_binding_digest
         state["service"] = service
         _save_contract_state(event, state)
         return (
@@ -328,6 +352,8 @@ def prepare_service(
         "child_pid": 0,
         "started_at": int(time.time()),
         "last_exit_code": None,
+        "stop_claim_request_digest": "",
+        "stop_claim_binding_digest": "",
     }
     _save_contract_state(event, state)
     return (
@@ -445,7 +471,9 @@ def claim_service_runner(
             runner_claimed_at, SERVICE_START_TIMEOUT_SECONDS * 2
         ):
             return "Click managed service supervisor authorization expired before launch."
-        service["supervisor_claimed_at"] = int(time.time()) or 1
+        claimed_at = int(time.time()) or 1
+        service["supervisor_claimed_at"] = claimed_at
+        capability = "managed-service-supervisor"
     else:
         if runner_claimed_at > 0 or supervisor_claimed_at > 0:
             return "Click managed service start runner was already claimed."
@@ -453,12 +481,77 @@ def claim_service_runner(
             service.get("started_at", 0), SERVICE_START_TIMEOUT_SECONDS * 2
         ):
             return "Click managed service start authorization expired before launch."
-        service["runner_claimed_at"] = int(time.time()) or 1
+        claimed_at = int(time.time()) or 1
+        service["runner_claimed_at"] = claimed_at
         service["status"] = "launching"
+        capability = "managed-service-start"
+    verification = state.get("verification")
+    if not isinstance(verification, dict):
+        return "Click managed service claim revision state is unavailable."
+    _, claim_error = click_claims.record_claim(
+        state,
+        capability=capability,
+        claim_mode="one-use-runner",
+        request_digest=request_digest,
+        token_digest=token_digest,
+        mutation_revision=int(verification.get("mutation_revision", 0)),
+        claimed_at=claimed_at,
+    )
+    if claim_error:
+        return claim_error
     state["service"] = service
     state["updated_at"] = int(time.time())
     click_state.write_json(path, state)
     return ""
+
+
+def record_service_claim_result(
+    path: Path,
+    service_id: str,
+    *,
+    capability: str,
+    exit_code: int | None,
+) -> bool:
+    if not _managed_contract_path(path):
+        return False
+    try:
+        state = json.loads(path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return False
+    if not isinstance(state, dict) or state.get("status") != "approved":
+        return False
+    service = state.get("service")
+    verification = state.get("verification")
+    if (
+        not isinstance(service, dict)
+        or service.get("service_id") != service_id
+        or not isinstance(verification, dict)
+    ):
+        return False
+    claim_mode = "one-use-runner"
+    request_digest = str(service.get("request_digest", ""))
+    binding_digest = ""
+    if capability == "managed-service-stop":
+        claim_mode = "host-tool-use"
+        request_digest = str(service.get("stop_claim_request_digest", ""))
+        binding_digest = str(service.get("stop_claim_binding_digest", ""))
+    if not click_claims.complete_claim(
+        state,
+        capability=capability,
+        claim_mode=claim_mode,
+        request_digest=request_digest,
+        binding_digest=binding_digest,
+        mutation_revision=int(verification.get("mutation_revision", 0)),
+        exit_code=exit_code,
+    ):
+        return False
+    if capability == "managed-service-stop":
+        service["stop_claim_request_digest"] = ""
+        service["stop_claim_binding_digest"] = ""
+        state["service"] = service
+    state["updated_at"] = int(time.time())
+    click_state.write_json(path, state)
+    return True
 
 
 def _unclaimed_reservation_is_fresh(value: Any, ttl_seconds: int) -> bool:
@@ -512,6 +605,12 @@ def run_service_supervisor(
                 status="failed",
                 last_exit_code=2,
             )
+            record_service_claim_result(
+                state_path,
+                service_id,
+                capability="managed-service-supervisor",
+                exit_code=2,
+            )
         return 2
     try:
         child = click_process.spawn_argv(
@@ -532,6 +631,12 @@ def run_service_supervisor(
                 last_exit_code=127,
                 stop_requested=False,
             )
+            record_service_claim_result(
+                state_path,
+                service_id,
+                capability="managed-service-supervisor",
+                exit_code=127,
+            )
         return 127
 
     time.sleep(0.2)
@@ -546,6 +651,13 @@ def run_service_supervisor(
             child_pid=child.pid,
             last_exit_code=int(early_exit) if early_exit is not None else None,
         )
+        if early_exit is not None or not recorded:
+            record_service_claim_result(
+                state_path,
+                service_id,
+                capability="managed-service-supervisor",
+                exit_code=int(early_exit or 2),
+            )
     if early_exit is not None or not recorded:
         if early_exit is None:
             click_process.terminate_process_group(child)
@@ -578,6 +690,12 @@ def run_service_supervisor(
             child_pid=0,
             supervisor_pid=0,
             last_exit_code=int(exit_code or 0),
+        )
+        record_service_claim_result(
+            state_path,
+            service_id,
+            capability="managed-service-supervisor",
+            exit_code=int(exit_code or 0),
         )
     return int(exit_code or 0)
 
@@ -646,20 +764,56 @@ def run_service_start(
                 status="failed",
                 last_exit_code=127,
             )
+            record_service_claim_result(
+                state_path,
+                service_id,
+                capability="managed-service-start",
+                exit_code=127,
+            )
         sys.stderr.write(f"Click could not start the managed service supervisor: {exc}\n")
         return 127
     deadline = time.monotonic() + SERVICE_START_TIMEOUT_SECONDS
     while time.monotonic() < deadline:
         snapshot = service_snapshot(state_path, service_id)
         if snapshot is None:
+            with click_state.state_lock():
+                record_service_claim_result(
+                    state_path,
+                    service_id,
+                    capability="managed-service-start",
+                    exit_code=2,
+                )
             return 2
         if snapshot.get("status") == "running":
+            with click_state.state_lock():
+                if not record_service_claim_result(
+                    state_path,
+                    service_id,
+                    capability="managed-service-start",
+                    exit_code=0,
+                ):
+                    return 2
             sys.stdout.write("Click managed service started\n")
             return 0
         if snapshot.get("status") == "failed":
+            exit_code = int(snapshot.get("last_exit_code") or 2)
+            with click_state.state_lock():
+                record_service_claim_result(
+                    state_path,
+                    service_id,
+                    capability="managed-service-start",
+                    exit_code=exit_code,
+                )
             sys.stderr.write("Click managed service exited during startup.\n")
-            return int(snapshot.get("last_exit_code") or 2)
+            return exit_code
         if snapshot.get("status") in {"stopping", "stopped"}:
+            with click_state.state_lock():
+                record_service_claim_result(
+                    state_path,
+                    service_id,
+                    capability="managed-service-start",
+                    exit_code=2,
+                )
             return 2
         time.sleep(0.05)
     with click_state.state_lock():
@@ -669,6 +823,12 @@ def run_service_start(
             expected_statuses=("launching", "starting"),
             status="stopping",
             stop_requested=True,
+        )
+        record_service_claim_result(
+            state_path,
+            service_id,
+            capability="managed-service-start",
+            exit_code=2,
         )
     sys.stderr.write("Click managed service did not start within its bounded timeout.\n")
     return 2
@@ -691,8 +851,23 @@ def run_service_stop(
             "idle",
             "stopped",
         }:
+            with click_state.state_lock():
+                if not record_service_claim_result(
+                    state_path,
+                    service_id,
+                    capability="managed-service-stop",
+                    exit_code=0,
+                ):
+                    return 2
             sys.stdout.write("Click managed service stopped\n")
             return 0
         time.sleep(0.05)
+    with click_state.state_lock():
+        record_service_claim_result(
+            state_path,
+            service_id,
+            capability="managed-service-stop",
+            exit_code=2,
+        )
     sys.stderr.write("Click managed service did not stop within its bounded timeout.\n")
     return 2

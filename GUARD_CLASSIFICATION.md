@@ -1,6 +1,6 @@
 # Click Guard Classification
 
-Status: **Living inventory; v0.30 policy migrations complete; dependency-aware receipt reuse completed for v0.31.0; host coverage identity completed for v0.32.0; runtime domain boundaries completed for v0.33.0**
+Status: **Living inventory; v0.30 policy migrations complete; dependency-aware receipt reuse completed for v0.31.0; host coverage identity completed for v0.32.0; runtime domain boundaries completed for v0.33.0; approval-bound completion receipts completed for v0.34.0**
 
 Baseline: **v0.24.6 plus the canonical product-boundary change at `73072a9`**
 
@@ -25,6 +25,7 @@ not claim that every hard gate has already been moved to its target layer.
 | Direct-argv capability safety, executable/path/environment checks, process-control rejection and read-only side-effect defenses | shared protocol validation in `hooks/click_capability.py`; inspection policy and hardened execution in `hooks/click_inspection.py`; mutation admission in `hooks/click_mutation.py` | Prevents an admitted inspect, verify or service request from gaining unapproved effects |
 | Mutation, observation, verification and managed-service interlocks around active runner claims | mutation reservation and claim state in `hooks/click_mutation.py`; observation reservations and claims in `hooks/click_observation.py`; verification state in `hooks/click_verification.py`; managed-service state in `hooks/click_service.py` | Prevents an authorized side effect or receipt from racing into a different state without treating distinct observation concurrency as authority |
 | Host coverage identity, event normalization and state/receipt-preserving result mapping | `hooks/click_host_coverage.py`, `hooks/click_hook.py`, `hooks/antigravity_gate.py`, `hooks/platform_protocol.py` | Keeps the known pre/post surface symmetric and prevents verification receipts from crossing a host or coverage-registry revision while making the limited assurance explicit |
+| Approval-bound capability ledger and canonical completion receipt export/offline integrity verification | `hooks/click_claims.py`, pure schema in `hooks/click_receipt.py`, assembly in `hooks/click_receipt_runtime.py`, and routing in `hooks/click_gate.py` | Binds the approved contract, one-use and host-tool-use claims, final workspace revision, and evidence lineage without exposing tokens or overstating unsigned authenticity |
 
 ## USER_POLICY
 
