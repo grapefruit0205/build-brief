@@ -575,6 +575,12 @@ def _tool_working_directory(event: dict[str, Any]) -> Path:
     return workdir.resolve()
 
 
+def _tool_working_directory_is_explicit(event: dict[str, Any]) -> bool:
+    tool_input = event.get("tool_input")
+    requested = tool_input.get("workdir") if isinstance(tool_input, dict) else None
+    return isinstance(requested, str) and bool(requested)
+
+
 def _receipt_export_runner_command(event: dict[str, Any]) -> str:
     host_id = click_host_coverage.host_id_from_event(event)
     return click_runner_transport.render_runner_shell_command(
@@ -583,6 +589,11 @@ def _receipt_export_runner_command(event: dict[str, Any]) -> str:
             str(_contract_path(event).resolve()),
             str(_tool_working_directory(event)),
             host_id,
+            (
+                "explicit"
+                if _tool_working_directory_is_explicit(event)
+                else "ambient"
+            ),
         ]
     )
 
@@ -1274,14 +1285,19 @@ def _run_verification(arguments: list[str]) -> int:
 
 
 def _run_receipt_export(arguments: list[str]) -> int:
-    if len(arguments) != 3:
+    if len(arguments) not in {3, 4}:
         sys.stderr.write(
-            "usage: click_gate.py run-receipt-export <state> <cwd> <host>\n"
+            "usage: click_gate.py run-receipt-export "
+            "<state> <cwd> <host> [explicit|ambient]\n"
         )
         return 2
     state_path = Path(arguments[0])
     workspace = Path(arguments[1])
     host_id = arguments[2]
+    workspace_source = arguments[3] if len(arguments) == 4 else "explicit"
+    if workspace_source not in {"explicit", "ambient"}:
+        sys.stderr.write("Click receipt export received an invalid workspace source.\n")
+        return 2
     if not _managed_contract_path(state_path) or not workspace.is_absolute():
         sys.stderr.write("Click receipt export received an invalid state or workspace.\n")
         return 2
@@ -1299,6 +1315,13 @@ def _run_receipt_export(arguments: list[str]) -> int:
         if not isinstance(state, dict) or not _contract_is_completed(state):
             sys.stderr.write("Click receipt export requires a completed contract.\n")
             return 2
+        if workspace_source == "ambient":
+            verified_workspace = click_receipt_runtime.verified_workspace_root(
+                state,
+                expected_contract_schema_version=CONTRACT_STATE_SCHEMA_VERSION,
+            )
+            if verified_workspace is not None:
+                workspace = verified_workspace
         envelope, error = click_receipt_runtime.build_envelope(
             state,
             workspace_snapshot=_git_workspace_snapshot(workspace),

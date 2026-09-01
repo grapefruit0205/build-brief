@@ -92,6 +92,12 @@ raw argv, runner tokens and token digests, contract prose, and the workspace
 path. Save the stdout JSON separately, then verify it without network access or
 active contract state:
 
+If a host omits the working directory selected by a nested execution tool,
+export may recover it only from the sole canonical Git root shared by every
+current argv evidence source. A stale, missing, non-canonical, or conflicting
+root binding never selects an implicit workspace. Click still recomputes the
+final protected tree and requires it to match current evidence before export.
+
 If a supported host omits a mutation's matching `PostToolUse`, export never
 invents an exit code. It may project that admitted host claim as `observed`
 only after a later passing one-use verification at the same or a newer revision

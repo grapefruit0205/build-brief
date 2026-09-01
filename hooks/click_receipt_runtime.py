@@ -77,6 +77,53 @@ def _workspace_receipt(
     }, normalized_root, ""
 
 
+def verified_workspace_root(
+    state: dict[str, Any], *, expected_contract_schema_version: int
+) -> Path | None:
+    """Return the sole canonical Git root bound by all current argv evidence."""
+
+    verification = state.get("verification")
+    if not isinstance(verification, dict):
+        return None
+    revision = verification.get("mutation_revision")
+    if not isinstance(revision, int) or isinstance(revision, bool) or revision < 0:
+        return None
+    sources = click_evidence.sources_from_state(
+        state,
+        expected_contract_schema_version=expected_contract_schema_version,
+    )
+    if sources is None or not sources:
+        return None
+
+    roots: dict[str, Path] = {}
+    for source in sources.values():
+        if not isinstance(source, dict) or not click_evidence.is_current(
+            source, revision
+        ):
+            return None
+        if source.get("kind") != "argv":
+            continue
+        stored_root = source.get("verified_root")
+        if not isinstance(stored_root, str) or not stored_root:
+            return None
+        candidate = Path(stored_root)
+        if not candidate.is_absolute():
+            return None
+        try:
+            resolved = candidate.resolve(strict=True)
+        except (OSError, RuntimeError):
+            return None
+        if not resolved.is_dir():
+            return None
+        normalized = os.path.normcase(str(resolved))
+        if os.path.normcase(stored_root) != normalized:
+            return None
+        roots[normalized] = resolved
+    if len(roots) != 1:
+        return None
+    return next(iter(roots.values()))
+
+
 def _evidence_receipts(
     sources: dict[str, Any],
     *,

@@ -285,16 +285,16 @@ Antigravity IDE에서는 `dist/antigravity`를 워크스페이스의 `.agents/pl
 
 Antigravity의 Hook contract는 Codex와 다릅니다. native file/search와 별도 MCP·Skill 도구는 계속 사용할 수 있지만 cross-tool 중복 제거와 Browser evidence는 아직 지원하지 않습니다. 정확한 제한은 [`platforms/antigravity/README.md`](platforms/antigravity/README.md)를 확인하세요.
 
-## 기존 설치 업데이트 — v0.36.0
+## 기존 설치 업데이트 — v0.36.1
 
-현재 릴리스는 **v0.36.0**입니다.
+현재 릴리스는 **v0.36.1**입니다.
 
 ```bash
 codex plugin marketplace upgrade click
 codex plugin add click@click
 ```
 
-ChatGPT 데스크톱 앱을 다시 시작하고 갱신된 Hook을 검토해 신뢰하세요. v0.36.0은 기존 권한 의도를 유지해 저장된 `on`을 Guarded로, `manual`을 Off로 migration하며 새 설치와 미설정 사용자는 계속 Evidence를 기본값으로 사용합니다. Guarded stage는 Hook이 만든 정확한 네 섹션을 제공하고, 범위 안의 follow-up은 새 사용자 승인 없이 같은 contract ID로 resume하여 실제 mutation까지 이어집니다. 완료된 Guarded 작업은 새 Evidence session으로 넘어가지만 미완료 Guarded 작업은 계속 잠깁니다. Receipt export는 host tool이 실제로 선택한 working directory도 반영합니다. Codex와 번들 Antigravity 배포본은 같은 runtime module을 사용합니다. 새 모드와 Hook 코드를 로드하려면 업그레이드 후 새 작업을 시작하세요.
+ChatGPT 데스크톱 앱을 다시 시작하고 갱신된 Hook을 검토해 신뢰하세요. v0.36.1은 host가 중첩 실행의 working directory를 receipt export에 전달하지 않아도 모든 current argv evidence가 하나의 정규 Git 루트에 결속된 경우에만 그 루트를 복구합니다. stale·누락·비정규·충돌 binding은 계속 fail-closed로 거부합니다. Codex와 번들 Antigravity 배포본은 같은 runtime module을 사용합니다. 새 Hook 코드를 로드하려면 업그레이드 후 새 작업을 시작하세요.
 
 자세한 릴리스 이력은 [RELEASE_NOTES.md](RELEASE_NOTES.md)에 있습니다.
 

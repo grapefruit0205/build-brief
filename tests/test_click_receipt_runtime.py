@@ -83,6 +83,64 @@ class ClickReceiptRuntimeTests(unittest.TestCase):
         )
         return state, coverage
 
+    def test_verified_workspace_root_requires_current_canonical_argv_evidence(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            state, _ = self.completed_state(root)
+
+            self.assertEqual(
+                click_receipt_runtime.verified_workspace_root(
+                    state,
+                    expected_contract_schema_version=2,
+                ),
+                root.resolve(),
+            )
+
+            stale = copy.deepcopy(state)
+            stale_source = next(
+                iter(stale["evidence_state"]["sources"].values())
+            )
+            stale_source["verified_revision"] = 1
+            self.assertIsNone(
+                click_receipt_runtime.verified_workspace_root(
+                    stale,
+                    expected_contract_schema_version=2,
+                )
+            )
+
+            missing = copy.deepcopy(state)
+            missing_source = next(
+                iter(missing["evidence_state"]["sources"].values())
+            )
+            missing_source["verified_root"] = str(root / "missing")
+            self.assertIsNone(
+                click_receipt_runtime.verified_workspace_root(
+                    missing,
+                    expected_contract_schema_version=2,
+                )
+            )
+
+            conflicting = copy.deepcopy(state)
+            conflicting_root = root / "other"
+            conflicting_root.mkdir()
+            conflicting_evidence = conflicting["evidence_state"]
+            conflicting_sources = conflicting_evidence["sources"]
+            second_source = copy.deepcopy(next(iter(conflicting_sources.values())))
+            second_source["verified_root"] = str(conflicting_root.resolve())
+            conflicting_sources[click_evidence.evidence_key("E2")] = second_source
+            conflicting_evidence["source_count"] = len(conflicting_sources)
+            conflicting_evidence["registry_digest"] = click_evidence.registry_digest(
+                conflicting_sources
+            )
+            self.assertIsNone(
+                click_receipt_runtime.verified_workspace_root(
+                    conflicting,
+                    expected_contract_schema_version=2,
+                )
+            )
+
     def test_build_binds_final_state_without_exporting_root_or_secrets(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

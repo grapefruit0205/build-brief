@@ -168,9 +168,9 @@ Explicit controls remain available:
 
 Neither silently unlocks an active incomplete Guarded contract.
 
-### Upgrade an existing installation — v0.36.0
+### Upgrade an existing installation — v0.36.1
 
-The current release is **v0.36.0**.
+The current release is **v0.36.1**.
 
 ```bash
 codex plugin marketplace upgrade click
@@ -178,6 +178,11 @@ codex plugin add click@click
 ```
 
 Start a fresh task after upgrading so the current Hook code and mode behavior are loaded.
+
+v0.36.1 also handles hosts that omit a nested execution workdir during receipt
+export. Click recovers it only when every current argv evidence source binds the
+same canonical Git root; stale, malformed, missing, or conflicting roots remain
+fail-closed.
 
 ---
 

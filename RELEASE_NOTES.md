@@ -1,5 +1,17 @@
 # Release notes
 
+## v0.36.1 — 2026-09-02
+
+- Receipt export now recovers a nested execution workdir omitted by the host
+  only from the single canonical Git root shared by every current argv evidence
+  source. Stale, missing, non-canonical, or conflicting bindings are never used
+  as an implicit workspace choice, and the final protected tree is still
+  recomputed before export.
+- Regression coverage reproduces the Code Mode shape where the outer Hook cwd
+  is not a Git repository but the verification runner used an explicit nested
+  repository workdir. Unit coverage also keeps stale and invalid root bindings
+  fail-closed.
+
 ## v0.36.0 — 2026-09-01
 
 - Legacy stored authority choices now preserve their meaning during the public
