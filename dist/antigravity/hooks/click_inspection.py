@@ -42,6 +42,8 @@ READ_ONLY_COMMANDS = {
     "get-content",
     "head",
     "ls",
+    "pdfinfo",
+    "pdftotext",
     "pwd",
     "readlink",
     "realpath",
@@ -399,6 +401,25 @@ def get_content_paths(tokens: list[str]) -> list[str] | None:
     return paths or None
 
 
+def is_read_only_pdfinfo(tokens: list[str]) -> bool:
+    """Accept metadata output only; pdfinfo has no output-file operand."""
+    return bool(
+        len(tokens) >= 2
+        and Path(tokens[0]).name.lower() == "pdfinfo"
+        and any(argument and not argument.startswith("-") for argument in tokens[1:])
+    )
+
+
+def is_stdout_only_pdftotext(tokens: list[str]) -> bool:
+    """Require the explicit stdout operand so the default .txt write is impossible."""
+    return bool(
+        len(tokens) >= 3
+        and Path(tokens[0]).name.lower() == "pdftotext"
+        and tokens[-1] == "-"
+        and any(argument and not argument.startswith("-") for argument in tokens[1:-1])
+    )
+
+
 def structured_ssh_parts(tokens: list[str]) -> tuple[str, list[str]] | None:
     if len(tokens) < 4 or Path(tokens[0]).name.lower() not in {"ssh", "ssh.exe"}:
         return None
@@ -440,6 +461,10 @@ def is_local_read_only_tokens(tokens: list[str]) -> bool:
         return False
     if executable == "get-content":
         return get_content_paths(tokens) is not None
+    if executable == "pdfinfo":
+        return is_read_only_pdfinfo(tokens)
+    if executable == "pdftotext":
+        return is_stdout_only_pdftotext(tokens)
     if executable == "sed":
         return is_read_only_sed(tokens)
     if executable == "file" and any(token in {"-C", "--compile"} for token in tokens[1:]):

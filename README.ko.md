@@ -1,4 +1,4 @@
-# Click — Hook이 강제하는 Codex 코딩 에이전트 워크플로우
+# Click — Codex 코딩 에이전트를 위한 revision-aware evidence
 
 [English](README.md) | 한국어 | [简体中文](README.zh-CN.md)
 
@@ -7,11 +7,11 @@
 [![CI](https://github.com/grapefruit0205/click/actions/workflows/ci.yml/badge.svg)](https://github.com/grapefruit0205/click/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-### 프롬프트만으로 코딩 워크플로우를 제어하던 시대는 끝났습니다.
+### 평소처럼 작업하고, 코드와 일치하는 증거를 남기세요.
 
-> **프롬프트는 행동을 제안할 수 있습니다. Hook은 워크플로우를 강제할 수 있습니다.**
+> **기본은 Evidence. 위험한 작업에는 승인 결속 Guarded.**
 
-**Click은 소프트웨어 변경 요청을 하나의 축약 contract로 만들고, 영속적인 Hook 상태 머신으로 관찰 가능한 실행 경로를 사용자가 승인한 경계 안에 유지하는 Codex 플러그인입니다.**
+**Click은 host가 평소처럼 작업하도록 두면서 prompt lineage, mutation revision, 재사용 가능한 검증 evidence를 기록하는 Codex 플러그인입니다. 위험도가 높은 작업은 Guarded 모드에서 사람이 읽기 쉬운 계약 하나에 실행을 결속할 수 있습니다.**
 
 대부분의 코딩 에이전트 워크플로우는 아직 모델에게 이런 규칙을 기억하라고 요청합니다.
 
@@ -29,26 +29,18 @@ Click은 권한과 evidence 보장을 지원되는 **도구 실행 경계**로 �
 탐색 선호는 그 경계에서도 비차단 안내로 남으며 실행 권한이 되지 않습니다.
 
 ```text
-요청
- ↓
-축약 contract
- ↓
-다음 turn의 사용자 승인
- ↓
-구현
- ↓
-현재 revision의 완료 근거
- ↓
-완료
+요청 → 구현 → 현재 revision evidence → 정직한 영수증
+
+고위험 작업: 4개 섹션 계약 → 다음 turn 승인 → Guarded 실행 → 영수증
 ```
 
 > **어떻게 구현할지는 모델이 결정합니다. 워크플로우가 다음 단계로 갈 수 있는지는 Hook이 결정합니다.**
 
-**계약 하나. 승인 한 번. 구현 경계 하나. 완료 근거 한 세트.**
+**기본 모드에는 Click 재승인 마찰이 없고, 필요할 때만 강한 승인 경계를 켭니다.**
 
 ## 핵심 목적
 
-> **Click은 사용자가 승인한 의도에 AI 실행을 결속하고, 실제 수행 증거를 돌려줍니다.**
+> **Click은 일반 host 승인 작업에는 revision-aware evidence를 돌려주고, Guarded를 선택하면 AI 실행을 승인된 의도에 결속합니다.**
 
 Click의 안정적인 제품 경계는 모델 워크플로우 최적화기가 아니라 승인과
 증거를 결속하는 runtime입니다. 정식 진입 기준과 정책 계층은
@@ -78,12 +70,57 @@ evidence 상태도 바꾸지 않습니다.
 
 > **코딩 에이전트에게 계속 절차를 기억하라고 부탁하지 말고, 절차를 실행 경계에 넣습니다.**
 
+### 추론이 아니라 실행 경계를 강제합니다
+
+> **Click은 실행이 해도 되는 일을 제한하지, 모델이 어떻게 생각할지를 제한하지 않습니다.**
+
+어떤 파일을 어떤 순서로 읽을지, 문제를 어떻게 추론할지, 어떤 구현을
+선택할지, 구체적으로 어떤 검증 명령을 실행할지는 승인된 contract 안에서
+모델이 결정합니다. Click의 hard enforcement는 관찰 가능한 행동이 중요해지는
+지점, 즉 승인, mutation과 외부 side effect, replay·변조 방지, evidence
+무결성에서 시작합니다.
+
+따라서 모델별 탐색 요령을 hard gate로 만들지 않으면서도 무인 작업의 실행
+경계를 지킬 수 있습니다.
+
+### revision이 아니라 proof input이 바뀔 때 다시 검증합니다
+
+Git revision이 새로 생겼다고 해서 통과한 모든 검증이 자동으로 무효가 되는
+것은 아닙니다. Click의 **dependency-aware revision cache**는 그 검증이 왜
+유효했는지를 기록합니다. 해석된 dependency 파일과 내용, 정확한 check,
+환경, 실행 파일, 알려진 host coverage, 승인된 mutation snapshot이 모두
+그대로일 때만 정확한 성공 evidence를 다음 revision에서도 재사용합니다.
+
+```text
+revision 12  인증 코드 변경  → 인증 테스트 실행 → 통과
+revision 13  README만 변경    → proof input 불변 → 통과 증거 재사용
+revision 14  인증 코드 변경  → proof input 변경 → 테스트 재실행
+```
+
+필요한 결속 중 하나라도 없거나 모호하거나 달라졌다면 Click은 안전한 쪽으로
+실패하고 검증을 다시 요구합니다. 따라서 모델의 “관련 없는 변경입니다”라는
+말만 믿지 않으면서도 문서 하나를 고친 뒤 300개 테스트 전체를 불필요하게
+다시 실행하는 일을 피할 수 있습니다.
+
+## 세 가지 모드
+
+| 모드 | 사용자 경험 | 실행 권한 |
+| --- | --- | --- |
+| **Evidence** (기본) | Click 계약·승인 질문 없이 정상 실행하고 마지막에 evidence 영수증 확인 | host |
+| **Guarded** | 목표·변경 범위·유지 항목·완료 확인을 한 번 승인한 뒤 범위 안에서 연속 실행 | 승인된 계약 |
+| **Off** | 일반 작업은 Click이 관리하지 않으며 명시적 `@Click`은 Guarded 시작 가능 | host |
+
+기존에 저장된 `on` 또는 `manual` 설정도 업그레이드 시 한 번 Evidence로 전환됩니다. 다만 이미 stage되었거나 완료되지 않은 Guarded 계약은 완료하거나 명시적으로 취소할 때까지 잠금이 유지됩니다.
+
+Evidence 영수증은 `approval_bound: false`, `execution_authority: host`라고 명시하며 Click이 승인했다고 가장하지 않습니다. Guarded 영수증은 contract digest, 승인 turn, one-use claim, replay·변조 방지, mutation revision, 환경과 evidence lineage를 그대로 결속합니다.
+
 ## Hook이 실제로 강제하는 것
 
 stage, implementation, review, verification 동안 Click은 다음과 같은 **관찰 가능한 workflow 규칙**을 강제할 수 있습니다.
 
-- **제안과 승인을 분리합니다.** stage하면 불투명한 `contract_id`가 나오고 같은 사용자 turn에서 stage와 pass를 동시에 할 수 없습니다.
-- **승인 전 mutation을 막습니다.** 정확한 staged ID가 승인되고 pass될 때까지 active contract가 잠금 상태를 유지합니다.
+- **Guarded 제안과 승인을 분리합니다.** stage하면 불투명한 `contract_id`가 나오고 같은 사용자 turn에서 stage와 pass를 동시에 할 수 없습니다.
+- **Guarded에서는 승인 전 mutation을 막습니다.** 정확한 staged ID가 승인되고 pass될 때까지 active contract가 잠금 상태를 유지합니다.
+- **Evidence 영수증을 정직하게 만듭니다.** host 권한, follow-up prompt digest, mutation, check, 환경, cache lineage를 결속합니다.
 - **계획은 advisory로 둡니다.** `update_plan` 같은 plan tool은 계속 사용할 수 있으며 active contract를 승인·교체·확장하지 못합니다.
 - **저장소 탐색은 advisory로 둡니다.** 서로 다른 digest의 broad inventory는 다른 broad inventory가 실행 중이거나 성공한 뒤에도 범위 축소 안내와 함께 사용할 수 있습니다. 실행 중 runner와 실행 interlock만 hard guard로 유지합니다.
 - **반복 관찰도 계속 사용할 수 있습니다.** 성공한 동일 structured read/search의 새 요청에는 재사용 안내와 새 one-use runner를 제공하며, 소진된 runner token 재생과 혼동하지 않습니다.
@@ -93,9 +130,9 @@ stage, implementation, review, verification 동안 Click은 다음과 같은 **�
 
 Hook이 제어하는 것은 **관찰 가능한 tool path**입니다. 숨은 추론을 읽거나 의미적 정확성을 단독으로 증명하거나 운영체제 sandbox 역할을 하지는 않습니다.
 
-## 축약 contract
+## Guarded 계약
 
-Click은 요청과 관련 저장소 맥락을 작은 실행 계약 하나로 만듭니다.
+Guarded 내부에서는 schema 검증과 digest 결속을 위해 canonical JSON을 유지합니다. 하지만 사용자는 기본적으로 **작업 목표**, **변경 범위**, **변경하지 않는 부분**, **완료 확인** 네 부분만 승인합니다. 원본 JSON은 선택적인 ‘기술 계약 보기’에 둡니다.
 
 | 필드 | 고정하는 것 |
 | --- | --- |
@@ -108,9 +145,9 @@ Click은 요청과 관련 저장소 맥락을 작은 실행 계약 하나로 만
 
 계약이 고정하는 것은 **의미, 경계, 완료 약속**입니다. 모든 파일·의존성·라이브러리·저수준 구현 선택을 얼려 두는 것이 아닙니다.
 
-승인 범위 안에서 필요한 파일·도구·의존성이 발견되면 사용할 수 있습니다. 승인한 결과·경계·must-hold 동작·검증 약속이 실질적으로 바뀔 때만 다시 승인이 필요합니다.
+승인 범위 안에서 필요한 파일·도구·의존성이 발견되거나 세부 지시·범위 축소 follow-up이 들어오면 audit digest를 남기고 계속할 수 있습니다. 승인한 결과·사용자에게 보이는 동작·경계·must-hold·권한·검증 약속이 실질적으로 바뀔 때만 다시 승인합니다.
 
-## 작동 방식
+## Guarded 작동 방식
 
 ```mermaid
 flowchart TB
@@ -137,18 +174,24 @@ codex plugin add click@click
 
 ChatGPT 데스크톱 앱을 다시 시작하고 포함된 Click Hook을 확인해 신뢰한 뒤 새 작업을 시작합니다.
 
-처음 사용할 때 소프트웨어 변경에 기본 적용하려면 **Always ON**, `@Click`을 언급할 때만 적용하려면 **Manual**을 선택합니다.
+신규 설치와 기존 사용자는 **Evidence**가 기본입니다. 평소처럼 작업하면 Click 자체 승인 질문 없이 evidence를 남깁니다. 고위험 작업에는 **Guarded**, 일반 Click 관리를 끄려면 **Off**를 선택합니다.
+
+```text
+click-gate default evidence
+click-gate default guarded
+click-gate default off
+```
 
 ```text
 @Click 주문 취소 기능을 추가해줘.
 중복 환불을 막고 기존 API 호환성을 유지해줘.
 ```
 
-나중에 “Click을 Always ON으로 설정해줘” 또는 “Click을 Manual로 설정해줘”라고 바꿀 수 있습니다. 한 turn만 우회하는 `@Click bypass`와 active 계약을 버리는 `@Click cancel`도 지원합니다.
+모드는 나중에 바꿀 수 있습니다. 한 turn만 우회하는 `@Click bypass`와 active 계약을 버리는 `@Click cancel`도 유지되며, 둘 다 active Guarded 계약을 몰래 해제하지 않습니다.
 
-## contract 예시
+## Guarded 기술 계약 예시
 
-위 주문 취소 요청에 대해 저장소 근거를 확인한 뒤 다음과 같은 형태가 나올 수 있습니다.
+사용자는 보통 네 부분의 쉬운 화면만 봅니다. ‘기술 계약 보기’를 열면 canonical JSON은 다음처럼 보일 수 있습니다.
 
 ```json
 {
@@ -188,17 +231,17 @@ ChatGPT 데스크톱 앱을 다시 시작하고 포함된 Click Hook을 확인�
 | 반복 관찰을 차단하지 않고 안내 | 성공했거나 반복 실패한 동일 structured read/search도 새 one-use runner로 실행할 수 있고 안내만 제공하며, 같은 digest의 runner가 실행 중이면 계속 차단 |
 | 계획을 막지 않고 안내 | `update_plan`은 계속 사용할 수 있지만 contract를 stage·승인·교체·확장하지 못함 |
 | broad inventory 뒤 범위 축소 안내 | 서로 다른 broad 요청은 안내와 함께 계속 사용할 수 있고 실행 중인 동일 digest runner는 별도 상태 interlock이 막음 |
-| 일반 argv 재시도를 차단하지 않고 안내 | 고정 실패 횟수만으로 새 verification 재시도를 막지 않지만 protected repository content를 바꾼 verification은 승인된 mutation이 필요함 |
+| 일반 argv 재시도를 차단하지 않고 안내 | 고정 실패 횟수만으로 새 verification 재시도를 막지 않지만 protected repository content를 바꾼 verification은 기록된 mutation 경로가 필요함 |
 | 명령 의도 명시 | active 상태의 애매한 shell 작업 대신 structured `inspect`·`mutate`·`service`·`verify`를 사용 |
 | 검증 전략을 권한화하지 않음 | 모델이 evidence와 `argv`를 고르고 Click은 정확한 check-group digest와 관찰 결과를 receipt에 결합 |
 | 알려진 host coverage 결속 | 검증 receipt에 현재 Codex 또는 Antigravity의 known-surface digest를 넣어 다른 host나 Hook coverage revision의 증거가 조용히 재사용되지 않게 함 |
-| dependency-safe evidence 재사용 | 승인에 결속된 dependency 선언 또는 커밋된 저장소 매핑은 해석된 파일·check·환경·실행 파일·승인 mutation snapshot이 모두 같을 때만 성공 증거를 다음 revision으로 이어감 |
+| dependency-safe evidence 재사용 | Guarded는 승인 dependency 또는 커밋 매핑을, Evidence는 커밋 매핑만 사용할 수 있고 모든 해석 binding이 같을 때만 다음 revision으로 이어감 |
 | source별 완료 추적 | 선언한 모든 source가 current여야 하며 `argv` source가 없으면 억지 local check를 만들지 않음 |
 | Browser workflow 반복 advisory | 정규화된 Browser 반복·재시도·긴 timed interaction은 안내와 함께 허용하고, 할당 source·직렬 호출·tool result·revision·완료 replay 결속은 계속 차단으로 보장 |
 
 ## Advisory 검증 profile
 
-승인 전에는 Skill 또는 모델이 현재 위험과 저장소 근거를 기준으로 충분한 최소 검증 profile을 제안합니다. Profile은 의도한 검증 깊이를 나타내는 정성적 표현이며 승인 contract를 정확히 나타내도록 digest에 결합됩니다. 실행 중에는 모델이 실제 `argv`를 선택하고, Click은 정확한 check-group digest·revision·환경·실행 파일 지문·알려진 host coverage identity·관찰 결과를 receipt에 결합합니다. Hook은 검증 충분성을 추론하거나 플러그인이 만든 숫자 스펙트럼을 권한 또는 안내로 사용하지 않습니다.
+Guarded에서는 승인 전에 충분한 최소 profile을 제안하고 contract digest에 결속합니다. Evidence에는 승인 단계가 없고 runtime은 focused marker만 유지하며 모델이 실행 중 실제 check를 고릅니다. Click은 정확한 check-group digest·revision·환경·실행 파일·host coverage·결과를 receipt에 결속하지만 검증 충분성이나 숫자 추정치를 권한으로 사용하지 않습니다.
 
 | Profile | 주로 쓰는 경우 |
 | --- | --- |
@@ -208,9 +251,9 @@ ChatGPT 데스크톱 앱을 다시 시작하고 포함된 Click Hook을 확인�
 
 기존 class-unit 필드는 저장된 state와 직접 호출자의 호환을 위해 읽을 수만 있게 남아 있으며 receipt 증거도 runtime 안내도 아닙니다. 숫자 검증 예산은 사용자나 저장소가 그 정책을 명시적으로 소유할 때만 강제해야 합니다.
 
-근거는 local `argv` check 또는 명시적으로 선언한 Browser·hosted·manual·existing source가 될 수 있습니다. `argv` source는 연결된 local runner의 실제 성공으로만 완료됩니다. non-argv 완료는 명시적인 attestation이며 Hook은 승인된 source와 현재 revision을 기록하지만 matcher 밖 외부 작업이나 수동 작업의 진실성을 독립적으로 증명하지는 않습니다.
+Guarded 근거는 선언한 local `argv`·Browser·hosted·manual·existing source가 될 수 있고, Evidence는 실제 사용하는 argv id를 동적으로 등록합니다. argv는 runner의 실제 성공으로만 완료됩니다. non-argv attestation은 matcher 밖 외부·수동 작업을 독립적으로 증명하지 않습니다.
 
-`argv` evidence source는 결정적인 저장소 상대 `dependencies`를 선택적으로 선언할 수 있습니다. 모델이 stage 전에 제안하므로 승인 contract digest에 결속되고, 확실하지 않으면 필드를 생략해 정상적으로 다시 검증합니다. `*`는 한 path segment 안에서만, 완전한 segment인 `**`는 하위 디렉터리 전체에, 마지막 `/`는 디렉터리 prefix에 적용됩니다. 커밋된 `.click/evidence-dependencies.json`으로 정확한 argv-to-path 매핑을 제공할 수도 있습니다. Click은 실제 해석된 파일 목록과 저장소 내부 상대 symlink를 추적하고, 관련 entry가 아닌 설정 변경은 허용하지만 mutation receipt 누락이나 승인 경계 뒤 workspace drift가 있으면 검증을 다시 실행합니다.
+Guarded의 argv source는 stage 전에 저장소 상대 `dependencies`를 선언해 승인 digest에 결속할 수 있습니다. Evidence는 실행 중 dependency 추측에 권한을 주지 않으며 커밋된 `.click/evidence-dependencies.json`만 cross-revision 재사용에 사용합니다. Click은 해석 파일과 내부 상대 symlink를 기록하고 관련 매핑·mutation receipt·workspace가 달라지면 다시 검증합니다.
 
 ## 구조화 capability
 
@@ -242,28 +285,34 @@ Antigravity IDE에서는 `dist/antigravity`를 워크스페이스의 `.agents/pl
 
 Antigravity의 Hook contract는 Codex와 다릅니다. native file/search와 별도 MCP·Skill 도구는 계속 사용할 수 있지만 cross-tool 중복 제거와 Browser evidence는 아직 지원하지 않습니다. 정확한 제한은 [`platforms/antigravity/README.md`](platforms/antigravity/README.md)를 확인하세요.
 
-## 기존 설치 업데이트 — v0.34.0
+## 기존 설치 업데이트 — v0.35.0
 
-현재 릴리스는 **v0.34.0**입니다.
+현재 릴리스는 **v0.35.0**입니다.
 
 ```bash
 codex plugin marketplace upgrade click
 codex plugin add click@click
 ```
 
-ChatGPT 데스크톱 앱을 다시 시작하고 갱신된 Hook을 검토해 신뢰하세요. v0.34.0은 contract와 승인 turn, one-use·host-tool-use claim, 최종 workspace revision, evidence lineage를 결속하는 approval-bound capability ledger와 canonical 완료 영수증을 추가합니다. `click-gate receipt export`는 `unsigned-integrity-only` envelope를 출력하고 `click-gate receipt verify`는 canonical digest를 오프라인에서 검사합니다. legacy runner state는 계속 복구할 수 있지만 receipt 추적 이전의 불완전한 이력을 완전한 영수증으로 export하지는 않습니다. Codex와 번들 Antigravity 배포본은 같은 runtime module을 사용합니다. 이전 설치의 대기 중 runner를 재사용하지 말고 업그레이드 후 새 계약을 시작하세요.
+ChatGPT 데스크톱 앱을 다시 시작하고 갱신된 Hook을 검토해 신뢰하세요. v0.35.0은 Evidence를 Click 재승인 없는 기본값으로 만들고 저장된 `on`·`manual` 설정을 한 번 migration하면서 진행 중인 Guarded 계약은 잠긴 상태로 보존합니다. Guarded 승인은 기술 JSON 대신 사람이 읽는 네 섹션을 먼저 보여주며, 범위 안의 세부·축소 요청은 반복 승인 없이 digest audit lineage로 이어집니다. Evidence의 receipt v2는 host 권한을 정직하게 표시하고, 누락된 host `PostToolUse`는 이후 current-revision 검증이 있을 때만 `observed`로 정산합니다. Codex와 번들 Antigravity 배포본은 같은 runtime module을 사용합니다. 새 모드와 Hook 코드를 로드하려면 업그레이드 후 새 작업을 시작하세요.
 
 자세한 릴리스 이력은 [RELEASE_NOTES.md](RELEASE_NOTES.md)에 있습니다.
 
 ## 완료 영수증
 
-선언된 모든 evidence가 현재 revision에서 완료되고 관리 서비스가 멈추면
-`click-gate receipt export`가 canonical 완료 envelope를 stdout으로 출력합니다.
-여기에는 contract ID·digest, stage·승인 turn, Click runner claim과
-host-tool-use 경계, 최종 mutation revision과 보호 workspace digest, 그리고
-evidence별 결과·환경·실행 파일·host coverage·dependency 재사용 lineage가
-결속됩니다. 원문 argv, runner token, contract 본문, 실제 workspace 경로는
+현재 evidence가 완료되고 관리 서비스가 멈추면 `click-gate receipt export`가
+canonical v2 envelope를 출력합니다. Guarded는 contract ID·digest·stage·승인
+turn을 결속합니다. Evidence는 `contract: null`, `approval_bound: false`,
+`execution_authority: host`와 intent·follow-up digest를 기록합니다. 둘 다 claim,
+최종 mutation/workspace digest, evidence별 환경·실행 파일·host coverage·dependency
+lineage를 결속합니다. 원문 argv·token·contract prose·prompt·workspace 경로는
 포함하지 않습니다.
+
+지원 host가 mutation의 대응 `PostToolUse`를 생략해도 Click은 성공 exit code를
+꾸며내지 않습니다. 이후 같은 revision 또는 더 최신 revision에서 one-use
+verification이 통과하고 최종 evidence와 workspace snapshot도 일치할 때만 해당
+승인된 claim을 `observed`로 정산할 수 있습니다. 그 후속 증인이 없는 claim은
+계속 export를 차단합니다.
 
 출력된 JSON을 실행 명령 밖에서 파일로 저장한 뒤 네트워크나 활성 Click
 state 없이 검증할 수 있습니다.

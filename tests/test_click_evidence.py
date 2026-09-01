@@ -100,6 +100,26 @@ class ClickEvidenceTests(unittest.TestCase):
         )
         self.assertNotIn("E-browser", json.dumps(external, sort_keys=True))
 
+    def test_evidence_runtime_registers_ids_without_dependency_authority(self) -> None:
+        state = {
+            "status": "evidence",
+            "evidence_state": click_evidence.fresh_state(
+                {"verification": {"evidence": []}}
+            ),
+        }
+
+        sources, error = click_evidence.register_runtime_sources(
+            state, ["E_TESTS"], kind="argv"
+        )
+
+        self.assertEqual(error, "")
+        assert sources is not None
+        source = sources[click_evidence.evidence_key("E_TESTS")]
+        self.assertEqual(source["kind"], "argv")
+        self.assertEqual(source["dependency_patterns"], [])
+        self.assertEqual(source["dependency_declaration_digest"], "")
+        self.assertEqual(state["evidence_state"]["source_count"], 1)
+
     def test_dependency_declaration_is_prose_free_and_integrity_checked(self) -> None:
         contract = copy.deepcopy(self.contract)
         contract["verification"]["evidence"][0]["dependencies"] = [

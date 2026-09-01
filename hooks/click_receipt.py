@@ -15,7 +15,9 @@ import secrets
 from typing import Any
 
 
-RECEIPT_VERSION = 1
+LEGACY_RECEIPT_VERSION = 1
+RECEIPT_VERSION = 2
+SUPPORTED_RECEIPT_VERSIONS = {LEGACY_RECEIPT_VERSION, RECEIPT_VERSION}
 ENVELOPE_VERSION = 1
 UNSIGNED_ASSURANCE = "unsigned-integrity-only"
 CONTRACT_ID_PATTERN = re.compile(r"^ctr_[0-9a-f]{32}$")
@@ -31,7 +33,7 @@ BASE_COVERAGE_EXCLUSIONS = (
 )
 UNAVAILABLE_TREE_EXCLUSION = "protected-tree-unavailable"
 
-RECEIPT_FIELDS = {
+RECEIPT_V1_FIELDS = {
     "version",
     "contract",
     "execution",
@@ -39,7 +41,18 @@ RECEIPT_FIELDS = {
     "evidence",
     "coverage",
 }
+RECEIPT_FIELDS = RECEIPT_V1_FIELDS | {"authority"}
 CONTRACT_FIELDS = {"id", "digest", "staged_turn_id", "approved_turn_id"}
+AUTHORITY_FIELDS = {
+    "mode",
+    "approval_bound",
+    "execution_authority",
+    "intent_digest",
+    "intent_turn_id",
+    "follow_up_turns",
+    "history_complete",
+}
+FOLLOW_UP_FIELDS = {"turn_id", "digest"}
 EXECUTION_FIELDS = {"mutation_revision", "workspace"}
 WORKSPACE_FIELDS = {"assurance", "root_digest", "tree_digest"}
 CAPABILITY_FIELDS = {
@@ -133,6 +146,67 @@ def _normalize_contract(value: Any) -> tuple[dict[str, Any] | None, str]:
         "digest": digest,
         "staged_turn_id": staged_turn_id,
         "approved_turn_id": approved_turn_id,
+    }, ""
+
+
+def _normalize_authority(value: Any) -> tuple[dict[str, Any] | None, str]:
+    error = _exact_fields(value, AUTHORITY_FIELDS, "authority")
+    if error:
+        return None, error
+    assert isinstance(value, dict)
+    mode = value.get("mode")
+    approval_bound = value.get("approval_bound")
+    execution_authority = value.get("execution_authority")
+    if mode not in {"guarded", "evidence"}:
+        return None, "Completion receipt authority mode is unsupported."
+    if not isinstance(approval_bound, bool):
+        return None, "Completion receipt `approval_bound` must be boolean."
+    expected = (
+        (True, "click-contract")
+        if mode == "guarded"
+        else (False, "host")
+    )
+    if (approval_bound, execution_authority) != expected:
+        return None, "Completion receipt authority fields contradict its mode."
+    intent_digest = value.get("intent_digest")
+    intent_turn_id = value.get("intent_turn_id")
+    if not _is_digest(intent_digest):
+        return None, "Completion receipt intent digest must be lowercase SHA-256."
+    if not isinstance(intent_turn_id, str) or not intent_turn_id.strip():
+        return None, "Completion receipt intent turn must be non-empty."
+    history_complete = value.get("history_complete")
+    if not isinstance(history_complete, bool):
+        return None, "Completion receipt history assurance must be boolean."
+    follow_up_turns = value.get("follow_up_turns")
+    if not isinstance(follow_up_turns, list):
+        return None, "Completion receipt follow-up turns must be a list."
+    normalized_follow_ups: list[dict[str, str]] = []
+    seen_turns: set[str] = set()
+    for item in follow_up_turns:
+        error = _exact_fields(item, FOLLOW_UP_FIELDS, "authority.follow_up_turn")
+        if error:
+            return None, error
+        assert isinstance(item, dict)
+        turn_id = item.get("turn_id")
+        digest = item.get("digest")
+        if (
+            not isinstance(turn_id, str)
+            or not turn_id.strip()
+            or turn_id == intent_turn_id
+            or turn_id in seen_turns
+            or not _is_digest(digest)
+        ):
+            return None, "Completion receipt follow-up turn lineage is invalid."
+        seen_turns.add(turn_id)
+        normalized_follow_ups.append({"turn_id": turn_id, "digest": str(digest)})
+    return {
+        "mode": mode,
+        "approval_bound": approval_bound,
+        "execution_authority": execution_authority,
+        "intent_digest": str(intent_digest),
+        "intent_turn_id": intent_turn_id,
+        "follow_up_turns": normalized_follow_ups,
+        "history_complete": history_complete,
     }, ""
 
 
@@ -386,21 +460,46 @@ def _normalize_coverage(
 
 
 def validate_receipt(value: Any) -> tuple[dict[str, Any] | None, str]:
-    """Return a normalized v1 completion receipt or a fail-closed error."""
-    error = _exact_fields(value, RECEIPT_FIELDS, "root")
-    if error:
-        return None, error
-    assert isinstance(value, dict)
+    """Return a normalized supported completion receipt or a fail-closed error."""
+    if not isinstance(value, dict):
+        return None, "Completion receipt `root` must be an object."
     version = value.get("version")
-    if version != RECEIPT_VERSION or isinstance(version, bool):
-        return None, f"Completion receipt `version` must be {RECEIPT_VERSION}."
-    contract, error = _normalize_contract(value.get("contract"))
+    expected_fields = (
+        RECEIPT_V1_FIELDS if version == LEGACY_RECEIPT_VERSION else RECEIPT_FIELDS
+    )
+    error = _exact_fields(value, expected_fields, "root")
     if error:
         return None, error
+    if version not in SUPPORTED_RECEIPT_VERSIONS or isinstance(version, bool):
+        return None, "Completion receipt `version` is unsupported."
+    authority: dict[str, Any] | None = None
+    if version == RECEIPT_VERSION:
+        authority, error = _normalize_authority(value.get("authority"))
+        if error:
+            return None, error
+        assert authority is not None
+        if authority["mode"] == "guarded":
+            contract, error = _normalize_contract(value.get("contract"))
+            if error:
+                return None, error
+            assert contract is not None
+            if (
+                contract["digest"] != authority["intent_digest"]
+                or contract["staged_turn_id"] != authority["intent_turn_id"]
+            ):
+                return None, "Guarded receipt authority does not match its contract."
+        else:
+            if value.get("contract") is not None:
+                return None, "Evidence receipt must not claim an approved contract."
+            contract = None
+    else:
+        contract, error = _normalize_contract(value.get("contract"))
+        if error:
+            return None, error
     execution, error = _normalize_execution(value.get("execution"))
     if error:
         return None, error
-    assert contract is not None and execution is not None
+    assert execution is not None
     revision = int(execution["mutation_revision"])
 
     capabilities = value.get("capabilities")
@@ -448,14 +547,17 @@ def validate_receipt(value: Any) -> tuple[dict[str, Any] | None, str]:
     if error:
         return None, error
     assert coverage is not None
-    return {
-        "version": RECEIPT_VERSION,
+    normalized_receipt = {
+        "version": version,
         "contract": contract,
         "execution": execution,
         "capabilities": normalized_capabilities,
         "evidence": normalized_evidence,
         "coverage": coverage,
-    }, ""
+    }
+    if authority is not None:
+        normalized_receipt["authority"] = authority
+    return normalized_receipt, ""
 
 
 def canonical_bytes(value: Any) -> tuple[bytes | None, str]:

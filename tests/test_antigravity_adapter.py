@@ -38,6 +38,18 @@ class AntigravityAdapterTests(unittest.TestCase):
         self.environment = os.environ.copy()
         self.environment["PLUGIN_DATA"] = str(self.plugin_data)
         self.environment["CLICK_CONFIG_HOME"] = str(self.config_home)
+        self.config_home.mkdir()
+        (self.config_home / "preferences.json").write_text(
+            json.dumps(
+                {
+                    "schema_version": 2,
+                    "default_mode": "guarded",
+                    "migration_notice_pending": False,
+                    "updated_at": 1,
+                }
+            ),
+            encoding="utf-8",
+        )
         self.base = {
             "conversationId": "conversation-1",
             "workspacePaths": [str(self.workspace)],
@@ -248,6 +260,37 @@ class AntigravityAdapterTests(unittest.TestCase):
         state = json.loads(states[0].read_text(encoding="utf-8"))
         sources = state["evidence_state"]["sources"]
         self.assertEqual(next(iter(sources.values()))["status"], "passed")
+
+    def test_evidence_mode_allows_host_mutation_without_a_contract(self) -> None:
+        (self.config_home / "preferences.json").write_text(
+            json.dumps(
+                {
+                    "schema_version": 2,
+                    "default_mode": "evidence",
+                    "migration_notice_pending": False,
+                    "updated_at": 2,
+                }
+            ),
+            encoding="utf-8",
+        )
+        context = self.pre_invocation("update the existing file")
+        self.assertIn("Evidence mode", json.dumps(context))
+
+        arguments = {
+            "TargetFile": str(self.workspace / "evidence.py"),
+            "CodeContent": "ok",
+        }
+        allowed = self.pre_tool("write_to_file", arguments)
+        self.assertEqual(allowed.get("decision"), "allow")
+        completed = self.post_tool("write_to_file", arguments)
+        self.assertEqual(completed.get("decision"), "allow")
+
+        state_path = next(
+            (self.plugin_data / "gate-state").glob("session-contract-*.json")
+        )
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        self.assertEqual(state["status"], "evidence")
+        self.assertEqual(state["verification"]["mutation_revision"], 1)
 
     def test_post_tool_closes_the_approved_mutation_snapshot(self) -> None:
         self.initialize_git("tests/test_sample.py")

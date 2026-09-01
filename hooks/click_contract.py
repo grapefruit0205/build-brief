@@ -43,6 +43,37 @@ VERIFICATION_UNIT_LIMITS = click_verification_policy.VERIFICATION_UNIT_LIMITS
 VERIFICATION_CLASSES = click_verification_meter.VERIFICATION_CLASSES
 
 
+def human_view(contract: dict[str, Any]) -> dict[str, Any]:
+    """Return the deterministic four-section approval projection.
+
+    The structured contract remains canonical. This projection is stored with
+    staged state so hosts and skills can present a readable approval without
+    making raw JSON the default interface.
+    """
+    boundary = contract.get("boundary")
+    verification = contract.get("verification")
+    done_when = (
+        verification.get("done_when") if isinstance(verification, dict) else []
+    )
+    return {
+        "goal": str(contract.get("outcome", "")),
+        "changes": list(boundary.get("in_scope", []))
+        if isinstance(boundary, dict)
+        else [],
+        "unchanged": {
+            "out_of_scope": list(boundary.get("out_of_scope", []))
+            if isinstance(boundary, dict)
+            else [],
+            "must_hold": list(contract.get("must_hold", [])),
+        },
+        "completion": [
+            str(item.get("condition", ""))
+            for item in done_when
+            if isinstance(item, dict)
+        ],
+    }
+
+
 def validate_contract(raw: str) -> tuple[dict[str, Any] | None, str]:
     try:
         value = json.loads(raw)

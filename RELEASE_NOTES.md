@@ -1,5 +1,38 @@
 # Release notes
 
+## v0.35.0 — 2026-09-01
+
+- Evidence is now the default mode. It leaves execution authority with the
+  host, adds no Click approval prompt, and records intent lineage, mutation
+  revisions, exact verification receipts, dependency reuse, and an honest
+  approval-free completion receipt. Stored legacy `on` and `manual`
+  preferences migrate once to Evidence; an active Guarded contract remains
+  locked until completion or explicit cancellation.
+- Guarded remains available for higher-risk work and now presents Goal,
+  Changes, Unchanged, and Completion checks as its primary approval view.
+  Canonical JSON remains digest-bound technical detail rather than the default
+  user interface. In-scope and narrowing follow-ups are audit-bound by turn and
+  prompt digest without routine reapproval; material outcome, boundary,
+  invariant, authority, or verification changes still require a new contract.
+- Evidence sessions dynamically bind the exact argv checks actually selected
+  by the model. Approval-free receipts set `contract` to `null`,
+  `approval_bound` to `false`, and `execution_authority` to `host`; Guarded
+  receipts retain contract, approval-turn, replay, tamper, revision,
+  environment, executable, host-coverage, and dependency-lineage bindings.
+- Receipt export no longer becomes permanently unavailable merely because a
+  supported host omitted a mutation's matching `PostToolUse`. A later passing
+  one-use verification at the same or a newer revision may settle that admitted
+  host claim only as `observed`, never `passed`; an unwitnessed claim or active
+  runner still blocks export.
+- Read-only PDF admission accepts bounded metadata and stdout-only text
+  extraction while continuing to reject output-file writes, shell wrappers,
+  and ambiguous arguments. Dependency-aware reuse remains conservative:
+  Evidence uses only committed mappings, while Guarded may also use the
+  approval-bound declaration.
+- Codex and Antigravity ship the same Evidence/Guarded/Off lifecycle, receipt
+  semantics, cache rules, documentation, and regression behavior. The
+  Antigravity distribution is rebuilt from the canonical runtime and Skills.
+
 ## v0.34.0 — 2026-09-01
 
 - A versioned append-only capability ledger now records approval-bound

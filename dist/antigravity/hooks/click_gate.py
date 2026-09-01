@@ -1,13 +1,11 @@
 #!/usr/bin/env python3
-"""A local contract, structured-capability, anti-loop, and verification guard.
+"""A local Evidence/Guarded runtime for structured capabilities and receipts.
 
-The hook does not judge architecture quality or implementation choices. It can
-persist an Always ON or Manual preference outside the target repository. Always
-ON gates supported software mutations behind one approved Click contract;
-Manual remains fail-open until Click is explicitly armed. A read-only review
-mode applies the observation anti-loop without requiring a build contract.
-During active work, supported shell intent is expressed as versioned argv requests
-and executed without a shell by inspect, mutate, and verify runners.
+Evidence is the approval-free default and records host-authorized intent,
+mutations, verification, and cache lineage. Guarded binds supported mutations to
+one approved contract; Off remains fail-open unless Click is explicitly armed.
+The hook does not judge architecture, search strategy, or verification
+sufficiency. Structured argv requests execute without a shell.
 """
 
 from __future__ import annotations
@@ -405,6 +403,7 @@ _active_prompt_turn_error = click_lifecycle.active_prompt_turn_error
 _contract_is_completed = click_lifecycle.contract_is_completed
 _approved_contract_is_active = click_lifecycle.approved_contract_is_active
 _session_contract_is_active = click_lifecycle.session_contract_is_active
+_ensure_evidence_state = click_lifecycle.ensure_evidence_state
 
 
 def _mark_contract_mutated(
@@ -802,7 +801,21 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
                     _allow_rewritten(f"echo Click default mode: {current}")
                     return
                 _write_default_mode(value)
-                label = "Always ON" if value == "on" else "Manual"
+                normalized = click_lifecycle.LEGACY_DEFAULT_MODE_ALIASES.get(
+                    value, value
+                )
+                runtime_state = _read_contract_state(event)
+                if (
+                    normalized != "evidence"
+                    and runtime_state.get("status") == "evidence"
+                ):
+                    _clear_contract_state(event)
+                    _write_state(event, "idle")
+                label = {
+                    "evidence": "Evidence",
+                    "guarded": "Guarded",
+                    "off": "Off",
+                }[normalized]
                 _allow_rewritten(f"echo Click default mode set to {label}")
                 return
             if action == "mode":
@@ -827,7 +840,13 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
                 return
             if action == "evidence":
                 current_status = _read_state(event).get("status")
-                if current_status != "passed" and _read_mode(event) != "strict":
+                runtime_state = _read_contract_state(event)
+                evidence_active = runtime_state.get("status") == "evidence"
+                if (
+                    current_status != "passed"
+                    and _read_mode(event) != "strict"
+                    and not evidence_active
+                ):
                     _deny(
                         "Pass the approved Click execution contract before recording "
                         "its declared completion evidence."
@@ -848,9 +867,9 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
                     return
                 assert request is not None
                 current_status = _read_state(event).get("status")
-                approved_session_active = _approved_contract_is_active(
-                    _read_contract_state(event)
-                )
+                runtime_state = _read_contract_state(event)
+                approved_session_active = _approved_contract_is_active(runtime_state)
+                evidence_active = runtime_state.get("status") == "evidence"
                 if current_status == "review":
                     (
                         rewritten,
@@ -862,7 +881,7 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
                     if inspection_error:
                         _deny(inspection_error)
                         return
-                elif current_status == "passed" or approved_session_active:
+                elif current_status == "passed" or approved_session_active or evidence_active:
                     (
                         rewritten,
                         inspection_error,
@@ -883,7 +902,12 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
                 return
             if action == "mutate":
                 current_status = _read_state(event).get("status")
-                if current_status != "passed" and _read_mode(event) != "strict":
+                evidence_active = _read_contract_state(event).get("status") == "evidence"
+                if (
+                    current_status != "passed"
+                    and _read_mode(event) != "strict"
+                    and not evidence_active
+                ):
                     _deny(
                         "Pass the approved Click execution contract in the current turn "
                         "before starting a structured mutation."
@@ -897,7 +921,12 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
                 return
             if action == "service":
                 current_status = _read_state(event).get("status")
-                if current_status != "passed" and _read_mode(event) != "strict":
+                evidence_active = _read_contract_state(event).get("status") == "evidence"
+                if (
+                    current_status != "passed"
+                    and _read_mode(event) != "strict"
+                    and not evidence_active
+                ):
                     _deny(
                         "Pass the approved Click execution contract in the current turn "
                         "before managing its local development service."
@@ -911,7 +940,12 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
                 return
             if action == "verify":
                 current_status = _read_state(event).get("status")
-                if current_status != "passed" and _read_mode(event) != "strict":
+                evidence_active = _read_contract_state(event).get("status") == "evidence"
+                if (
+                    current_status != "passed"
+                    and _read_mode(event) != "strict"
+                    and not evidence_active
+                ):
                     _deny(
                         "Pass the approved Click execution contract in the current turn "
                         "before starting its final verification batch."
@@ -977,10 +1011,10 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
             _inspection_request_from_bash(str(command))
         )
     if tool_name == "Bash" and inspection_request is not None:
-        approved_session_active = _approved_contract_is_active(
-            _read_contract_state(event)
-        )
-        if status == "passed" or approved_session_active:
+        runtime_state = _read_contract_state(event)
+        approved_session_active = _approved_contract_is_active(runtime_state)
+        evidence_active = runtime_state.get("status") == "evidence"
+        if status == "passed" or approved_session_active or evidence_active:
             (
                 rewritten,
                 observation_error,
@@ -1075,23 +1109,42 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
         return
 
     default_mode = _read_default_mode()
-    session_contract_active = _session_contract_is_active(
-        _read_contract_state(event)
-    )
-    if default_mode == "unset" and status == "idle":
-        _deny(
-            "Click needs its one-time default before the first software mutation. Ask the "
-            "user to choose Always ON (recommended) or Manual, then run `click-gate default "
-            "on` or `click-gate default manual`. Do not ask for this choice during questions, "
-            "explanations, code review, or simple read-only inspection."
-        )
+    runtime_state = _read_contract_state(event)
+    session_contract_active = _session_contract_is_active(runtime_state)
+    if (
+        default_mode == "evidence"
+        and not session_contract_active
+        and status not in {"armed", "staged"}
+        and _read_mode(event) != "strict"
+    ):
+        runtime_state, recovered = _ensure_evidence_state(event)
+        verification = runtime_state.get("verification")
+        if isinstance(verification, dict) and verification.get("status") == "running":
+            _deny(
+                "Click blocked mutation while its exact Evidence verification runner is "
+                "active. Wait for that bound result before changing the revision."
+            )
+            return
+        mutation_error = _mark_contract_mutated(event)
+        if mutation_error:
+            # Evidence is observability, not execution authority. A recovery problem may
+            # lower receipt assurance but must not masquerade as a host permission denial.
+            _advise(
+                "Click Evidence advisory: this host mutation remains authorized by the "
+                f"host, but Click could not bind its receipt ({mutation_error})."
+            )
+        elif recovered:
+            _advise(
+                "Click Evidence advisory: a new lower-assurance session was created; "
+                "history before recovery is excluded from its receipt."
+            )
         return
 
     if (
         session_contract_active
         or status in {"armed", "staged"}
         or _read_mode(event) == "strict"
-        or default_mode == "on"
+        or default_mode == "guarded"
     ):
         _deny(
             "Click blocked this mutation because the active execution contract has "
@@ -1101,9 +1154,10 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
             "verification.done_when, and plain_language; add build.semantics, build.order, "
             "or an intermediate gate only "
             "when the work materially requires them; "
-            "stage the JSON once, show the emitted contract_id with both contract views, "
+            "stage the JSON once, show four human approval sections with optional technical "
+            "details and the emitted contract_id, "
             "obtain approval, arm the later approval turn, then pass only that exact id. "
-            "Do not resend the JSON. In Always ON mode, arm is optional because the "
+            "Do not resend the JSON. In Guarded mode, arm is optional because the "
             "persistent preference already activates the gate. If the user does not want "
             "Click for this turn, run "
             "`click-gate bypass` only after the current user turn begins with a recognized "

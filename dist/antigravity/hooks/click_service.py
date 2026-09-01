@@ -275,8 +275,8 @@ def prepare_service(
         return "", error
     assert request is not None
     state = _read_contract_state(event)
-    if state.get("status") != "approved":
-        return "", "Approve the staged Click execution contract before managing a service."
+    if state.get("status") not in {"approved", "evidence"}:
+        return "", "Start Guarded or Evidence runtime state before managing a service."
     service = state.get("service")
     if not isinstance(service, dict):
         service = fresh_state()
@@ -390,7 +390,7 @@ def service_snapshot(path: Path, service_id: str) -> dict[str, Any] | None:
             time.sleep(0.02)
         except (FileNotFoundError, json.JSONDecodeError, OSError):
             return None
-    if not isinstance(state, dict) or state.get("status") != "approved":
+    if not isinstance(state, dict) or state.get("status") not in {"approved", "evidence"}:
         return None
     service = state.get("service")
     if not isinstance(service, dict) or service.get("service_id") != service_id:
@@ -411,7 +411,7 @@ def record_service_fields(
         state = json.loads(path.read_text(encoding="utf-8"))
     except (FileNotFoundError, json.JSONDecodeError, OSError):
         return False
-    if not isinstance(state, dict) or state.get("status") != "approved":
+    if not isinstance(state, dict) or state.get("status") not in {"approved", "evidence"}:
         return False
     service = state.get("service")
     if not isinstance(service, dict) or service.get("service_id") != service_id:
@@ -440,7 +440,7 @@ def claim_service_runner(
         state = json.loads(path.read_text(encoding="utf-8"))
     except (FileNotFoundError, json.JSONDecodeError, OSError):
         return "Click managed service runner could not read its contract state."
-    if not isinstance(state, dict) or state.get("status") != "approved":
+    if not isinstance(state, dict) or state.get("status") not in {"approved", "evidence"}:
         return "Click managed service runner is no longer authorized to execute."
     service = state.get("service")
     expected_status = "launching" if supervisor else "starting"
@@ -518,7 +518,7 @@ def record_service_claim_result(
         state = json.loads(path.read_text(encoding="utf-8"))
     except (FileNotFoundError, json.JSONDecodeError, OSError):
         return False
-    if not isinstance(state, dict) or state.get("status") != "approved":
+    if not isinstance(state, dict) or state.get("status") not in {"approved", "evidence"}:
         return False
     service = state.get("service")
     verification = state.get("verification")

@@ -160,7 +160,7 @@ def _valid_digest(value: Any) -> bool:
 
 
 def _approved_state_has_recoverable_runner(payload: dict[str, Any]) -> bool:
-    if payload.get("status") != "approved":
+    if payload.get("status") not in {"approved", "evidence"}:
         return False
     mutation = payload.get("mutation")
     if (
@@ -270,7 +270,7 @@ def _fresh_unclaimed(started_at: Any, ttl: int) -> bool:
 def _runner_binding_matches(
     state: dict[str, Any], action: str, arguments: list[str]
 ) -> bool:
-    if state.get("status") != "approved":
+    if state.get("status") not in {"approved", "evidence"}:
         return False
     try:
         if action == "run-mutation":

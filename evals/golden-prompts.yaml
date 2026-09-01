@@ -1,4 +1,4 @@
-version: 22
+version: 23
 skill: click
 evaluation_conditions:
   - no-plugin
@@ -31,8 +31,8 @@ evaluation_dimensions:
   - verification_evidence_economy
   - verification_profile_boundary
   - one_shot_execution
-  - default_mode_selection
-  - always_on_mutation_routing
+  - evidence_default_routing
+  - guarded_mutation_routing
   - review_anti_loop
   - structured_capability_routing
   - shell_intent_false_positive
@@ -46,7 +46,7 @@ evaluation_dimensions:
   - active_lifecycle_plan_advisory
   - broad_inventory_advisory
   - logical_repeat_advisory
-  - manual_session_mutation_lock
+  - active_guarded_mutation_lock
   - isolated_ab_provenance
 grading_priority:
   correctness_gate: "The result must satisfy the requested observable behavior and material invariants before minimality is scored"
@@ -73,18 +73,19 @@ overdesign_rubric:
     - "Chooses a larger design when a smaller candidate preserves the same invariants"
     - "Removes necessary safety or failure behavior to appear simpler"
 global_invariants:
-  - "Compiles natural-language intent into an authoritative developer execution contract rather than selecting labels from a fixed catalog"
+  - "Uses approval-free Evidence mode by default and compiles an authoritative developer execution contract only in Guarded mode"
   - "Uses any software-design vocabulary the context requires and ties every term to a concrete implementation or verification consequence"
   - "Does not ask the user to provide technical terminology that can be inferred from the request and codebase"
-  - "When unset, asks once for Always ON or Manual only before the first software mutation, never during questions, explanations, review, or simple inspection"
-  - "In Always ON, routes software mutations into the full contract workflow without requiring a mention; in Manual, activates only after `@Click` or `$click`"
+  - "When unset, starts Evidence mode without a setup question; existing stored on or manual preferences migrate once to Evidence"
+  - "In Evidence mode, leaves execution authority with the host and records intent, mutation, verification, cache lineage, and an approval-free receipt"
+  - "In Guarded mode, routes software mutations into the approval contract workflow; in Off, explicit `@Click` or `$click` may activate Guarded"
   - "Treats equivalent build, design, implement, and do-it wording in any language as the same full workflow whenever Click is active"
-  - "Routes code-review-only work in Always ON into a read-only anti-loop guard without a build contract or approval"
+  - "Routes code-review-only work in Evidence or Guarded mode into a read-only anti-loop guard without a build contract or approval"
   - "Leaves questions, explanations, and simple read-only lookups outside both the build contract and review observation ledger"
-  - "Presents the compact developer fields and renders the exact digest-bound plain_language value once as a separate faithful easy-language view before modifying code, tests, configuration, or schemas when Click is activated"
+  - "Presents Guarded approval as Goal, Changes, Unchanged, and Completion checks, with canonical JSON available only as optional Technical contract details"
   - "Includes outcome, scoped boundary, must_hold, build.approach, verification scale, structured evidence registry and referenced done_when conditions, and plain_language without parallel plan, phase, step, task, minimality, or proof sections"
   - "Adds build.semantics, build.order, or an intermediate gate only when the work materially requires them"
-  - "Stages the developer execution contract JSON once with plain_language still digest-bound, exposes the emitted opaque contract_id as the approval handle with both nonduplicative contract views, records its UserPromptSubmit turn, and cannot pass that id until a later user turn"
+  - "Stages Guarded JSON once with plain_language digest-bound, exposes an opaque contract_id beside the four-section human view, records its UserPromptSubmit turn, and cannot pass that id until a later user turn"
   - "Rejects a second stage in the same user turn and rejects stage or pass when the Hook cannot match the tool call to a UserPromptSubmit turn"
   - "Passes only the exact contract_id emitted for the staged digest, never resends the JSON, and keeps that semantic contract fixed during one-shot implementation"
   - "Allows a fresh contract only after every declared evidence source passes for the current mutation revision and managed services stop; ready, observed, running, failed, or stale sources still block replacement"
@@ -100,16 +101,17 @@ global_invariants:
   - "Finalizes observed Browser evidence explicitly, keeps observed status monotonic until mutation, and treats hosted, manual, and existing completion as attestations rather than claiming independently observed execution"
   - "Keeps broad-inventory count non-blocking and non-authoritative: a distinct-digest broad inventory receives narrowing guidance and may run despite prior broad running or success, while an active exact-digest reservation, mutation and verification interlocks, and runner safety remain hard"
   - "Keeps fresh logical repetition non-blocking and model-neutral: a completed identical observation or ordinary repeatedly failing argv check may receive a new one-use authorization with advisory context, while consumed-token replay, active same-request reservations, and verification-time repository mutation remain hard"
-  - "Skips an exact successful argv check in the same revision only when its contract, check group, protected Git tree, canonical execution environment, and executable fingerprint match; cross-revision promotion requires an optional approval-bound dependency receipt, a matching host-recorded mutation snapshot, and unchanged relevant resolved files"
+  - "Skips exact same-revision evidence only when intent or contract, check group, protected tree, environment, executable, and host coverage match; Evidence cross-revision promotion requires a committed dependency mapping while Guarded may also use approval-bound dependencies"
   - "Keeps Browser source admission, serial calls, stable tool_use_id/result mapping, current revision and completion replay hard while normalized repetition, retry count, 30-second timeout and five-second wait guidance remains non-blocking and model-neutral"
   - "Uses browser, manual, hosted, broad-suite, or timed end-to-end evidence only when cheaper evidence cannot prove the condition, then stops when all conditions have current evidence"
   - "Does not create parallel verification ceremonies or include an intermediate gate without an irreversible boundary"
   - "Avoids serial technical preference questions by exposing consequential assumptions in the single contract review"
   - "Performs no implementation before the displayed developer execution contract is explicitly approved"
   - "Starts from the narrowest relevant repository evidence and widens only for unresolved consequential behavior"
-  - "Leaves every uninvoked Manual task unblocked and blocks the first unset mutation only to obtain the one persistent mode choice"
-  - "Once Manual is invoked, keeps a staged or incomplete approved session contract mutation-locked across later turns until its emitted contract_id is passed and the contract is completed; an explicitly authorized bypass releases only its own turn"
-  - "Gates supported mutations automatically in Always ON and arms the mutation gate when Manual invocation activates Click"
+  - "Leaves Off work unblocked and starts new or migrated users in approval-free Evidence mode"
+  - "Keeps a staged or incomplete Guarded contract mutation-locked across later turns and across preference migration until it is completed or explicitly cancelled"
+  - "Allows in-scope and narrowing Guarded follow-ups without reapproval while audit-binding their prompt digests; material semantic changes require a new contract"
+  - "Marks Evidence receipts approval_bound false with execution_authority host, and keeps Guarded approval, one-use, replay, tamper, and revision bindings"
   - "Honors an explicit user opt-out immediately, including after the gate was armed"
   - "Enables session-wide strict blocking only when the user explicitly selects it"
   - "Keeps compatible simple direct reads convenient, but rejects pipelines and ambiguous active Bash in favor of versioned argv-based inspect, mutate, or verify requests"
@@ -372,40 +374,40 @@ cases:
       reject_without_evidence:
         - "Any new abstraction, dependency, or architectural boundary"
 
-  - id: unset-first-mutation-choice
+  - id: unset-evidence-default
     prompt: "Add a CSV export button to the existing report page."
     default_mode: unset
-    expected_activation: mode-choice
-    expected_mode: build
-    expected_mutation_gate: choice-before-first-mutation
+    expected_activation: true
+    expected_mode: evidence
+    expected_mutation_gate: host-authorized
     directive_semantics:
-      - "Asks once whether future software changes use Always ON or Manual and recommends Always ON"
-      - "Does not choose the persistent preference on the user's behalf"
-      - "Performs no mutation before the answer"
+      - "Starts Evidence mode without a Click setup or approval question"
+      - "Leaves execution authority with the host"
+      - "Returns an approval-free revision-aware receipt"
     minimality_expectations:
-      reuse: "One short mode question without a design questionnaire"
+      reuse: "The existing implementation and focused verification evidence"
       reject_without_evidence:
-        - "A build contract before the user selects the mode"
+        - "A Click approval contract"
         - "Project-local preference state"
 
-  - id: always-on-trivial-edit
+  - id: evidence-trivial-edit
     prompt: "Change the primary button from green to blue and leave everything else alone."
-    default_mode: on
+    default_mode: evidence
     expected_activation: true
-    expected_mode: build
-    expected_mutation_gate: none-before-approval
+    expected_mode: evidence
+    expected_mutation_gate: host-authorized
     directive_semantics:
-      - "Uses an extremely short proportional contract because Always ON covers software mutations"
-      - "Keeps questions to the single contract approval and does not invent architecture"
+      - "Does not stage a Click contract or ask for approval"
+      - "Records the prompt and mutation revision"
       - "Uses quick verification with one focused observable check"
     minimality_expectations:
       reuse: "The existing color token or button style"
       reject_without_evidence:
         - "A new design system, dependency, component, or abstraction"
 
-  - id: always-on-code-review
+  - id: evidence-code-review
     prompt: "Review the authentication middleware for concrete bugs. Do not change any files."
-    default_mode: on
+    default_mode: evidence
     expected_activation: true
     expected_mode: review
     expected_mutation_gate: read-only-review
@@ -419,13 +421,13 @@ cases:
       reject_without_evidence:
         - "A build contract, implementation plan, or file mutation"
 
-  - id: always-on-explanation
+  - id: evidence-explanation
     prompt: "Explain what idempotency means in a payment API."
-    default_mode: on
+    default_mode: evidence
     expected_activation: false
     expected_mode: explanation
     expected_mutation_gate: none
-    reason: "Always ON applies to software-changing work, not explanations."
+    reason: "Evidence mode applies to software work, not ordinary explanations."
     minimality_expectations:
       reuse: "A direct explanation without project inspection"
       reject_without_evidence:
@@ -444,7 +446,7 @@ cases:
 
   - id: structured-capability-active-build
     prompt: "@Click 이 승인된 변경을 구현하면서 생성 스크립트를 실행하고 마지막에 전체 테스트를 검증해줘."
-    default_mode: on
+    default_mode: guarded
     expected_activation: true
     expected_mode: build
     expected_mutation_gate: structured-after-approval
@@ -460,7 +462,7 @@ cases:
 
   - id: structured-capability-review
     prompt: "Review this repository for a concrete concurrency bug, including a narrow custom read if needed. Do not modify anything."
-    default_mode: on
+    default_mode: guarded
     expected_activation: true
     expected_mode: review
     expected_mutation_gate: read-only-review
@@ -606,16 +608,16 @@ cases:
       reject_without_evidence:
         - "A model-specific workflow matrix, semantic retry judge, new scheduler, or user approval step"
 
-  - id: manual-session-mutation-lock
-    prompt: "@Click Manual 모드에서 계약을 승인했어. pass하기 전에 다음 turn에서 코드를 먼저 바꾸지 못하게 해줘."
-    default_mode: manual
+  - id: guarded-session-mutation-lock
+    prompt: "@Click Guarded 모드에서 계약을 승인했어. pass하기 전에 다음 turn에서 코드를 먼저 바꾸지 못하게 해줘."
+    default_mode: guarded
     expected_activation: true
     expected_mode: build
     expected_mutation_gate: session-active-before-pass
     directive_semantics:
-      - "Blocks apply_patch and write-capable Bash in a later turn while the Manual session contract is staged"
-      - "Keeps an approved but incomplete Manual contract locked until the same emitted contract_id is passed in the active turn"
-      - "Leaves ordinary Manual work fail-open when no Click contract is active"
+      - "Blocks apply_patch and write-capable Bash in a later turn while the Guarded session contract is staged"
+      - "Keeps an approved but incomplete Guarded contract locked until the same emitted contract_id is passed in the active turn"
+      - "Keeps Off work fail-open when no Click contract is active"
       - "Preserves per-turn bypass and one-shot implementation after pass"
     minimality_expectations:
       reuse: "The existing session contract completion predicate"

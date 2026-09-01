@@ -1,6 +1,6 @@
 # Execution Contract Presentation
 
-Use this format whenever an active Click contract is staged, shown, approved, implemented, or handed off, whether activation came from Always ON or an explicit Manual invocation. Keep every field proportional to the work.
+Use this internal format only for Guarded mode. Evidence mode has no approval contract. Keep every field proportional to the work.
 
 ## Canonical contract object
 
@@ -56,9 +56,16 @@ The contract fixes the result, boundary, must-hold conditions, material behavior
 
 Do not split the build approach into phases, steps, tasks, or another mirrored plan. The contract exists to approve the result and its boundary, not to make the user review several versions of the same implementation description.
 
-## Easy-language translation
+## Human approval surface
 
-Keep `plain_language` inside the canonical digest-bound object, but do not print the same explanation twice. Show the developer fields from `outcome` through `verification`, then render the exact stored `plain_language` value once as the easy-language view in the user's language. Together the two views expose every approved field exactly once. Explain the result, safeguards, unchanged behavior, broad implementation route, verification cost, and whether an exceptional intermediate gate exists without adding or hiding material meaning.
+Keep `plain_language` inside the canonical digest-bound object, but do not show raw JSON by default. Render one faithful four-section view in the user's language:
+
+1. **Goal** — the concrete result and visible behavior;
+2. **Changes** — the in-scope boundary and broad implementation route;
+3. **Unchanged** — out-of-scope behavior plus every must-hold promise;
+4. **Completion checks** — the qualitative scale and human-readable evidence conditions.
+
+Offer the canonical JSON only as optional **Technical contract** details. The human view is a projection of the exact staged object, not a second or weaker contract.
 
 ## Single approval
 
@@ -68,10 +75,10 @@ Run `click-gate stage '<Execution Contract JSON>'` once. The Hook validates and 
 CLICK_CONTRACT_ID=ctr_<32 lowercase hex characters>
 ```
 
-`contract_id` is not a contract field and does not replace the stored digest. Show the emitted id with the developer contract and its plain-language view, then end with one compact question equivalent to:
+`contract_id` is not a contract field and does not replace the stored digest. Show the emitted id with the four human sections, then end with one compact question equivalent to:
 
 > Do you approve contract `ctr_...` and its verification scale? If approved, I will implement it in one shot and run the completion checks once.
 
-Stop without mutation. The original request is not approval of an unseen contract. Staging records `staged_turn_id`; the Hook rejects pass and a replacement stage in that same `UserPromptSubmit` turn. A revised proposal staged after another user response receives a new id, invalidating the old handle.
+Stop without mutation. The original request is not approval of an unseen contract. Staging records `staged_turn_id`; the Hook rejects pass and a replacement stage in that same `UserPromptSubmit` turn. A materially revised proposal receives a new id. An in-scope detail or narrowing follow-up is digest-recorded on the existing contract and does not require reapproval.
 
 Only after a later user turn explicitly approves the shown proposal, run `click-gate pass ctr_<32hex>`. Pass only the exact emitted id—never resend or reconstruct the contract JSON. The Hook matches the id to the staged digest, records `approved_turn_id`, and preserves the derived verification state. An approved but incomplete contract reuses the same id when implementation resumes in a later turn. Turn separation proves that another user response occurred; the Skill still must interpret that response faithfully because the Hook does not semantically classify approval words.

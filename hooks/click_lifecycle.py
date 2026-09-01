@@ -53,7 +53,10 @@ CLICK_AUTHORIZATION_PATTERNS = (
 CONTRACT_ID_PATTERN = re.compile(r"^ctr_[0-9a-f]{32}$")
 CONTRACT_STATE_SCHEMA_VERSION = 2
 EVIDENCE_RESULT_FIELDS = {"version", "evidence_id"}
-DEFAULT_MODES = {"on", "manual"}
+PREFERENCE_SCHEMA_VERSION = 2
+PUBLIC_DEFAULT_MODES = {"evidence", "guarded", "off"}
+LEGACY_DEFAULT_MODE_ALIASES = {"on": "guarded", "manual": "off"}
+DEFAULT_MODES = PUBLIC_DEFAULT_MODES | set(LEGACY_DEFAULT_MODE_ALIASES)
 EPHEMERAL_STATE_TTL_SECONDS = 7 * 24 * 60 * 60
 COMPLETED_CONTRACT_TTL_SECONDS = 30 * 24 * 60 * 60
 
@@ -98,20 +101,62 @@ def _read_mode(event: dict[str, Any]) -> str:
 def _write_default_mode(mode: str) -> None:
     if mode not in DEFAULT_MODES:
         raise ValueError(f"unsupported Click default mode: {mode}")
+    normalized = LEGACY_DEFAULT_MODE_ALIASES.get(mode, mode)
     click_state.write_json(
         click_state.preference_path(),
-        {"default_mode": mode, "updated_at": int(time.time())},
+        {
+            "schema_version": PREFERENCE_SCHEMA_VERSION,
+            "default_mode": normalized,
+            "migration_notice_pending": False,
+            "updated_at": int(time.time()),
+        },
     )
 
 
 def _read_default_mode() -> str:
+    path = click_state.preference_path()
     try:
-        value = json.loads(click_state.preference_path().read_text(encoding="utf-8"))
+        value = json.loads(path.read_text(encoding="utf-8"))
     except (FileNotFoundError, json.JSONDecodeError, OSError):
-        return "unset"
-    if isinstance(value, dict) and value.get("default_mode") in DEFAULT_MODES:
-        return str(value["default_mode"])
-    return "unset"
+        return "evidence"
+    if not isinstance(value, dict):
+        return "evidence"
+    stored = value.get("default_mode")
+    if (
+        value.get("schema_version") == PREFERENCE_SCHEMA_VERSION
+        and stored in PUBLIC_DEFAULT_MODES
+    ):
+        return str(stored)
+    if stored in DEFAULT_MODES:
+        # Every pre-v2 preference migrates once, including prior Always ON and
+        # Manual choices. An already staged or approved contract is stored in a
+        # separate session state and remains locked until completion or cancel.
+        click_state.write_json(
+            path,
+            {
+                "schema_version": PREFERENCE_SCHEMA_VERSION,
+                "default_mode": "evidence",
+                "migrated_from": str(stored),
+                "migration_notice_pending": True,
+                "updated_at": int(time.time()),
+            },
+        )
+    return "evidence"
+
+
+def _consume_migration_notice() -> str:
+    path = click_state.preference_path()
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return ""
+    if not isinstance(value, dict) or value.get("migration_notice_pending") is not True:
+        return ""
+    migrated_from = str(value.get("migrated_from", ""))
+    value["migration_notice_pending"] = False
+    value["updated_at"] = int(time.time())
+    click_state.write_json(path, value)
+    return migrated_from
 
 
 def _evidence_sources(state: dict[str, Any]) -> dict[str, Any] | None:
@@ -135,6 +180,11 @@ def _write_contract_state(
             "contract_id": contract_id,
             "staged_turn_id": str(event.get("turn_id", "")),
             "approved_turn_id": "",
+            "runtime_mode": "guarded",
+            "intent_digest": digest,
+            "intent_turn_id": str(event.get("turn_id", "")),
+            "follow_up_turns": [],
+            "history_complete": True,
             "capability_ledger": click_claims.fresh_state(),
             "verification": click_verification.fresh_state(contract),
             "evidence_state": click_evidence.fresh_state(contract),
@@ -146,6 +196,99 @@ def _write_contract_state(
         },
     )
     return contract_id
+
+
+def _prompt_digest(value: Any) -> str:
+    text = value if isinstance(value, str) else ""
+    return hashlib.sha256(text.encode()).hexdigest()
+
+
+def _append_follow_up(
+    event: dict[str, Any], state: dict[str, Any]
+) -> bool:
+    prompt = _read_user_prompt_state(event)
+    turn_id = str(prompt.get("turn_id", ""))
+    digest = str(prompt.get("prompt_digest", ""))
+    if (
+        not turn_id
+        or not re.fullmatch(r"[0-9a-f]{64}", digest)
+        or turn_id in {
+            str(state.get("intent_turn_id", "")),
+            str(state.get("staged_turn_id", "")),
+            str(state.get("approved_turn_id", "")),
+        }
+    ):
+        return False
+    entries = state.get("follow_up_turns")
+    if not isinstance(entries, list):
+        entries = []
+    if any(isinstance(item, dict) and item.get("turn_id") == turn_id for item in entries):
+        return False
+    entries.append({"turn_id": turn_id, "digest": digest})
+    state["follow_up_turns"] = entries
+    return True
+
+
+def _fresh_evidence_state(
+    event: dict[str, Any], *, history_complete: bool = True
+) -> dict[str, Any]:
+    prompt = _read_user_prompt_state(event)
+    turn_id = str(prompt.get("turn_id", "")) or str(event.get("turn_id", ""))
+    digest = str(prompt.get("prompt_digest", ""))
+    if not re.fullmatch(r"[0-9a-f]{64}", digest):
+        digest = _prompt_digest(event.get("prompt", ""))
+    virtual_contract = {
+        "verification": {"scale": "focused", "evidence": []}
+    }
+    return {
+        "state_schema_version": CONTRACT_STATE_SCHEMA_VERSION,
+        "status": "evidence",
+        "runtime_mode": "evidence",
+        "evidence_session_id": f"evs_{secrets.token_hex(16)}",
+        # Existing receipt, claim, and cache primitives bind this digest. It is
+        # an intent digest in Evidence mode, never an approved contract digest.
+        "contract_digest": digest,
+        "contract_id": "",
+        "staged_turn_id": "",
+        "approved_turn_id": "",
+        "intent_digest": digest,
+        "intent_turn_id": turn_id,
+        "follow_up_turns": [],
+        "history_complete": history_complete,
+        "capability_ledger": click_claims.fresh_state(),
+        "verification": click_verification.fresh_state(virtual_contract),
+        "evidence_state": click_evidence.fresh_state(virtual_contract),
+        "external_evidence": click_evidence.fresh_external_state(),
+        "observations": click_observation.fresh_state(),
+        "mutation": click_mutation.fresh_state(),
+        "service": click_service.fresh_state(),
+        "updated_at": int(time.time()),
+    }
+
+
+def _evidence_state_is_usable(state: dict[str, Any]) -> bool:
+    return bool(
+        state.get("status") == "evidence"
+        and state.get("runtime_mode") == "evidence"
+        and state.get("state_schema_version") == CONTRACT_STATE_SCHEMA_VERSION
+        and re.fullmatch(r"[0-9a-f]{64}", str(state.get("intent_digest", "")))
+        and isinstance(state.get("verification"), dict)
+        and _evidence_sources(state) is not None
+    )
+
+
+def _ensure_evidence_state(event: dict[str, Any]) -> tuple[dict[str, Any], bool]:
+    state = _read_contract_state(event)
+    if state.get("status") in {"staged", "approved"}:
+        return state, False
+    recovered = state.get("status") == "evidence" and not _evidence_state_is_usable(state)
+    if not _evidence_state_is_usable(state) or _contract_is_completed(state):
+        state = _fresh_evidence_state(event, history_complete=not recovered)
+        _save_contract_state(event, state)
+        return state, recovered
+    if _append_follow_up(event, state):
+        _save_contract_state(event, state)
+    return state, False
 
 
 def _contract_id_from_state(state: dict[str, Any]) -> str:
@@ -210,6 +353,7 @@ def _record_user_prompt(event: dict[str, Any]) -> str:
         {
             "turn_id": turn_id,
             "authorization": authorization,
+            "prompt_digest": _prompt_digest(event.get("prompt", "")),
             "updated_at": int(time.time()),
         },
     )
@@ -262,7 +406,7 @@ def _active_prompt_turn_error(event: dict[str, Any]) -> str:
 
 
 def _contract_is_completed(state: dict[str, Any]) -> bool:
-    if state.get("status") != "approved":
+    if state.get("status") not in {"approved", "evidence"}:
         return False
     verification = state.get("verification")
     if not isinstance(verification, dict):
@@ -380,6 +524,9 @@ def _control_request(command: str) -> tuple[str | None, str, str]:
     if len(tokens) == 2 and tokens[1] in {"arm", "bypass", "cancel", "review"}:
         return tokens[1], "", ""
     if len(tokens) == 3 and tokens[1] == "default" and tokens[2] in {
+        "evidence",
+        "guarded",
+        "off",
         "on",
         "manual",
         "status",
@@ -418,7 +565,8 @@ def _control_request(command: str) -> tuple[str | None, str, str]:
         f"`{CONTROL_COMMAND} receipt verify <path>`, "
         f"`{CONTROL_COMMAND} review`, `{CONTROL_COMMAND} bypass`, "
         f"`{CONTROL_COMMAND} cancel`, "
-        f"`{CONTROL_COMMAND} default on|manual|status`, or "
+        f"`{CONTROL_COMMAND} default evidence|guarded|off|status` "
+        f"(legacy aliases: on|manual), or "
         f"`{CONTROL_COMMAND} mode adaptive|strict`."
     )
 
@@ -427,9 +575,20 @@ def prompt_context(event: dict[str, Any]) -> str:
     _prune_state()
     authorization = _record_user_prompt(event)
     default_mode = _read_default_mode()
-    if default_mode == "on":
+    migrated_from = _consume_migration_notice()
+    contract_state = _read_contract_state(event)
+    active_guarded = _session_contract_is_active(contract_state)
+    recovered_evidence = False
+    if default_mode == "evidence" and not active_guarded:
+        contract_state, recovered_evidence = _ensure_evidence_state(event)
+    elif contract_state.get("status") == "approved" and _append_follow_up(
+        event, contract_state
+    ):
+        _save_contract_state(event, contract_state)
+
+    if default_mode == "guarded" or active_guarded:
         context = (
-            "Click Always ON is enabled. For software creation, modification, deletion, "
+            "Click Guarded mode is enabled. For software creation, modification, deletion, "
             "or repair, compile the compact Click contract, explain it plainly, ask once, "
             "and do not pass or mutate until a later UserPromptSubmit turn approves the "
             "staged contract_id. Questions, "
@@ -445,11 +604,16 @@ def prompt_context(event: dict[str, Any]) -> str:
             "Browser MCP work requires one referenced verification evidence source with "
             "kind `browser`; calls remain serial and receipt-bound while repeat and timing "
             "guidance is advisory. Use "
-            "`click-gate bypass` only when the user explicitly opts out for the current turn."
+            "`click-gate bypass` only when the user explicitly opts out for the current turn. "
+            "Present approval as four human sections: goal, changes, unchanged safeguards, "
+            "and completion checks. Keep raw JSON in optional technical details. An in-scope "
+            "detail or narrowing instruction continues under the same contract and is recorded "
+            "as a follow-up turn; require a new contract only when outcome, boundary, must-hold "
+            "behavior, or verification commitment changes."
         )
-    elif default_mode == "manual":
+    elif default_mode == "off":
         context = (
-            "Click Manual mode is enabled. Apply the Click contract workflow only when "
+            "Click Off mode is enabled. Apply the Guarded contract workflow only when "
             "the user explicitly selects @Click or $click. Ordinary software work and "
             "code review remain fail-open unless explicitly activated. Once activated, a "
             "staged or incomplete approved session contract remains mutation-locked across "
@@ -460,14 +624,27 @@ def prompt_context(event: dict[str, Any]) -> str:
         )
     else:
         context = (
-            "Click is installed but its default mode is unset. Do not interrupt questions, "
-            "explanations, code review, or simple read-only inspection. Before the first "
-            "software creation, modification, deletion, or repair, ask once whether to use "
-            "Always ON (recommended) or Manual. After the answer, run `click-gate default "
-            "on` or `click-gate default manual`. Always ON gates later mutations behind one "
-            "compact approval; Manual applies Click only when explicitly selected."
+            "Click Evidence mode is enabled. Do not ask for a Click approval contract for "
+            "ordinary software work. The host remains the execution authority; Click records "
+            "intent lineage, host-observed mutation revisions, exact verification receipts, "
+            "and cache lineage without claiming auto-approval. Prefer structured `click-gate "
+            "inspect`, `click-gate verify`, and managed service capabilities when their exact "
+            "receipts are useful, but never block ordinary host work merely because Evidence "
+            "state is missing or recoverable. Use @Click or $click to opt one task into "
+            "Guarded approval, or `click-gate default guarded` for a persistent choice."
         )
-    contract_state = _read_contract_state(event)
+    if migrated_from:
+        context += (
+            f" Click migrated the previous `{migrated_from}` preference to Evidence once. "
+            "No past approval was recreated. Any already active Guarded contract remains "
+            "locked until completion or explicit cancel."
+        )
+    if recovered_evidence:
+        context += (
+            " Click recovered malformed Evidence state by starting a new lower-assurance "
+            "session. Earlier unobserved history is excluded from its receipt; ordinary host "
+            "work remains available."
+        )
     contract_id = _contract_id_from_state(contract_state)
     contract_status = contract_state.get("status")
     contract_completed = _contract_is_completed(contract_state)
@@ -508,7 +685,7 @@ def prompt_context(event: dict[str, Any]) -> str:
         context += (
             f" The incomplete approved contract_id is `{contract_id}`. To resume its "
             f"implementation in this turn, use `click-gate pass {contract_id}` after "
-            "arming when Manual mode requires it; do not restage or resend the JSON."
+            "passing the same id; do not restage or resend the JSON."
         )
     if authorization:
         context += (
@@ -530,7 +707,7 @@ def stage_contract(event: dict[str, Any], raw: str) -> tuple[str, str]:
 
     current_status = _read_state(event).get("status")
     strict = _read_mode(event) == "strict"
-    always_on = _read_default_mode() == "on"
+    guarded = _read_default_mode() == "guarded"
     prompt_turn_error = _active_prompt_turn_error(event)
     if prompt_turn_error:
         return "", prompt_turn_error
@@ -538,7 +715,7 @@ def stage_contract(event: dict[str, Any], raw: str) -> tuple[str, str]:
     if (
         current_status not in {"armed", "staged", "passed"}
         and not strict
-        and not always_on
+        and not guarded
     ):
         return "", "Arm Click before staging the execution contract for approval."
     existing_contract = _read_contract_state(event)
@@ -598,12 +775,12 @@ def pass_contract(event: dict[str, Any], contract_id: str) -> tuple[str, str]:
 
     current_status = _read_state(event).get("status")
     strict = _read_mode(event) == "strict"
-    always_on = _read_default_mode() == "on"
+    guarded = _read_default_mode() == "guarded"
     prompt_turn_error = _active_prompt_turn_error(event)
     if prompt_turn_error:
         return "", prompt_turn_error
     current_turn_id = str(event.get("turn_id", ""))
-    if current_status != "armed" and not strict and not always_on:
+    if current_status != "armed" and not strict and not guarded:
         return (
             "",
             "Arm Click in the current turn before passing the approved "
@@ -680,8 +857,8 @@ def record_evidence_completion(
     if error:
         return "", error
     state = _read_contract_state(event)
-    if state.get("status") != "approved":
-        return "", "Approve the staged Click execution contract before recording evidence."
+    if state.get("status") not in {"approved", "evidence"}:
+        return "", "Start Guarded or Evidence runtime state before recording evidence."
     verification = state.get("verification")
     if not isinstance(verification, dict):
         return "", "Click verification state is unavailable; stage and approve again."
@@ -771,6 +948,7 @@ write_mode = _write_mode
 read_mode = _read_mode
 write_default_mode = _write_default_mode
 read_default_mode = _read_default_mode
+consume_migration_notice = _consume_migration_notice
 evidence_sources = _evidence_sources
 write_contract_state = _write_contract_state
 contract_id_from_state = _contract_id_from_state
@@ -786,6 +964,7 @@ active_prompt_turn_error = _active_prompt_turn_error
 contract_is_completed = _contract_is_completed
 approved_contract_is_active = _approved_contract_is_active
 session_contract_is_active = _session_contract_is_active
+ensure_evidence_state = _ensure_evidence_state
 prune_state = _prune_state
 validate_evidence_result = _validate_evidence_result
 control_request = _control_request

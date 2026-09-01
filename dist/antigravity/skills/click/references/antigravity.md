@@ -30,7 +30,13 @@ For example:
 <exact injected launcher> receipt verify './completion-receipt.json'
 ```
 
-The adapter keeps one execution epoch stable across Antigravity's repeated model
+Evidence is the default and does not use `stage` or `pass`; the host authorizes
+ordinary work and Click records revision-aware receipts. Use `default guarded`
+for persistent approval-bound work or `default off` to leave ordinary work
+unmanaged. Explicit `@Click` in Off mode starts the Guarded flow. A pre-existing
+active Guarded contract remains locked across preference migration.
+
+For Guarded mode, the adapter keeps one execution epoch stable across Antigravity's repeated model
 invocations. A fully idle `model_stop` closes that epoch. A new readable user
 entry in `transcript.jsonl` plus the following `PreInvocation` creates the later
 approval epoch. If no new user entry can be proved, the epoch does not advance
