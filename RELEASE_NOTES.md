@@ -1,6 +1,6 @@
 # Release notes
 
-## Unreleased v0.33 candidate — runtime domain boundaries
+## v0.33.0 — 2026-09-01
 
 - Managed local-service validation, admission, one-use start and supervisor
   claims, stop polling, process ownership, and exact state updates now live in

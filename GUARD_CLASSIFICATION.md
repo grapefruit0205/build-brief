@@ -1,6 +1,6 @@
 # Click Guard Classification
 
-Status: **Living inventory; v0.30 policy migrations complete; dependency-aware receipt reuse completed for v0.31.0; host coverage identity completed for v0.32.0**
+Status: **Living inventory; v0.30 policy migrations complete; dependency-aware receipt reuse completed for v0.31.0; host coverage identity completed for v0.32.0; runtime domain boundaries completed for v0.33.0**
 
 Baseline: **v0.24.6 plus the canonical product-boundary change at `73072a9`**
 
@@ -132,6 +132,10 @@ stronger guarantee than the runtime can observe.
 10. **Complete in v0.32.0:** Centralize the known Codex and Antigravity Hook
     surface, test pre/post symmetry, and bind that limited coverage identity to
     argv verification runners and receipts.
+11. **Complete in v0.33.0:** Extract service, Browser admission, mutation,
+    capability, inspection, observation, verification and approval lifecycle
+    domains while retaining `click_gate.py` as host routing and compatibility
+    facade with unchanged Core behavior.
 
 Each migration is a separate behavior-preserving-for-Core change. It must retain
 approval, side-effect authority, one-use runner, revision, receipt, cancellation,

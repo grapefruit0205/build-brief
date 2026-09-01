@@ -1,6 +1,6 @@
 {
   "name": "click",
-  "version": "0.32.0",
+  "version": "0.33.0",
   "description": "Choose Always ON or @Click Manual. Click binds a software change to one compact plain-language execution contract, waits for approval, then uses structured runners to return revision-bound evidence for the authorized execution.",
   "author": {
     "name": "Junseok Pak",
