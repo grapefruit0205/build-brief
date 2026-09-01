@@ -14,10 +14,14 @@ import sys
 from typing import Any
 
 if __package__:
-    from . import click_gate, click_host_coverage
-else:
-    import click_gate
-    import click_host_coverage
+    from . import click_import_bootstrap
+else:  # Executed directly from the bundled hooks directory.
+    import click_import_bootstrap
+
+
+(click_gate, click_host_coverage) = click_import_bootstrap.load_siblings(
+    __package__, "click_gate", "click_host_coverage"
+)
 
 
 DIRECT_EXEC_TOOL_NAMES = click_host_coverage.CODEX_DIRECT_EXEC_TOOL_NAMES

@@ -533,6 +533,7 @@ class RepositoryPolicyTests(unittest.TestCase):
                 "click_runtime_state.py",
                 "click_host_coverage.py",
                 "click_host_router.py",
+                "click_import_bootstrap.py",
                 "click_inspection.py",
                 "click_lifecycle.py",
                 "click_gate.py",

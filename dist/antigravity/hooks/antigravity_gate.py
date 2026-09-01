@@ -19,23 +19,32 @@ import time
 from typing import Any
 
 if __package__:
-    from . import (
-        click_capability,
-        click_gate,
-        click_host_coverage,
-        click_inspection,
-        click_runner_transport,
-        click_state,
-    )
-    from .platform_protocol import AntigravityOutputAdapter, CodexOutputAdapter
+    from . import click_import_bootstrap
 else:  # Executed directly from the bundled hooks directory.
-    import click_capability
-    import click_gate
-    import click_host_coverage
-    import click_inspection
-    import click_runner_transport
-    import click_state
-    from platform_protocol import AntigravityOutputAdapter, CodexOutputAdapter
+    import click_import_bootstrap
+
+
+(
+    click_capability,
+    click_gate,
+    click_host_coverage,
+    click_inspection,
+    click_runner_transport,
+    click_state,
+    platform_protocol,
+) = click_import_bootstrap.load_siblings(
+    __package__,
+    "click_capability",
+    "click_gate",
+    "click_host_coverage",
+    "click_inspection",
+    "click_runner_transport",
+    "click_state",
+    "platform_protocol",
+)
+
+AntigravityOutputAdapter = platform_protocol.AntigravityOutputAdapter
+CodexOutputAdapter = platform_protocol.CodexOutputAdapter
 
 
 ANTIGRAVITY_TOOL_MAP = click_host_coverage.ANTIGRAVITY_TOOL_MAP
