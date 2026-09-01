@@ -1,0 +1,739 @@
+#!/usr/bin/env python3
+"""Approval, contract, prompt, and completion lifecycle for Click.
+
+This is the top runtime domain beneath host routing. It may coordinate the
+lower contract, evidence, observation, mutation, service, verification, and
+state domains, but it never imports a host adapter or ``click_gate``.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import re
+import secrets
+import shlex
+import time
+from typing import Any
+
+if __package__:
+    from . import (
+        click_browser,
+        click_capability,
+        click_contract,
+        click_evidence,
+        click_mutation,
+        click_observation,
+        click_service,
+        click_state,
+        click_verification,
+    )
+else:  # Executed directly from the bundled hooks directory.
+    import click_browser
+    import click_capability
+    import click_contract
+    import click_evidence
+    import click_mutation
+    import click_observation
+    import click_service
+    import click_state
+    import click_verification
+
+
+CONTROL_COMMAND = "click-gate"
+CLICK_AUTHORIZATION_PATTERNS = (
+    re.compile(r"(?i:@click)[ \t]+(?P<action>(?i:bypass|cancel))"),
+    re.compile(
+        r"\[(?i:@click)\]\(plugin://click@click\)[ \t]+"
+        r"(?P<action>(?i:bypass|cancel))"
+    ),
+)
+CONTRACT_ID_PATTERN = re.compile(r"^ctr_[0-9a-f]{32}$")
+CONTRACT_STATE_SCHEMA_VERSION = 2
+EVIDENCE_RESULT_FIELDS = {"version", "evidence_id"}
+DEFAULT_MODES = {"on", "manual"}
+EPHEMERAL_STATE_TTL_SECONDS = 7 * 24 * 60 * 60
+COMPLETED_CONTRACT_TTL_SECONDS = 30 * 24 * 60 * 60
+
+
+def _write_state(
+    event: dict[str, Any], status: str, contract_digest: str = ""
+) -> None:
+    payload = {
+        "status": status,
+        "contract_digest": contract_digest,
+        "updated_at": int(time.time()),
+    }
+    click_state.write_json(click_state.state_path(event), payload)
+
+
+def _read_state(event: dict[str, Any]) -> dict[str, Any]:
+    path = click_state.state_path(event)
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return {"status": "idle"}
+    return value if isinstance(value, dict) else {"status": "idle"}
+
+
+def _write_mode(event: dict[str, Any], mode: str) -> None:
+    click_state.write_json(
+        click_state.mode_path(event),
+        {"mode": mode, "updated_at": int(time.time())},
+    )
+
+
+def _read_mode(event: dict[str, Any]) -> str:
+    try:
+        value = json.loads(click_state.mode_path(event).read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return "adaptive"
+    if isinstance(value, dict) and value.get("mode") in {"adaptive", "strict"}:
+        return str(value["mode"])
+    return "adaptive"
+
+
+def _write_default_mode(mode: str) -> None:
+    if mode not in DEFAULT_MODES:
+        raise ValueError(f"unsupported Click default mode: {mode}")
+    click_state.write_json(
+        click_state.preference_path(),
+        {"default_mode": mode, "updated_at": int(time.time())},
+    )
+
+
+def _read_default_mode() -> str:
+    try:
+        value = json.loads(click_state.preference_path().read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return "unset"
+    if isinstance(value, dict) and value.get("default_mode") in DEFAULT_MODES:
+        return str(value["default_mode"])
+    return "unset"
+
+
+def _evidence_sources(state: dict[str, Any]) -> dict[str, Any] | None:
+    """Return the v1 prose-free evidence ledger, or None for legacy state."""
+    return click_evidence.sources_from_state(
+        state,
+        expected_contract_schema_version=CONTRACT_STATE_SCHEMA_VERSION,
+    )
+
+
+def _write_contract_state(
+    event: dict[str, Any], status: str, digest: str, contract: dict[str, Any]
+) -> str:
+    contract_id = f"ctr_{secrets.token_hex(16)}"
+    click_state.write_json(
+        click_state.contract_path(event),
+        {
+            "state_schema_version": CONTRACT_STATE_SCHEMA_VERSION,
+            "status": status,
+            "contract_digest": digest,
+            "contract_id": contract_id,
+            "staged_turn_id": str(event.get("turn_id", "")),
+            "approved_turn_id": "",
+            "verification": click_verification.fresh_state(contract),
+            "evidence_state": click_evidence.fresh_state(contract),
+            "external_evidence": click_evidence.fresh_external_state(contract),
+            "observations": click_observation.fresh_state(),
+            "mutation": click_mutation.fresh_state(),
+            "service": click_service.fresh_state(),
+            "updated_at": int(time.time()),
+        },
+    )
+    return contract_id
+
+
+def _contract_id_from_state(state: dict[str, Any]) -> str:
+    digest = state.get("contract_digest")
+    if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
+        return ""
+    contract_id = state.get("contract_id")
+    if "contract_id" in state:
+        return (
+            contract_id
+            if isinstance(contract_id, str)
+            and CONTRACT_ID_PATTERN.fullmatch(contract_id)
+            else ""
+        )
+    # Compatibility only for a staged or incomplete state created before ids existed.
+    return f"ctr_{digest[:32]}"
+
+
+def _read_contract_state(event: dict[str, Any]) -> dict[str, Any]:
+    try:
+        value = json.loads(
+            click_state.contract_path(event).read_text(encoding="utf-8")
+        )
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return {"status": "none", "contract_digest": ""}
+    return value if isinstance(value, dict) else {
+        "status": "none",
+        "contract_digest": "",
+    }
+
+
+def _clear_contract_state(event: dict[str, Any]) -> None:
+    try:
+        click_state.contract_path(event).unlink()
+    except OSError:
+        pass
+
+
+def _save_contract_state(event: dict[str, Any], state: dict[str, Any]) -> None:
+    state["updated_at"] = int(time.time())
+    click_state.write_json(click_state.contract_path(event), state)
+
+
+def _prompt_authorization(prompt: Any) -> str:
+    if not isinstance(prompt, str) or not prompt:
+        return ""
+    first_line = prompt.splitlines()[0].strip() if prompt.splitlines() else ""
+    for pattern in CLICK_AUTHORIZATION_PATTERNS:
+        match = pattern.fullmatch(first_line)
+        if match:
+            return match.group("action").lower()
+    return ""
+
+
+def _record_user_prompt(event: dict[str, Any]) -> str:
+    turn_id = str(event.get("turn_id", ""))
+    if not turn_id:
+        raise ValueError("Click requires the Codex turn_id on UserPromptSubmit")
+    authorization = _prompt_authorization(event.get("prompt", ""))
+    click_state.write_json(
+        click_state.prompt_path(event),
+        {
+            "turn_id": turn_id,
+            "authorization": authorization,
+            "updated_at": int(time.time()),
+        },
+    )
+    return authorization
+
+
+def _read_user_prompt_state(event: dict[str, Any]) -> dict[str, Any]:
+    try:
+        value = json.loads(click_state.prompt_path(event).read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def _read_user_prompt_turn(event: dict[str, Any]) -> str:
+    return str(_read_user_prompt_state(event).get("turn_id", ""))
+
+
+def _consume_user_authorization(event: dict[str, Any], expected: str) -> str:
+    turn_id = str(event.get("turn_id", ""))
+    if not turn_id:
+        return f"Click {expected} requires a current Codex turn_id."
+    state = _read_user_prompt_state(event)
+    if str(state.get("turn_id", "")) != turn_id:
+        return (
+            f"Click {expected} requires a recognized first-line Click directive "
+            "or trusted `plugin://click@click` autocomplete mention in this user turn."
+        )
+    if state.get("authorization") != expected:
+        return (
+            f"Click {expected} requires a recognized first-line Click directive "
+            "or trusted `plugin://click@click` autocomplete mention in this user turn."
+        )
+    state["authorization"] = ""
+    state["updated_at"] = int(time.time())
+    click_state.write_json(click_state.prompt_path(event), state)
+    return ""
+
+
+def _active_prompt_turn_error(event: dict[str, Any]) -> str:
+    turn_id = str(event.get("turn_id", ""))
+    if not turn_id:
+        return "Click cannot prove approval because this tool call has no Codex turn_id."
+    if _read_user_prompt_turn(event) != turn_id:
+        return (
+            "Click can stage or approve a contract only in a turn that began with a "
+            "UserPromptSubmit event. Ask the user to respond, then retry in that turn."
+        )
+    return ""
+
+
+def _contract_is_completed(state: dict[str, Any]) -> bool:
+    if state.get("status") != "approved":
+        return False
+    verification = state.get("verification")
+    if not isinstance(verification, dict):
+        return False
+    revision = int(verification.get("mutation_revision", 0))
+    sources = _evidence_sources(state)
+    if sources is None:
+        # Compatibility for an active contract staged before the evidence ledger existed.
+        local_verification_passed = bool(
+            verification.get("status") == "passed"
+            and int(verification.get("verified_revision", -1)) == revision
+        )
+        if not local_verification_passed:
+            return False
+        external = state.get("external_evidence")
+        if isinstance(external, dict) and external.get("browser_required") is True:
+            if external.get("browser_status") != "passed":
+                return False
+    elif not sources or any(
+        not click_evidence.is_current(source, revision)
+        for source in sources.values()
+    ):
+        return False
+    service = state.get("service")
+    if isinstance(service, dict) and service.get("status") in {
+        "starting",
+        "launching",
+        "running",
+        "stopping",
+    }:
+        return False
+    return True
+
+
+def _approved_contract_is_active(state: dict[str, Any]) -> bool:
+    return bool(state.get("status") == "approved" and not _contract_is_completed(state))
+
+
+def _session_contract_is_active(state: dict[str, Any]) -> bool:
+    return bool(
+        state.get("status") == "staged" or _approved_contract_is_active(state)
+    )
+
+
+def _prune_state() -> None:
+    root = click_state.state_root()
+    if not root.exists():
+        return
+    now = time.time()
+    for candidate in root.glob("*.json"):
+        try:
+            age = now - candidate.stat().st_mtime
+        except (OSError, RuntimeError):
+            continue
+        ttl = EPHEMERAL_STATE_TTL_SECONDS
+        if candidate.name.startswith("session-contract-"):
+            try:
+                value = json.loads(candidate.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                value = {}
+            if isinstance(value, dict) and _session_contract_is_active(value):
+                continue
+            if isinstance(value, dict) and _contract_is_completed(value):
+                ttl = COMPLETED_CONTRACT_TTL_SECONDS
+        if age <= ttl:
+            continue
+        try:
+            candidate.unlink()
+        except OSError:
+            continue
+
+
+def _validate_evidence_result(raw: str) -> tuple[str, str]:
+    value, error = click_capability.decode_request(raw, "Evidence completion")
+    if error:
+        return "", error
+    assert value is not None
+    unknown = sorted(set(value) - EVIDENCE_RESULT_FIELDS)
+    if unknown:
+        rendered = ", ".join(f"`{field}`" for field in unknown)
+        return "", f"Evidence completion contains unsupported field(s): {rendered}."
+    evidence_id = value.get("evidence_id")
+    if not isinstance(evidence_id, str) or not click_contract.EVIDENCE_ID_PATTERN.fullmatch(
+        evidence_id
+    ):
+        return "", "Evidence completion `evidence_id` must name one declared source."
+    return evidence_id, ""
+
+
+def _control_request(command: str) -> tuple[str | None, str, str]:
+    try:
+        tokens = shlex.split(command, posix=True)
+    except ValueError as exc:
+        return None, "", f"Malformed {CONTROL_COMMAND} command: {exc}."
+    if not tokens or tokens[0] != CONTROL_COMMAND:
+        return None, "", ""
+    if len(tokens) == 2 and tokens[1] in {"arm", "bypass", "cancel", "review"}:
+        return tokens[1], "", ""
+    if len(tokens) == 3 and tokens[1] == "default" and tokens[2] in {
+        "on",
+        "manual",
+        "status",
+    }:
+        return "default", tokens[2], ""
+    if len(tokens) == 3 and tokens[1] == "mode" and tokens[2] in {
+        "adaptive",
+        "strict",
+    }:
+        return "mode", tokens[2], ""
+    if len(tokens) == 3 and tokens[1] in {
+        "evidence",
+        "inspect",
+        "mutate",
+        "service",
+        "stage",
+        "pass",
+        "verify",
+    }:
+        return tokens[1], tokens[2], ""
+    return (
+        "",
+        "",
+        f"Use `{CONTROL_COMMAND} arm`, `{CONTROL_COMMAND} stage '<Execution Contract "
+        f"JSON>'`, `{CONTROL_COMMAND} pass <contract_id>`, "
+        f"`{CONTROL_COMMAND} inspect '<Inspection JSON>'`, "
+        f"`{CONTROL_COMMAND} mutate '<Mutation JSON>'`, "
+        f"`{CONTROL_COMMAND} service '<Managed Service JSON>'`, "
+        f"`{CONTROL_COMMAND} evidence '<Evidence Completion JSON>'`, "
+        f"`{CONTROL_COMMAND} verify '<Verification Batch JSON>'`, "
+        f"`{CONTROL_COMMAND} review`, `{CONTROL_COMMAND} bypass`, "
+        f"`{CONTROL_COMMAND} cancel`, "
+        f"`{CONTROL_COMMAND} default on|manual|status`, or "
+        f"`{CONTROL_COMMAND} mode adaptive|strict`."
+    )
+
+
+def prompt_context(event: dict[str, Any]) -> str:
+    _prune_state()
+    authorization = _record_user_prompt(event)
+    default_mode = _read_default_mode()
+    if default_mode == "on":
+        context = (
+            "Click Always ON is enabled. For software creation, modification, deletion, "
+            "or repair, compile the compact Click contract, explain it plainly, ask once, "
+            "and do not pass or mutate until a later UserPromptSubmit turn approves the "
+            "staged contract_id. Questions, "
+            "explanations, and simple read-only inspection do not need a contract. For a "
+            "read-only code review, run `click-gate review` before shell reads/searches; "
+            "do not stage a build contract, reuse exact successful evidence, and prefer "
+            "focused follow-up after broad repository context. During review or approved "
+            "implementation use versioned `click-gate inspect`, `click-gate mutate`, and "
+            "`click-gate verify` version-2 evidence-bound argv requests when direct Bash "
+            "intent is ambiguous; use `click-gate evidence` to finalize an observed "
+            "Browser source or attest a collected hosted, manual, or existing source; use "
+            "`click-gate service` start/stop for a recognizable long-running local server. "
+            "Browser MCP work requires one referenced verification evidence source with "
+            "kind `browser`; calls remain serial and receipt-bound while repeat and timing "
+            "guidance is advisory. Use "
+            "`click-gate bypass` only when the user explicitly opts out for the current turn."
+        )
+    elif default_mode == "manual":
+        context = (
+            "Click Manual mode is enabled. Apply the Click contract workflow only when "
+            "the user explicitly selects @Click or $click. Ordinary software work and "
+            "code review remain fail-open unless explicitly activated. Once activated, a "
+            "staged or incomplete approved session contract remains mutation-locked across "
+            "later turns. Stage the contract JSON once, then pass only its emitted "
+            "contract_id after a later UserPromptSubmit turn. Approved Browser evidence is "
+            "metered and long-running "
+            "local servers use `click-gate service` start/stop."
+        )
+    else:
+        context = (
+            "Click is installed but its default mode is unset. Do not interrupt questions, "
+            "explanations, code review, or simple read-only inspection. Before the first "
+            "software creation, modification, deletion, or repair, ask once whether to use "
+            "Always ON (recommended) or Manual. After the answer, run `click-gate default "
+            "on` or `click-gate default manual`. Always ON gates later mutations behind one "
+            "compact approval; Manual applies Click only when explicitly selected."
+        )
+    contract_state = _read_contract_state(event)
+    contract_id = _contract_id_from_state(contract_state)
+    contract_status = contract_state.get("status")
+    contract_completed = _contract_is_completed(contract_state)
+    contract_sources = (
+        _evidence_sources(contract_state)
+        if contract_status in {"staged", "approved"}
+        else {}
+    )
+    if (
+        contract_status in {"staged", "approved"}
+        and not contract_completed
+        and contract_sources is None
+    ):
+        context += (
+            " The active contract predates evidence-id completion tracking and cannot "
+            "be resumed safely. Do not pass it. Ask the user to start a turn with "
+            "`@Click cancel`, run `click-gate cancel`, then stage and approve a fresh "
+            "contract."
+        )
+    elif (
+        contract_status in {"staged", "approved"}
+        and not contract_completed
+        and not contract_sources
+    ):
+        context += (
+            " The active contract evidence state is unavailable or malformed. Do not "
+            "pass it. Ask the user to start a turn with `@Click cancel`, run "
+            "`click-gate cancel`, then stage and approve a fresh contract."
+        )
+    elif contract_status == "staged" and contract_id:
+        context += (
+            f" The active staged contract_id is `{contract_id}`. Treat that id as the "
+            "approval target. If and only if this user response explicitly approves the "
+            f"shown proposal, pass it with `click-gate pass {contract_id}`; never resend "
+            "the contract JSON."
+        )
+    elif _approved_contract_is_active(contract_state) and contract_id:
+        context += (
+            f" The incomplete approved contract_id is `{contract_id}`. To resume its "
+            f"implementation in this turn, use `click-gate pass {contract_id}` after "
+            "arming when Manual mode requires it; do not restage or resend the JSON."
+        )
+    if authorization:
+        context += (
+            f" The user's exact first-line `@Click {authorization}` directive authorizes "
+            f"one `click-gate {authorization}` in this turn only. Do not reuse that "
+            "authorization in another tool call or later turn."
+        )
+    return context
+
+
+def stage_contract(event: dict[str, Any], raw: str) -> tuple[str, str]:
+    contract, validation_error = click_contract.validate_contract(raw)
+    if validation_error:
+        return "", validation_error
+    assert contract is not None
+    canonical = json.dumps(contract, sort_keys=True, separators=(",", ":"))
+    digest = hashlib.sha256(canonical.encode()).hexdigest()
+    _prune_state()
+
+    current_status = _read_state(event).get("status")
+    strict = _read_mode(event) == "strict"
+    always_on = _read_default_mode() == "on"
+    prompt_turn_error = _active_prompt_turn_error(event)
+    if prompt_turn_error:
+        return "", prompt_turn_error
+    current_turn_id = str(event.get("turn_id", ""))
+    if (
+        current_status not in {"armed", "staged", "passed"}
+        and not strict
+        and not always_on
+    ):
+        return "", "Arm Click before staging the execution contract for approval."
+    existing_contract = _read_contract_state(event)
+    if (
+        existing_contract.get("status") == "staged"
+        and existing_contract.get("contract_digest") == digest
+    ):
+        existing_id = _contract_id_from_state(existing_contract)
+        return (
+            "",
+            "The identical Click execution contract is already staged. "
+            f"Its contract_id is `{existing_id}`; pass that id after the "
+            "user's approval instead of staging it again.",
+        )
+    if (
+        existing_contract.get("status") == "staged"
+        and existing_contract.get("staged_turn_id") == current_turn_id
+    ):
+        return (
+            "",
+            "Click already staged a contract in this user turn. Show that "
+            "exact proposal and wait; a revised contract may be staged only "
+            "after the user's next response.",
+        )
+    if (
+        existing_contract.get("status") == "approved"
+        and not _contract_is_completed(existing_contract)
+    ):
+        return (
+            "",
+            "Click is already executing one approved contract. Do not restage, "
+            "replan, or replace it mid-run. Finish every declared source for "
+            "its current revision before staging the next contract. If the "
+            "approved outcome or authority is no longer sufficient, stop and "
+            "report the blocker.",
+        )
+    contract_id = _write_contract_state(event, "staged", digest, contract)
+    _write_state(event, "staged", digest)
+    return f"echo CLICK_CONTRACT_ID={contract_id}", ""
+
+
+def pass_contract(event: dict[str, Any], contract_id: str) -> tuple[str, str]:
+    if not CONTRACT_ID_PATTERN.fullmatch(contract_id):
+        if contract_id.lstrip().startswith("{"):
+            return (
+                "",
+                "Click pass accepts the staged `contract_id`, not the Execution "
+                "Contract JSON. Use `click-gate pass ctr_<32 hex characters>` "
+                "after the later approval response.",
+            )
+        return (
+            "",
+            "Click `contract_id` must use `ctr_` followed by exactly 32 "
+            "lowercase hexadecimal characters.",
+        )
+    _prune_state()
+
+    current_status = _read_state(event).get("status")
+    strict = _read_mode(event) == "strict"
+    always_on = _read_default_mode() == "on"
+    prompt_turn_error = _active_prompt_turn_error(event)
+    if prompt_turn_error:
+        return "", prompt_turn_error
+    current_turn_id = str(event.get("turn_id", ""))
+    if current_status != "armed" and not strict and not always_on:
+        return (
+            "",
+            "Arm Click in the current turn before passing the approved "
+            "execution contract.",
+        )
+    staged = _read_contract_state(event)
+    if staged.get("status") not in {"staged", "approved"}:
+        return "", "No staged Click execution contract is available for approval."
+    if staged.get("status") == "staged":
+        staged_turn_id = str(staged.get("staged_turn_id", ""))
+        if not staged_turn_id or staged_turn_id == current_turn_id:
+            return (
+                "",
+                "Click requires one separate user response after the contract is "
+                "staged. Show the proposal now and pass it only from the next "
+                "UserPromptSubmit turn.",
+            )
+    elif _contract_is_completed(staged):
+        return (
+            "",
+            "This Click contract already completed its current-revision evidence. Stage a "
+            "fresh contract and obtain a new user response before another mutation.",
+        )
+    staged_sources = _evidence_sources(staged)
+    if staged_sources is None:
+        return (
+            "",
+            "This staged Click contract predates evidence-id completion "
+            "tracking. Cancel it, stage the proposal again, and obtain fresh "
+            "approval instead of passing an unrecoverable contract.",
+        )
+    if not staged_sources:
+        return (
+            "",
+            "The staged Click evidence state is unavailable or malformed. "
+            "Cancel it, stage the proposal again, and obtain fresh approval.",
+        )
+    staged_digest = staged.get("contract_digest")
+    if not isinstance(staged_digest, str) or not re.fullmatch(
+        r"[0-9a-f]{64}", staged_digest
+    ):
+        return (
+            "",
+            "The staged Click contract digest is unavailable or invalid. Cancel "
+            "it explicitly, then stage and show the contract again.",
+        )
+    expected_id = _contract_id_from_state(staged)
+    if not expected_id:
+        return (
+            "",
+            "The staged Click contract has no recoverable contract_id. Cancel "
+            "it explicitly, then stage and show the contract again.",
+        )
+    if contract_id != expected_id:
+        return (
+            "",
+            "The contract_id differs from the proposal staged for user approval. "
+            "Pass the exact id emitted by stage, or replace the proposal before "
+            "approval and show both contract views again.",
+        )
+    if staged.get("status") == "staged":
+        staged["approved_turn_id"] = current_turn_id
+    staged["status"] = "approved"
+    staged["contract_id"] = expected_id
+    _save_contract_state(event, staged)
+    _write_state(event, "passed", staged_digest)
+    return "echo Click mutation gate passed", ""
+
+
+def record_evidence_completion(
+    event: dict[str, Any], raw: str
+) -> tuple[str, str]:
+    evidence_id, error = _validate_evidence_result(raw)
+    if error:
+        return "", error
+    state = _read_contract_state(event)
+    if state.get("status") != "approved":
+        return "", "Approve the staged Click execution contract before recording evidence."
+    verification = state.get("verification")
+    if not isinstance(verification, dict):
+        return "", "Click verification state is unavailable; stage and approve again."
+    if verification.get("status") == "running":
+        return "", "Wait for the final argv verification batch before recording evidence."
+    mutation = state.get("mutation")
+    if click_mutation.is_running(mutation):
+        return "", "Wait for the structured Click mutation before recording evidence."
+
+    sources = _evidence_sources(state)
+    if sources is None:
+        return (
+            "",
+            "This active contract predates evidence-id completion tracking. Cancel it, "
+            "stage the proposal again, and obtain fresh approval.",
+        )
+    if not sources:
+        return "", "Click evidence state is unavailable or malformed; cancel and restage."
+    source_key = click_evidence.evidence_key(evidence_id)
+    source = sources.get(source_key)
+    if not isinstance(source, dict):
+        return "", f"Evidence completion references unknown id `{evidence_id}`."
+    kind = str(source.get("kind", ""))
+    if kind == "argv":
+        return (
+            "",
+            f"Evidence `{evidence_id}` has kind `argv`; execute it through "
+            "`click-gate verify` instead of attesting it.",
+        )
+
+    revision = int(verification.get("mutation_revision", 0))
+    if click_evidence.is_current(source, revision):
+        return (
+            "",
+            f"Evidence `{evidence_id}` already completed for the current revision; "
+            "reuse it instead of recording it twice.",
+        )
+    if kind == "browser":
+        browser_error = click_browser.finalize_evidence(
+            state,
+            evidence_id=evidence_id,
+            source_key=source_key,
+            source=source,
+            revision=revision,
+        )
+        if browser_error:
+            return "", browser_error
+    elif kind not in {"hosted", "manual", "existing"}:
+        return "", f"Evidence `{evidence_id}` has unsupported completion kind `{kind}`."
+
+    source["status"] = "passed"
+    source["verified_revision"] = revision
+    source["attempts"] = int(source.get("attempts", 0)) + 1
+    source["last_exit_code"] = 0
+    _save_contract_state(event, state)
+    return f"echo Click evidence {evidence_id} completed for revision {revision}", ""
+
+
+write_state = _write_state
+read_state = _read_state
+write_mode = _write_mode
+read_mode = _read_mode
+write_default_mode = _write_default_mode
+read_default_mode = _read_default_mode
+evidence_sources = _evidence_sources
+write_contract_state = _write_contract_state
+contract_id_from_state = _contract_id_from_state
+read_contract_state = _read_contract_state
+clear_contract_state = _clear_contract_state
+save_contract_state = _save_contract_state
+prompt_authorization = _prompt_authorization
+record_user_prompt = _record_user_prompt
+read_user_prompt_state = _read_user_prompt_state
+read_user_prompt_turn = _read_user_prompt_turn
+consume_user_authorization = _consume_user_authorization
+active_prompt_turn_error = _active_prompt_turn_error
+contract_is_completed = _contract_is_completed
+approved_contract_is_active = _approved_contract_is_active
+session_contract_is_active = _session_contract_is_active
+prune_state = _prune_state
+validate_evidence_result = _validate_evidence_result
+control_request = _control_request

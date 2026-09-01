@@ -13,11 +13,11 @@ not claim that every hard gate has already been moved to its target layer.
 
 | Guard or invariant | Current owner | Why it remains Core |
 | --- | --- | --- |
-| Canonical contract validation, digest and ID binding, later-turn approval, session and working-directory identity | `hooks/click_contract.py`; approval lifecycle in `hooks/click_gate.py` | Prevents mutation under an unapproved or substituted intent |
+| Canonical contract validation, digest and ID binding, later-turn approval, session and working-directory identity | `hooks/click_contract.py`; approval lifecycle in `hooks/click_lifecycle.py` | Prevents mutation under an unapproved or substituted intent |
 | Mutation and external side-effect authorization | `hooks/click_mutation.py`; managed-service prepare/claim/record paths in `hooks/click_service.py` | Controls observable effects rather than model strategy |
 | Exact one-use runner token, action, request, root and state binding | mutation claims in `hooks/click_mutation.py`; managed-service claims in `hooks/click_service.py`; observation claims in `hooks/click_observation.py`; verification claims in `hooks/click_verification.py` | Prevents replay, request substitution and cross-state execution |
 | Canonical state paths, locks, atomic writes and authorized state-root recovery | `hooks/click_state.py` | Preserves approval state across failure without weakening identity checks |
-| Cancellation, expiry, consumed-runner and tampering revocation | `hooks/click_state.py`; lifecycle branches in `hooks/click_gate.py` | Prevents stale authority from becoming executable again |
+| Cancellation, expiry, consumed-runner and tampering revocation | `hooks/click_state.py`; lifecycle transitions in `hooks/click_lifecycle.py`; host routing in `hooks/click_gate.py` | Prevents stale authority from becoming executable again |
 | Evidence registry identity, current-revision state and receipt matching | `hooks/click_evidence.py`; verification claim/result paths in `hooks/click_verification.py` | Prevents evidence from a different request or revision from completing work |
 | Browser source admission, serial-call interlock, stable host-call/result mapping, current revision and finalization replay | `hooks/click_browser.py`; host routing in `hooks/click_gate.py` | Prevents an unassigned, parallel, mismatched, stale or replayed Browser result from completing evidence without judging the model's interaction strategy |
 | Protected Git-tree, environment and executable fingerprints for argv verification; verification-time mutation detection | receipt helpers and runners in `hooks/click_verification.py` | Preserves the identity of the code and environment actually checked by Click's argv runner |
@@ -32,7 +32,7 @@ not claim that every hard gate has already been moved to its target layer.
 | --- | --- | --- |
 | Always ON, Manual, review and bypass availability | mode state and `skills/click/references/modes.md` | Choosing the mode is policy; exact one-use enforcement after selection is Core |
 | An explicit numeric verification budget | Not currently implemented | A numeric ceiling becomes policy only when the user deliberately opts into that exact restriction; Click's built-in profile suggestions are not a substitute for user choice |
-| Acceptance of hosted, manual or existing attestations | evidence-completion handling in `hooks/click_gate.py` | Acceptance must be explicit and must not be described as independent proof |
+| Acceptance of hosted, manual or existing attestations | evidence-completion handling in `hooks/click_lifecycle.py` | Acceptance must be explicit and must not be described as independent proof |
 
 ## HEURISTIC
 

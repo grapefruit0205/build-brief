@@ -23,6 +23,7 @@ HOOK_FILES = (
     "click_evidence.py",
     "click_host_coverage.py",
     "click_inspection.py",
+    "click_lifecycle.py",
     "click_mutation.py",
     "click_observation.py",
     "click_process.py",

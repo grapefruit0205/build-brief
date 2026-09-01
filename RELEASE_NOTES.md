@@ -44,6 +44,12 @@
 - `click_gate.py` retains verification routing and compatibility wrappers. Its
   wrappers inject current snapshot, executable-digest, and argv-execution patch
   points so existing callers and the deterministic suite retain exact behavior.
+- Approval state, persistent mode state, prompt-turn authorization, contract
+  IDs and completion, stage/pass transitions, prompt context, cleanup, and
+  non-argv evidence completion now live in `click_lifecycle.py`.
+- `click_gate.py` is the host event router and compatibility facade. Lifecycle
+  code coordinates lower runtime domains without importing a host adapter or
+  the gate, preserving exact state schemas, error text, and approval behavior.
 
 ## v0.32.0 — 2026-09-01
 
