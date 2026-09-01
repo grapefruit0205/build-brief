@@ -38,6 +38,7 @@ if __package__:
         click_mutation,
         click_observation,
         click_process,
+        click_receipt_runtime,
         click_service,
         click_verification,
         click_verification_policy,
@@ -70,6 +71,7 @@ else:  # Executed directly from the bundled hooks directory.
     import click_mutation
     import click_observation
     import click_process
+    import click_receipt_runtime
     import click_service
     import click_verification
     import click_verification_policy
@@ -405,12 +407,15 @@ _approved_contract_is_active = click_lifecycle.approved_contract_is_active
 _session_contract_is_active = click_lifecycle.session_contract_is_active
 
 
-def _mark_contract_mutated(event: dict[str, Any]) -> str:
+def _mark_contract_mutated(
+    event: dict[str, Any], *, host_tool_use: bool = True
+) -> str:
     return click_mutation.mark_contract_mutated(
         event,
         expected_contract_schema_version=CONTRACT_STATE_SCHEMA_VERSION,
         observation_is_running=_observation_is_running,
         workspace_snapshot=_git_workspace_snapshot,
+        host_tool_use=host_tool_use,
     )
 
 
@@ -629,7 +634,9 @@ def _prepare_service(event: dict[str, Any], raw: str) -> tuple[str, str]:
         raw,
         validate_argv=_validate_argv,
         protocol_version=CAPABILITY_PROTOCOL_VERSION,
-        mark_contract_mutated=_mark_contract_mutated,
+        mark_contract_mutated=lambda value: _mark_contract_mutated(
+            value, host_tool_use=False
+        ),
         runner_script=Path(__file__).resolve(),
         render_command=_runner_shell_command,
     )
@@ -645,6 +652,29 @@ def _verification_runner_command(
         runner_token,
         runner_script=Path(__file__).resolve(),
         render_command=_runner_shell_command,
+    )
+
+
+def _receipt_export_runner_command(event: dict[str, Any]) -> str:
+    host_id = click_host_coverage.host_id_from_event(event)
+    return _runner_shell_command(
+        [
+            *_stateful_runner_prefix("run-receipt-export"),
+            str(_contract_path(event).resolve()),
+            str(Path(str(event.get("cwd", ""))).resolve()),
+            host_id,
+        ]
+    )
+
+
+def _receipt_verify_runner_command(path: str) -> str:
+    return _runner_shell_command(
+        [
+            sys.executable,
+            str(Path(__file__).resolve()),
+            "run-receipt-verify",
+            path,
+        ]
     )
 
 
@@ -781,6 +811,19 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
                 if value == "adaptive":
                     _write_state(event, "idle")
                 _allow_rewritten(f"echo Click mode set to {value}")
+                return
+            if action == "receipt-export":
+                state = _read_contract_state(event)
+                if not _contract_is_completed(state):
+                    _deny(
+                        "Click receipt export requires every declared evidence source "
+                        "to be current and every managed service to be stopped."
+                    )
+                    return
+                _allow_rewritten(_receipt_export_runner_command(event))
+                return
+            if action == "receipt-verify":
+                _allow_rewritten(_receipt_verify_runner_command(value))
                 return
             if action == "evidence":
                 current_status = _read_state(event).get("status")
@@ -1224,9 +1267,71 @@ def _run_verification(arguments: list[str]) -> int:
     )
 
 
+def _run_receipt_export(arguments: list[str]) -> int:
+    if len(arguments) != 3:
+        sys.stderr.write(
+            "usage: click_gate.py run-receipt-export <state> <cwd> <host>\n"
+        )
+        return 2
+    state_path = Path(arguments[0])
+    workspace = Path(arguments[1])
+    host_id = arguments[2]
+    if not _managed_contract_path(state_path) or not workspace.is_absolute():
+        sys.stderr.write("Click receipt export received an invalid state or workspace.\n")
+        return 2
+    try:
+        workspace = workspace.resolve(strict=True)
+    except (OSError, RuntimeError):
+        sys.stderr.write("Click receipt export workspace could not be resolved.\n")
+        return 2
+    with _state_lock():
+        try:
+            state = json.loads(state_path.read_text(encoding="utf-8"))
+        except (FileNotFoundError, json.JSONDecodeError, OSError):
+            sys.stderr.write("Click receipt export could not read contract state.\n")
+            return 2
+        if not isinstance(state, dict) or not _contract_is_completed(state):
+            sys.stderr.write("Click receipt export requires a completed contract.\n")
+            return 2
+        envelope, error = click_receipt_runtime.build_envelope(
+            state,
+            workspace_snapshot=_git_workspace_snapshot(workspace),
+            host_coverage=click_host_coverage.receipt(host_id),
+            expected_contract_schema_version=CONTRACT_STATE_SCHEMA_VERSION,
+        )
+    if error:
+        sys.stderr.write(f"{error}\n")
+        return 2
+    assert envelope is not None
+    sys.stdout.write(click_receipt_runtime.render_envelope(envelope) + "\n")
+    return 0
+
+
+def _run_receipt_verify(arguments: list[str]) -> int:
+    if len(arguments) != 1:
+        sys.stderr.write("usage: click_gate.py run-receipt-verify <path>\n")
+        return 2
+    report, error = click_receipt_runtime.verify_file(Path(arguments[0]))
+    if error:
+        sys.stderr.write(f"{error}\n")
+        return 2
+    assert report is not None
+    sys.stdout.write(
+        json.dumps(
+            report,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        )
+        + "\n"
+    )
+    return 0
+
+
 STATEFUL_RUNNER_ACTIONS = {
     "run-observation",
     "run-mutation",
+    "run-receipt-export",
     "run-service-start",
     "run-service-stop",
     "run-service-supervisor",
@@ -1295,6 +1400,10 @@ def main() -> int:
         return _run_service_supervisor(arguments[1:])
     if arguments and arguments[0] == "run-verification":
         return _run_verification(arguments[1:])
+    if arguments and arguments[0] == "run-receipt-export":
+        return _run_receipt_export(arguments[1:])
+    if arguments and arguments[0] == "run-receipt-verify":
+        return _run_receipt_verify(arguments[1:])
     if len(arguments) != 1 or arguments[0] not in {
         "post-tool",
         "pre-tool",

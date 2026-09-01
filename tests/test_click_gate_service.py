@@ -426,6 +426,11 @@ class ClickGateServiceTests(ClickGateTestCase):
                 "_service_snapshot",
                 side_effect=[None, {"status": "stopped"}],
             ) as snapshot,
+            mock.patch.object(
+                CLICK_GATE.click_service,
+                "record_service_claim_result",
+                return_value=True,
+            ),
             mock.patch.object(CLICK_GATE.time, "sleep"),
         ):
             result = CLICK_GATE._run_service_stop(

@@ -27,6 +27,7 @@ from typing import Any
 if __package__:
     from . import (
         click_capability,
+        click_claims,
         click_dependency_cache,
         click_evidence,
         click_host_coverage,
@@ -40,6 +41,7 @@ if __package__:
     )
 else:  # Executed directly from the bundled hooks directory.
     import click_capability
+    import click_claims
     import click_dependency_cache
     import click_evidence
     import click_host_coverage
@@ -612,6 +614,10 @@ def _verification_receipt_matches(
         and source.get("verified_root") == git_root
         and source.get("verified_tree_digest") == tree_digest
         and source.get("verified_environment_digest") == environment_digest
+        and isinstance(source.get("verified_executable_digest"), str)
+        and re.fullmatch(
+            r"[0-9a-f]{64}", str(source.get("verified_executable_digest", ""))
+        )
         and click_host_coverage.receipt_is_current(host_coverage)
         and source.get("verified_host_coverage") == host_coverage
     )
@@ -703,6 +709,10 @@ def _dependency_receipt_matches(
         and source.get("verified_check_digest") == group_digest
         and source.get("verified_root") == git_root
         and source.get("verified_environment_digest") == environment_digest
+        and isinstance(source.get("verified_executable_digest"), str)
+        and re.fullmatch(
+            r"[0-9a-f]{64}", str(source.get("verified_executable_digest", ""))
+        )
         and click_host_coverage.receipt_is_current(host_coverage)
         and source.get("verified_host_coverage") == host_coverage
         and source.get("verified_dependency_provider") == receipt["provider"]
@@ -1774,6 +1784,7 @@ def _record_verification_result(
         return False
 
     revision = int(verification.get("mutation_revision", 0))
+    claimed_revision = revision
     verification["runner_token_digest"] = ""
     verification["runner_claimed_at"] = 0
     verification["started_at"] = 0
@@ -1944,6 +1955,9 @@ def _record_verification_result(
                     source["verified_root"] = os.path.normcase(workspace_root)
                     source["verified_tree_digest"] = workspace_digest
                     source["verified_environment_digest"] = environment_digest
+                    source["verified_executable_digest"] = str(
+                        prepared_executable_digests.get(source_key, "")
+                    )
                     source["verified_host_coverage"] = dict(
                         running_host_coverage
                     )
@@ -1958,6 +1972,7 @@ def _record_verification_result(
                     source["verified_root"] = ""
                     source["verified_tree_digest"] = ""
                     source["verified_environment_digest"] = ""
+                    source["verified_executable_digest"] = ""
                     source["verified_host_coverage"] = {}
                     source["verified_at"] = 0
                     _clear_dependency_receipt(source)
@@ -1984,6 +1999,15 @@ def _record_verification_result(
             verification["status"] = "failed" if exit_code != 0 else "ready"
             verification["verified_revision"] = -1
             verification["failed_revision"] = revision if exit_code != 0 else -1
+    if not click_claims.complete_claim(
+        state,
+        capability="verification",
+        claim_mode="one-use-runner",
+        request_digest=batch_digest,
+        mutation_revision=claimed_revision,
+        exit_code=exit_code,
+    ):
+        return False
     state["verification"] = verification
     state["updated_at"] = int(time.time())
     _write_json(path, state)
@@ -2144,7 +2168,19 @@ def _claim_verification_run(
             # established claim API's executable-pinned argv behavior.
             check["_click_approved_argv"] = approved_argv
             check["argv"] = execution_argv
-    verification["runner_claimed_at"] = int(time.time()) or 1
+    claimed_at = int(time.time()) or 1
+    _, claim_error = click_claims.record_claim(
+        state,
+        capability="verification",
+        claim_mode="one-use-runner",
+        request_digest=batch_digest,
+        token_digest=token_digest,
+        mutation_revision=int(verification.get("mutation_revision", 0)),
+        claimed_at=claimed_at,
+    )
+    if claim_error:
+        return None, claim_error
+    verification["runner_claimed_at"] = claimed_at
     verification["running_environment_digests"] = prepared_environment_digests
     state["verification"] = verification
     state["updated_at"] = int(time.time())

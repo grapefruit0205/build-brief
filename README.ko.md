@@ -242,18 +242,40 @@ Antigravity IDE에서는 `dist/antigravity`를 워크스페이스의 `.agents/pl
 
 Antigravity의 Hook contract는 Codex와 다릅니다. native file/search와 별도 MCP·Skill 도구는 계속 사용할 수 있지만 cross-tool 중복 제거와 Browser evidence는 아직 지원하지 않습니다. 정확한 제한은 [`platforms/antigravity/README.md`](platforms/antigravity/README.md)를 확인하세요.
 
-## 기존 설치 업데이트 — v0.33.0
+## 기존 설치 업데이트 — v0.34.0
 
-현재 릴리스는 **v0.33.0**입니다.
+현재 릴리스는 **v0.34.0**입니다.
 
 ```bash
 codex plugin marketplace upgrade click
 codex plugin add click@click
 ```
 
-ChatGPT 데스크톱 앱을 다시 시작하고 갱신된 Hook을 검토해 신뢰하세요. v0.33.0은 service, Browser admission, mutation, capability, inspection, observation, verification, approval lifecycle 책임을 명시적인 단방향 runtime domain으로 분리합니다. `click_gate.py`는 host event router와 호환 facade 역할만 맡으면서 기존 계약 schema, 정확한 오류, one-use authorization, replay 방지, revision-bound receipt 동작을 그대로 유지합니다. Codex와 번들 Antigravity 배포본은 같은 추출 모듈을 사용합니다. 이전 설치의 대기 중 runner를 재사용하지 말고 업그레이드 후 새 계약을 시작하세요.
+ChatGPT 데스크톱 앱을 다시 시작하고 갱신된 Hook을 검토해 신뢰하세요. v0.34.0은 contract와 승인 turn, one-use·host-tool-use claim, 최종 workspace revision, evidence lineage를 결속하는 approval-bound capability ledger와 canonical 완료 영수증을 추가합니다. `click-gate receipt export`는 `unsigned-integrity-only` envelope를 출력하고 `click-gate receipt verify`는 canonical digest를 오프라인에서 검사합니다. legacy runner state는 계속 복구할 수 있지만 receipt 추적 이전의 불완전한 이력을 완전한 영수증으로 export하지는 않습니다. Codex와 번들 Antigravity 배포본은 같은 runtime module을 사용합니다. 이전 설치의 대기 중 runner를 재사용하지 말고 업그레이드 후 새 계약을 시작하세요.
 
 자세한 릴리스 이력은 [RELEASE_NOTES.md](RELEASE_NOTES.md)에 있습니다.
+
+## 완료 영수증
+
+선언된 모든 evidence가 현재 revision에서 완료되고 관리 서비스가 멈추면
+`click-gate receipt export`가 canonical 완료 envelope를 stdout으로 출력합니다.
+여기에는 contract ID·digest, stage·승인 turn, Click runner claim과
+host-tool-use 경계, 최종 mutation revision과 보호 workspace digest, 그리고
+evidence별 결과·환경·실행 파일·host coverage·dependency 재사용 lineage가
+결속됩니다. 원문 argv, runner token, contract 본문, 실제 workspace 경로는
+포함하지 않습니다.
+
+출력된 JSON을 실행 명령 밖에서 파일로 저장한 뒤 네트워크나 활성 Click
+state 없이 검증할 수 있습니다.
+
+```text
+click-gate receipt verify ./completion-receipt.json
+```
+
+현재 envelope의 assurance는 `unsigned-integrity-only`입니다. 본문이
+malformed이거나 canonical digest가 맞지 않으면 거부하지만, 공격자가 본문과
+digest를 함께 다시 쓰는 경우는 판별하지 못합니다. 발행자 진위와 부인 방지는
+후속 공개키 서명 계층이 필요합니다.
 
 ## 근거와 솔직한 한계
 

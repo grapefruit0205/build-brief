@@ -33,6 +33,7 @@ class ClickLifecycleTests(unittest.TestCase):
         for required in (
             "click_browser",
             "click_capability",
+            "click_claims",
             "click_contract",
             "click_evidence",
             "click_mutation",
@@ -87,6 +88,16 @@ class ClickLifecycleTests(unittest.TestCase):
         self.assertEqual(
             click_lifecycle.control_request("click-gate arm"),
             ("arm", "", ""),
+        )
+        self.assertEqual(
+            click_lifecycle.control_request("click-gate receipt export"),
+            ("receipt-export", "", ""),
+        )
+        self.assertEqual(
+            click_lifecycle.control_request(
+                "click-gate receipt verify 'completion receipt.json'"
+            ),
+            ("receipt-verify", "completion receipt.json", ""),
         )
         self.assertEqual(
             click_lifecycle.control_request("click-gate stage 'unterminated"),

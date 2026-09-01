@@ -35,6 +35,7 @@ class ClickVerificationTests(unittest.TestCase):
                 )
         for required in (
             "click_capability",
+            "click_claims",
             "click_dependency_cache",
             "click_evidence",
             "click_host_coverage",

@@ -26,6 +26,8 @@ For example:
 <exact injected launcher> stage '<contract JSON>'
 <exact injected launcher> pass ctr_<32hex>
 <exact injected launcher> verify '<request JSON>'
+<exact injected launcher> receipt export
+<exact injected launcher> receipt verify './completion-receipt.json'
 ```
 
 The adapter keeps one execution epoch stable across Antigravity's repeated model

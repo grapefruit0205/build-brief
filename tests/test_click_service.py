@@ -37,6 +37,7 @@ class ClickServiceTests(unittest.TestCase):
                     any(forbidden in name.split(".") for name in imported),
                     imported,
                 )
+        self.assertIn("click_claims", imported)
         self.assertIn("click_process", imported)
         self.assertIn("click_state", imported)
 
