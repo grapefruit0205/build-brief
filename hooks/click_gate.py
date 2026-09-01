@@ -39,6 +39,7 @@ else:  # Executed directly from the bundled hooks directory.
     click_mutation,
     click_observation,
     click_process,
+    click_prompt,
     click_receipt_runtime,
     click_runner_transport,
     click_service,
@@ -60,6 +61,7 @@ else:  # Executed directly from the bundled hooks directory.
     "click_mutation",
     "click_observation",
     "click_process",
+    "click_prompt",
     "click_receipt_runtime",
     "click_runner_transport",
     "click_service",
@@ -239,7 +241,7 @@ _new_untracked_is_suspicious = click_verification.new_untracked_is_suspicious
 
 
 CONTROL_COMMAND = click_lifecycle.CONTROL_COMMAND
-CLICK_AUTHORIZATION_PATTERNS = click_lifecycle.CLICK_AUTHORIZATION_PATTERNS
+CLICK_AUTHORIZATION_PATTERNS = click_prompt.CLICK_AUTHORIZATION_PATTERNS
 STRING_FIELDS = click_contract.STRING_FIELDS
 OBJECT_FIELDS = click_contract.OBJECT_FIELDS
 CONTRACT_FIELDS = click_contract.CONTRACT_FIELDS
@@ -393,12 +395,12 @@ _contract_id_from_state = click_lifecycle.contract_id_from_state
 _read_contract_state = click_lifecycle.read_contract_state
 _clear_contract_state = click_lifecycle.clear_contract_state
 _save_contract_state = click_lifecycle.save_contract_state
-_prompt_authorization = click_lifecycle.prompt_authorization
-_record_user_prompt = click_lifecycle.record_user_prompt
-_read_user_prompt_state = click_lifecycle.read_user_prompt_state
-_read_user_prompt_turn = click_lifecycle.read_user_prompt_turn
-_consume_user_authorization = click_lifecycle.consume_user_authorization
-_active_prompt_turn_error = click_lifecycle.active_prompt_turn_error
+_prompt_authorization = click_prompt.prompt_authorization
+_record_user_prompt = click_prompt.record_user_prompt
+_read_user_prompt_state = click_prompt.read_user_prompt_state
+_read_user_prompt_turn = click_prompt.read_user_prompt_turn
+_consume_user_authorization = click_prompt.consume_user_authorization
+_active_prompt_turn_error = click_prompt.active_prompt_turn_error
 _contract_is_completed = click_lifecycle.contract_is_completed
 _approved_contract_is_active = click_lifecycle.approved_contract_is_active
 _session_contract_is_active = click_lifecycle.session_contract_is_active

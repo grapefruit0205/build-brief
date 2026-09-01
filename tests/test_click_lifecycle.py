@@ -4,7 +4,7 @@ import ast
 from pathlib import Path
 import unittest
 
-from hooks import click_gate, click_lifecycle, click_mode
+from hooks import click_gate, click_lifecycle, click_mode, click_prompt
 
 
 class ClickLifecycleTests(unittest.TestCase):
@@ -39,6 +39,7 @@ class ClickLifecycleTests(unittest.TestCase):
             "click_mode",
             "click_mutation",
             "click_observation",
+            "click_prompt",
             "click_runtime_state",
             "click_service",
             "click_state",
@@ -72,6 +73,37 @@ class ClickLifecycleTests(unittest.TestCase):
         self.assertIs(
             click_lifecycle.consume_migration_notice,
             click_mode.consume_migration_notice,
+        )
+
+    def test_lifecycle_delegates_prompt_state_to_the_leaf(self) -> None:
+        source = Path(click_lifecycle.__file__).read_text(encoding="utf-8")
+        for extracted in (
+            "def _prompt_digest(",
+            "def _append_follow_up(",
+            "def _prompt_authorization(",
+            "def _record_user_prompt(",
+            "def _read_user_prompt_state(",
+            "def _read_user_prompt_turn(",
+            "def _consume_user_authorization(",
+            "def _active_prompt_turn_error(",
+        ):
+            with self.subTest(extracted=extracted):
+                self.assertNotIn(extracted, source)
+
+        aliases = {
+            "prompt_authorization": click_prompt.prompt_authorization,
+            "record_user_prompt": click_prompt.record_user_prompt,
+            "read_user_prompt_state": click_prompt.read_user_prompt_state,
+            "read_user_prompt_turn": click_prompt.read_user_prompt_turn,
+            "consume_user_authorization": click_prompt.consume_user_authorization,
+            "active_prompt_turn_error": click_prompt.active_prompt_turn_error,
+        }
+        for name, expected in aliases.items():
+            with self.subTest(name=name):
+                self.assertIs(getattr(click_lifecycle, name), expected)
+        self.assertIs(
+            click_lifecycle.CLICK_AUTHORIZATION_PATTERNS,
+            click_prompt.CLICK_AUTHORIZATION_PATTERNS,
         )
 
     def test_gate_keeps_lifecycle_compatibility_aliases(self) -> None:
