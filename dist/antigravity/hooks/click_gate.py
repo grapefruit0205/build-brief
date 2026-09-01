@@ -21,75 +21,87 @@ import time
 from typing import Any
 
 if __package__:
-    from . import (
-        click_browser,
-        click_browser_advisory,
-        click_capability,
-        click_contract,
-        click_evidence,
-        click_host_coverage,
-        click_host_router,
-        click_inspection,
-        click_lifecycle,
-        click_mutation,
-        click_observation,
-        click_process,
-        click_receipt_runtime,
-        click_runner_transport,
-        click_service,
-        click_verification,
-        click_verification_policy,
-    )
-    from .click_state import (
-        STATE_LOCK_STALE_SECONDS,
-        STATE_LOCK_TIMEOUT_SECONDS,
-        contract_path as _contract_path,
-        identity_path as _identity_path,
-        managed_state_path as _managed_state_path,
-        mode_path as _mode_path,
-        preference_path as _preference_path,
-        prompt_path as _prompt_path,
-        review_path as _review_path,
-        state_lock as _state_lock,
-        state_path as _state_path,
-        state_root as _state_root,
-        write_json as _write_json,
-    )
-    from .platform_protocol import CodexOutputAdapter, HookOutputAdapter
+    from . import click_import_bootstrap
 else:  # Executed directly from the bundled hooks directory.
-    import click_browser
-    import click_browser_advisory
-    import click_capability
-    import click_contract
-    import click_evidence
-    import click_host_coverage
-    import click_host_router
-    import click_inspection
-    import click_lifecycle
-    import click_mutation
-    import click_observation
-    import click_process
-    import click_receipt_runtime
-    import click_runner_transport
-    import click_service
-    import click_verification
-    import click_verification_policy
-    from click_state import (
-        STATE_LOCK_STALE_SECONDS,
-        STATE_LOCK_TIMEOUT_SECONDS,
-        contract_path as _contract_path,
-        identity_path as _identity_path,
-        managed_state_path as _managed_state_path,
-        mode_path as _mode_path,
-        preference_path as _preference_path,
-        prompt_path as _prompt_path,
-        review_path as _review_path,
-        state_lock as _state_lock,
-        state_path as _state_path,
-        state_root as _state_root,
-        write_json as _write_json,
-    )
-    from platform_protocol import CodexOutputAdapter, HookOutputAdapter
+    import click_import_bootstrap
+
+
+(
+    click_browser,
+    click_browser_advisory,
+    click_capability,
+    click_contract,
+    click_evidence,
+    click_host_coverage,
+    click_host_router,
+    click_inspection,
+    click_lifecycle,
+    click_mutation,
+    click_observation,
+    click_process,
+    click_receipt_runtime,
+    click_runner_transport,
+    click_service,
+    click_state,
+    click_verification,
+    click_verification_policy,
+    platform_protocol,
+) = click_import_bootstrap.load_siblings(
+    __package__,
+    "click_browser",
+    "click_browser_advisory",
+    "click_capability",
+    "click_contract",
+    "click_evidence",
+    "click_host_coverage",
+    "click_host_router",
+    "click_inspection",
+    "click_lifecycle",
+    "click_mutation",
+    "click_observation",
+    "click_process",
+    "click_receipt_runtime",
+    "click_runner_transport",
+    "click_service",
+    "click_state",
+    "click_verification",
+    "click_verification_policy",
+    "platform_protocol",
+)
+
+(
+    STATE_LOCK_STALE_SECONDS,
+    STATE_LOCK_TIMEOUT_SECONDS,
+    _contract_path,
+    _identity_path,
+    _managed_state_path,
+    _mode_path,
+    _preference_path,
+    _prompt_path,
+    _review_path,
+    _state_lock,
+    _state_path,
+    _state_root,
+    _write_json,
+    CodexOutputAdapter,
+    HookOutputAdapter,
+) = (
+    click_state.STATE_LOCK_STALE_SECONDS,
+    click_state.STATE_LOCK_TIMEOUT_SECONDS,
+    click_state.contract_path,
+    click_state.identity_path,
+    click_state.managed_state_path,
+    click_state.mode_path,
+    click_state.preference_path,
+    click_state.prompt_path,
+    click_state.review_path,
+    click_state.state_lock,
+    click_state.state_path,
+    click_state.state_root,
+    click_state.write_json,
+    platform_protocol.CodexOutputAdapter,
+    platform_protocol.HookOutputAdapter,
+)
 
 
 # Compatibility alias for direct callers and the deterministic suite. Contract

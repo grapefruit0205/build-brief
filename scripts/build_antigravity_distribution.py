@@ -26,6 +26,7 @@ HOOK_FILES = (
     "click_receipt_runtime.py",
     "click_host_coverage.py",
     "click_host_router.py",
+    "click_import_bootstrap.py",
     "click_inspection.py",
     "click_lifecycle.py",
     "click_mutation.py",

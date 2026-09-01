@@ -12,10 +12,14 @@ import os
 from pathlib import Path
 
 if __package__:
-    from . import click_hook, click_runner_transport
+    from . import click_import_bootstrap
 else:  # Executed directly from the bundled hooks directory.
-    import click_hook
-    import click_runner_transport
+    import click_import_bootstrap
+
+
+(click_hook, click_runner_transport) = click_import_bootstrap.load_siblings(
+    __package__, "click_hook", "click_runner_transport"
+)
 
 
 def _powershell_single_quote(value: str) -> str:
