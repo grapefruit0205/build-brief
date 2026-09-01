@@ -1,4 +1,4 @@
-# Click — Contract-driven execution control for Codex coding agents
+# Click — Revision-aware evidence and approval-bound execution for Codex
 
 English | [한국어](README.ko.md) | [简体中文](README.zh-CN.md)
 
@@ -9,11 +9,11 @@ Community: [LINUX DO](https://linux.do/)
 
 > **Keep Codex inside the change you approved — and make “done” mean current evidence, not model confidence.**
 
-### Prompt-only coding workflows are over.
+### Work normally. Keep proof that still matches the code.
 
-> **Prompts can suggest behavior. Hooks can enforce the workflow.**
+> **Evidence by default. Approval-bound execution when the risk calls for it.**
 
-**Click is a Codex plugin that turns a software-change request into one compact contract, binds later user approval to that exact intent, controls observable mutation authority at the supported Hook boundary, and ties completion evidence to the current code revision.**
+**Click is a Codex plugin that records prompt lineage, mutation revisions, and reusable verification evidence while the host runs normally. For higher-risk work, Guarded mode binds execution to one human-readable approved contract.**
 
 Click uses a **persistent Hook state machine** to mediate supported actions on the **observable execution path**. Workflow optimization stays advisory: exploration and planning receive **non-blocking guidance** rather than becoming execution authority.
 
@@ -37,26 +37,18 @@ Prompts can ask the model not to do those things. Click moves the parts that req
 This design can **reduce unnecessary replanning, broad repository re-scans, and duplicate verification** by giving the agent a stable approved target and reusable current evidence. These are workflow benefits, not universal hard guarantees: Click intentionally keeps exploration and planning strategy advisory, and it does not claim project-wide improvements in tool calls, tokens, time, or success rate without independent measurements.
 
 ```text
-request
-   ↓
-compact contract
-   ↓
-later user turn approval
-   ↓
-implementation
-   ↓
-current-revision evidence
-   ↓
-done
+normal work: request → implementation → current-revision evidence → honest receipt
+
+higher risk: request → four-section contract → later approval → guarded execution → receipt
 ```
 
 > **The model decides how to implement the change. Click decides whether observable execution has the authority and evidence required to move forward.**
 
-**One contract. One approval. One implementation boundary. One evidence set.**
+**One default with no Click approval friction. One opt-in guard for work that needs it.**
 
 ## Core purpose
 
-> **Click binds AI execution to approved intent and returns verifiable evidence.**
+> **Click returns revision-aware evidence for normal host-authorized work, and can bind AI execution to approved intent when Guarded mode is selected.**
 
 Click's stable product boundary is an authorization-and-evidence runtime, not a model workflow optimizer. The canonical admission test and policy layers are in the [Click Product Constitution](PRODUCT_CONSTITUTION.md); the current guard inventory and migration status are in [Click Guard Classification](GUARD_CLASSIFICATION.md).
 
@@ -66,12 +58,58 @@ The core idea is simple:
 
 > **Do not keep asking the coding agent to remember the process. Put authority and evidence in the execution boundary.**
 
+### Enforce the boundary, not the reasoning
+
+> **Click constrains what execution may do—not how the model must think.**
+
+Click does not prescribe which files to read, the order in which to explore them,
+how to reason about the problem, the implementation to choose, or the concrete
+checks to run. Those remain model decisions inside the active intent or approved
+contract. Hard enforcement begins where observable actions matter: receipt
+integrity and, in Guarded mode, approval, mutation and external side effects,
+replay and tampering protection, and evidence integrity.
+
+This lets Click structure unattended work without turning model-specific search
+heuristics into hard gates.
+
+### Rerun proof when its inputs change—not merely when the revision changes
+
+A new Git revision does not automatically make every passing check useless.
+Click's **dependency-aware revision cache** records why a check was valid and can
+carry its exact passing evidence across revisions only while the resolved
+dependency files and content, exact check, environment, executable, known host
+coverage, and approved mutation snapshot still match.
+
+```text
+revision 12  auth code changed  → run auth tests → pass
+revision 13  README only changed → proof inputs unchanged → reuse the pass
+revision 14  auth code changed  → proof inputs changed → rerun the tests
+```
+
+If any required binding is missing, ambiguous, or different, Click fails closed
+and requires the check again. This can avoid rerunning a 300-test suite after an
+unrelated documentation edit without merely trusting the model's claim that the
+tests are still valid.
+
+## Three modes
+
+| Mode | User experience | Authority |
+| --- | --- | --- |
+| **Evidence** (default) | No Click contract or approval prompt; normal host execution plus a final evidence receipt | The host |
+| **Guarded** | One four-section approval, then uninterrupted in-scope execution | The approved contract |
+| **Off** | No ordinary Click governance; explicit `@Click` can start Guarded | The host |
+
+Existing stored `on` or `manual` preferences migrate once to Evidence. An already staged or incomplete Guarded contract remains locked until it completes or is explicitly cancelled.
+
+Evidence receipts say `approval_bound: false` and `execution_authority: host`; they never pretend that Click approved the work. Guarded receipts preserve contract digest, approval turn, one-use claims, replay/tamper protection, mutation revisions, environment bindings, and evidence lineage.
+
 ## What the Hook actually enforces
 
 During staging, implementation, review, and verification, Click can enforce these **observable workflow rules**:
 
-- **Proposal and approval are separate.** Staging emits an opaque `contract_id`; the same user turn cannot both stage and pass it.
-- **Mutation waits for approval.** An active contract remains locked until the exact staged ID is approved and passed.
+- **Guarded proposal and approval are separate.** Staging emits an opaque `contract_id`; the same user turn cannot both stage and pass it.
+- **Guarded mutation waits for approval.** An active contract remains locked until the exact staged ID is approved and passed.
+- **Evidence stays honest.** Approval-free sessions identify host authority and bind follow-up prompt digests, mutations, checks, environment, and cache lineage.
 - **Planning stays advisory.** Plan tools such as `update_plan` remain available and cannot approve, replace, or widen the active contract.
 - **Repository exploration stays advisory.** A distinct-digest broad inventory remains available with narrowing guidance even while another broad inventory is running or after one succeeds; only active runner and execution interlocks remain hard.
 - **Repeated observations stay available.** A fresh identical structured read/search receives reuse guidance and a new one-use runner; it is not confused with replay of a consumed runner token.
@@ -81,9 +119,11 @@ During staging, implementation, review, and verification, Click can enforce thes
 
 The Hook controls the **observable tool path**. It does not inspect hidden reasoning, prove semantic correctness by itself, or act as an operating-system sandbox.
 
-## The compact contract
+## The Guarded contract
 
-Click turns the request and relevant repository context into one small execution contract:
+Internally, Guarded mode keeps one canonical JSON object for schema validation and digest binding. Users approve four readable sections by default: **Goal**, **Changes**, **Unchanged**, and **Completion checks**. Raw JSON is optional Technical contract detail, not the primary approval UI.
+
+The internal fields are:
 
 | Field | What it fixes |
 | --- | --- |
@@ -96,9 +136,9 @@ Click turns the request and relevant repository context into one small execution
 
 The contract locks the **meaning, boundary, and completion commitment**. It does not freeze every file, dependency, library, or low-level implementation choice.
 
-If the agent discovers that an in-scope file, tool, or dependency is necessary, it can still use it. Reapproval is needed only when the approved outcome, boundary, must-hold behavior, or verification commitment materially changes.
+If the agent discovers that an in-scope file, tool, or dependency is necessary—or receives a narrowing or in-scope follow-up—it can continue and audit-bind the follow-up digest. Reapproval is needed only when the approved outcome, visible behavior, boundary, must-hold behavior, authority, or verification commitment materially changes.
 
-## How it works
+## How Guarded works
 
 ```mermaid
 flowchart TB
@@ -125,18 +165,24 @@ codex plugin add click@click
 
 Restart the ChatGPT desktop app, inspect and trust the included Click Hook, then start a new task.
 
-On first use, choose **Always ON** to apply Click to software changes by default, or **Manual** to activate it only when you mention `@Click`.
+New and existing installations use **Evidence** by default. Work normally; Click does not add its own approval prompt. Choose **Guarded** for persistent approval-bound execution, or **Off** to disable ordinary Click governance.
+
+```text
+click-gate default evidence
+click-gate default guarded
+click-gate default off
+```
 
 ```text
 @Click Add order cancellation.
 Prevent duplicate refunds and preserve the existing API.
 ```
 
-You can later say “Set Click to Always ON” or “Set Click to Manual.” A one-turn `@Click bypass` and `@Click cancel` are also available for explicit control.
+You can change modes later. A one-turn `@Click bypass` and `@Click cancel` remain available for explicit control; neither silently unlocks an active Guarded contract.
 
-## Example contract
+## Example technical contract (Guarded)
 
-For the cancellation request above, repository evidence might produce a contract like this:
+The user would normally see the four-section human view. If Technical contract details are opened, the canonical object may look like this:
 
 ```json
 {
@@ -176,17 +222,17 @@ The exact design is repository-dependent. The example shows the contract shape, 
 | Advise on repeated observations | A fresh identical structured read/search remains available through a new one-use runner; prior success or repeated failure adds guidance, while an active same-digest reservation remains blocked |
 | Advise without gating plans | `update_plan` remains available; its output cannot stage, approve, replace, or widen a contract |
 | Advise after broad inventory | Distinct broad requests remain available with narrowing guidance; an active exact-digest runner retains its separate state interlock |
-| Advise on ordinary argv retries | A fixed failure count does not block a fresh verification retry; verification that changed protected repository content still requires an approved mutation |
+| Advise on ordinary argv retries | A fixed failure count does not block a fresh verification retry; verification that changed protected repository content still requires a recorded mutation path |
 | Make command intent explicit | Ambiguous active shell work is replaced by structured `inspect`, `mutate`, `service`, or `verify` paths |
 | Keep verification strategy non-authoritative | The model chooses evidence and `argv`; Click binds exact check-group digests and observed results to receipts |
 | Bind known host coverage | Verification receipts include the current Codex or Antigravity known-surface digest, so reuse cannot silently cross hosts or Hook coverage revisions |
-| Reuse dependency-safe evidence | An approval-bound dependency declaration or committed repository mapping can carry an exact success across revisions only while its resolved files, check, environment, executable, and approved mutation snapshot still match |
+| Reuse dependency-safe evidence | Guarded may use approved dependencies or a committed mapping; Evidence may use only the committed mapping, and every resolved binding must still match |
 | Track completion by source | All declared sources must be current; no placeholder local check is invented when no `argv` source exists |
 | Advise on Browser workflow repetition | Fresh normalized Browser repeats, retries, and long timed interactions remain allowed with guidance; assigned-source, serial-call, tool-result, revision, and completion-replay checks remain hard |
 
 ## Advisory verification profiles
 
-Before approval, the Skill or model recommends the smallest sufficient verification profile from the current risk and repository evidence. The profile is a qualitative statement of intended depth and remains digest-bound so the approved contract is represented faithfully. During execution the model chooses the concrete `argv`; Click binds the exact check-group digest, revision, environment, executable fingerprint, known host coverage identity, and observed result to the receipt. The Hook does not infer verification sufficiency or turn a plugin-authored numeric spectrum into authority or advice.
+In Guarded mode, the Skill or model recommends the smallest sufficient profile before approval and the contract digest binds it. In Evidence mode there is no approval step; the runtime carries a focused marker while the model chooses concrete checks during execution. Click binds exact check-group digest, revision, environment, executable fingerprint, known host coverage identity, and result. It does not infer verification sufficiency or turn numeric estimates into authority.
 
 | Profile | Typical use |
 | --- | --- |
@@ -196,9 +242,9 @@ Before approval, the Skill or model recommends the smallest sufficient verificat
 
 Legacy class-unit fields remain readable for persisted-state and direct-caller compatibility, but they are not receipt evidence and produce no runtime guidance. A numeric verification budget should be enforced only when a user or repository explicitly owns that policy.
 
-Evidence may come from local `argv` checks or explicitly declared Browser, hosted, manual, or existing sources. An `argv` source completes only through the real success of its linked local runner. Non-argv completion is an explicit attestation; the Hook records the approved source identity and current revision but does not independently prove unmatched external or manual work.
+Guarded evidence may use declared local `argv`, Browser, hosted, manual, or existing sources. Evidence mode dynamically registers argv ids actually used. An argv source completes only through real runner success. Non-argv completion is an explicit attestation and never proves an unmatched external or manual action by itself.
 
-An `argv` evidence source may optionally declare deterministic repository-relative `dependencies`. The model proposes them before staging, so approval binds them into the contract digest; uncertain sources omit the field and rerun normally. `*` stays within one path segment, `**` crosses directories only as a complete segment, and a trailing slash selects a directory prefix. A committed `.click/evidence-dependencies.json` can supply exact argv-to-path mappings. Click records the resolved file list, supports repository-internal relative symlinks, invalidates only a changed relevant mapping rather than every unrelated manifest entry, and reruns after missing mutation receipts or out-of-bound workspace drift.
+In Guarded, an argv source may declare deterministic repository-relative `dependencies` before staging, so approval binds them. Evidence mode grants no authority to runtime dependency guesses and can reuse across revisions only through committed `.click/evidence-dependencies.json`. Click records resolved files, supports repository-internal relative symlinks, invalidates only the relevant changed mapping, and reruns after missing mutation receipts or workspace drift.
 
 ## Structured capabilities
 
@@ -230,28 +276,35 @@ Antigravity IDE users may also copy `dist/antigravity` into `.agents/plugins/cli
 
 Antigravity's Hook contract differs from Codex. Native file/search and unrelated MCP or Skill tools remain available, but cross-tool deduplication and Browser evidence are not currently supported. See [`platforms/antigravity/README.md`](platforms/antigravity/README.md) for the exact limits.
 
-## Update an existing installation — v0.34.0
+## Update an existing installation — v0.35.0
 
-The current release is **v0.34.0**.
+The current release is **v0.35.0**.
 
 ```bash
 codex plugin marketplace upgrade click
 codex plugin add click@click
 ```
 
-Restart the ChatGPT desktop app and review/trust the updated Hook. v0.34.0 adds an approval-bound capability ledger and canonical completion receipts that bind contract, approval turn, one-use and host-tool-use claims, final workspace revision, and evidence lineage. `click-gate receipt export` emits an `unsigned-integrity-only` envelope, and `click-gate receipt verify` checks its canonical digest offline. Legacy runner state remains recoverable, but incomplete pre-receipt history cannot be exported as a complete receipt. Codex and the bundled Antigravity distribution use the same runtime modules. Begin a fresh contract after upgrading instead of reusing a pending runner from an older installation.
+Restart the ChatGPT desktop app and review/trust the updated Hook. v0.35.0 makes Evidence the approval-free default, migrates stored `on` and `manual` preferences once, and keeps active Guarded contracts locked. Guarded approval now leads with four readable sections while technical JSON stays optional, and in-scope or narrowing follow-ups continue with digest-bound audit lineage instead of routine reapproval. Receipt v2 names host authority honestly in Evidence mode and can settle an omitted host `PostToolUse` only as `observed` after later current-revision verification. Codex and the bundled Antigravity distribution use the same runtime modules. Begin a fresh task after upgrading so the new mode and Hook code are loaded.
 
 Detailed release history is in [RELEASE_NOTES.md](RELEASE_NOTES.md).
 
 ## Completion receipts
 
-After every declared evidence source is current and managed services are
-stopped, `click-gate receipt export` prints one canonical completion envelope.
-It binds the contract ID and digest, staging and approval turns, Click runner
-claims and host-tool-use boundaries, the final mutation revision and protected
-workspace digest, and each evidence result with its environment, executable,
-host-coverage, and dependency-reuse lineage. Raw argv, runner tokens, contract
-prose, and the workspace path are excluded.
+After current evidence completes and managed services stop, `click-gate receipt
+export` prints one canonical v2 envelope. Guarded receipts bind contract ID,
+digest, staging and approval turns. Evidence receipts instead set `contract` to
+`null`, `approval_bound` to `false`, and `execution_authority` to `host`, while
+binding intent and follow-up prompt digests. Both bind claims, final mutation
+revision and protected workspace digest, plus per-source environment,
+executable, host-coverage, and dependency lineage. Raw argv, tokens, contract
+prose, prompts, and workspace paths are excluded.
+
+If a supported host omits a mutation's matching `PostToolUse`, Click does not
+invent a successful exit code. Receipt export may settle that admitted claim as
+`observed` only when a later one-use verification passed at the same or a newer
+revision and the final evidence and workspace snapshot still match. A claim
+without that later witness continues to block export.
 
 Save that JSON outside the running command, then check it without network or
 active Click state:
@@ -287,7 +340,7 @@ The repository's deterministic suite tests the observable Hook and contract beha
 
 ## Related approaches
 
-Click overlaps with spec-driven, autonomous-loop, and approval-gated tools, but deliberately stays narrow: **one compact contract, one approval, one implementation boundary, observable anti-loop guards, and one bounded evidence commitment.**
+Click overlaps with spec-driven, autonomous-loop, and approval-gated tools, but deliberately stays narrow: **approval-free revision evidence for everyday work, plus an optional approval-bound execution boundary for higher-risk changes.**
 
 See [COMMUNITY_POSTS.md](COMMUNITY_POSTS.md) for ready-to-edit launch copy.
 

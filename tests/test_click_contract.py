@@ -102,6 +102,20 @@ class ClickContractTests(unittest.TestCase):
         self.assertEqual(error, "")
         self.assertEqual(value, full)
 
+    def test_human_view_is_a_deterministic_four_section_projection(self) -> None:
+        view = click_contract.human_view(self.contract)
+
+        self.assertEqual(set(view), {"goal", "changes", "unchanged", "completion"})
+        self.assertEqual(view["goal"], self.contract["outcome"])
+        self.assertEqual(view["changes"], self.contract["boundary"]["in_scope"])
+        self.assertEqual(
+            view["unchanged"]["must_hold"], self.contract["must_hold"]
+        )
+        self.assertEqual(
+            view["completion"],
+            [self.contract["verification"]["done_when"][0]["condition"]],
+        )
+
     def test_argv_evidence_may_bind_deterministic_dependency_patterns(self) -> None:
         contract = copy.deepcopy(self.contract)
         contract["verification"]["evidence"][0]["dependencies"] = [

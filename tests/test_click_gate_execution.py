@@ -22,6 +22,7 @@ from click_gate_test_support import (
 
 class ClickGateExecutionTests(ClickGateTestCase):
     def test_structured_mutation_requires_approval_and_rejects_shell_wrapper(self) -> None:
+        self.set_default("guarded")
         denied = self.mutate_gate([sys.executable, "-c", "print('no')"])
         self.assertEqual(denied["hookSpecificOutput"]["permissionDecision"], "deny")
         self.approve_contract()

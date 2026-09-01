@@ -26,64 +26,27 @@ class RepositoryPolicyTests(core.RepositoryPolicyTests):
             (ROOT / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8")
         )
         self.assertEqual(manifest["name"], "click")
-        self.assertEqual(manifest["version"], "0.34.0")
+        self.assertEqual(manifest["version"], "0.35.0")
         self.assertEqual(manifest["license"], "MIT")
-        self.assertIn("always on", manifest["description"].lower())
-        self.assertIn("manual", manifest["description"].lower())
-        self.assertIn("plain-language", manifest["description"].lower())
-        self.assertIn("execution contract", manifest["description"].lower())
-        self.assertIn("compact", manifest["description"].lower())
-        self.assertIn("one shot", manifest["interface"]["longDescription"].lower())
-        self.assertIn("verification", manifest["interface"]["longDescription"].lower())
+        description = manifest["description"].lower()
+        long_description = manifest["interface"]["longDescription"].lower()
+        self.assertIn("evidence by default", description)
+        self.assertIn("guarded", description)
+        self.assertIn("approval-bound execution contract", description)
+        self.assertIn("approval_bound false", long_description)
+        self.assertIn("execution_authority host", long_description)
+        self.assertIn("committed dependency mapping", long_description)
         self.assertIn(
-            "cheapest sufficient primary evidence",
-            manifest["interface"]["longDescription"].lower(),
+            "goal, changes, unchanged, and completion checks", long_description
         )
-        self.assertIn("automatically", manifest["interface"]["longDescription"].lower())
-        self.assertIn(
-            "plan tools and distinct-digest broad inventories remain available with non-blocking advisory guidance",
-            manifest["interface"]["longDescription"].lower(),
-        )
-        self.assertIn(
-            "cannot alter contract authority",
-            manifest["interface"]["longDescription"].lower(),
-        )
-        self.assertIn(
-            "fresh repeated observations and ordinary argv retries",
-            manifest["interface"]["longDescription"].lower(),
-        )
-        self.assertIn(
-            "consumed-token replay",
-            manifest["interface"]["longDescription"].lower(),
-        )
-        self.assertIn(
-            "verification-time repository mutation",
-            manifest["interface"]["longDescription"].lower(),
-        )
-        self.assertIn(
-            "known-surface hook coverage digest",
-            manifest["interface"]["longDescription"].lower(),
-        )
-        self.assertIn(
-            "isolated child process groups",
-            manifest["interface"]["longDescription"].lower(),
-        )
-        self.assertIn(
-            "process-control executables",
-            manifest["interface"]["longDescription"].lower(),
-        )
-        self.assertIn("contract_id", manifest["interface"]["longDescription"])
-        self.assertIn(
-            "never the json again",
-            manifest["interface"]["longDescription"].lower(),
-        )
+        self.assertIn("active guarded contracts remain locked", long_description)
+        self.assertIn("replay", long_description)
+        self.assertIn("tampering", long_description)
+        self.assertIn("verification-time repository mutation", long_description)
         self.assertIn("anti-loop", manifest["keywords"])
-        self.assertIn("@Click", manifest["description"])
-        self.assertIn("structured", manifest["description"].lower())
-        self.assertIn("revision-bound evidence", manifest["description"].lower())
         self.assertEqual(
             manifest["interface"]["shortDescription"],
-            "Bind AI execution to approved intent and return verifiable evidence.",
+            "Revision-aware evidence by default; approval-bound execution when needed.",
         )
         self.assertLessEqual(len(manifest["interface"]["defaultPrompt"]), 3)
         for prompt in manifest["interface"]["defaultPrompt"]:
@@ -98,30 +61,30 @@ class RepositoryPolicyTests(core.RepositoryPolicyTests):
         self.assertEqual(marketplace["name"], "click")
         self.assertEqual(marketplace["plugins"][0]["name"], "click")
         self.assertEqual(
-            marketplace["plugins"][0]["source"]["ref"], "v0.34.0"
+            marketplace["plugins"][0]["source"]["ref"], "v0.35.0"
         )
 
-    def test_readmes_lead_with_hook_enforced_state_machine_positioning(self) -> None:
+    def test_readmes_lead_with_evidence_first_positioning(self) -> None:
         english, korean, chinese = _readmes().values()
         for marker in (
-            "Prompt-only coding workflows are over",
-            "Prompts can suggest behavior. Hooks can enforce the workflow",
-            "persistent Hook state machine",
-            "observable execution path",
+            "Evidence by default. Approval-bound execution when the risk calls for it",
+            "prompt lineage, mutation revisions, and reusable verification evidence",
+            "request → implementation → current-revision evidence → honest receipt",
+            "One default with no Click approval friction",
         ):
             self.assertIn(marker, english)
         for marker in (
-            "프롬프트만으로 코딩 워크플로우를 제어하던 시대는 끝났습니다",
-            "Hook은 워크플로우를 강제할 수 있습니다",
-            "Hook 상태 머신",
-            "관찰 가능한 실행 경로",
+            "기본은 Evidence. 위험한 작업에는 승인 결속 Guarded",
+            "prompt lineage, mutation revision, 재사용 가능한 검증 evidence",
+            "요청 → 구현 → 현재 revision evidence → 정직한 영수증",
+            "기본 모드에는 Click 재승인 마찰이 없고",
         ):
             self.assertIn(marker, korean)
         for marker in (
-            "只靠提示词控制编码工作流的时代已经结束",
-            "Hook 可以强制执行工作流",
-            "Hook 状态机",
-            "可观察的执行路径",
+            "默认 Evidence；高风险工作使用批准绑定的 Guarded",
+            "prompt lineage、mutation revision 和可复用 verification evidence",
+            "请求 → 实现 → 当前 revision evidence → 诚实 receipt",
+            "默认模式没有 Click 批准摩擦",
         ):
             self.assertIn(marker, chinese)
 
@@ -225,12 +188,12 @@ class RepositoryPolicyTests(core.RepositoryPolicyTests):
 
     def test_release_documents_identify_current_and_preserve_release_history(self) -> None:
         for readme in _readmes().values():
-            self.assertIn("v0.34.0", readme)
+            self.assertIn("v0.35.0", readme)
             self.assertIn("codex plugin marketplace upgrade click", readme)
             self.assertIn("codex plugin add click@click", readme)
         notes = (ROOT / "RELEASE_NOTES.md").read_text(encoding="utf-8")
         for marker in (
-            "## v0.34.0",
+            "## v0.35.0",
             "## v0.33.0",
             "## v0.32.0",
             "## v0.31.0",
@@ -250,7 +213,7 @@ class RepositoryPolicyTests(core.RepositoryPolicyTests):
             self.assertIn(marker, notes)
         self.assertNotIn("Unreleased v0.24", notes)
         golden = (ROOT / "evals" / "golden-prompts.yaml").read_text(encoding="utf-8")
-        self.assertIn("version: 22", golden)
+        self.assertIn("version: 23", golden)
 
     def test_readmes_document_trusted_reads_and_pre_execution_claims(self) -> None:
         readmes = _readmes()

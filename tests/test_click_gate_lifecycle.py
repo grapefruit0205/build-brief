@@ -25,7 +25,7 @@ class ClickGateLifecycleTests(ClickGateTestCase):
         setting = self.set_default("manual")
         self.assertEqual(
             setting["hookSpecificOutput"]["updatedInput"]["command"],
-            "echo Click default mode set to Manual",
+            "echo Click default mode set to Off",
         )
         self.assertIsNone(
             self.pre_tool("apply_patch", "*** Begin Patch\n*** End Patch")
@@ -153,7 +153,7 @@ class ClickGateLifecycleTests(ClickGateTestCase):
         setting = self.set_default("on")
         self.assertEqual(
             setting["hookSpecificOutput"]["updatedInput"]["command"],
-            "echo Click default mode set to Always ON",
+            "echo Click default mode set to Guarded",
         )
         payload = self.pre_tool(
             "apply_patch", "*** Begin Patch\n*** End Patch", turn_id="turn-2"
@@ -170,23 +170,24 @@ class ClickGateLifecycleTests(ClickGateTestCase):
         self.assertTrue(preference.is_file())
         self.assertFalse((self.workspace / "preferences.json").exists())
         stored = json.loads(preference.read_text(encoding="utf-8"))
-        self.assertEqual(stored["default_mode"], "on")
-        self.assertEqual(set(stored), {"default_mode", "updated_at"})
+        self.assertEqual(stored["default_mode"], "guarded")
+        self.assertEqual(stored["schema_version"], 2)
+        self.assertFalse(stored["migration_notice_pending"])
 
     def test_prompt_context_reflects_persistent_default(self) -> None:
-        unset = self.prompt_submit()["hookSpecificOutput"]["additionalContext"]
-        self.assertIn("mode is unset", unset)
-        self.assertIn("Always ON (recommended)", unset)
+        evidence = self.prompt_submit()["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("Evidence mode is enabled", evidence)
+        self.assertIn("host remains the execution authority", evidence)
 
         self.set_default("on")
-        always_on = self.prompt_submit()["hookSpecificOutput"]["additionalContext"]
-        self.assertIn("Always ON is enabled", always_on)
-        self.assertIn("read-only code review", always_on)
+        guarded = self.prompt_submit()["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("Guarded mode is enabled", guarded)
+        self.assertIn("four human sections", guarded)
 
         self.set_default("manual")
-        manual = self.prompt_submit()["hookSpecificOutput"]["additionalContext"]
-        self.assertIn("Manual mode is enabled", manual)
-        self.assertIn("explicitly selects", manual)
+        off = self.prompt_submit()["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("Off mode is enabled", off)
+        self.assertIn("explicitly selects", off)
 
     def test_uninvoked_plan_and_exploration_remain_fail_open(self) -> None:
         self.assertIsNone(self.pre_tool("update_plan", ""))
@@ -195,10 +196,70 @@ class ClickGateLifecycleTests(ClickGateTestCase):
             inspection["hookSpecificOutput"]["permissionDecision"], "allow"
         )
         self.assertIn(
-            "run-inspection-once",
+            "run-observation",
             split_runner_command(
                 inspection["hookSpecificOutput"]["updatedInput"]["command"]
             ),
+        )
+
+    def test_legacy_preferences_migrate_once_to_evidence(self) -> None:
+        preference = self.plugin_data / "preferences.json"
+        preference.parent.mkdir(parents=True, exist_ok=True)
+        for legacy in ("on", "manual"):
+            with self.subTest(legacy=legacy):
+                preference.write_text(
+                    json.dumps({"default_mode": legacy, "updated_at": 1}),
+                    encoding="utf-8",
+                )
+                context = self.prompt_submit(
+                    "새 작업", f"turn-migrate-{legacy}"
+                )["hookSpecificOutput"]["additionalContext"]
+                self.assertIn("migrated", context)
+                stored = json.loads(preference.read_text(encoding="utf-8"))
+                self.assertEqual(stored["default_mode"], "evidence")
+                self.assertEqual(stored["migrated_from"], legacy)
+                self.assertFalse(stored["migration_notice_pending"])
+                later = self.prompt_submit(
+                    "계속", f"turn-later-{legacy}"
+                )["hookSpecificOutput"]["additionalContext"]
+                self.assertNotIn("migrated the previous", later)
+
+    def test_guarded_follow_up_turn_is_digest_bound_without_reapproval(self) -> None:
+        self.approve_contract()
+        context = self.prompt_submit("표시 문자열만 빼줘", "turn-3")[
+            "hookSpecificOutput"
+        ]["additionalContext"]
+        self.assertIn("incomplete approved contract_id", context)
+        state_path = next(
+            (self.plugin_data / "gate-state").glob("session-contract-*.json")
+        )
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        self.assertEqual(state["follow_up_turns"][0]["turn_id"], "turn-3")
+        self.assertRegex(state["follow_up_turns"][0]["digest"], r"^[0-9a-f]{64}$")
+        self.assertEqual(state["approved_turn_id"], "turn-2")
+
+    def test_legacy_migration_does_not_unlock_an_active_guarded_contract(self) -> None:
+        self.set_default("guarded", "turn-0")
+        self.stage_gate(turn_id="turn-1")
+        preference = self.plugin_data / "preferences.json"
+        preference.write_text(
+            json.dumps({"default_mode": "on", "updated_at": 1}),
+            encoding="utf-8",
+        )
+
+        context = self.prompt_submit("다른 것도 바꿔줘", "turn-2")[
+            "hookSpecificOutput"
+        ]["additionalContext"]
+        self.assertIn("active staged contract_id", context)
+        self.assertIn("migrated", context)
+        blocked = self.pre_tool(
+            "apply_patch",
+            "*** Begin Patch\n*** End Patch",
+            "turn-2",
+            submit_prompt=False,
+        )
+        self.assertEqual(
+            blocked["hookSpecificOutput"]["permissionDecision"], "deny"
         )
 
     def test_armed_gate_denies_apply_patch_before_contract(self) -> None:
@@ -241,7 +302,7 @@ class ClickGateLifecycleTests(ClickGateTestCase):
 
     def test_pass_requires_a_staged_contract(self) -> None:
         self.arm_gate("turn-2")
-        payload = self.pass_gate(turn_id="turn-2")
+        payload = self.pass_gate("ctr_" + ("0" * 32), turn_id="turn-2")
         output = payload["hookSpecificOutput"]
         self.assertEqual(output["permissionDecision"], "deny")
         self.assertIn("No staged", output["permissionDecisionReason"])

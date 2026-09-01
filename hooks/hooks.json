@@ -1,5 +1,5 @@
 {
-  "description": "Load the user's persistent Click mode, gate supported software mutations behind one approved compact contract in Always ON mode, preserve explicit activation in Manual mode, keep host plans non-authoritative through advisory context, apply evidence-driven guards during implementation and code review, bind exact argv execution receipts without scoring verification sufficiency, deduplicate assigned Browser inputs, and supervise managed local services.",
+  "description": "Use approval-free Evidence mode by default to record prompt lineage, mutation revisions, reusable verification evidence, and honest host-authorized receipts; offer opt-in Guarded contracts for approval-bound execution and Off for no ordinary Click governance, while preserving active contracts, replay and tamper protection, and managed local services.",
   "hooks": {
     "UserPromptSubmit": [
       {

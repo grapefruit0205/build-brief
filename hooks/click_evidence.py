@@ -43,6 +43,44 @@ def registry_digest(sources: dict[str, Any]) -> str:
     return hashlib.sha256(payload.encode()).hexdigest()
 
 
+def _fresh_source(kind: str, dependency_patterns: tuple[str, ...] = ()) -> dict[str, Any]:
+    return {
+        "kind": kind,
+        "dependency_patterns": list(dependency_patterns),
+        "dependency_declaration_digest": (
+            click_dependency_cache.patterns_digest(dependency_patterns)
+            if dependency_patterns
+            else ""
+        ),
+        "status": "ready",
+        "verified_revision": -1,
+        "attempts": 0,
+        "unchanged_failure_retries": 0,
+        "last_exit_code": None,
+        "last_check_digest": "",
+        "locked_check_digest": "",
+        "reserved_units": 0,
+        "reserved_check_digest": "",
+        "verified_contract_digest": "",
+        "verified_check_digest": "",
+        "verified_units": 0,
+        "verified_root": "",
+        "verified_tree_digest": "",
+        "verified_environment_digest": "",
+        "verified_executable_digest": "",
+        "verified_host_coverage": {},
+        "verified_at": 0,
+        "verified_dependency_provider": "",
+        "verified_dependency_manifest_digest": "",
+        "verified_dependency_entry_digest": "",
+        "verified_dependency_digest": "",
+        "verified_dependency_paths": [],
+        "dependency_reuse_count": 0,
+        "last_dependency_reused_at": 0,
+        "last_dependency_reused_from_revision": -1,
+    }
+
+
 def fresh_state(contract: dict[str, Any]) -> dict[str, Any]:
     """Create a prose-free evidence ledger from a validated contract."""
     verification = contract.get("verification")
@@ -64,47 +102,48 @@ def fresh_state(contract: dict[str, Any]) -> dict[str, Any]:
             )
             if dependency_error or normalized_patterns is None:
                 normalized_patterns = ()
-            sources[evidence_key(source_id)] = {
-                "kind": kind,
-                "dependency_patterns": list(normalized_patterns),
-                "dependency_declaration_digest": (
-                    click_dependency_cache.patterns_digest(normalized_patterns)
-                    if normalized_patterns
-                    else ""
-                ),
-                "status": "ready",
-                "verified_revision": -1,
-                "attempts": 0,
-                "unchanged_failure_retries": 0,
-                "last_exit_code": None,
-                "last_check_digest": "",
-                "locked_check_digest": "",
-                "reserved_units": 0,
-                "reserved_check_digest": "",
-                "verified_contract_digest": "",
-                "verified_check_digest": "",
-                "verified_units": 0,
-                "verified_root": "",
-                "verified_tree_digest": "",
-                "verified_environment_digest": "",
-                "verified_executable_digest": "",
-                "verified_host_coverage": {},
-                "verified_at": 0,
-                "verified_dependency_provider": "",
-                "verified_dependency_manifest_digest": "",
-                "verified_dependency_entry_digest": "",
-                "verified_dependency_digest": "",
-                "verified_dependency_paths": [],
-                "dependency_reuse_count": 0,
-                "last_dependency_reused_at": 0,
-                "last_dependency_reused_from_revision": -1,
-            }
+            sources[evidence_key(source_id)] = _fresh_source(
+                kind, normalized_patterns
+            )
     return {
         "version": EVIDENCE_STATE_VERSION,
         "source_count": len(sources),
         "registry_digest": registry_digest(sources),
         "sources": sources,
     }
+
+
+def register_runtime_sources(
+    state: dict[str, Any], source_ids: list[str], *, kind: str = "argv"
+) -> tuple[dict[str, Any] | None, str]:
+    """Register execution-selected Evidence-mode sources without prose authority."""
+    if state.get("status") != "evidence" or kind not in EVIDENCE_KINDS:
+        return None, "Dynamic evidence registration requires Evidence mode."
+    evidence_state = state.get("evidence_state")
+    if not isinstance(evidence_state, dict):
+        return None, "Click Evidence registry is unavailable."
+    sources = evidence_state.get("sources")
+    if not isinstance(sources, dict):
+        return None, "Click Evidence registry is unavailable."
+    for source_id in source_ids:
+        if not isinstance(source_id, str) or not re.fullmatch(
+            r"[A-Za-z][A-Za-z0-9_-]{0,31}", source_id
+        ):
+            return None, "Dynamic evidence id is invalid."
+        key = evidence_key(source_id)
+        existing = sources.get(key)
+        if isinstance(existing, dict):
+            if existing.get("kind") != kind:
+                return None, "Dynamic evidence id is already registered with another kind."
+            continue
+        # Evidence mode has no approval-bound declaration. Cross-revision reuse
+        # may therefore come only from an exact committed repository manifest.
+        sources[key] = _fresh_source(kind)
+    evidence_state["sources"] = sources
+    evidence_state["source_count"] = len(sources)
+    evidence_state["registry_digest"] = registry_digest(sources)
+    state["evidence_state"] = evidence_state
+    return sources, ""
 
 
 def _dependency_fields_are_valid(source: dict[str, Any]) -> bool:

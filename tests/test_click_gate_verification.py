@@ -21,6 +21,49 @@ from click_gate_test_support import (
 
 
 class ClickGateVerificationTests(ClickGateTestCase):
+    def test_evidence_mode_dynamically_registers_and_exports_host_authority(self) -> None:
+        (self.workspace / ".gitignore").write_text(
+            "__pycache__/\n", encoding="utf-8"
+        )
+        self.initialize_git(".gitignore", "verification_fixture.py")
+        self.prompt_submit("검증 가능한 작은 변경", "turn-1")
+
+        allowed = self.verify_gate(
+            [self.verification_argv()],
+            turn_id="turn-1",
+            evidence_ids=["E_RUNTIME"],
+        )
+        self.assertEqual(
+            allowed["hookSpecificOutput"]["permissionDecision"], "allow"
+        )
+        completed = self.run_rewritten(allowed)
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+
+        state_path = next(
+            (self.plugin_data / "gate-state").glob("session-contract-*.json")
+        )
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        self.assertEqual(state["status"], "evidence")
+        self.assertEqual(state["evidence_state"]["source_count"], 1)
+        source = next(iter(state["evidence_state"]["sources"].values()))
+        self.assertEqual(source["status"], "passed")
+        self.assertEqual(source["dependency_patterns"], [])
+
+        receipt = self.pre_tool(
+            "Bash", "click-gate receipt export", "turn-1", submit_prompt=False
+        )
+        self.assertIsNotNone(receipt)
+        exported = self.run_rewritten(receipt)
+        self.assertEqual(exported.returncode, 0, exported.stderr)
+        envelope = json.loads(exported.stdout)
+        self.assertIsNone(envelope["receipt"]["contract"])
+        self.assertEqual(
+            envelope["receipt"]["authority"]["execution_authority"], "host"
+        )
+        self.assertFalse(
+            envelope["receipt"]["authority"]["approval_bound"]
+        )
+
     def test_verification_batch_has_no_fixed_check_count_cap(self) -> None:
         checks = [
             {

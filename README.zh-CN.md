@@ -1,4 +1,4 @@
-# Click — 由 Hook 强制执行的 Codex 编码代理工作流
+# Click — 面向 Codex 编码代理的 revision-aware evidence
 
 [English](README.md) | [한국어](README.ko.md) | 简体中文
 
@@ -7,11 +7,11 @@
 [![CI](https://github.com/grapefruit0205/click/actions/workflows/ci.yml/badge.svg)](https://github.com/grapefruit0205/click/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-### 只靠提示词控制编码工作流的时代已经结束。
+### 正常工作，同时保留与代码一致的证据。
 
-> **提示词可以建议行为。Hook 可以强制执行工作流。**
+> **默认 Evidence；高风险工作使用批准绑定的 Guarded。**
 
-**Click 是一款 Codex 插件：它把软件变更请求转换成一份精简 contract，再通过持久化的 Hook 状态机，把可观察的执行路径保持在用户批准的边界内。**
+**Click 是一款 Codex 插件：host 保持正常执行，Click 记录 prompt lineage、mutation revision 和可复用 verification evidence；高风险工作可用 Guarded 将执行绑定到一份易读的批准 contract。**
 
 大多数编码代理工作流仍然只是要求模型记住这些规则：
 
@@ -29,26 +29,18 @@ Click 把权限与 evidence 保证移到受支持的**工具执行边界**中。
 探索偏好在那里仍是非阻断提示，不会成为执行权限。
 
 ```text
-请求
- ↓
-精简 contract
- ↓
-后续用户 turn 批准
- ↓
-实现
- ↓
-当前 revision 的完成证据
- ↓
-完成
+请求 → 实现 → 当前 revision evidence → 诚实 receipt
+
+高风险：四段式 contract → 后续批准 → Guarded 执行 → receipt
 ```
 
 > **如何实现，由模型决定。工作流是否允许进入下一阶段，由 Hook 决定。**
 
-**一份 contract。一次批准。一条实现边界。一组完成证据。**
+**默认模式没有 Click 批准摩擦；只有需要时才启用强批准边界。**
 
 ## 核心目的
 
-> **Click 将 AI 执行绑定到已批准的意图，并返回可验证的证据。**
+> **普通 host 授权工作返回 revision-aware evidence；选择 Guarded 时，Click 将 AI 执行绑定到批准意图。**
 
 Click 的稳定产品边界是授权与证据 runtime，而不是模型工作流优化器。
 正式的准入测试和策略分层见 [Click 产品宪法](PRODUCT_CONSTITUTION.md)，
@@ -77,12 +69,55 @@ evidence 状态。
 
 > **不要一直要求编码代理记住流程。把流程放进执行边界。**
 
+### 强制执行边界，而不是限制推理
+
+> **Click 限制的是执行可以做什么，而不是模型必须如何思考。**
+
+读取哪些文件、按什么顺序探索、如何推理问题、选择哪种实现，以及具体运行
+哪些验证命令，都仍由模型在已批准 contract 内决定。Click 的 hard
+enforcement 从可观察行为真正重要的地方开始：批准、mutation 与外部 side
+effect、replay 与篡改防护，以及 evidence 完整性。
+
+因此，Click 可以约束无人值守任务的执行边界，而不会把针对特定模型的搜索
+技巧变成 hard gate。
+
+### proof input 改变时才重新验证，而不是 revision 一变就重跑
+
+新的 Git revision 并不意味着所有已通过的检查都自动失效。Click 的
+**dependency-aware revision cache**会记录检查为什么有效，并且只有在解析后的
+dependency 文件及其内容、准确 check、环境、可执行文件、已知 host coverage
+和已批准 mutation snapshot 全部保持一致时，才会把准确的成功 evidence
+带到下一个 revision。
+
+```text
+revision 12  认证代码改变   → 运行认证测试 → 通过
+revision 13  只改变 README → proof input 未变 → 复用通过证据
+revision 14  认证代码改变   → proof input 改变 → 重新运行测试
+```
+
+只要任何必要绑定缺失、含糊或发生变化，Click 就会 fail closed，并要求重新
+运行检查。这样既不需要仅凭模型声称“这是无关变更”，也能避免只修改文档后
+仍重新运行整套 300 项测试。
+
+## 三种模式
+
+| 模式 | 用户体验 | 执行权限 |
+| --- | --- | --- |
+| **Evidence**（默认） | 无 Click contract 或批准提示；正常执行并返回 evidence receipt | host |
+| **Guarded** | 一次批准 Goal、Changes、Unchanged、Completion checks，随后在范围内连续执行 | 已批准 contract |
+| **Off** | 普通工作不受 Click 管理；显式 `@Click` 可启动 Guarded | host |
+
+旧的已存储 `on` 或 `manual` 设置升级后会一次性迁移到 Evidence。已经 stage 或尚未完成的 Guarded contract 不会被解锁，必须完成或显式取消。
+
+Evidence receipt 明确写入 `approval_bound: false` 和 `execution_authority: host`，不会假装工作由 Click 批准。Guarded receipt 继续绑定 contract digest、批准 turn、one-use claim、replay/篡改防护、mutation revision、环境和 evidence lineage。
+
 ## Hook 实际会强制什么
 
 在 stage、implementation、review 和 verification 期间，Click 可以强制以下**可观察 workflow 规则**：
 
-- **提案与批准分离。** stage 后签发不透明的 `contract_id`；同一个用户 turn 不能同时 stage 和 pass。
-- **批准前阻止 mutation。** active contract 会保持锁定，直到准确的 staged ID 被批准并 pass。
+- **Guarded 提案与批准分离。** stage 后签发不透明的 `contract_id`；同一个用户 turn 不能同时 stage 和 pass。
+- **Guarded 批准前阻止 mutation。** active contract 保持锁定，直到准确 staged ID 被批准并 pass。
+- **Evidence receipt 保持诚实。** 绑定 host 权限、follow-up prompt digest、mutation、check、环境与 cache lineage。
 - **规划保持 advisory。** `update_plan` 等 plan tool 仍然可用，但不能批准、替换或扩大 active contract。
 - **仓库探索保持 advisory。** 不同 digest 的 broad inventory 即使在另一个 broad inventory 运行期间或成功之后仍可执行，并会收到缩小范围提示；只有 active runner 与执行 interlock 继续作为 hard guard。
 - **重复观察仍然可用。** 对已成功的相同 structured read/search 发起新请求时，Click 会给出复用提示并签发新的 one-use runner，不会把它与已消费 runner token 的 replay 混为一谈。
@@ -92,9 +127,9 @@ evidence 状态。
 
 Hook 控制的是**可观察的 tool path**。它不会读取隐藏推理，不会单独证明语义正确性，也不是操作系统 sandbox。
 
-## 精简 contract
+## Guarded contract
 
-Click 会把请求和相关仓库上下文整理成一份小型执行 contract：
+Guarded 内部仍保留 canonical JSON，用于 schema 校验与 digest 绑定；但用户默认只批准 **Goal**、**Changes**、**Unchanged**、**Completion checks** 四部分。原始 JSON 只放在可选的 Technical contract 详情中。
 
 | 字段 | 固定的内容 |
 | --- | --- |
@@ -107,9 +142,9 @@ Click 会把请求和相关仓库上下文整理成一份小型执行 contract�
 
 contract 锁定的是**语义、边界和完成承诺**，而不是每个文件、依赖、库或底层实现选择。
 
-如果代理发现批准范围内需要新的文件、工具或依赖，仍然可以使用。只有已批准结果、边界、must-hold 行为或验证承诺发生实质变化时，才需要重新批准。
+如果发现范围内需要文件、工具、依赖，或收到细节补充与缩小范围的 follow-up，可以记录 audit digest 后继续。只有结果、可见行为、边界、must-hold、权限或验证承诺发生实质变化时，才重新批准。
 
-## 工作原理
+## Guarded 工作原理
 
 ```mermaid
 flowchart TB
@@ -136,18 +171,24 @@ codex plugin add click@click
 
 重启 ChatGPT 桌面应用，检查并信任随附的 Click Hook，然后开始新任务。
 
-首次使用时，可以选择 **Always ON**，让 Click 默认应用于软件变更；也可以选择 **Manual**，只在你提到 `@Click` 时启用。
+新安装与现有用户默认使用 **Evidence**：正常工作，不增加 Click 自己的批准提示。高风险工作选择 **Guarded**；要关闭普通 Click 管理则选择 **Off**。
+
+```text
+click-gate default evidence
+click-gate default guarded
+click-gate default off
+```
 
 ```text
 @Click 添加订单取消功能。
 防止重复退款，并保持现有 API 兼容。
 ```
 
-之后可以说“Set Click to Always ON”或“Set Click to Manual”来切换模式。也支持单 turn 的 `@Click bypass` 和清除 active contract 的 `@Click cancel`。
+之后可随时切换模式。单 turn 的 `@Click bypass` 与清除 active contract 的 `@Click cancel` 仍然可用，但不会偷偷解锁 active Guarded contract。
 
-## contract 示例
+## Guarded 技术 contract 示例
 
-对于上面的订单取消请求，根据仓库证据可能得到类似下面的 contract：
+用户通常只看到四段式易读界面。打开 Technical contract 详情后，canonical JSON 可能如下：
 
 ```json
 {
@@ -187,17 +228,17 @@ codex plugin add click@click
 | 提示但不阻断重复观察 | 已成功或反复失败的相同 structured read/search 仍可通过新的 one-use runner 执行并收到提示；相同 digest 的 runner 正在运行时仍会阻断 |
 | 提示但不阻断规划 | `update_plan` 仍然可用，但不能 stage、批准、替换或扩大 contract |
 | broad inventory 后提示缩小范围 | 不同 broad 请求仍可在提示下执行；正在运行的相同 digest runner 由独立状态 interlock 阻止 |
-| 提示但不阻断普通 argv 重试 | 固定失败次数不会阻断新的 verification 重试；改变 protected repository content 的 verification 仍需要已批准 mutation |
+| 提示但不阻断普通 argv 重试 | 固定失败次数不会阻断新的 verification 重试；改变 protected repository content 的 verification 仍需要已记录 mutation 路径 |
 | 明确命令意图 | active 状态下含义不明确的 shell 工作改用 structured `inspect`、`mutate`、`service` 或 `verify` |
 | 不把验证策略变成权限 | 模型选择 evidence 与 `argv`；Click 把准确 check-group digest 和观察结果绑定到 receipt |
 | 绑定已知 host coverage | verification receipt 包含当前 Codex 或 Antigravity 的 known-surface digest，因此证据不会静默跨 host 或 Hook coverage revision 复用 |
-| 复用 dependency-safe evidence | 只有解析文件、check、环境、可执行文件和已批准 mutation snapshot 都一致时，绑定到批准的 dependency 声明或已提交仓库映射才能跨 revision 复用成功证据 |
+| 复用 dependency-safe evidence | Guarded 可用批准 dependency 或 committed mapping；Evidence 只用 committed mapping，且所有解析绑定必须一致 |
 | 按 source 跟踪完成 | 所有声明 source 必须 current；没有 `argv` source 时不会为了形式制造 local check |
 | 提示 Browser workflow 重复 | 规范化 Browser 重复、重试和长定时交互在提示下仍可执行；已分配 source、串行调用、tool result、revision 与完成后 replay 的绑定仍为 hard gate |
 
 ## Advisory 验证 profile
 
-批准前，Skill 或模型会根据当前风险和仓库证据建议最小且足够的验证 profile。Profile 是对预期验证深度的定性表达，并绑定到 digest，以准确表示已批准 contract。执行期间模型选择具体 `argv`；Click 把准确 check-group digest、revision、环境、可执行文件指纹、已知 host coverage identity 和观察结果绑定到 receipt。Hook 不推断验证充分性，也不把插件自定的数字谱系当作权限或提示。
+Guarded 在批准前建议最小充分 profile，并绑定到 contract digest。Evidence 没有批准步骤，只保留 focused marker，由模型在执行时选择具体检查。Click 绑定 check-group digest、revision、环境、可执行文件、host coverage 与结果，但不会把充分性或数字估计当作权限。
 
 | Profile | 典型用途 |
 | --- | --- |
@@ -207,9 +248,9 @@ codex plugin add click@click
 
 旧 class-unit 字段仅为持久化 state 与直接调用者兼容而保留；它们不是 receipt 证据，也不会产生 runtime 提示。只有用户或仓库明确拥有该策略时，才应强制数字验证预算。
 
-证据可以来自 local `argv` check，也可以来自显式声明的 Browser、hosted、manual 或 existing source。`argv` source 只能通过关联 local runner 的真实成功完成。non-argv completion 是显式 attestation；Hook 会记录已批准 source 与当前 revision，但不会独立证明 matcher 外部执行或人工步骤确实发生。
+Guarded 可声明 local `argv`、Browser、hosted、manual 或 existing source；Evidence 动态注册实际使用的 argv id。argv 只能由 runner 的真实成功完成。non-argv attestation 不会独立证明 matcher 外部或人工动作。
 
-`argv` evidence source 可以选择声明确定性的仓库相对 `dependencies`。模型在 stage 前提出，因此声明会绑定到已批准 contract digest；不确定时应省略该字段并正常重新验证。`*` 只匹配一个 path segment，完整 segment 的 `**` 可跨目录，末尾 `/` 表示目录前缀。已提交的 `.click/evidence-dependencies.json` 也可提供精确 argv-to-path 映射。Click 会记录实际解析文件列表并支持仓库内部相对 symlink；无关 manifest entry 的变化不会使该 source 失效，但 mutation receipt 缺失或批准边界之后发生 workspace drift 时会重新运行验证。
+Guarded 的 argv source 可在 stage 前声明仓库相对 `dependencies` 并绑定批准 digest。Evidence 不授予运行时 dependency 猜测任何权限，跨 revision 只能使用已提交的 `.click/evidence-dependencies.json`。Click 记录解析文件和内部相对 symlink；相关映射、mutation receipt 或 workspace 变化时重新验证。
 
 ## 结构化 capability
 
@@ -241,28 +282,32 @@ Antigravity IDE 用户也可以把 `dist/antigravity` 复制到工作区的 `.ag
 
 Antigravity 的 Hook contract 与 Codex 不同。native file/search 和其他 MCP、Skill 工具仍可使用，但目前还不支持 cross-tool 去重和 Browser evidence。准确限制请参阅 [`platforms/antigravity/README.md`](platforms/antigravity/README.md)。
 
-## 更新现有安装 — v0.34.0
+## 更新现有安装 — v0.35.0
 
-当前版本是 **v0.34.0**。
+当前版本是 **v0.35.0**。
 
 ```bash
 codex plugin marketplace upgrade click
 codex plugin add click@click
 ```
 
-重启 ChatGPT 桌面应用并检查、信任更新后的 Hook。v0.34.0 新增 approval-bound capability ledger 和 canonical 完成收据，把 contract、批准 turn、one-use 与 host-tool-use claim、最终 workspace revision 以及 evidence lineage 绑定在一起。`click-gate receipt export` 输出 `unsigned-integrity-only` envelope，`click-gate receipt verify` 可离线检查其 canonical digest。legacy runner state 仍可恢复，但 receipt 追踪之前的不完整历史不能导出为完整收据。Codex 与内置的 Antigravity 发行版使用相同的 runtime module。升级后请开始新 contract，不要复用旧安装留下的待执行 runner。
+重启 ChatGPT 桌面应用并检查、信任更新后的 Hook。v0.35.0 将 Evidence 设为无需 Click 再批准的默认模式，对已保存的 `on` 与 `manual` 设置执行一次 migration，同时保持活动 Guarded contract 的锁定状态。Guarded 批准默认展示四个易读部分，技术 JSON 保持可选；范围内的细化或收窄请求通过 digest audit lineage 继续，而不再例行重复批准。Evidence receipt v2 如实标记 host 权限；缺失的 host `PostToolUse` 只有在后续 current-revision verification 通过时才会结算为 `observed`。Codex 与内置 Antigravity 发行版使用相同 runtime module。升级后请新建任务，以加载新模式和 Hook 代码。
 
 详细发布历史见 [RELEASE_NOTES.md](RELEASE_NOTES.md)。
 
 ## 完成收据
 
-当所有声明的 evidence 都已在当前 revision 完成且受管服务已停止时，
-`click-gate receipt export` 会向 stdout 输出一个 canonical 完成 envelope。
-它绑定 contract ID 与 digest、stage 与批准 turn、Click runner claim 与
-host-tool-use 边界、最终 mutation revision 与受保护 workspace digest，
-以及每项 evidence 的结果、环境、可执行文件、host coverage 和 dependency
-复用 lineage。原始 argv、runner token、contract 正文和实际 workspace 路径
-不会写入收据。
+当前 evidence 完成且受管服务停止后，`click-gate receipt export` 输出 canonical
+v2 envelope。Guarded 绑定 contract ID、digest、stage 与批准 turn。Evidence
+写入 `contract: null`、`approval_bound: false`、`execution_authority: host`，并绑定
+intent 与 follow-up digest。两者都绑定 claim、最终 mutation/workspace digest 及
+每项 evidence 的环境、可执行文件、host coverage 与 dependency lineage。原始
+argv、token、contract prose、prompt 和 workspace 路径不会写入收据。
+
+如果受支持 host 省略了 mutation 对应的 `PostToolUse`，Click 不会虚构成功
+exit code。只有后续 one-use verification 在相同或更新 revision 通过，且最终
+evidence 与 workspace snapshot 仍匹配时，receipt export 才能把该已准入 claim
+结算为 `observed`。没有后续见证的 claim 仍会阻止 export。
 
 在运行命令之外保存输出的 JSON 后，可以在无网络、无活动 Click state 的
 情况下验证：

@@ -175,8 +175,9 @@ def build_envelope(
     expected_contract_schema_version: int,
 ) -> tuple[dict[str, Any] | None, str]:
     """Build one receipt from completed state and a just-captured workspace."""
-    if state.get("status") != "approved":
-        return None, "Click receipt export requires an approved contract."
+    status = state.get("status")
+    if status not in {"approved", "evidence"}:
+        return None, "Click receipt export requires completed Guarded or Evidence state."
     active_error = _active_runner_error(state)
     if active_error:
         return None, active_error
@@ -194,10 +195,6 @@ def build_envelope(
         return None, "Click receipt export requires the current evidence ledger."
     if any(not click_evidence.is_current(source, revision) for source in sources.values()):
         return None, "Every declared evidence source must be current before receipt export."
-    capabilities, error = click_claims.receipt_entries(state)
-    if error:
-        return None, error
-    assert capabilities is not None
     if not click_host_coverage.receipt_is_current(host_coverage):
         return None, "Click receipt export found an unavailable or changed host coverage identity."
     assert isinstance(host_coverage, dict)
@@ -215,18 +212,41 @@ def build_envelope(
     if error:
         return None, error
     assert evidence is not None
+    capabilities, error = click_claims.receipt_entries(
+        state, settle_through_revision=revision
+    )
+    if error:
+        return None, error
+    assert capabilities is not None
 
     excluded = list(click_receipt.BASE_COVERAGE_EXCLUSIONS)
     if workspace["assurance"] == "unavailable":
         excluded.append(click_receipt.UNAVAILABLE_TREE_EXCLUSION)
-    body = {
-        "version": click_receipt.RECEIPT_VERSION,
-        "contract": {
+    guarded = status == "approved"
+    contract = (
+        {
             "id": state.get("contract_id"),
             "digest": state.get("contract_digest"),
             "staged_turn_id": state.get("staged_turn_id"),
             "approved_turn_id": state.get("approved_turn_id"),
+        }
+        if guarded
+        else None
+    )
+    intent_digest = state.get("intent_digest", state.get("contract_digest"))
+    intent_turn_id = state.get("intent_turn_id", state.get("staged_turn_id"))
+    body = {
+        "version": click_receipt.RECEIPT_VERSION,
+        "authority": {
+            "mode": "guarded" if guarded else "evidence",
+            "approval_bound": guarded,
+            "execution_authority": "click-contract" if guarded else "host",
+            "intent_digest": intent_digest,
+            "intent_turn_id": intent_turn_id,
+            "follow_up_turns": state.get("follow_up_turns", []),
+            "history_complete": state.get("history_complete", True),
         },
+        "contract": contract,
         "execution": {
             "mutation_revision": revision,
             "workspace": workspace,

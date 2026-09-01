@@ -12,9 +12,48 @@ For Antigravity IDE, the generated `dist/antigravity` directory can instead be
 copied to either `.agents/plugins/click` in one workspace or
 `~/.gemini/config/plugins/click` globally.
 
-The adapter shares Click's contract validation, state machine, evidence ledger,
-verification classifier, and shell-free runners with the Codex plugin. It maps
-Antigravity lifecycle and mutation tools onto that common runtime.
+The adapter shares Click's Evidence/Guarded/Off lifecycle, contract validation,
+evidence ledger, verification classifier, and shell-free runners with the Codex
+plugin. It maps Antigravity lifecycle and mutation tools onto that common runtime.
+
+## Modes
+
+- **Evidence** is the default: Antigravity retains host authority while Click records prompt lineage, mutation revisions, exact checks, cache lineage, and an approval-free receipt.
+- **Guarded** adds one human-readable approval contract for higher-risk work.
+- **Off** leaves ordinary work unmanaged; explicit `@Click` may still start Guarded.
+
+Existing pre-v2 `on` and `manual` preferences migrate once to Evidence. An active Guarded contract remains locked until completion or explicit cancellation.
+
+## Enforce the boundary, not the reasoning
+
+> **Click constrains what observable execution may do—not how the model must
+> think.**
+
+Antigravity still decides which files to inspect, how to reason about the task,
+which implementation to choose, and which concrete checks to run inside the
+current intent or approved contract. Click hard-enforces receipt integrity and,
+in Guarded mode, approval and mutation authority, plus replay and tampering
+protection.
+
+## Reuse proof when its inputs have not changed
+
+A new revision does not automatically make every passing check useless. Click's
+**dependency-aware revision cache** can carry an exact success forward only
+while the resolved dependency files and content, exact check, environment,
+executable, Antigravity host-coverage digest, and approved mutation snapshot
+still match.
+
+```text
+revision 12  auth code changed  → run auth tests → pass
+revision 13  README only changed → proof inputs unchanged → reuse the pass
+revision 14  auth code changed  → proof inputs changed → rerun the tests
+```
+
+Antigravity's matching mutation events close this proof boundary. If a required
+dependency or post-mutation observation is missing, ambiguous, or different,
+Click fails closed and runs the check again. That can avoid rerunning a large
+test suite after an unrelated documentation edit without merely trusting the
+model's claim that the earlier result is still valid.
 
 ## Current platform limits
 

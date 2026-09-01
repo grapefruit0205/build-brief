@@ -160,8 +160,8 @@ def prepare(
         revision = 0
     else:
         state = _read_contract_state(event)
-        if state.get("status") != "approved":
-            return "", "Click observation state is unavailable; approve the contract again.", ""
+        if state.get("status") not in {"approved", "evidence"}:
+            return "", "Click observation runtime state is unavailable.", ""
         mutation = state.get("mutation")
         if mutation_is_running(mutation):
             return "", "Wait for the structured Click mutation to finish before inspection.", ""
@@ -298,7 +298,7 @@ def claim_run(
     except (FileNotFoundError, json.JSONDecodeError, OSError):
         return None, "Click observation runner could not read its managed state."
     status = state.get("status")
-    if status not in {"approved", "review"}:
+    if status not in {"approved", "evidence", "review"}:
         return None, "Click observation runner is no longer authorized to execute."
     observations = state.get("observations")
     if not isinstance(observations, dict):
@@ -311,7 +311,7 @@ def claim_run(
         return None, "Click observation runner is no longer authorized to execute."
 
     expected_revision = 0
-    if status == "approved":
+    if status in {"approved", "evidence"}:
         verification = state.get("verification")
         if not isinstance(verification, dict):
             return None, "Click observation revision state is unavailable."
@@ -343,7 +343,7 @@ def claim_run(
         return None, "Click observation runner request digest did not match."
 
     claimed_at = int(time.time()) or 1
-    if status == "approved":
+    if status in {"approved", "evidence"}:
         _, claim_error = click_claims.record_claim(
             state,
             capability="observation",
@@ -378,7 +378,7 @@ def record_result(
         state = json.loads(path.read_text(encoding="utf-8"))
     except (FileNotFoundError, json.JSONDecodeError, OSError):
         return False
-    if state.get("status") not in {"approved", "review"}:
+    if state.get("status") not in {"approved", "evidence", "review"}:
         return False
     observations = state.get("observations")
     if not isinstance(observations, dict):
@@ -401,7 +401,7 @@ def record_result(
         return False
 
     status = state.get("status")
-    if status == "approved":
+    if status in {"approved", "evidence"}:
         verification = state.get("verification")
         if not isinstance(verification, dict) or not click_claims.complete_claim(
             state,

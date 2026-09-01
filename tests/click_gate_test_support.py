@@ -303,6 +303,8 @@ class ClickGateTestCase(unittest.TestCase):
             return "ctr_" + ("0" * 32)
         state = json.loads(state_paths[0].read_text(encoding="utf-8"))
         contract_id = CLICK_GATE._contract_id_from_state(state)
+        if not contract_id:
+            return "ctr_" + ("0" * 32)
         self.assertRegex(contract_id, r"^ctr_[0-9a-f]{32}$")
         return contract_id
 

@@ -314,13 +314,65 @@ def complete_claim(
     return False
 
 
-def receipt_entries(state: dict[str, Any]) -> tuple[list[dict[str, Any]] | None, str]:
+def _settle_verified_host_mutations(
+    entries: list[dict[str, Any]], *, through_revision: int
+) -> None:
+    """Project omitted host completions as observed after later verification.
+
+    Some supported hosts admit a mutation through ``PreToolUse`` but omit the
+    matching ``PostToolUse`` event. A later passing one-use verification at the
+    same or a newer revision proves that Click moved on to verified workspace
+    state, but it does not reveal the mutation tool's exit code. Such claims can
+    therefore be settled only as ``observed``—never as ``passed``.
+    """
+    witnesses = [
+        entry
+        for entry in entries
+        if entry["capability"] == "verification"
+        and entry["claim_mode"] == "one-use-runner"
+        and entry["result"]["status"] == "passed"
+        and entry["mutation_revision"] <= through_revision
+    ]
+    for entry in entries:
+        if not (
+            entry["capability"] == "mutation"
+            and entry["claim_mode"] == "host-tool-use"
+            and entry["result"]["status"] == "running"
+            and entry["mutation_revision"] <= through_revision
+        ):
+            continue
+        witness = next(
+            (
+                candidate
+                for candidate in witnesses
+                if candidate["sequence"] > entry["sequence"]
+                and candidate["mutation_revision"] >= entry["mutation_revision"]
+            ),
+            None,
+        )
+        if witness is None:
+            continue
+        entry["completed_at"] = max(
+            int(entry["claimed_at"]), int(witness["completed_at"])
+        )
+        entry["result"] = {"status": "observed", "exit_code": None}
+
+
+def receipt_entries(
+    state: dict[str, Any], *, settle_through_revision: int | None = None
+) -> tuple[list[dict[str, Any]] | None, str]:
     ledger, error = validate_ledger(state.get("capability_ledger"))
     if error:
         return None, error
     assert ledger is not None
     if ledger.get("history_complete") is not True:
         return None, "Click capability history predates receipt tracking and cannot be exported."
+    if settle_through_revision is not None:
+        if not _is_non_negative_int(settle_through_revision):
+            return None, "Click receipt settlement revision is invalid."
+        _settle_verified_host_mutations(
+            ledger["entries"], through_revision=settle_through_revision
+        )
     if any(entry["result"]["status"] == "running" for entry in ledger["entries"]):
         return None, "Click cannot export a receipt while a capability claim is active."
     return list(ledger["entries"]), ""

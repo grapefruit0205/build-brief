@@ -67,7 +67,7 @@ class ClickGateInspectionTests(ClickGateTestCase):
                     payload["hookSpecificOutput"]["permissionDecision"], "allow"
                 )
                 self.assertIn(
-                    "run-inspection-once",
+                    "run-observation",
                     split_runner_command(
                         payload["hookSpecificOutput"]["updatedInput"]["command"]
                     ),
@@ -86,7 +86,7 @@ class ClickGateInspectionTests(ClickGateTestCase):
             git_read["hookSpecificOutput"]["permissionDecision"], "allow"
         )
         self.assertIn(
-            "run-inspection-once",
+            "run-observation",
             split_runner_command(
                 git_read["hookSpecificOutput"]["updatedInput"]["command"]
             ),
@@ -100,14 +100,17 @@ class ClickGateInspectionTests(ClickGateTestCase):
             mixed_read["hookSpecificOutput"]["permissionDecision"], "allow"
         )
         self.assertIn(
-            "run-inspection-once",
+            "run-observation",
             split_runner_command(
                 mixed_read["hookSpecificOutput"]["updatedInput"]["command"]
             ),
         )
 
         piped = self.pre_tool("Bash", "rg --files | sort")
-        self.assertEqual(piped["hookSpecificOutput"]["permissionDecision"], "deny")
+        if piped is not None:
+            self.assertNotIn(
+                "permissionDecision", piped["hookSpecificOutput"]
+            )
         self.arm_gate()
         piped_after_arm = self.pre_tool("Bash", "git status --short | head -20")
         self.assertEqual(
@@ -128,12 +131,33 @@ class ClickGateInspectionTests(ClickGateTestCase):
             with self.subTest(command=command):
                 self.assertFalse(CLICK_GATE._is_read_only_tokens([command]))
 
-    def test_unset_default_blocks_first_mutation_and_requests_one_choice(self) -> None:
+    def test_evidence_default_allows_and_records_first_mutation(self) -> None:
         payload = self.pre_tool("apply_patch", "*** Begin Patch\n*** End Patch")
-        self.assertEqual(payload["hookSpecificOutput"]["permissionDecision"], "deny")
-        reason = payload["hookSpecificOutput"]["permissionDecisionReason"]
-        self.assertIn("Always ON", reason)
-        self.assertIn("Manual", reason)
+        self.assertIsNone(payload)
+        state_path = next(
+            (self.plugin_data / "gate-state").glob("session-contract-*.json")
+        )
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        self.assertEqual(state["status"], "evidence")
+        self.assertEqual(state["runtime_mode"], "evidence")
+        self.assertEqual(state["verification"]["mutation_revision"], 1)
+
+    def test_pdf_tools_admit_only_side_effect_free_forms(self) -> None:
+        allowed = (
+            ["pdfinfo", "feedback.pdf"],
+            ["pdftotext", "-layout", "feedback.pdf", "-"],
+        )
+        denied = (
+            ["pdftotext", "feedback.pdf"],
+            ["pdftotext", "feedback.pdf", "feedback.txt"],
+            ["pdftoppm", "feedback.pdf", "page"],
+        )
+        for argv in allowed:
+            with self.subTest(allowed=argv):
+                self.assertTrue(CLICK_GATE._is_read_only_tokens(argv))
+        for argv in denied:
+            with self.subTest(denied=argv):
+                self.assertFalse(CLICK_GATE._is_read_only_tokens(argv))
 
     def test_structured_inspection_runs_shell_free_and_advises_repeat(self) -> None:
         self.approve_contract()

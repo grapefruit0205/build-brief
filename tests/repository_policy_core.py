@@ -307,7 +307,7 @@ class RepositoryPolicyTests(unittest.TestCase):
         golden = (ROOT / "evals" / "golden-prompts.yaml").read_text(
             encoding="utf-8"
         )
-        self.assertIn("version: 22", golden)
+        self.assertIn("version: 23", golden)
         self.assertIn(
             "## Evidence-bound completion in v0.21.0",
             (ROOT / "README.md").read_text(encoding="utf-8"),
@@ -499,8 +499,9 @@ class RepositoryPolicyTests(unittest.TestCase):
             (ROOT / "hooks" / "hooks.json").read_text(encoding="utf-8")
         )
         for phrase in (
-            "click-gate default on",
-            "click-gate default manual",
+            "click-gate default evidence",
+            "click-gate default guarded",
+            "click-gate default off",
             "click-gate review",
             "click-gate bypass",
         ):
@@ -644,7 +645,7 @@ class RepositoryPolicyTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
 
         for required in (
-            "RECEIPT_VERSION = 1",
+            "RECEIPT_VERSION = 2",
             "def validate_receipt(",
             "def canonical_bytes(",
             "def receipt_digest(",
@@ -830,20 +831,20 @@ class RepositoryPolicyTests(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertTrue(lowered.isdisjoint(forbidden_parts))
 
-    def test_golden_cases_cover_always_on_manual_and_review_routing(self) -> None:
+    def test_golden_cases_cover_evidence_guarded_and_review_routing(self) -> None:
         catalog = (
             ROOT / "evals" / "golden-prompts.yaml"
         ).read_text(encoding="utf-8")
-        self.assertIn("version: 22", catalog)
+        self.assertIn("version: 23", catalog)
         for case_id in (
-            "unset-first-mutation-choice",
-            "always-on-trivial-edit",
-            "always-on-code-review",
-            "always-on-explanation",
+            "unset-evidence-default",
+            "evidence-trivial-edit",
+            "evidence-code-review",
+            "evidence-explanation",
         ):
             self.assertIn(f"id: {case_id}", catalog)
-        self.assertIn("default_mode: manual", catalog)
-        self.assertIn("default_mode: on", catalog)
+        self.assertIn("default_mode: evidence", catalog)
+        self.assertIn("default_mode: guarded", catalog)
         self.assertIn("id: structured-capability-active-build", catalog)
         self.assertIn("id: structured-capability-review", catalog)
         self.assertIn("id: completed-contract-rollover", catalog)

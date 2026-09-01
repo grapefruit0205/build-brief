@@ -155,7 +155,7 @@ def mark_contract_mutated(
     host_tool_use: bool = True,
 ) -> str:
     state = _read_contract_state(event)
-    if state.get("status") != "approved":
+    if state.get("status") not in {"approved", "evidence"}:
         return ""
     mutation = state.get("mutation")
     if is_running(mutation):
@@ -176,7 +176,7 @@ def mark_contract_mutated(
             "This active contract predates evidence-id completion tracking. Cancel it, "
             "stage the proposal again, and obtain fresh approval before mutation."
         )
-    if not sources:
+    if not sources and state.get("status") == "approved":
         return (
             "Click evidence state is unavailable or malformed; cancel and stage the "
             "contract again before changing the implementation."
@@ -384,8 +384,8 @@ def prepare(
     render_command: RenderRunnerCommand,
 ) -> tuple[str, str]:
     state = _read_contract_state(event)
-    if state.get("status") != "approved":
-        return "", "Approve the staged Click execution contract before mutation."
+    if state.get("status") not in {"approved", "evidence"}:
+        return "", "Start Guarded or Evidence runtime state before mutation."
     request, error = validate_request(
         raw,
         validate_argv=validate_argv,
@@ -458,7 +458,7 @@ def claim_run(
         state = json.loads(path.read_text(encoding="utf-8"))
     except (FileNotFoundError, json.JSONDecodeError, OSError):
         return None, "Click mutation runner could not read its contract state."
-    if not isinstance(state, dict) or state.get("status") != "approved":
+    if not isinstance(state, dict) or state.get("status") not in {"approved", "evidence"}:
         return None, "Click mutation runner is no longer authorized to execute."
     mutation = state.get("mutation")
     if not isinstance(mutation, dict) or mutation.get("status") != "running":
@@ -526,7 +526,7 @@ def record_result(
         state = json.loads(path.read_text(encoding="utf-8"))
     except (FileNotFoundError, json.JSONDecodeError, OSError):
         return False
-    if not isinstance(state, dict) or state.get("status") != "approved":
+    if not isinstance(state, dict) or state.get("status") not in {"approved", "evidence"}:
         return False
     mutation = state.get("mutation")
     if not isinstance(mutation, dict) or mutation.get("status") != "running":
@@ -623,7 +623,7 @@ def record_boundary(
     event: dict[str, Any], *, workspace_snapshot: WorkspaceSnapshot
 ) -> None:
     state = _read_contract_state(event)
-    if state.get("status") != "approved":
+    if state.get("status") not in {"approved", "evidence"}:
         return
     verification = state.get("verification")
     if not isinstance(verification, dict):
