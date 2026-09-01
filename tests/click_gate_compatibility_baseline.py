@@ -12,14 +12,7 @@ DOCUMENTED_LEGACY_FORWARDERS: dict[str, str] = {
 HOST_ADAPTER_SURFACE: dict[str, frozenset[str]] = {
     "hooks/antigravity_gate.py": frozenset(
         {
-            "SHELL_CONTROL_PUNCTUATION",
-            "_emit",
-            "_handle_post_tool",
-            "_handle_pre_tool",
-            "_handle_prompt_submit",
-            "_handle_session_end",
-            "_is_read_only_bash",
-            "_set_output_adapter",
+            "host_router",
         }
     ),
     "hooks/click_hook.py": frozenset({"main"}),

@@ -16,19 +16,23 @@ import shlex
 import subprocess
 import sys
 import time
-from typing import Any, Callable
+from typing import Any
 
 if __package__:
     from . import (
+        click_capability,
         click_gate,
         click_host_coverage,
+        click_inspection,
         click_runner_transport,
         click_state,
     )
     from .platform_protocol import AntigravityOutputAdapter, CodexOutputAdapter
 else:  # Executed directly from the bundled hooks directory.
+    import click_capability
     import click_gate
     import click_host_coverage
+    import click_inspection
     import click_runner_transport
     import click_state
     from platform_protocol import AntigravityOutputAdapter, CodexOutputAdapter
@@ -39,6 +43,7 @@ ANTIGRAVITY_MUTATION_TOOLS = (
     click_host_coverage.ANTIGRAVITY_MUTATION_TOOL_NAMES
 )
 MAX_TRANSCRIPT_BYTES = 1_000_000
+HOST_ROUTER = click_gate.host_router()
 
 
 def _configure_storage() -> None:
@@ -189,19 +194,10 @@ def _canonical_event(context: dict[str, Any], *, prompt: str = "") -> dict[str, 
 
 def _capture(
     adapter: Any,
-    handler: Callable[[dict[str, Any]], None],
+    action: str,
     event: dict[str, Any],
 ) -> dict[str, Any]:
-    outputs: list[dict[str, Any]] = []
-    previous_emit = click_gate._emit
-    previous_adapter = click_gate._set_output_adapter(adapter)
-    click_gate._emit = outputs.append
-    try:
-        handler(event)
-    finally:
-        click_gate._emit = previous_emit
-        click_gate._set_output_adapter(previous_adapter)
-    return outputs[-1] if outputs else {}
+    return HOST_ROUTER.capture(action, event, output_adapter=adapter)
 
 
 def _record_pre_invocation(raw: dict[str, Any]) -> dict[str, Any]:
@@ -239,7 +235,7 @@ def _record_pre_invocation(raw: dict[str, Any]) -> dict[str, Any]:
         click_state.write_json(_workspace_context_path(workspace), context)
         event = _canonical_event(context, prompt=prompt)
         payload = _capture(
-            AntigravityOutputAdapter(), click_gate._handle_prompt_submit, event
+            AntigravityOutputAdapter(), "prompt-submit", event
         )
         steps = payload.get("injectSteps") if isinstance(payload, dict) else None
         if isinstance(steps, list) and steps and isinstance(steps[0], dict):
@@ -366,7 +362,9 @@ def _antigravity_bash_tokens(command: str) -> list[str] | None:
         lexer = shlex.shlex(
             command,
             posix=True,
-            punctuation_chars="".join(sorted(click_gate.SHELL_CONTROL_PUNCTUATION)),
+            punctuation_chars="".join(
+                sorted(click_capability.SHELL_CONTROL_PUNCTUATION)
+            ),
         )
         lexer.whitespace_split = True
         lexer.commenters = ""
@@ -374,7 +372,7 @@ def _antigravity_bash_tokens(command: str) -> list[str] | None:
     except ValueError:
         return None
     if not tokens or any(
-        token and set(token).issubset(click_gate.SHELL_CONTROL_PUNCTUATION)
+        token and set(token).issubset(click_capability.SHELL_CONTROL_PUNCTUATION)
         for token in tokens
     ):
         return None
@@ -419,7 +417,7 @@ def _pre_tool(raw: dict[str, Any]) -> dict[str, Any]:
         if tool_name not in ANTIGRAVITY_MUTATION_TOOLS:
             return {"decision": "allow"}
         command = str(arguments.get("CommandLine", ""))
-        if tool_name == "run_command" and click_gate._is_read_only_bash(command):
+        if tool_name == "run_command" and click_inspection.is_read_only_bash(command):
             return _native_run_command_read_denial()
         return {
             "decision": "deny",
@@ -440,11 +438,11 @@ def _pre_tool(raw: dict[str, Any]) -> dict[str, Any]:
         event["tool_input"] = {"command": command}
         if _launcher_tokens(command, str(context["workspace"])) is not None:
             return {"decision": "allow"}
-        if click_gate._is_read_only_bash(command):
+        if click_inspection.is_read_only_bash(command):
             return _native_run_command_read_denial()
     with click_state.state_lock():
         payload = _capture(
-            AntigravityOutputAdapter(), click_gate._handle_pre_tool, event
+            AntigravityOutputAdapter(), "pre-tool", event
         )
     return payload or {"decision": "allow"}
 
@@ -472,7 +470,7 @@ def _post_tool(raw: dict[str, Any]) -> dict[str, Any]:
         }
     )
     with click_state.state_lock():
-        click_gate._handle_post_tool(event)
+        HOST_ROUTER.dispatch("post-tool", event)
     return {"decision": "allow"}
 
 
@@ -482,7 +480,7 @@ def _stop(raw: dict[str, Any]) -> dict[str, Any]:
         with click_state.state_lock():
             _capture(
                 AntigravityOutputAdapter(),
-                click_gate._handle_session_end,
+                "session-end",
                 _canonical_event(context),
             )
             if (
@@ -521,7 +519,7 @@ def _control(arguments: list[str]) -> int:
         }
     )
     with click_state.state_lock():
-        payload = _capture(CodexOutputAdapter(), click_gate._handle_pre_tool, event)
+        payload = _capture(CodexOutputAdapter(), "pre-tool", event)
     output = payload.get("hookSpecificOutput") if isinstance(payload, dict) else None
     if not isinstance(output, dict):
         return 0

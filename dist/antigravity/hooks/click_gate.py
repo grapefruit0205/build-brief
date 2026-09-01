@@ -28,6 +28,7 @@ if __package__:
         click_contract,
         click_evidence,
         click_host_coverage,
+        click_host_router,
         click_inspection,
         click_lifecycle,
         click_mutation,
@@ -62,6 +63,7 @@ else:  # Executed directly from the bundled hooks directory.
     import click_contract
     import click_evidence
     import click_host_coverage
+    import click_host_router
     import click_inspection
     import click_lifecycle
     import click_mutation
@@ -334,11 +336,28 @@ SED_READ_SCRIPT = click_inspection.SED_READ_SCRIPT
 _OUTPUT_ADAPTER: HookOutputAdapter = CodexOutputAdapter()
 
 
+def _write_stdout_payload(payload: dict[str, Any]) -> None:
+    sys.stdout.write(json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
+
+
+_OUTPUT_SINK: click_host_router.OutputSink = _write_stdout_payload
+
+
 def _set_output_adapter(adapter: HookOutputAdapter) -> HookOutputAdapter:
     """Select a host serializer and return the previous serializer."""
     global _OUTPUT_ADAPTER
     previous = _OUTPUT_ADAPTER
     _OUTPUT_ADAPTER = adapter
+    return previous
+
+
+def _set_output_sink(
+    sink: click_host_router.OutputSink,
+) -> click_host_router.OutputSink:
+    """Select a host output sink and return the previous sink."""
+    global _OUTPUT_SINK
+    previous = _OUTPUT_SINK
+    _OUTPUT_SINK = sink
     return previous
 
 RG_OPTIONS_WITH_VALUES = click_inspection.RG_OPTIONS_WITH_VALUES
@@ -349,7 +368,7 @@ GIT_REMOTE_NAME = click_inspection.GIT_REMOTE_NAME
 
 
 def _emit(payload: dict[str, Any]) -> None:
-    sys.stdout.write(json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
+    _OUTPUT_SINK(payload)
 
 
 def _deny(reason: str) -> None:
@@ -1102,6 +1121,23 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
         )
 
 
+_HOST_ROUTER = click_host_router.HostRouter(
+    click_host_router.HostHandlers(
+        pre_tool=_handle_pre_tool,
+        post_tool=_handle_post_tool,
+        prompt_submit=_handle_prompt_submit,
+        session_end=_handle_session_end,
+    ),
+    set_output_adapter=_set_output_adapter,
+    set_output_sink=_set_output_sink,
+)
+
+
+def host_router() -> click_host_router.HostRouter:
+    """Return the supported routing interface used by bundled host adapters."""
+    return _HOST_ROUTER
+
+
 def _record_verification_result(
     path: Path,
     batch: dict[str, Any],
@@ -1407,18 +1443,8 @@ def main() -> int:
         return 1
     try:
         event = _read_event()
-        if arguments[0] == "prompt-submit":
-            with _state_lock():
-                _handle_prompt_submit(event)
-        elif arguments[0] == "post-tool":
-            with _state_lock():
-                _handle_post_tool(event)
-        elif arguments[0] == "session-end":
-            with _state_lock():
-                _handle_session_end(event)
-        else:
-            with _state_lock():
-                _handle_pre_tool(event)
+        with _state_lock():
+            _HOST_ROUTER.dispatch(arguments[0], event)
     except (OSError, ValueError) as exc:
         sys.stderr.write(f"click hook error: {exc}\n")
         return 1
