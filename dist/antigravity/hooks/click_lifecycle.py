@@ -23,6 +23,7 @@ if __package__:
         click_claims,
         click_contract,
         click_evidence,
+        click_mode,
         click_mutation,
         click_observation,
         click_runtime_state,
@@ -36,6 +37,7 @@ else:  # Executed directly from the bundled hooks directory.
     import click_claims
     import click_contract
     import click_evidence
+    import click_mode
     import click_mutation
     import click_observation
     import click_runtime_state
@@ -55,10 +57,10 @@ CLICK_AUTHORIZATION_PATTERNS = (
 CONTRACT_ID_PATTERN = re.compile(r"^ctr_[0-9a-f]{32}$")
 CONTRACT_STATE_SCHEMA_VERSION = 2
 EVIDENCE_RESULT_FIELDS = {"version", "evidence_id"}
-PREFERENCE_SCHEMA_VERSION = 2
-PUBLIC_DEFAULT_MODES = {"evidence", "guarded", "off"}
-LEGACY_DEFAULT_MODE_ALIASES = {"on": "guarded", "manual": "off"}
-DEFAULT_MODES = PUBLIC_DEFAULT_MODES | set(LEGACY_DEFAULT_MODE_ALIASES)
+PREFERENCE_SCHEMA_VERSION = click_mode.PREFERENCE_SCHEMA_VERSION
+PUBLIC_DEFAULT_MODES = click_mode.PUBLIC_DEFAULT_MODES
+LEGACY_DEFAULT_MODE_ALIASES = click_mode.LEGACY_DEFAULT_MODE_ALIASES
+DEFAULT_MODES = click_mode.DEFAULT_MODES
 EPHEMERAL_STATE_TTL_SECONDS = 7 * 24 * 60 * 60
 COMPLETED_CONTRACT_TTL_SECONDS = 30 * 24 * 60 * 60
 
@@ -81,86 +83,6 @@ def _read_state(event: dict[str, Any]) -> dict[str, Any]:
     except (FileNotFoundError, json.JSONDecodeError, OSError):
         return {"status": "idle"}
     return value if isinstance(value, dict) else {"status": "idle"}
-
-
-def _write_mode(event: dict[str, Any], mode: str) -> None:
-    click_state.write_json(
-        click_state.mode_path(event),
-        {"mode": mode, "updated_at": int(time.time())},
-    )
-
-
-def _read_mode(event: dict[str, Any]) -> str:
-    try:
-        value = json.loads(click_state.mode_path(event).read_text(encoding="utf-8"))
-    except (FileNotFoundError, json.JSONDecodeError, OSError):
-        return "adaptive"
-    if isinstance(value, dict) and value.get("mode") in {"adaptive", "strict"}:
-        return str(value["mode"])
-    return "adaptive"
-
-
-def _write_default_mode(mode: str) -> None:
-    if mode not in DEFAULT_MODES:
-        raise ValueError(f"unsupported Click default mode: {mode}")
-    normalized = LEGACY_DEFAULT_MODE_ALIASES.get(mode, mode)
-    click_state.write_json(
-        click_state.preference_path(),
-        {
-            "schema_version": PREFERENCE_SCHEMA_VERSION,
-            "default_mode": normalized,
-            "migration_notice_pending": False,
-            "updated_at": int(time.time()),
-        },
-    )
-
-
-def _read_default_mode() -> str:
-    path = click_state.preference_path()
-    try:
-        value = json.loads(path.read_text(encoding="utf-8"))
-    except (FileNotFoundError, json.JSONDecodeError, OSError):
-        return "evidence"
-    if not isinstance(value, dict):
-        return "evidence"
-    stored = value.get("default_mode")
-    if (
-        value.get("schema_version") == PREFERENCE_SCHEMA_VERSION
-        and stored in PUBLIC_DEFAULT_MODES
-    ):
-        return str(stored)
-    if isinstance(stored, str) and stored in DEFAULT_MODES:
-        # Preserve the user's prior authority choice while upgrading the public
-        # names: Always ON becomes Guarded and Manual becomes Off. An already
-        # staged or approved contract is stored separately and remains locked.
-        migrated_mode = LEGACY_DEFAULT_MODE_ALIASES.get(stored, stored)
-        click_state.write_json(
-            path,
-            {
-                "schema_version": PREFERENCE_SCHEMA_VERSION,
-                "default_mode": migrated_mode,
-                "migrated_from": stored,
-                "migration_notice_pending": True,
-                "updated_at": int(time.time()),
-            },
-        )
-        return migrated_mode
-    return "evidence"
-
-
-def _consume_migration_notice() -> str:
-    path = click_state.preference_path()
-    try:
-        value = json.loads(path.read_text(encoding="utf-8"))
-    except (FileNotFoundError, json.JSONDecodeError, OSError):
-        return ""
-    if not isinstance(value, dict) or value.get("migration_notice_pending") is not True:
-        return ""
-    migrated_from = str(value.get("migrated_from", ""))
-    value["migration_notice_pending"] = False
-    value["updated_at"] = int(time.time())
-    click_state.write_json(path, value)
-    return migrated_from
 
 
 def _evidence_sources(state: dict[str, Any]) -> dict[str, Any] | None:
@@ -586,8 +508,8 @@ def _control_request(command: str) -> tuple[str | None, str, str]:
 def prompt_context(event: dict[str, Any]) -> str:
     _prune_state()
     authorization = _record_user_prompt(event)
-    default_mode = _read_default_mode()
-    migrated_from = _consume_migration_notice()
+    default_mode = click_mode.read_default_mode()
+    migrated_from = click_mode.consume_migration_notice()
     contract_state = _read_contract_state(event)
     active_guarded = _session_contract_is_active(contract_state)
     recovered_evidence = False
@@ -725,8 +647,8 @@ def stage_contract(event: dict[str, Any], raw: str) -> tuple[str, str]:
     _prune_state()
 
     current_status = _read_state(event).get("status")
-    strict = _read_mode(event) == "strict"
-    guarded = _read_default_mode() == "guarded"
+    strict = click_mode.read_mode(event) == "strict"
+    guarded = click_mode.read_default_mode() == "guarded"
     prompt_turn_error = _active_prompt_turn_error(event)
     if prompt_turn_error:
         return "", prompt_turn_error
@@ -793,8 +715,8 @@ def pass_contract(event: dict[str, Any], contract_id: str) -> tuple[str, str]:
     _prune_state()
 
     current_status = _read_state(event).get("status")
-    strict = _read_mode(event) == "strict"
-    guarded = _read_default_mode() == "guarded"
+    strict = click_mode.read_mode(event) == "strict"
+    guarded = click_mode.read_default_mode() == "guarded"
     prompt_turn_error = _active_prompt_turn_error(event)
     if prompt_turn_error:
         return "", prompt_turn_error
@@ -963,11 +885,11 @@ def record_evidence_completion(
 
 write_state = _write_state
 read_state = _read_state
-write_mode = _write_mode
-read_mode = _read_mode
-write_default_mode = _write_default_mode
-read_default_mode = _read_default_mode
-consume_migration_notice = _consume_migration_notice
+write_mode = click_mode.write_mode
+read_mode = click_mode.read_mode
+write_default_mode = click_mode.write_default_mode
+read_default_mode = click_mode.read_default_mode
+consume_migration_notice = click_mode.consume_migration_notice
 evidence_sources = _evidence_sources
 write_contract_state = _write_contract_state
 contract_id_from_state = _contract_id_from_state
