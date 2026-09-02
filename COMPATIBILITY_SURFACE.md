@@ -40,7 +40,7 @@ decision and release note.
 ## Private module forwarders
 
 The v0.36.0 facade baseline started with 144 private module-forwarding bindings.
-The current facade contains **123 private module-forwarding bindings** such as
+The current facade contains **118 private module-forwarding bindings** such as
 `_evidence_key = click_evidence.evidence_key`. Their exact names and owners are
 recorded in `tests/click_gate_compatibility_baseline.py`.
 
@@ -55,5 +55,5 @@ These bindings follow four rules:
    migrated to the owning module or a formal host API.
 
 The architecture test intentionally records the current debt without claiming
-that the remaining 123 names are supported forever. Its purpose is to make the surface
+that the remaining 118 names are supported forever. Its purpose is to make the surface
 shrink deliberately and prevent accidental expansion.

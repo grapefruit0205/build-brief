@@ -112,19 +112,6 @@ else:  # Executed directly from the bundled hooks directory.
 # schema validation now lives in the one-way click_contract boundary.
 _validate_contract = click_contract.validate_contract
 
-# Compatibility aliases for direct callers and the deterministic suite. The
-# managed local-service state machine and runner lifecycle live in the one-way
-# click_service boundary; gate wrappers below provide only cross-domain routing.
-_looks_like_managed_service = click_service.looks_like_managed_service
-_request_service_stop = click_service.request_stop
-_service_snapshot = click_service.service_snapshot
-
-# Compatibility aliases for mutation state and direct result recording. The
-# gate wrappers below inject host routing and shared execution mechanics into
-# the one-way click_mutation boundary.
-_fresh_mutation_state = click_mutation.fresh_state
-_mutation_is_running = click_mutation.is_running
-
 # Compatibility aliases for shared shell-free capability validation. These
 # leaves are used by inspection, mutation, service, and verification without
 # importing the gate or one another.
@@ -424,23 +411,6 @@ def _mark_contract_mutated(
 _prune_state = click_lifecycle.prune_state
 
 
-def _validate_mutation_request(raw: str) -> tuple[dict[str, Any] | None, str]:
-    return click_mutation.validate_request(
-        raw,
-        validate_argv=_validate_argv,
-        looks_like_managed_service=_looks_like_managed_service,
-        protocol_version=CAPABILITY_PROTOCOL_VERSION,
-    )
-
-
-def _validate_service_request(raw: str) -> tuple[dict[str, Any] | None, str]:
-    return click_service.validate_request(
-        raw,
-        validate_argv=_validate_argv,
-        protocol_version=CAPABILITY_PROTOCOL_VERSION,
-    )
-
-
 _validate_evidence_result = click_lifecycle.validate_evidence_result
 _control_request = click_lifecycle.control_request
 
@@ -481,8 +451,8 @@ def _prepare_observation(
         request,
         broad_inventory,
         review=review,
-        mutation_is_running=_mutation_is_running,
-        fresh_mutation_state=_fresh_mutation_state,
+        mutation_is_running=click_mutation.is_running,
+        fresh_mutation_state=click_mutation.fresh_state,
         runner_script=Path(__file__).resolve(),
         render_command=click_runner_transport.render_runner_shell_command,
     )
@@ -514,7 +484,7 @@ def _prepare_mutation(event: dict[str, Any], raw: str) -> tuple[str, str]:
         event,
         raw,
         validate_argv=_validate_argv,
-        looks_like_managed_service=_looks_like_managed_service,
+        looks_like_managed_service=click_service.looks_like_managed_service,
         protocol_version=CAPABILITY_PROTOCOL_VERSION,
         expected_contract_schema_version=CONTRACT_STATE_SCHEMA_VERSION,
         observation_is_running=_observation_is_running,
@@ -641,7 +611,7 @@ def _prepare_browser_evidence(event: dict[str, Any]) -> tuple[bool, str, str]:
         event,
         expected_contract_schema_version=CONTRACT_STATE_SCHEMA_VERSION,
         contract_is_completed=_contract_is_completed,
-        mutation_is_running=_mutation_is_running,
+        mutation_is_running=click_mutation.is_running,
     )
 
 
@@ -667,7 +637,7 @@ def _handle_prompt_submit(event: dict[str, Any]) -> None:
 
 
 def _handle_session_end(event: dict[str, Any]) -> None:
-    _request_service_stop(event)
+    click_service.request_stop(event)
 
 
 def _handle_pre_tool(event: dict[str, Any]) -> None:
@@ -711,7 +681,7 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
                 if authorization_error:
                     _deny(authorization_error)
                     return
-                _request_service_stop(event)
+                click_service.request_stop(event)
                 _clear_contract_state(event)
                 _clear_review_state(event)
                 _write_state(event, "idle")
@@ -1208,7 +1178,7 @@ def _claim_mutation_run(
         request_digest,
         runner_token,
         validate_argv=_validate_argv,
-        looks_like_managed_service=_looks_like_managed_service,
+        looks_like_managed_service=click_service.looks_like_managed_service,
         protocol_version=CAPABILITY_PROTOCOL_VERSION,
     )
 
@@ -1217,7 +1187,7 @@ def _run_mutation(arguments: list[str]) -> int:
     return click_mutation.run(
         arguments,
         validate_argv=_validate_argv,
-        looks_like_managed_service=_looks_like_managed_service,
+        looks_like_managed_service=click_service.looks_like_managed_service,
         protocol_version=CAPABILITY_PROTOCOL_VERSION,
         execute_commands=_execute_argv_commands,
     )
@@ -1248,7 +1218,7 @@ def _run_service_start(arguments: list[str]) -> int:
 def _run_service_stop(arguments: list[str]) -> int:
     return click_service.run_service_stop(
         arguments,
-        snapshot_reader=_service_snapshot,
+        snapshot_reader=click_service.service_snapshot,
     )
 
 

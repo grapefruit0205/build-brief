@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 import unittest
 
-from hooks import click_gate, click_service
+from hooks import click_capability, click_service
 
 
 class ClickServiceTests(unittest.TestCase):
@@ -42,42 +42,14 @@ class ClickServiceTests(unittest.TestCase):
         self.assertIn("click_process", imported)
         self.assertIn("click_state", imported)
 
-    def test_gate_keeps_service_compatibility_aliases(self) -> None:
-        aliases = {
-            "_looks_like_managed_service": click_service.looks_like_managed_service,
-            "_request_service_stop": click_service.request_stop,
-            "_service_snapshot": click_service.service_snapshot,
-        }
-        for name, expected in aliases.items():
-            with self.subTest(name=name):
-                self.assertIs(getattr(click_gate, name), expected)
-
-        for name in (
-            "_fresh_service_state",
-            "_record_service_fields",
-            "_claim_service_runner",
-        ):
-            with self.subTest(name=name):
-                self.assertFalse(hasattr(click_gate, name))
-
-        self.assertIs(
-            click_gate.SERVICE_REQUEST_FIELDS,
-            click_service.SERVICE_REQUEST_FIELDS,
-        )
-        self.assertEqual(
-            click_gate.SERVICE_START_TIMEOUT_SECONDS,
-            click_service.SERVICE_START_TIMEOUT_SECONDS,
-        )
-        self.assertEqual(
-            click_gate.SERVICE_STOP_TIMEOUT_SECONDS,
-            click_service.SERVICE_STOP_TIMEOUT_SECONDS,
-        )
-        self.assertEqual(
-            click_gate.MANAGED_SERVICE_MAX_SECONDS,
-            click_service.MANAGED_SERVICE_MAX_SECONDS,
-        )
-
     def test_service_validation_preserves_exact_errors_and_normalization(self) -> None:
+        def validate(raw: str):
+            return click_service.validate_request(
+                raw,
+                validate_argv=click_capability.validate_argv,
+                protocol_version=click_capability.PROTOCOL_VERSION,
+            )
+
         cases = (
             ("{", "Managed service request must be valid JSON."),
             ("[]", "Managed service request must be a JSON object."),
@@ -107,17 +79,15 @@ class ClickServiceTests(unittest.TestCase):
         )
         for raw, expected in cases:
             with self.subTest(expected=expected):
-                value, error = click_gate._validate_service_request(raw)
+                value, error = validate(raw)
                 self.assertIsNone(value)
                 self.assertEqual(error, expected)
 
-        stop, error = click_gate._validate_service_request(
-            json.dumps({"version": 1, "action": "stop"})
-        )
+        stop, error = validate(json.dumps({"version": 1, "action": "stop"}))
         self.assertEqual(error, "")
         self.assertEqual(stop, {"version": 1, "action": "stop"})
 
-        start, error = click_gate._validate_service_request(
+        start, error = validate(
             json.dumps({"version": 1, "action": "start", "argv": ["vite"]})
         )
         self.assertEqual(error, "")

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 
-MAX_PRIVATE_FORWARDERS = 123
+MAX_PRIVATE_FORWARDERS = 118
 
 DOCUMENTED_LEGACY_FORWARDERS: dict[str, str] = {
     "_validate_contract": "click_contract.validate_contract",
@@ -49,7 +49,6 @@ PRIVATE_FORWARDERS: dict[str, str] = {
     "_execute_read_only_git": "click_inspection.execute_read_only_git",
     "_execution_argv": "click_inspection.execution_argv",
     "_file_content_digest": "click_verification.file_content_digest",
-    "_fresh_mutation_state": "click_mutation.fresh_state",
     "_fresh_observation_state": "click_observation.fresh_state",
     "_fresh_verification_state": "click_verification.fresh_state",
     "_get_content_paths": "click_inspection.get_content_paths",
@@ -70,11 +69,9 @@ PRIVATE_FORWARDERS: dict[str, str] = {
     "_is_read_only_tokens": "click_inspection.is_read_only_tokens",
     "_is_recognized_verification_command": "click_verification.is_recognized_command",
     "_is_recognized_verification_tokens": "click_verification.is_recognized_tokens",
-    "_looks_like_managed_service": "click_service.looks_like_managed_service",
     "_managed_observation_path": "click_observation.managed_path",
     "_minimum_test_runner_class": "click_verification._minimum_test_runner_class",
     "_minimum_verification_class": "click_verification.minimum_class",
-    "_mutation_is_running": "click_mutation.is_running",
     "_new_untracked_is_suspicious": "click_verification.new_untracked_is_suspicious",
     "_observation_is_running": "click_observation.is_running",
     "_parse_read_only_git_tokens": "click_inspection.parse_read_only_git_tokens",
@@ -95,7 +92,6 @@ PRIVATE_FORWARDERS: dict[str, str] = {
     "_record_user_prompt": "click_prompt.record_user_prompt",
     "_redact_git_remote_output": "click_inspection.redact_git_remote_output",
     "_redact_git_remote_url": "click_inspection.redact_git_remote_url",
-    "_request_service_stop": "click_service.request_stop",
     "_resolve_read_only_executable": "click_inspection.resolve_read_only_executable",
     "_sanitized_executable_path": "click_inspection.sanitized_executable_path",
     "_sanitized_git_environment": "click_inspection.sanitized_git_environment",
@@ -103,7 +99,6 @@ PRIVATE_FORWARDERS: dict[str, str] = {
     "_save_contract_state": "click_contract_state.save_contract_state",
     "_save_review_state": "click_observation.save_review_state",
     "_scope_with_kind_floor": "click_verification._scope_with_kind_floor",
-    "_service_snapshot": "click_service.service_snapshot",
     "_session_contract_is_active": "click_lifecycle.session_contract_is_active",
     "_shell_segments": "click_capability.shell_segments",
     "_store_dependency_receipt": "click_verification.store_dependency_receipt",
