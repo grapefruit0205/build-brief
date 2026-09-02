@@ -41,23 +41,23 @@ class ClickInspectionTests(unittest.TestCase):
         self.assertIn("click_inspection_policy", imported)
         self.assertIn("click_process", imported)
 
-    def test_gate_keeps_inspection_compatibility_aliases(self) -> None:
-        aliases = {
-            "_validate_inspection_request": click_inspection.validate_request,
-            "_parse_read_only_git_tokens": click_inspection.parse_read_only_git_tokens,
-            "_build_read_only_git_argv": click_inspection.build_read_only_git_argv,
-            "_is_read_only_tokens": click_inspection.is_read_only_tokens,
-            "_direct_command_tokens": click_inspection.direct_command_tokens,
-            "_inspection_request_from_bash": click_inspection.request_from_bash,
-            "_workspace_boundary": click_inspection.workspace_boundary,
-            "_resolve_read_only_executable": click_inspection.resolve_read_only_executable,
-            "_execution_argv": click_inspection.execution_argv,
-            "_execute_argv_commands": click_inspection.execute_argv_commands,
-            "_execute_inspection_commands": click_inspection.execute_commands,
-        }
-        for name, expected in aliases.items():
+    def test_gate_does_not_reexport_inspection_helpers(self) -> None:
+        aliases = (
+            "_validate_inspection_request",
+            "_parse_read_only_git_tokens",
+            "_build_read_only_git_argv",
+            "_is_read_only_tokens",
+            "_direct_command_tokens",
+            "_inspection_request_from_bash",
+            "_workspace_boundary",
+            "_resolve_read_only_executable",
+            "_execution_argv",
+            "_execute_argv_commands",
+            "_execute_inspection_commands",
+        )
+        for name in aliases:
             with self.subTest(name=name):
-                self.assertIs(getattr(click_gate, name), expected)
+                self.assertFalse(hasattr(click_gate, name))
         self.assertIs(
             click_gate.INSPECTION_REQUEST_FIELDS,
             click_inspection.REQUEST_FIELDS,

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from click_gate_test_support import (
+    CLICK_CAPABILITY,
     CLICK_GATE,
     CLICK_PROCESS,
     CLICK_SERVICE,
+    CLICK_STATE,
     HOOK_CONFIG,
     Path,
     ClickGateTestCase,
@@ -24,7 +26,7 @@ from click_gate_test_support import (
 def validate_service_request(raw: str):
     return CLICK_SERVICE.validate_request(
         raw,
-        validate_argv=CLICK_GATE.click_capability.validate_argv,
+        validate_argv=CLICK_CAPABILITY.validate_argv,
         protocol_version=CLICK_GATE.CAPABILITY_PROTOCOL_VERSION,
     )
 
@@ -65,11 +67,11 @@ class ClickGateServiceTests(ClickGateTestCase):
             "service-id",
             runner_token,
             str(self.workspace.resolve()),
-            CLICK_GATE._encoded_request(normalized),
+            CLICK_CAPABILITY.encode_request(normalized),
         ]
 
         def launch_supervisor(*_args: object, **_kwargs: object) -> mock.Mock:
-            with CLICK_GATE._state_lock():
+            with CLICK_STATE.state_lock():
                 self.assertTrue(
                     CLICK_SERVICE.record_service_fields(
                         state_path,
@@ -142,7 +144,7 @@ class ClickGateServiceTests(ClickGateTestCase):
                     f"service-{label}-id",
                     runner_token,
                     str(self.workspace.resolve()),
-                    CLICK_GATE._encoded_request(normalized),
+                    CLICK_CAPABILITY.encode_request(normalized),
                 ]
                 with (
                     mock.patch.dict(
@@ -186,7 +188,7 @@ class ClickGateServiceTests(ClickGateTestCase):
             "service-id",
             runner_token,
             cwd_raw,
-            CLICK_GATE._encoded_request(normalized),
+            CLICK_CAPABILITY.encode_request(normalized),
         ]
         child = mock.Mock()
         child.pid = 12345
@@ -196,7 +198,7 @@ class ClickGateServiceTests(ClickGateTestCase):
                 CLICK_GATE.os.environ,
                 {"PLUGIN_DATA": str(self.plugin_data)},
             ),
-            CLICK_GATE._state_lock(),
+            CLICK_STATE.state_lock(),
         ):
             self.assertEqual(
                 CLICK_SERVICE.claim_service_runner(
@@ -255,7 +257,7 @@ class ClickGateServiceTests(ClickGateTestCase):
                 CLICK_GATE.os.environ,
                 {"PLUGIN_DATA": str(self.plugin_data)},
             ),
-            CLICK_GATE._state_lock(),
+            CLICK_STATE.state_lock(),
         ):
             self.assertEqual(
                 CLICK_SERVICE.claim_service_runner(
@@ -278,7 +280,7 @@ class ClickGateServiceTests(ClickGateTestCase):
             "stale-supervisor-id",
             runner_token,
             cwd_raw,
-            CLICK_GATE._encoded_request(normalized),
+            CLICK_CAPABILITY.encode_request(normalized),
         ]
         with (
             mock.patch.dict(
@@ -321,7 +323,7 @@ class ClickGateServiceTests(ClickGateTestCase):
             "service-id",
             runner_token,
             str(self.workspace.resolve()),
-            CLICK_GATE._encoded_request(normalized),
+            CLICK_CAPABILITY.encode_request(normalized),
         ]
         state_path.unlink()
         with (

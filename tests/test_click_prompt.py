@@ -135,22 +135,18 @@ class ClickPromptTests(unittest.TestCase):
         self.assertRegex(state["follow_up_turns"][0]["digest"], r"^[0-9a-f]{64}$")
         self.assertFalse(click_prompt.append_follow_up(event, state))
 
-    def test_lifecycle_and_gate_reexport_the_same_prompt_objects(self) -> None:
-        aliases = {
-            "_prompt_authorization": click_prompt.prompt_authorization,
-            "_record_user_prompt": click_prompt.record_user_prompt,
-            "_read_user_prompt_state": click_prompt.read_user_prompt_state,
-            "_read_user_prompt_turn": click_prompt.read_user_prompt_turn,
-            "_consume_user_authorization": click_prompt.consume_user_authorization,
-            "_active_prompt_turn_error": click_prompt.active_prompt_turn_error,
-        }
-        for gate_name, expected in aliases.items():
-            with self.subTest(gate_name=gate_name):
-                self.assertIs(getattr(click_gate, gate_name), expected)
-        self.assertIs(
-            click_gate.CLICK_AUTHORIZATION_PATTERNS,
-            click_prompt.CLICK_AUTHORIZATION_PATTERNS,
+    def test_gate_does_not_reexport_prompt_helpers(self) -> None:
+        aliases = (
+            "_prompt_authorization",
+            "_record_user_prompt",
+            "_read_user_prompt_state",
+            "_read_user_prompt_turn",
+            "_consume_user_authorization",
+            "_active_prompt_turn_error",
         )
+        for gate_name in aliases:
+            with self.subTest(gate_name=gate_name):
+                self.assertFalse(hasattr(click_gate, gate_name))
         self.assertIs(
             click_lifecycle.CLICK_AUTHORIZATION_PATTERNS,
             click_prompt.CLICK_AUTHORIZATION_PATTERNS,

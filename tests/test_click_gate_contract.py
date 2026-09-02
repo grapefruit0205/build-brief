@@ -3,7 +3,9 @@ from __future__ import annotations
 from click_gate_test_support import (
     CLICK_EVIDENCE,
     CLICK_GATE,
+    CLICK_LIFECYCLE,
     CLICK_PROCESS,
+    CLICK_VERIFICATION,
     HOOK_CONFIG,
     Path,
     ClickGateTestCase,
@@ -195,7 +197,7 @@ class ClickGateContractTests(ClickGateTestCase):
                 ],
             }
         )
-        value, _, error = CLICK_GATE._validate_verification_batch(
+        value, _, error = CLICK_VERIFICATION.validate_batch(
             raw, "focused", sources
         )
         self.assertIsNone(value)
@@ -232,7 +234,7 @@ class ClickGateContractTests(ClickGateTestCase):
             sources[CLICK_EVIDENCE.evidence_key("E2")]["status"], "ready"
         )
         self.assertEqual(state["verification"]["status"], "ready")
-        self.assertFalse(CLICK_GATE._contract_is_completed(state))
+        self.assertFalse(CLICK_LIFECYCLE.contract_is_completed(state))
 
         reused = self.verify_gate([self.verification_argv()])
         self.assertEqual(
@@ -268,7 +270,7 @@ class ClickGateContractTests(ClickGateTestCase):
             source = sources[CLICK_EVIDENCE.evidence_key(evidence_id)]
             self.assertEqual(source["status"], "passed")
             self.assertEqual(source["verified_revision"], revision)
-        self.assertTrue(CLICK_GATE._contract_is_completed(state))
+        self.assertTrue(CLICK_LIFECYCLE.contract_is_completed(state))
 
     def test_partial_argv_batch_records_each_evidence_source(self) -> None:
         contract = self.contract()
@@ -299,7 +301,7 @@ class ClickGateContractTests(ClickGateTestCase):
         self.assertEqual(
             sources[CLICK_EVIDENCE.evidence_key("E2")]["status"], "failed"
         )
-        self.assertFalse(CLICK_GATE._contract_is_completed(state))
+        self.assertFalse(CLICK_LIFECYCLE.contract_is_completed(state))
 
         retry = self.verify_gate(
             [self.verification_argv(1)], evidence_ids=["E2"]
@@ -366,7 +368,7 @@ class ClickGateContractTests(ClickGateTestCase):
             ]
             self.assertEqual(source["status"], "passed")
             self.assertEqual(source["verified_revision"], revision)
-        self.assertTrue(CLICK_GATE._contract_is_completed(state))
+        self.assertTrue(CLICK_LIFECYCLE.contract_is_completed(state))
 
     def test_non_argv_evidence_can_complete_without_a_local_batch(self) -> None:
         contract = self.contract()
@@ -394,12 +396,12 @@ class ClickGateContractTests(ClickGateTestCase):
                 (self.plugin_data / "gate-state").glob("session-contract-*.json")
             )
             state = json.loads(state_path.read_text(encoding="utf-8"))
-            self.assertFalse(CLICK_GATE._contract_is_completed(state))
+            self.assertFalse(CLICK_LIFECYCLE.contract_is_completed(state))
 
         completed = self.complete_evidence("E-existing")
         self.assertEqual(completed["hookSpecificOutput"]["permissionDecision"], "allow")
         state = json.loads(state_path.read_text(encoding="utf-8"))
-        self.assertTrue(CLICK_GATE._contract_is_completed(state))
+        self.assertTrue(CLICK_LIFECYCLE.contract_is_completed(state))
 
     def test_argv_evidence_cannot_be_completed_by_attestation(self) -> None:
         self.approve_contract()
@@ -426,17 +428,17 @@ class ClickGateContractTests(ClickGateTestCase):
             (self.plugin_data / "gate-state").glob("session-contract-*.json")
         )
         state = json.loads(state_path.read_text(encoding="utf-8"))
-        self.assertFalse(CLICK_GATE._contract_is_completed(state))
+        self.assertFalse(CLICK_LIFECYCLE.contract_is_completed(state))
 
         self.complete_evidence("E-manual")
         state = json.loads(state_path.read_text(encoding="utf-8"))
-        self.assertTrue(CLICK_GATE._contract_is_completed(state))
+        self.assertTrue(CLICK_LIFECYCLE.contract_is_completed(state))
 
         self.assertIsNone(
             self.pre_tool("apply_patch", "*** Begin Patch\n*** End Patch", "turn-2")
         )
         state = json.loads(state_path.read_text(encoding="utf-8"))
-        self.assertFalse(CLICK_GATE._contract_is_completed(state))
+        self.assertFalse(CLICK_LIFECYCLE.contract_is_completed(state))
         for source in state["evidence_state"]["sources"].values():
             self.assertIn(source["status"], {"stale", "ready"})
 

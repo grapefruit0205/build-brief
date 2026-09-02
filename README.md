@@ -168,9 +168,9 @@ Explicit controls remain available:
 
 Neither silently unlocks an active incomplete Guarded contract.
 
-### Upgrade an existing installation — v0.36.2
+### Upgrade an existing installation — v0.50.0
 
-The current release is **v0.36.2**.
+The current release is **v0.50.0**.
 
 ```bash
 codex plugin marketplace upgrade click
@@ -179,10 +179,11 @@ codex plugin add click@click
 
 Start a fresh task after upgrading so the current Hook code and mode behavior are loaded.
 
-v0.36.2 moves mode, inspection policy, prompt lineage, and contract-state
-persistence behind explicit runtime leaf boundaries. Existing lifecycle and
-gate compatibility symbols remain intact, and Evidence/Guarded authority,
-runner recovery, receipt semantics, and the Antigravity runtime stay unchanged.
+v0.50.0 completes the private gate-facade reduction: 144 historical module
+forwarders are reduced to the single documented `_validate_contract`
+compatibility binding. Domain tests now patch their owning modules, while the
+public host entry points, Evidence/Guarded authority, runner recovery, receipt
+semantics, and the Antigravity runtime stay unchanged.
 
 ---
 

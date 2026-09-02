@@ -107,23 +107,23 @@ class ClickStateTests(unittest.TestCase):
                 click_state.managed_state_path(link, ("session-contract-",))
             )
 
-    def test_click_gate_keeps_compatibility_aliases_for_state_primitives(self) -> None:
-        aliases = {
-            "_state_root": click_state.state_root,
-            "_preference_path": click_state.preference_path,
-            "_identity_path": click_state.identity_path,
-            "_state_path": click_state.state_path,
-            "_mode_path": click_state.mode_path,
-            "_contract_path": click_state.contract_path,
-            "_managed_state_path": click_state.managed_state_path,
-            "_prompt_path": click_state.prompt_path,
-            "_review_path": click_state.review_path,
-            "_write_json": click_state.write_json,
-            "_state_lock": click_state.state_lock,
-        }
-        for name, expected in aliases.items():
+    def test_click_gate_does_not_reexport_state_primitives(self) -> None:
+        aliases = (
+            "_state_root",
+            "_preference_path",
+            "_identity_path",
+            "_state_path",
+            "_mode_path",
+            "_contract_path",
+            "_managed_state_path",
+            "_prompt_path",
+            "_review_path",
+            "_write_json",
+            "_state_lock",
+        )
+        for name in aliases:
             with self.subTest(name=name):
-                self.assertIs(getattr(click_gate, name), expected)
+                self.assertFalse(hasattr(click_gate, name))
         self.assertEqual(
             click_gate.STATE_LOCK_TIMEOUT_SECONDS,
             click_state.STATE_LOCK_TIMEOUT_SECONDS,

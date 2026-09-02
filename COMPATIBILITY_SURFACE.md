@@ -40,11 +40,11 @@ decision and release note.
 ## Private module forwarders
 
 The v0.36.0 facade baseline started with 144 private module-forwarding bindings.
-The current facade contains **118 private module-forwarding bindings** such as
-`_evidence_key = click_evidence.evidence_key`. Their exact names and owners are
+The current facade contains **1 private module-forwarding binding**:
+`_validate_contract = click_contract.validate_contract`. Its exact owner is
 recorded in `tests/click_gate_compatibility_baseline.py`.
 
-These bindings follow four rules:
+This binding and the facade follow four rules:
 
 1. New domain code and tests import the owning module instead of adding another
    `click_gate._name` dependency.
@@ -54,6 +54,6 @@ These bindings follow four rules:
 4. Removal happens only after real host callers and compatibility tests have
    migrated to the owning module or a formal host API.
 
-The architecture test intentionally records the current debt without claiming
-that the remaining 118 names are supported forever. Its purpose is to make the surface
-shrink deliberately and prevent accidental expansion.
+The architecture test records the one deliberate legacy exception and requires
+all other domain callers to use their owning modules. Its purpose is to prevent
+the private forwarding surface from growing again.

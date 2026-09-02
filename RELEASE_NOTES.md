@@ -1,5 +1,24 @@
 # Release notes
 
+## v0.50.0 — 2026-09-02
+
+- The executable gate facade now retains only the deliberately documented
+  private compatibility binding
+  `_validate_contract = click_contract.validate_contract`. The reviewed
+  baseline falls from 144 private module forwarders to one without changing
+  the public `main`, `host_router`, or runner-transport surfaces.
+- Domain tests and runtime patch points now target the owning capability,
+  inspection, observation, mutation, service, verification, lifecycle, prompt,
+  contract-state, and state modules instead of reaching through
+  `click_gate.py`.
+- The architecture check detects both ordinary assignments and tuple
+  destructuring, preventing removed private forwarders from being hidden or
+  reintroduced while preserving the two public state-lock timing constants.
+- Evidence and Guarded authority, exact errors, one-use claims, replay and
+  tamper rejection, revision-aware receipts, dependency-cache lineage, and
+  Codex/Antigravity host behavior remain unchanged. The synchronized
+  distributions pass the complete 467-test suite with three documented skips.
+
 ## v0.36.2 — 2026-09-02
 
 - Mode and preference persistence plus read-only inspection policy now live in

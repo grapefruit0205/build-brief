@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 from click_gate_test_support import (
+    CLICK_CAPABILITY,
     CLICK_EVIDENCE,
     CLICK_GATE,
+    CLICK_INSPECTION,
     CLICK_PROCESS,
+    CLICK_STATE,
+    CLICK_VERIFICATION,
     HOOK_CONFIG,
     Path,
     ClickGateTestCase,
@@ -74,7 +78,7 @@ class ClickGateVerificationTests(ClickGateTestCase):
             for _ in range(9)
         ]
 
-        batch, _, error = CLICK_GATE._validate_verification_batch(
+        batch, _, error = CLICK_VERIFICATION.validate_batch(
             json.dumps({"version": 2, "checks": checks}),
             "focused",
         )
@@ -104,7 +108,7 @@ class ClickGateVerificationTests(ClickGateTestCase):
         )
         self.assertGreater(len(raw), 6_000)
 
-        batch, _, error = CLICK_GATE._validate_verification_batch(raw, "focused")
+        batch, _, error = CLICK_VERIFICATION.validate_batch(raw, "focused")
 
         self.assertEqual(error, "")
         self.assertIsNotNone(batch)
@@ -185,7 +189,7 @@ class ClickGateVerificationTests(ClickGateTestCase):
             "go test ./internal/...",
         ):
             with self.subTest(command=command):
-                batch, units, error = CLICK_GATE._validate_verification_batch(
+                batch, units, error = CLICK_VERIFICATION.validate_batch(
                     json.dumps(
                         {
                             "version": 2,
@@ -203,7 +207,7 @@ class ClickGateVerificationTests(ClickGateTestCase):
                 self.assertEqual(units, 3)
                 self.assertEqual(batch["checks"][0]["class"], "broad")
 
-        deep_batch, deep_units, error = CLICK_GATE._validate_verification_batch(
+        deep_batch, deep_units, error = CLICK_VERIFICATION.validate_batch(
             json.dumps(
                 {
                     "version": 2,
@@ -239,7 +243,7 @@ class ClickGateVerificationTests(ClickGateTestCase):
             ],
         ):
             with self.subTest(argv=argv):
-                batch, units, error = CLICK_GATE._validate_verification_batch(
+                batch, units, error = CLICK_VERIFICATION.validate_batch(
                     json.dumps(
                         {
                             "version": 2,
@@ -318,7 +322,7 @@ class ClickGateVerificationTests(ClickGateTestCase):
         for argv, expected in cases.items():
             with self.subTest(argv=argv):
                 self.assertEqual(
-                    CLICK_GATE._minimum_verification_class(list(argv)), expected
+                    CLICK_VERIFICATION.minimum_class(list(argv)), expected
                 )
 
     def test_verification_classifier_supports_common_build_and_check_forms(self) -> None:
@@ -342,10 +346,10 @@ class ClickGateVerificationTests(ClickGateTestCase):
         for argv, expected in cases.items():
             with self.subTest(argv=argv):
                 self.assertEqual(
-                    CLICK_GATE._minimum_verification_class(list(argv)), expected
+                    CLICK_VERIFICATION.minimum_class(list(argv)), expected
                 )
         self.assertIsNone(
-            CLICK_GATE._minimum_verification_class(
+            CLICK_VERIFICATION.minimum_class(
                 ["node", "--eval", "process.exit(0)"]
             )
         )
@@ -366,7 +370,7 @@ class ClickGateVerificationTests(ClickGateTestCase):
 
     def test_unknown_verification_wrapper_is_normalized_but_must_resolve(self) -> None:
         self.approve_contract()
-        batch, units, error = CLICK_GATE._validate_verification_batch(
+        batch, units, error = CLICK_VERIFICATION.validate_batch(
             json.dumps(
                 {
                     "version": 2,
@@ -832,7 +836,7 @@ class ClickGateVerificationTests(ClickGateTestCase):
             "CLICK_TEST_ENVIRONMENT": "stable",
         }
         with mock.patch.object(CLICK_GATE.os, "environ", stable):
-            expected = CLICK_GATE._verification_environment(cwd=self.workspace)
+            expected = CLICK_VERIFICATION.environment(cwd=self.workspace)
         noisy = {
             **stable,
             "_": "launcher",
@@ -846,7 +850,7 @@ class ClickGateVerificationTests(ClickGateTestCase):
             "=C:": "C:\\runner",
         }
         with mock.patch.object(CLICK_GATE.os, "environ", noisy):
-            actual = CLICK_GATE._verification_environment(cwd=self.workspace)
+            actual = CLICK_VERIFICATION.environment(cwd=self.workspace)
 
         self.assertEqual(actual, expected)
         self.assertEqual(actual["CLICK_TEST_ENVIRONMENT"], "stable")
@@ -863,11 +867,11 @@ class ClickGateVerificationTests(ClickGateTestCase):
             }
         ]
         with mock.patch.object(CLICK_GATE.os, "name", "nt"):
-            binding = CLICK_GATE._verification_environment_binding(
+            binding = CLICK_VERIFICATION.environment_binding(
                 {"Path": "C:\\Python", "Click_Test": "stable"}, reservation_nonce
             )
             projected, drifted, error = (
-                CLICK_GATE._verification_environment_from_binding(
+                CLICK_VERIFICATION.environment_from_binding(
                     binding,
                     reservation_nonce,
                     {
@@ -877,12 +881,12 @@ class ClickGateVerificationTests(ClickGateTestCase):
                     },
                 )
             )
-            first_digest = CLICK_GATE._verification_environment_digest_from_records(
+            first_digest = CLICK_VERIFICATION.environment_digest_from_records(
                 executables,
                 cwd=self.workspace,
                 environment={"Path": "C:\\Python", "Click_Test": "stable"},
             )
-            second_digest = CLICK_GATE._verification_environment_digest_from_records(
+            second_digest = CLICK_VERIFICATION.environment_digest_from_records(
                 executables,
                 cwd=self.workspace,
                 environment={"PATH": "C:\\Python", "CLICK_TEST": "stable"},
@@ -899,12 +903,12 @@ class ClickGateVerificationTests(ClickGateTestCase):
         self,
     ) -> None:
         runner_token = "set-at-runtime"
-        binding = CLICK_GATE._verification_environment_binding(
+        binding = CLICK_VERIFICATION.environment_binding(
             {"PATH": "/usr/bin", "HOOK_ONLY": "prepared"}, runner_token
         )
 
         projected, drifted, error = (
-            CLICK_GATE._verification_environment_from_binding(
+            CLICK_VERIFICATION.environment_from_binding(
                 binding,
                 runner_token,
                 {"PATH": "/usr/bin", "RUNNER_ONLY": "ignored"},
@@ -925,7 +929,7 @@ class ClickGateVerificationTests(ClickGateTestCase):
         environment = os.environ.copy()
         environment["PATH"] = "tools"
 
-        digest = CLICK_GATE._verification_environment_digest(
+        digest = CLICK_VERIFICATION.environment_digest(
             [{"argv": [executable_name], "class": "targeted"}],
             cwd=self.workspace,
             environment=environment,
@@ -939,7 +943,7 @@ class ClickGateVerificationTests(ClickGateTestCase):
         executable.chmod(0o755)
         relative = ".\\gradlew" if os.name == "nt" else "./gradlew"
         with mock.patch.object(CLICK_GATE.shutil, "which", return_value=relative):
-            records = CLICK_GATE._verification_executable_records(
+            records = CLICK_VERIFICATION.executable_records(
                 [{"argv": [relative], "class": "targeted"}],
                 cwd=self.workspace,
                 environment={"PATH": os.environ.get("PATH", os.defpath)},
@@ -967,7 +971,7 @@ class ClickGateVerificationTests(ClickGateTestCase):
         tokens = split_runner_command(
             payload["hookSpecificOutput"]["updatedInput"]["command"]
         )
-        raw, error = CLICK_GATE._decode_encoded_request(tokens[8], "verification")
+        raw, error = CLICK_CAPABILITY.decode_encoded_request(tokens[8], "verification")
         self.assertEqual(error, "")
         environment = {
             "PLUGIN_DATA": str(self.plugin_data),
@@ -1010,10 +1014,10 @@ class ClickGateVerificationTests(ClickGateTestCase):
         with (
             mock.patch.dict(os.environ, environment),
             mock.patch.object(CLICK_GATE.Path, "cwd", return_value=self.workspace),
-            mock.patch.object(CLICK_GATE, "_git_workspace_snapshot", return_value=None),
-            mock.patch.object(CLICK_GATE, "_git_metadata_present", return_value=False),
+            mock.patch.object(CLICK_VERIFICATION, "git_workspace_snapshot", return_value=None),
+            mock.patch.object(CLICK_INSPECTION, "git_metadata_present", return_value=False),
             mock.patch.object(
-                CLICK_GATE, "_execute_argv_commands", return_value=0
+                CLICK_INSPECTION, "execute_argv_commands", return_value=0
             ) as execute,
         ):
             self.assertEqual(CLICK_GATE._run_verification(tokens[5:]), 0)
@@ -1033,9 +1037,9 @@ class ClickGateVerificationTests(ClickGateTestCase):
         with (
             mock.patch.dict(os.environ, environment),
             mock.patch.object(CLICK_GATE.Path, "cwd", return_value=self.workspace),
-            mock.patch.object(CLICK_GATE, "_file_content_digest", return_value="0" * 64),
+            mock.patch.object(CLICK_VERIFICATION, "file_content_digest", return_value="0" * 64),
             mock.patch.object(
-                CLICK_GATE, "_execute_argv_commands", return_value=0
+                CLICK_INSPECTION, "execute_argv_commands", return_value=0
             ) as execute,
         ):
             self.assertEqual(CLICK_GATE._run_verification(tokens[5:]), 2)
@@ -1070,11 +1074,11 @@ class ClickGateVerificationTests(ClickGateTestCase):
                 },
             ),
             mock.patch.object(
-                CLICK_GATE, "_execute_argv_commands", return_value=0
+                CLICK_INSPECTION, "execute_argv_commands", return_value=0
             ) as execute,
             mock.patch.object(CLICK_GATE.Path, "cwd", return_value=self.workspace),
-            mock.patch.object(CLICK_GATE, "_git_workspace_snapshot", return_value=None),
-            mock.patch.object(CLICK_GATE, "_git_metadata_present", return_value=False),
+            mock.patch.object(CLICK_VERIFICATION, "git_workspace_snapshot", return_value=None),
+            mock.patch.object(CLICK_INSPECTION, "git_metadata_present", return_value=False),
         ):
             self.assertEqual(CLICK_GATE._run_verification(tokens[5:]), 0)
         execute.assert_called_once()
@@ -1128,7 +1132,7 @@ class ClickGateVerificationTests(ClickGateTestCase):
                 },
             ),
             mock.patch.object(
-                CLICK_GATE, "_execute_argv_commands", return_value=0
+                CLICK_INSPECTION, "execute_argv_commands", return_value=0
             ) as execute,
         ):
             self.assertEqual(CLICK_GATE._run_verification(tokens[5:]), 2)
@@ -1146,7 +1150,7 @@ class ClickGateVerificationTests(ClickGateTestCase):
             payload["hookSpecificOutput"]["updatedInput"]["command"]
         )
         state_path = Path(tokens[5])
-        raw, error = CLICK_GATE._decode_encoded_request(tokens[8], "verification")
+        raw, error = CLICK_CAPABILITY.decode_encoded_request(tokens[8], "verification")
         self.assertEqual(error, "")
         environment = {
             "PLUGIN_DATA": str(self.plugin_data),
@@ -1156,7 +1160,7 @@ class ClickGateVerificationTests(ClickGateTestCase):
             mock.patch.dict(CLICK_GATE.os.environ, environment),
             mock.patch.object(CLICK_GATE.Path, "cwd", return_value=self.workspace),
         ):
-            with CLICK_GATE._state_lock():
+            with CLICK_STATE.state_lock():
                 batch, claim_error = CLICK_GATE._claim_verification_run(
                     state_path, raw, tokens[6], tokens[7]
                 )
@@ -1182,7 +1186,7 @@ class ClickGateVerificationTests(ClickGateTestCase):
                 tokens = split_runner_command(
                     payload["hookSpecificOutput"]["updatedInput"]["command"]
                 )
-                raw, error = CLICK_GATE._decode_encoded_request(
+                raw, error = CLICK_CAPABILITY.decode_encoded_request(
                     tokens[8], "verification"
                 )
                 self.assertEqual(error, "")
@@ -1245,7 +1249,7 @@ class ClickGateVerificationTests(ClickGateTestCase):
         with (
             mock.patch.dict(CLICK_GATE.os.environ, environment),
             mock.patch.object(CLICK_GATE.Path, "cwd", return_value=self.workspace),
-            mock.patch.object(CLICK_GATE, "_execute_argv_commands") as execute,
+            mock.patch.object(CLICK_INSPECTION, "execute_argv_commands") as execute,
         ):
             self.assertEqual(CLICK_GATE._run_verification(tokens[5:]), 2)
         execute.assert_not_called()
@@ -1322,7 +1326,7 @@ class ClickGateVerificationTests(ClickGateTestCase):
                         {"PLUGIN_DATA": str(self.plugin_data)},
                     ),
                     mock.patch.object(
-                        CLICK_GATE, "_execute_argv_commands"
+                        CLICK_INSPECTION, "execute_argv_commands"
                     ) as execute,
                 ):
                     self.assertEqual(CLICK_GATE._run_verification(tokens[5:]), 2)
@@ -1341,9 +1345,9 @@ class ClickGateVerificationTests(ClickGateTestCase):
         with (
             mock.patch.dict(CLICK_GATE.os.environ, environment),
             mock.patch.object(CLICK_GATE.Path, "cwd", return_value=self.workspace),
-            mock.patch.object(CLICK_GATE, "_git_workspace_snapshot", return_value=None),
-            mock.patch.object(CLICK_GATE, "_git_metadata_present", return_value=True),
-            mock.patch.object(CLICK_GATE, "_execute_argv_commands") as execute,
+            mock.patch.object(CLICK_VERIFICATION, "git_workspace_snapshot", return_value=None),
+            mock.patch.object(CLICK_INSPECTION, "git_metadata_present", return_value=True),
+            mock.patch.object(CLICK_INSPECTION, "execute_argv_commands") as execute,
         ):
             self.assertEqual(CLICK_GATE._run_verification(tokens[5:]), 2)
         execute.assert_not_called()
@@ -1720,15 +1724,15 @@ class ClickGateVerificationTests(ClickGateTestCase):
         self.assertEqual(state["verification"]["mutation_revision"], 1)
 
     def test_new_source_path_created_during_verification_fails_stale(self) -> None:
-        self.assertTrue(CLICK_GATE._new_untracked_is_suspicious("src/new_feature.py"))
-        self.assertTrue(CLICK_GATE._new_untracked_is_suspicious("config/policy.json"))
-        self.assertTrue(CLICK_GATE._new_untracked_is_suspicious("migration/001.sql"))
+        self.assertTrue(CLICK_VERIFICATION.new_untracked_is_suspicious("src/new_feature.py"))
+        self.assertTrue(CLICK_VERIFICATION.new_untracked_is_suspicious("config/policy.json"))
+        self.assertTrue(CLICK_VERIFICATION.new_untracked_is_suspicious("migration/001.sql"))
         self.assertTrue(
-            CLICK_GATE._new_untracked_is_suspicious("packages/api/lib/new_rule.py")
+            CLICK_VERIFICATION.new_untracked_is_suspicious("packages/api/lib/new_rule.py")
         )
-        self.assertFalse(CLICK_GATE._new_untracked_is_suspicious("new-report.tmp"))
+        self.assertFalse(CLICK_VERIFICATION.new_untracked_is_suspicious("new-report.tmp"))
         self.assertFalse(
-            CLICK_GATE._new_untracked_is_suspicious("reports/app/output.txt")
+            CLICK_VERIFICATION.new_untracked_is_suspicious("reports/app/output.txt")
         )
         (self.workspace / ".gitignore").write_text("__pycache__/\n", encoding="utf-8")
         (self.workspace / "source_creating_test.py").write_text(
@@ -1888,19 +1892,19 @@ class ClickGateVerificationTests(ClickGateTestCase):
         )
 
     def test_verification_root_main_py_fails_stale(self) -> None:
-        self.assertTrue(CLICK_GATE._new_untracked_is_suspicious("main.py"))
+        self.assertTrue(CLICK_VERIFICATION.new_untracked_is_suspicious("main.py"))
         self.assert_verification_new_path_behavior("main.py", suspicious=True)
 
     def test_verification_root_package_json_fails_stale(self) -> None:
-        self.assertTrue(CLICK_GATE._new_untracked_is_suspicious("package.json"))
+        self.assertTrue(CLICK_VERIFICATION.new_untracked_is_suspicious("package.json"))
         self.assert_verification_new_path_behavior("package.json", suspicious=True)
 
     def test_verification_root_dockerfile_fails_stale(self) -> None:
-        self.assertTrue(CLICK_GATE._new_untracked_is_suspicious("Dockerfile"))
+        self.assertTrue(CLICK_VERIFICATION.new_untracked_is_suspicious("Dockerfile"))
         self.assert_verification_new_path_behavior("Dockerfile", suspicious=True)
 
     def test_verification_generic_report_fails_stale(self) -> None:
-        self.assertFalse(CLICK_GATE._new_untracked_is_suspicious("generic-report.txt"))
+        self.assertFalse(CLICK_VERIFICATION.new_untracked_is_suspicious("generic-report.txt"))
         self.assert_verification_new_path_behavior("generic-report.txt")
 
     def test_verification_ignored_artifact_does_not_change_snapshot(self) -> None:

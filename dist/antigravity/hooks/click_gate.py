@@ -73,162 +73,13 @@ else:  # Executed directly from the bundled hooks directory.
     "platform_protocol",
 )
 
-(
-    STATE_LOCK_STALE_SECONDS,
-    STATE_LOCK_TIMEOUT_SECONDS,
-    _contract_path,
-    _identity_path,
-    _managed_state_path,
-    _mode_path,
-    _preference_path,
-    _prompt_path,
-    _review_path,
-    _state_lock,
-    _state_path,
-    _state_root,
-    _write_json,
-    CodexOutputAdapter,
-    HookOutputAdapter,
-) = (
-    click_state.STATE_LOCK_STALE_SECONDS,
-    click_state.STATE_LOCK_TIMEOUT_SECONDS,
-    click_state.contract_path,
-    click_state.identity_path,
-    click_state.managed_state_path,
-    click_state.mode_path,
-    click_state.preference_path,
-    click_state.prompt_path,
-    click_state.review_path,
-    click_state.state_lock,
-    click_state.state_path,
-    click_state.state_root,
-    click_state.write_json,
-    platform_protocol.CodexOutputAdapter,
-    platform_protocol.HookOutputAdapter,
-)
-
-
 # Compatibility alias for direct callers and the deterministic suite. Contract
 # schema validation now lives in the one-way click_contract boundary.
 _validate_contract = click_contract.validate_contract
 
-# Compatibility aliases for shared shell-free capability validation. These
-# leaves are used by inspection, mutation, service, and verification without
-# importing the gate or one another.
-_decode_capability_request = click_capability.decode_request
-_validate_argv = click_capability.validate_argv
-_policy_executable_name = click_capability.policy_executable_name
-_shell_segments = click_capability.shell_segments
-_command_parts = click_capability.command_parts
-_positional_arguments = click_capability.positional_arguments
-_capability_digest = click_capability.digest
-_encoded_request = click_capability.encode_request
-_decode_encoded_request = click_capability.decode_encoded_request
 
-# Compatibility aliases for read-only admission and hardened execution. The
-# stateful reservation and receipt lifecycle lives separately in observation.
-_validate_inspection_request = click_inspection.validate_request
-_git_option_allowed = click_inspection.git_option_allowed
-_is_read_only_git_remote_arguments = click_inspection.is_read_only_git_remote_arguments
-_parse_read_only_git_tokens = click_inspection.parse_read_only_git_tokens
-_git_subcommand = click_inspection.git_subcommand
-_sanitized_git_environment = click_inspection.sanitized_git_environment
-_build_read_only_git_argv = click_inspection.build_read_only_git_argv
-_targets_repository_root = click_inspection.targets_repository_root
-_is_broad_exploration_tokens = click_inspection.is_broad_exploration_tokens
-_is_read_only_sed = click_inspection.is_read_only_sed
-_get_content_paths = click_inspection.get_content_paths
-_structured_ssh_parts = click_inspection.structured_ssh_parts
-_is_path_qualified_executable = click_inspection.is_path_qualified_executable
-_is_local_read_only_tokens = click_inspection.is_local_read_only_tokens
-_is_read_only_tokens = click_inspection.is_read_only_tokens
-_is_read_only_bash = click_inspection.is_read_only_bash
-_direct_command_tokens = click_inspection.direct_command_tokens
-_inspection_request_from_bash = click_inspection.request_from_bash
-_path_is_within = click_inspection.path_is_within
-_valid_git_worktree_marker = click_inspection.valid_git_worktree_marker
-_workspace_boundary = click_inspection.workspace_boundary
-_git_metadata_present = click_inspection.git_metadata_present
-_unsafe_inherited_environment_key = click_inspection.unsafe_inherited_environment_key
-_sanitized_executable_path = click_inspection.sanitized_executable_path
-_resolve_read_only_executable = click_inspection.resolve_read_only_executable
-_sanitized_read_only_environment = click_inspection.sanitized_read_only_environment
-_execution_argv = click_inspection.execution_argv
-_is_git_remote_output_request = click_inspection.is_git_remote_output_request
-_redact_git_remote_url = click_inspection.redact_git_remote_url
-_redact_git_remote_output = click_inspection.redact_git_remote_output
-_execute_argv_commands = click_inspection.execute_argv_commands
-_write_runner_stream = click_inspection.write_runner_stream
-_execute_native_get_content = click_inspection.execute_native_get_content
-_execute_read_only_git = click_inspection.execute_read_only_git
-_execute_inspection_commands = click_inspection.execute_commands
-
-# Compatibility aliases for observation state and result receipts. Cross-domain
-# runner wrappers remain below so existing patch points are resolved at call time.
-_fresh_observation_state = click_observation.fresh_state
-_unclaimed_reservation_is_fresh = click_observation.unclaimed_reservation_is_fresh
-_observation_is_running = click_observation.is_running
-_write_review_state = click_observation.write_review_state
-_read_review_state = click_observation.read_review_state
-_save_review_state = click_observation.save_review_state
-_clear_review_state = click_observation.clear_review_state
-_managed_observation_path = click_observation.managed_path
-_record_observation_result = click_observation.record_result
-
-# Compatibility aliases for verification classification, fingerprints,
-# receipts, and protected workspace snapshots. Thin wrappers below preserve
-# gate patch points while delegating the complete runner lifecycle.
-_fresh_verification_state = click_verification.fresh_state
-_validate_verification_batch = click_verification.validate_batch
-_verification_groups = click_verification.verification_groups
-_verification_group_digest = click_verification.group_digest
-_verification_group_units = click_verification.group_units
-_file_content_digest = click_verification.file_content_digest
-_verification_environment = click_verification.environment
-_verification_environment_key = click_verification.environment_key
-_verification_environment_hmac = click_verification._verification_environment_hmac
-_verification_environment_binding = click_verification.environment_binding
-_verification_environment_binding_digest = click_verification.environment_binding_digest
-_verification_environment_binding_is_authentic = (
-    click_verification.environment_binding_is_authentic
-)
-_verification_host_coverage_binding_digest = (
-    click_verification.host_coverage_binding_digest
-)
-_verification_host_coverage_binding_is_authentic = (
-    click_verification.host_coverage_binding_is_authentic
-)
-_verification_environment_from_binding = click_verification.environment_from_binding
-_executable_search_path = click_verification._executable_search_path
-_verification_executable_records = click_verification.executable_records
-_verification_executable_payload = click_verification.executable_payload
-_verification_environment_digest_from_records = (
-    click_verification.environment_digest_from_records
-)
-_verification_environment_digest = click_verification.environment_digest
-_verification_receipt_matches = click_verification.receipt_matches
-_dependency_declarations = click_verification.dependency_declarations
-_dependency_receipt_is_valid = click_verification.dependency_receipt_is_valid
-_dependency_receipt_matches = click_verification.dependency_receipt_matches
-_clear_dependency_receipt = click_verification.clear_dependency_receipt
-_store_dependency_receipt = click_verification.store_dependency_receipt
-_promote_dependency_receipt = click_verification.promote_dependency_receipt
-_contains_deep_verification_marker = (
-    click_verification._contains_deep_verification_marker
-)
-_arguments_have_filter = click_verification._arguments_have_filter
-_verification_targets = click_verification._verification_targets
-_scope_with_kind_floor = click_verification._scope_with_kind_floor
-_minimum_test_runner_class = click_verification._minimum_test_runner_class
-_minimum_verification_class = click_verification.minimum_class
-_is_recognized_verification_tokens = click_verification.is_recognized_tokens
-_is_recognized_verification_command = click_verification.is_recognized_command
-_git_capture = click_verification.git_capture
-_hash_workspace_path = click_verification.hash_workspace_path
-_git_workspace_snapshot = click_verification.git_workspace_snapshot
-_new_untracked_is_suspicious = click_verification.new_untracked_is_suspicious
-
-
+STATE_LOCK_STALE_SECONDS = click_state.STATE_LOCK_STALE_SECONDS
+STATE_LOCK_TIMEOUT_SECONDS = click_state.STATE_LOCK_TIMEOUT_SECONDS
 CONTROL_COMMAND = click_lifecycle.CONTROL_COMMAND
 CLICK_AUTHORIZATION_PATTERNS = click_prompt.CLICK_AUTHORIZATION_PATTERNS
 STRING_FIELDS = click_contract.STRING_FIELDS
@@ -305,7 +156,9 @@ SHELL_CONTROL_PUNCTUATION = click_capability.SHELL_CONTROL_PUNCTUATION
 SED_READ_SCRIPT = click_inspection.SED_READ_SCRIPT
 
 
-_OUTPUT_ADAPTER: HookOutputAdapter = CodexOutputAdapter()
+_OUTPUT_ADAPTER: platform_protocol.HookOutputAdapter = (
+    platform_protocol.CodexOutputAdapter()
+)
 
 
 def _write_stdout_payload(payload: dict[str, Any]) -> None:
@@ -315,7 +168,9 @@ def _write_stdout_payload(payload: dict[str, Any]) -> None:
 _OUTPUT_SINK: click_host_router.OutputSink = _write_stdout_payload
 
 
-def _set_output_adapter(adapter: HookOutputAdapter) -> HookOutputAdapter:
+def _set_output_adapter(
+    adapter: platform_protocol.HookOutputAdapter,
+) -> platform_protocol.HookOutputAdapter:
     """Select a host serializer and return the previous serializer."""
     global _OUTPUT_ADAPTER
     previous = _OUTPUT_ADAPTER
@@ -369,50 +224,16 @@ def _read_event() -> dict[str, Any]:
     return value
 
 
-# Compatibility aliases for approval, prompt-turn, mode, and contract state.
-# Host-event routing remains below; lifecycle transitions live in the top
-# runtime domain without importing this adapter.
-_write_state = click_lifecycle.write_state
-_read_state = click_lifecycle.read_state
-_write_mode = click_lifecycle.write_mode
-_read_mode = click_lifecycle.read_mode
-_write_default_mode = click_lifecycle.write_default_mode
-_read_default_mode = click_lifecycle.read_default_mode
-_evidence_sources = click_lifecycle.evidence_sources
-_write_contract_state = click_lifecycle.write_contract_state
-_contract_id_from_state = click_lifecycle.contract_id_from_state
-_read_contract_state = click_contract_state.read_contract_state
-_clear_contract_state = click_contract_state.clear_contract_state
-_save_contract_state = click_contract_state.save_contract_state
-_prompt_authorization = click_prompt.prompt_authorization
-_record_user_prompt = click_prompt.record_user_prompt
-_read_user_prompt_state = click_prompt.read_user_prompt_state
-_read_user_prompt_turn = click_prompt.read_user_prompt_turn
-_consume_user_authorization = click_prompt.consume_user_authorization
-_active_prompt_turn_error = click_prompt.active_prompt_turn_error
-_contract_is_completed = click_lifecycle.contract_is_completed
-_approved_contract_is_active = click_lifecycle.approved_contract_is_active
-_session_contract_is_active = click_lifecycle.session_contract_is_active
-_ensure_evidence_state = click_lifecycle.ensure_evidence_state
-
-
 def _mark_contract_mutated(
     event: dict[str, Any], *, host_tool_use: bool = True
 ) -> str:
     return click_mutation.mark_contract_mutated(
         event,
         expected_contract_schema_version=CONTRACT_STATE_SCHEMA_VERSION,
-        observation_is_running=_observation_is_running,
-        workspace_snapshot=_git_workspace_snapshot,
+        observation_is_running=click_observation.is_running,
+        workspace_snapshot=click_verification.git_workspace_snapshot,
         host_tool_use=host_tool_use,
     )
-
-
-_prune_state = click_lifecycle.prune_state
-
-
-_validate_evidence_result = click_lifecycle.validate_evidence_result
-_control_request = click_lifecycle.control_request
 
 
 def _stateful_runner_prefix(action: str) -> list[str]:
@@ -421,7 +242,7 @@ def _stateful_runner_prefix(action: str) -> list[str]:
         sys.executable,
         str(Path(__file__).resolve()),
         "--state-root",
-        str(_state_root().resolve()),
+        str(click_state.state_root().resolve()),
         action,
     ]
 
@@ -483,12 +304,12 @@ def _prepare_mutation(event: dict[str, Any], raw: str) -> tuple[str, str]:
     return click_mutation.prepare(
         event,
         raw,
-        validate_argv=_validate_argv,
+        validate_argv=click_capability.validate_argv,
         looks_like_managed_service=click_service.looks_like_managed_service,
         protocol_version=CAPABILITY_PROTOCOL_VERSION,
         expected_contract_schema_version=CONTRACT_STATE_SCHEMA_VERSION,
-        observation_is_running=_observation_is_running,
-        workspace_snapshot=_git_workspace_snapshot,
+        observation_is_running=click_observation.is_running,
+        workspace_snapshot=click_verification.git_workspace_snapshot,
         runner_script=Path(__file__).resolve(),
         render_command=click_runner_transport.render_runner_shell_command,
     )
@@ -514,7 +335,7 @@ def _prepare_service(event: dict[str, Any], raw: str) -> tuple[str, str]:
     return click_service.prepare_service(
         event,
         raw,
-        validate_argv=_validate_argv,
+        validate_argv=click_capability.validate_argv,
         protocol_version=CAPABILITY_PROTOCOL_VERSION,
         mark_contract_mutated=lambda value: _mark_contract_mutated(
             value, host_tool_use=False
@@ -560,7 +381,7 @@ def _receipt_export_runner_command(event: dict[str, Any]) -> str:
     return click_runner_transport.render_runner_shell_command(
         [
             *_stateful_runner_prefix("run-receipt-export"),
-            str(_contract_path(event).resolve()),
+            str(click_state.contract_path(event).resolve()),
             str(_tool_working_directory(event)),
             host_id,
             (
@@ -595,8 +416,8 @@ def _prepare_verification(
         raw,
         runner_script=Path(__file__).resolve(),
         render_command=click_runner_transport.render_runner_shell_command,
-        git_workspace_snapshot=_git_workspace_snapshot,
-        git_capture=_git_capture,
+        git_workspace_snapshot=click_verification.git_workspace_snapshot,
+        git_capture=click_verification.git_capture,
     )
 
 
@@ -610,7 +431,7 @@ def _prepare_browser_evidence(event: dict[str, Any]) -> tuple[bool, str, str]:
     return click_browser.prepare(
         event,
         expected_contract_schema_version=CONTRACT_STATE_SCHEMA_VERSION,
-        contract_is_completed=_contract_is_completed,
+        contract_is_completed=click_lifecycle.contract_is_completed,
         mutation_is_running=click_mutation.is_running,
     )
 
@@ -618,7 +439,7 @@ def _prepare_browser_evidence(event: dict[str, Any]) -> tuple[bool, str, str]:
 def _record_mutation_boundary(event: dict[str, Any]) -> None:
     click_mutation.record_boundary(
         event,
-        workspace_snapshot=_git_workspace_snapshot,
+        workspace_snapshot=click_verification.git_workspace_snapshot,
     )
 
 
@@ -654,69 +475,69 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
         return
 
     if tool_name == "Bash":
-        action, value, control_error = _control_request(str(command))
+        action, value, control_error = click_lifecycle.control_request(str(command))
         if action is not None:
             if control_error:
                 _deny(control_error)
                 return
             if action == "arm":
-                _prune_state()
-                _clear_review_state(event)
-                _write_state(event, "armed")
+                click_lifecycle.prune_state()
+                click_observation.clear_review_state(event)
+                click_lifecycle.write_state(event, "armed")
                 _allow_rewritten("echo Click mutation gate armed")
                 return
             if action == "bypass":
-                _prune_state()
-                authorization_error = _consume_user_authorization(event, "bypass")
+                click_lifecycle.prune_state()
+                authorization_error = click_prompt.consume_user_authorization(event, "bypass")
                 if authorization_error:
                     _deny(authorization_error)
                     return
-                _write_state(event, "bypassed")
-                _clear_review_state(event)
+                click_lifecycle.write_state(event, "bypassed")
+                click_observation.clear_review_state(event)
                 _allow_rewritten("echo Click bypassed for this turn")
                 return
             if action == "cancel":
-                _prune_state()
-                authorization_error = _consume_user_authorization(event, "cancel")
+                click_lifecycle.prune_state()
+                authorization_error = click_prompt.consume_user_authorization(event, "cancel")
                 if authorization_error:
                     _deny(authorization_error)
                     return
                 click_service.request_stop(event)
-                _clear_contract_state(event)
-                _clear_review_state(event)
-                _write_state(event, "idle")
+                click_contract_state.clear_contract_state(event)
+                click_observation.clear_review_state(event)
+                click_lifecycle.write_state(event, "idle")
                 _allow_rewritten("echo Click active contract cancelled")
                 return
             if action == "review":
-                _prune_state()
-                current_status = _read_state(event).get("status")
+                click_lifecycle.prune_state()
+                current_status = click_lifecycle.read_state(event).get("status")
                 if current_status in {"armed", "staged", "passed"}:
                     _deny(
                         "Click cannot enter read-only review mode while a build contract "
                         "is active in this turn. Finish or explicitly bypass that workflow."
                     )
                     return
-                _write_review_state(event)
-                _write_state(event, "review")
+                click_observation.write_review_state(event)
+                click_lifecycle.write_state(event, "review")
                 _allow_rewritten("echo Click read-only review guard armed")
                 return
             if action == "default":
-                _prune_state()
+                click_lifecycle.prune_state()
                 if value == "status":
-                    current = _read_default_mode()
+                    current = click_lifecycle.read_default_mode()
                     _allow_rewritten(f"echo Click default mode: {current}")
                     return
-                _write_default_mode(value)
+                click_lifecycle.write_default_mode(value)
                 normalized = click_lifecycle.LEGACY_DEFAULT_MODE_ALIASES.get(
                     value, value
                 )
-                runtime_state = _read_contract_state(event)
+                runtime_state = click_contract_state.read_contract_state(event)
                 if (
                     normalized != "evidence"
                     and runtime_state.get("status") == "evidence"
                 ):
-                    _clear_contract_state(event)
-                    _write_state(event, "idle")
+                    click_contract_state.clear_contract_state(event)
+                    click_lifecycle.write_state(event, "idle")
                 label = {
                     "evidence": "Evidence",
                     "guarded": "Guarded",
@@ -725,15 +546,15 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
                 _allow_rewritten(f"echo Click default mode set to {label}")
                 return
             if action == "mode":
-                _prune_state()
-                _write_mode(event, value)
+                click_lifecycle.prune_state()
+                click_lifecycle.write_mode(event, value)
                 if value == "adaptive":
-                    _write_state(event, "idle")
+                    click_lifecycle.write_state(event, "idle")
                 _allow_rewritten(f"echo Click mode set to {value}")
                 return
             if action == "receipt-export":
-                state = _read_contract_state(event)
-                if not _contract_is_completed(state):
+                state = click_contract_state.read_contract_state(event)
+                if not click_lifecycle.contract_is_completed(state):
                     _deny(
                         "Click receipt export requires every declared evidence source "
                         "to be current and every managed service to be stopped."
@@ -745,12 +566,12 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
                 _allow_rewritten(_receipt_verify_runner_command(value))
                 return
             if action == "evidence":
-                current_status = _read_state(event).get("status")
-                runtime_state = _read_contract_state(event)
+                current_status = click_lifecycle.read_state(event).get("status")
+                runtime_state = click_contract_state.read_contract_state(event)
                 evidence_active = runtime_state.get("status") == "evidence"
                 if (
                     current_status != "passed"
-                    and _read_mode(event) != "strict"
+                    and click_lifecycle.read_mode(event) != "strict"
                     and not evidence_active
                 ):
                     _deny(
@@ -766,15 +587,15 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
                 return
             if action == "inspect":
                 request, broad_inventory, inspection_error = (
-                    _validate_inspection_request(value)
+                    click_inspection.validate_request(value)
                 )
                 if inspection_error:
                     _deny(inspection_error)
                     return
                 assert request is not None
-                current_status = _read_state(event).get("status")
-                runtime_state = _read_contract_state(event)
-                approved_session_active = _approved_contract_is_active(runtime_state)
+                current_status = click_lifecycle.read_state(event).get("status")
+                runtime_state = click_contract_state.read_contract_state(event)
+                approved_session_active = click_lifecycle.approved_contract_is_active(runtime_state)
                 evidence_active = runtime_state.get("status") == "evidence"
                 if current_status == "review":
                     (
@@ -807,11 +628,11 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
                     _allow_rewritten(rewritten)
                 return
             if action == "mutate":
-                current_status = _read_state(event).get("status")
-                evidence_active = _read_contract_state(event).get("status") == "evidence"
+                current_status = click_lifecycle.read_state(event).get("status")
+                evidence_active = click_contract_state.read_contract_state(event).get("status") == "evidence"
                 if (
                     current_status != "passed"
-                    and _read_mode(event) != "strict"
+                    and click_lifecycle.read_mode(event) != "strict"
                     and not evidence_active
                 ):
                     _deny(
@@ -826,11 +647,11 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
                 _allow_rewritten(rewritten)
                 return
             if action == "service":
-                current_status = _read_state(event).get("status")
-                evidence_active = _read_contract_state(event).get("status") == "evidence"
+                current_status = click_lifecycle.read_state(event).get("status")
+                evidence_active = click_contract_state.read_contract_state(event).get("status") == "evidence"
                 if (
                     current_status != "passed"
-                    and _read_mode(event) != "strict"
+                    and click_lifecycle.read_mode(event) != "strict"
                     and not evidence_active
                 ):
                     _deny(
@@ -845,11 +666,11 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
                 _allow_rewritten(rewritten)
                 return
             if action == "verify":
-                current_status = _read_state(event).get("status")
-                evidence_active = _read_contract_state(event).get("status") == "evidence"
+                current_status = click_lifecycle.read_state(event).get("status")
+                evidence_active = click_contract_state.read_contract_state(event).get("status") == "evidence"
                 if (
                     current_status != "passed"
-                    and _read_mode(event) != "strict"
+                    and click_lifecycle.read_mode(event) != "strict"
                     and not evidence_active
                 ):
                     _deny(
@@ -886,7 +707,7 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
                     return
                 if action == "stage":
                     contract, projection_error = click_contract.validate_contract(value)
-                    contract_id = _contract_id_from_state(_read_contract_state(event))
+                    contract_id = click_lifecycle.contract_id_from_state(click_contract_state.read_contract_state(event))
                     if projection_error or contract is None or not contract_id:
                         _deny(
                             projection_error
@@ -901,12 +722,12 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
                     _allow_rewritten(rewritten)
                 return
 
-    status = _read_state(event).get("status")
+    status = click_lifecycle.read_state(event).get("status")
     if status == "bypassed":
         return
     if _is_plan_tool(tool_name):
-        contract_state = _read_contract_state(event)
-        session_contract_active = _session_contract_is_active(contract_state)
+        contract_state = click_contract_state.read_contract_state(event)
+        session_contract_active = click_lifecycle.session_contract_is_active(contract_state)
         if status in {"armed", "staged", "passed"} or session_contract_active:
             _advise(
                 "Click advisory: the Click contract workflow remains authoritative. Use the "
@@ -928,11 +749,11 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
     inspection_parse_error = ""
     if tool_name == "Bash":
         inspection_request, broad_inventory, inspection_parse_error = (
-            _inspection_request_from_bash(str(command))
+            click_inspection.request_from_bash(str(command))
         )
     if tool_name == "Bash" and inspection_request is not None:
-        runtime_state = _read_contract_state(event)
-        approved_session_active = _approved_contract_is_active(runtime_state)
+        runtime_state = click_contract_state.read_contract_state(event)
+        approved_session_active = click_lifecycle.approved_contract_is_active(runtime_state)
         evidence_active = runtime_state.get("status") == "evidence"
         if status == "passed" or approved_session_active or evidence_active:
             (
@@ -979,7 +800,7 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
                 "review, while host plan tools remain non-authoritative advisory."
             )
             return
-        contract_state = _read_contract_state(event)
+        contract_state = click_contract_state.read_contract_state(event)
         verification = contract_state.get("verification")
         if isinstance(verification, dict) and verification.get("status") == "running":
             _deny(
@@ -987,7 +808,7 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
                 "before starting another command or mutating the implementation."
             )
             return
-        if _is_recognized_verification_command(str(command)):
+        if click_verification.is_recognized_command(str(command)):
             _deny(
                 "Click final checks use protocol-v2 `click-gate verify` with evidence-bound "
                 "argv `checks` and an explicit targeted, broad, or deep class."
@@ -1010,7 +831,7 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
 
     if status in {"passed", "bypassed"}:
         if status == "passed":
-            contract_state = _read_contract_state(event)
+            contract_state = click_contract_state.read_contract_state(event)
             verification = contract_state.get("verification")
             verification_status = (
                 str(verification.get("status", ""))
@@ -1028,16 +849,16 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
                 _deny(mutation_error)
         return
 
-    default_mode = _read_default_mode()
-    runtime_state = _read_contract_state(event)
-    session_contract_active = _session_contract_is_active(runtime_state)
+    default_mode = click_lifecycle.read_default_mode()
+    runtime_state = click_contract_state.read_contract_state(event)
+    session_contract_active = click_lifecycle.session_contract_is_active(runtime_state)
     if (
         default_mode == "evidence"
         and not session_contract_active
         and status not in {"armed", "staged"}
-        and _read_mode(event) != "strict"
+        and click_lifecycle.read_mode(event) != "strict"
     ):
-        runtime_state, recovered = _ensure_evidence_state(event)
+        runtime_state, recovered = click_lifecycle.ensure_evidence_state(event)
         verification = runtime_state.get("verification")
         if isinstance(verification, dict) and verification.get("status") == "running":
             _deny(
@@ -1063,7 +884,7 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
     if (
         session_contract_active
         or status in {"armed", "staged"}
-        or _read_mode(event) == "strict"
+        or click_lifecycle.read_mode(event) == "strict"
         or default_mode == "guarded"
     ):
         _deny(
@@ -1127,7 +948,7 @@ def _record_verification_result(
         workspace_root=workspace_root,
         workspace_digest=workspace_digest,
         environment_digests=environment_digests,
-        git_capture=_git_capture,
+        git_capture=click_verification.git_capture,
     )
 
 
@@ -1149,7 +970,7 @@ def _run_inspection_request(
     return click_observation.run_request(
         request,
         state_result,
-        execute_commands=_execute_inspection_commands,
+        execute_commands=click_inspection.execute_commands,
     )
 
 
@@ -1177,7 +998,7 @@ def _claim_mutation_run(
         raw,
         request_digest,
         runner_token,
-        validate_argv=_validate_argv,
+        validate_argv=click_capability.validate_argv,
         looks_like_managed_service=click_service.looks_like_managed_service,
         protocol_version=CAPABILITY_PROTOCOL_VERSION,
     )
@@ -1186,30 +1007,30 @@ def _claim_mutation_run(
 def _run_mutation(arguments: list[str]) -> int:
     return click_mutation.run(
         arguments,
-        validate_argv=_validate_argv,
+        validate_argv=click_capability.validate_argv,
         looks_like_managed_service=click_service.looks_like_managed_service,
         protocol_version=CAPABILITY_PROTOCOL_VERSION,
-        execute_commands=_execute_argv_commands,
+        execute_commands=click_inspection.execute_argv_commands,
     )
 
 
 def _managed_contract_path(path: Path) -> bool:
-    return _managed_state_path(path, ("session-contract-",))
+    return click_state.managed_state_path(path, ("session-contract-",))
 
 
 def _run_service_supervisor(arguments: list[str]) -> int:
     return click_service.run_service_supervisor(
         arguments,
-        validate_argv=_validate_argv,
+        validate_argv=click_capability.validate_argv,
         protocol_version=CAPABILITY_PROTOCOL_VERSION,
-        execution_argv=_execution_argv,
+        execution_argv=click_inspection.execution_argv,
     )
 
 
 def _run_service_start(arguments: list[str]) -> int:
     return click_service.run_service_start(
         arguments,
-        validate_argv=_validate_argv,
+        validate_argv=click_capability.validate_argv,
         protocol_version=CAPABILITY_PROTOCOL_VERSION,
         runner_script=Path(__file__).resolve(),
     )
@@ -1235,7 +1056,7 @@ def _claim_verification_run(
         raw,
         batch_digest,
         runner_token,
-        file_content_digest=_file_content_digest,
+        file_content_digest=click_verification.file_content_digest,
     )
 
 
@@ -1250,11 +1071,11 @@ def _release_unclaimed_verification_reservation(
 def _run_verification(arguments: list[str]) -> int:
     return click_verification.run(
         arguments,
-        file_content_digest=_file_content_digest,
-        git_workspace_snapshot=_git_workspace_snapshot,
-        git_metadata_present=_git_metadata_present,
-        execute_commands=_execute_argv_commands,
-        git_capture=_git_capture,
+        file_content_digest=click_verification.file_content_digest,
+        git_workspace_snapshot=click_verification.git_workspace_snapshot,
+        git_metadata_present=click_inspection.git_metadata_present,
+        execute_commands=click_inspection.execute_argv_commands,
+        git_capture=click_verification.git_capture,
     )
 
 
@@ -1280,13 +1101,13 @@ def _run_receipt_export(arguments: list[str]) -> int:
     except (OSError, RuntimeError):
         sys.stderr.write("Click receipt export workspace could not be resolved.\n")
         return 2
-    with _state_lock():
+    with click_state.state_lock():
         try:
             state = json.loads(state_path.read_text(encoding="utf-8"))
         except (FileNotFoundError, json.JSONDecodeError, OSError):
             sys.stderr.write("Click receipt export could not read contract state.\n")
             return 2
-        if not isinstance(state, dict) or not _contract_is_completed(state):
+        if not isinstance(state, dict) or not click_lifecycle.contract_is_completed(state):
             sys.stderr.write("Click receipt export requires a completed contract.\n")
             return 2
         if workspace_source == "ambient":
@@ -1298,7 +1119,7 @@ def _run_receipt_export(arguments: list[str]) -> int:
                 workspace = verified_workspace
         envelope, error = click_receipt_runtime.build_envelope(
             state,
-            workspace_snapshot=_git_workspace_snapshot(workspace),
+            workspace_snapshot=click_verification.git_workspace_snapshot(workspace),
             host_coverage=click_host_coverage.receipt(host_id),
             expected_contract_schema_version=CONTRACT_STATE_SCHEMA_VERSION,
         )
@@ -1421,7 +1242,7 @@ def main() -> int:
         return 1
     try:
         event = _read_event()
-        with _state_lock():
+        with click_state.state_lock():
             _HOST_ROUTER.dispatch(arguments[0], event)
     except (OSError, ValueError) as exc:
         sys.stderr.write(f"click hook error: {exc}\n")

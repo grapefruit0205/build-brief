@@ -30,20 +30,35 @@ def _qualified_attribute(node: ast.AST) -> str | None:
     return f"{node.value.id}.{node.attr}"
 
 
+def _paired_assignments(
+    target: ast.AST, value: ast.AST
+) -> list[tuple[ast.Name, ast.AST]]:
+    if isinstance(target, ast.Name):
+        return [(target, value)]
+    if (
+        isinstance(target, (ast.Tuple, ast.List))
+        and isinstance(value, (ast.Tuple, ast.List))
+        and len(target.elts) == len(value.elts)
+    ):
+        pairs: list[tuple[ast.Name, ast.AST]] = []
+        for child_target, child_value in zip(target.elts, value.elts):
+            pairs.extend(_paired_assignments(child_target, child_value))
+        return pairs
+    return []
+
+
 def _private_forwarders() -> dict[str, str]:
     tree = ast.parse((HOOKS / "click_gate.py").read_text(encoding="utf-8"))
     bindings: dict[str, str] = {}
     for node in tree.body:
         if not isinstance(node, ast.Assign) or len(node.targets) != 1:
             continue
-        target = node.targets[0]
-        if not isinstance(target, ast.Name):
-            continue
-        if not target.id.startswith("_") or target.id.startswith("__"):
-            continue
-        value = _qualified_attribute(node.value)
-        if value is not None:
-            bindings[target.id] = value
+        for target, value_node in _paired_assignments(node.targets[0], node.value):
+            if not target.id.startswith("_") or target.id.startswith("__"):
+                continue
+            value = _qualified_attribute(value_node)
+            if value is not None:
+                bindings[target.id] = value
     return bindings
 
 
@@ -54,9 +69,11 @@ def _top_level_names() -> frozenset[str]:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
             names.add(node.name)
         elif isinstance(node, ast.Assign):
-            names.update(
-                target.id for target in node.targets if isinstance(target, ast.Name)
-            )
+            for target in node.targets:
+                names.update(
+                    name.id
+                    for name, _ in _paired_assignments(target, node.value)
+                )
         elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
             names.add(node.target.id)
     return frozenset(names)
@@ -132,7 +149,7 @@ class ClickCompatibilitySurfaceTests(unittest.TestCase):
         policy = (ROOT / "COMPATIBILITY_SURFACE.md").read_text(encoding="utf-8")
 
         self.assertIn("started with 144 private module-forwarding bindings", policy)
-        self.assertIn("118 private module-forwarding bindings", policy)
+        self.assertIn("1 private module-forwarding binding", policy)
         self.assertIn("baseline must not grow", policy)
         self.assertIn("not a general public extension API", policy)
         self.assertIn("formal host API", policy)
