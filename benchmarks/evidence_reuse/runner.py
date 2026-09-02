@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 from collections import Counter
 from dataclasses import asdict, dataclass
+import errno
 import hashlib
 import json
 import os
@@ -14,6 +15,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time
 from typing import Any, Iterable, Sequence
 
 from hooks import (
@@ -531,6 +533,7 @@ def _checks(
     if profile.runtime_kind == "node-esm":
         return [check([tools.node, "--test", "tests/app.test.mjs"])]
     if profile.runtime_kind == "c-gcc":
+        test_binary = "build/test_app.exe" if os.name == "nt" else "./build/test_app"
         return [
             check(
                 [
@@ -545,10 +548,10 @@ def _checks(
                     "tests/test_app.c",
                     "-lm",
                     "-o",
-                    "build/test_app",
+                    test_binary,
                 ]
             ),
-            check(["./build/test_app"]),
+            check([test_binary]),
         ]
     if profile.runtime_kind == "java-jdk" and tools.java_backend == "native-jdk":
         return [
@@ -708,16 +711,31 @@ def _copy_fixture(source: Path, destination: Path) -> None:
 
 
 def _remove_tree(path: Path) -> None:
-    """Remove copied Git trees whose packed objects may be read-only on Windows."""
+    """Remove copied Git trees despite read-only files and short-lived races."""
 
     if not path.exists():
         return
 
-    def make_writable_and_retry(function: Any, target: str, _error: Any) -> None:
+    def make_writable_and_retry(function: Any, target: str, error: Any) -> None:
+        exception = error[1]
+        if isinstance(exception, FileNotFoundError):
+            return
+        if not isinstance(exception, PermissionError):
+            raise exception
         os.chmod(target, stat.S_IWRITE | stat.S_IREAD | stat.S_IEXEC)
         function(target)
 
-    shutil.rmtree(path, onerror=make_writable_and_retry)
+    retryable = {errno.EACCES, errno.ENOTEMPTY, errno.EPERM}
+    for attempt in range(6):
+        try:
+            shutil.rmtree(path, onerror=make_writable_and_retry)
+            return
+        except FileNotFoundError:
+            return
+        except OSError as error:
+            if attempt == 5 or error.errno not in retryable:
+                raise
+            time.sleep(0.025 * (2**attempt))
 
 
 def _create_baseline(
@@ -739,6 +757,7 @@ def _create_baseline(
     )
     _write_manifest(root, checks, patterns)
     _run_git(root, "init", "--quiet")
+    _run_git(root, "config", "gc.auto", "0")
     _run_git(root, "add", "-A")
     _run_git(
         root,

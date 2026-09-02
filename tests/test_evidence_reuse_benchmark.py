@@ -1,19 +1,27 @@
 from __future__ import annotations
 
 from collections import Counter
+import errno
 from pathlib import Path
+import shutil
 import stat
 import tempfile
 import unittest
+from unittest import mock
 
 from benchmarks.evidence_reuse import run_benchmark
 from benchmarks.evidence_reuse.manifests import MANIFEST_VARIANTS
-from benchmarks.evidence_reuse.profiles import PROFILES
+from benchmarks.evidence_reuse.profiles import PROFILES, PROFILES_BY_NAME
 from benchmarks.evidence_reuse.runtime_observations import (
     capture_baseline_observation,
 )
-from benchmarks.evidence_reuse.runner import _remove_tree, runtime_available
-from benchmarks.evidence_reuse.scenarios import MUTATIONS, mutation_ids
+from benchmarks.evidence_reuse.runner import (
+    RuntimeTools,
+    _checks,
+    _remove_tree,
+    runtime_available,
+)
+from benchmarks.evidence_reuse.scenarios import C_NATIVE, MUTATIONS, mutation_ids
 
 
 RUNTIMES_AVAILABLE, RUNTIME_SKIP_REASON = runtime_available()
@@ -90,6 +98,18 @@ class EvidenceReuseBenchmarkCatalogTests(unittest.TestCase):
 
 
 class EvidenceReuseBenchmarkCoreRuntimeTests(unittest.TestCase):
+    def test_c_fixture_uses_windows_executable_suffix(self) -> None:
+        fixture_root = Path("fixture")
+        with mock.patch("benchmarks.evidence_reuse.runner.os.name", "nt"):
+            checks = _checks(
+                PROFILES_BY_NAME[C_NATIVE],
+                fixture_root,
+                RuntimeTools(python="python", gcc="gcc"),
+            )
+
+        self.assertEqual(checks[0]["argv"][-1], "build/test_app.exe")
+        self.assertEqual(checks[1]["argv"], ["build/test_app.exe"])
+
     def test_fixture_cleanup_handles_read_only_git_artifacts(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary) / "fixture"
@@ -101,6 +121,27 @@ class EvidenceReuseBenchmarkCoreRuntimeTests(unittest.TestCase):
 
             _remove_tree(root)
 
+            self.assertFalse(root.exists())
+
+    def test_fixture_cleanup_retries_transient_directory_race(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "fixture"
+            root.mkdir()
+            (root / "artifact").write_bytes(b"artifact")
+            real_rmtree = shutil.rmtree
+            attempts = 0
+
+            def transient_rmtree(path: Path, *, onerror: object) -> None:
+                nonlocal attempts
+                attempts += 1
+                if attempts == 1:
+                    raise OSError(errno.ENOTEMPTY, "directory not empty", path)
+                real_rmtree(path, onerror=onerror)
+
+            with mock.patch.object(shutil, "rmtree", side_effect=transient_rmtree):
+                _remove_tree(root)
+
+            self.assertEqual(attempts, 2)
             self.assertFalse(root.exists())
 
     def test_manifest_stress_inputs_are_scored_against_the_same_oracle(self) -> None:
