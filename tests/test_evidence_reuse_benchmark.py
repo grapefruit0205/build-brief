@@ -108,7 +108,10 @@ class EvidenceReuseBenchmarkCoreRuntimeTests(unittest.TestCase):
             )
 
         self.assertEqual(checks[0]["argv"][-1], "build/test_app.exe")
-        self.assertEqual(checks[1]["argv"], ["build/test_app.exe"])
+        self.assertEqual(
+            checks[1]["argv"],
+            [str((fixture_root / "build" / "test_app.exe").resolve())],
+        )
 
     def test_fixture_cleanup_handles_read_only_git_artifacts(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

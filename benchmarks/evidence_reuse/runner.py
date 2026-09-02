@@ -533,7 +533,12 @@ def _checks(
     if profile.runtime_kind == "node-esm":
         return [check([tools.node, "--test", "tests/app.test.mjs"])]
     if profile.runtime_kind == "c-gcc":
-        test_binary = "build/test_app.exe" if os.name == "nt" else "./build/test_app"
+        test_binary = "build/test_app.exe" if os.name == "nt" else "build/test_app"
+        test_command = (
+            str((root / test_binary).resolve())
+            if os.name == "nt"
+            else f"./{test_binary}"
+        )
         return [
             check(
                 [
@@ -551,7 +556,7 @@ def _checks(
                     test_binary,
                 ]
             ),
-            check([test_binary]),
+            check([test_command]),
         ]
     if profile.runtime_kind == "java-jdk" and tools.java_backend == "native-jdk":
         return [
@@ -679,6 +684,9 @@ def _run_checks(
         except subprocess.TimeoutExpired as error:
             output = "\n".join(filter(None, (error.stdout or "", error.stderr or "")))
             return RerunResult(True, False, 124, index), output[-4000:]
+        except OSError as error:
+            output = f"could not execute check {index}: {check['argv']!r}: {error}"
+            return RerunResult(True, False, 127, index), output
         if result.returncode != 0:
             output = (result.stdout + result.stderr)[-4000:]
             return RerunResult(True, False, result.returncode, index), output
