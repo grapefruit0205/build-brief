@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 import unittest
 
-from hooks import click_gate, click_mutation
+from hooks import click_capability, click_mutation, click_service
 
 
 class ClickMutationTests(unittest.TestCase):
@@ -49,29 +49,15 @@ class ClickMutationTests(unittest.TestCase):
             with self.subTest(required=required):
                 self.assertIn(required, imported)
 
-    def test_gate_keeps_mutation_compatibility_aliases(self) -> None:
-        aliases = {
-            "_fresh_mutation_state": click_mutation.fresh_state,
-            "_mutation_is_running": click_mutation.is_running,
-        }
-        for name, expected in aliases.items():
-            with self.subTest(name=name):
-                self.assertIs(getattr(click_gate, name), expected)
-
-        for name in ("_fresh_mutation_boundary", "_record_mutation_result"):
-            with self.subTest(name=name):
-                self.assertFalse(hasattr(click_gate, name))
-
-        self.assertIs(
-            click_gate.MUTATION_REQUEST_FIELDS,
-            click_mutation.REQUEST_FIELDS,
-        )
-        self.assertEqual(
-            click_gate.MUTATION_RUNNING_TTL_SECONDS,
-            click_mutation.RUNNING_TTL_SECONDS,
-        )
-
     def test_mutation_validation_preserves_exact_errors_and_normalization(self) -> None:
+        def validate(raw: str):
+            return click_mutation.validate_request(
+                raw,
+                validate_argv=click_capability.validate_argv,
+                looks_like_managed_service=click_service.looks_like_managed_service,
+                protocol_version=click_capability.PROTOCOL_VERSION,
+            )
+
         cases = (
             ("{", "Mutation request must be valid JSON."),
             ("[]", "Mutation request must be a JSON object."),
@@ -91,11 +77,11 @@ class ClickMutationTests(unittest.TestCase):
         )
         for raw, expected in cases:
             with self.subTest(expected=expected):
-                value, error = click_gate._validate_mutation_request(raw)
+                value, error = validate(raw)
                 self.assertIsNone(value)
                 self.assertEqual(error, expected)
 
-        request, error = click_gate._validate_mutation_request(
+        request, error = validate(
             json.dumps({"version": 1, "argv": ["python", "build.py"]})
         )
         self.assertEqual(error, "")

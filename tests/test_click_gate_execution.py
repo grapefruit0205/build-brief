@@ -106,7 +106,7 @@ class ClickGateExecutionTests(ClickGateTestCase):
             "started_at": int(time.time()) - 10_000,
         }
         with mock.patch.object(CLICK_GATE.time, "time", return_value=20_000):
-            self.assertTrue(CLICK_GATE._mutation_is_running(mutation))
+            self.assertTrue(CLICK_MUTATION.is_running(mutation))
 
     def test_mutation_runner_claims_authorization_before_execution(self) -> None:
         self.approve_contract()

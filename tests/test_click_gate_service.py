@@ -21,6 +21,14 @@ from click_gate_test_support import (
 )
 
 
+def validate_service_request(raw: str):
+    return CLICK_SERVICE.validate_request(
+        raw,
+        validate_argv=CLICK_GATE.click_capability.validate_argv,
+        protocol_version=CLICK_GATE.CAPABILITY_PROTOCOL_VERSION,
+    )
+
+
 class ClickGateServiceTests(ClickGateTestCase):
     def test_managed_service_start_runner_is_one_use_and_preclaimed(self) -> None:
         self.approve_contract()
@@ -48,7 +56,7 @@ class ClickGateServiceTests(ClickGateTestCase):
         state_path = next(
             (self.plugin_data / "gate-state").glob("session-contract-*.json")
         ).resolve()
-        normalized, error = CLICK_GATE._validate_service_request(json.dumps(request))
+        normalized, error = validate_service_request(json.dumps(request))
         self.assertEqual(error, "")
         self.assertIsNotNone(normalized)
         assert normalized is not None
@@ -126,9 +134,7 @@ class ClickGateServiceTests(ClickGateTestCase):
                 state = json.loads(state_path.read_text(encoding="utf-8"))
                 state["service"]["started_at"] = started_at
                 state_path.write_text(json.dumps(state), encoding="utf-8")
-                normalized, error = CLICK_GATE._validate_service_request(
-                    json.dumps(request)
-                )
+                normalized, error = validate_service_request(json.dumps(request))
                 self.assertEqual(error, "")
                 assert normalized is not None
                 arguments = [
@@ -171,7 +177,7 @@ class ClickGateServiceTests(ClickGateTestCase):
         state_path = next(
             (self.plugin_data / "gate-state").glob("session-contract-*.json")
         ).resolve()
-        normalized, error = CLICK_GATE._validate_service_request(json.dumps(request))
+        normalized, error = validate_service_request(json.dumps(request))
         self.assertEqual(error, "")
         assert normalized is not None
         cwd_raw = str(self.workspace.resolve())
@@ -240,7 +246,7 @@ class ClickGateServiceTests(ClickGateTestCase):
         state_path = next(
             (self.plugin_data / "gate-state").glob("session-contract-*.json")
         ).resolve()
-        normalized, error = CLICK_GATE._validate_service_request(json.dumps(request))
+        normalized, error = validate_service_request(json.dumps(request))
         self.assertEqual(error, "")
         assert normalized is not None
         cwd_raw = str(self.workspace.resolve())
@@ -307,7 +313,7 @@ class ClickGateServiceTests(ClickGateTestCase):
         state_path = next(
             (self.plugin_data / "gate-state").glob("session-contract-*.json")
         ).resolve()
-        normalized, error = CLICK_GATE._validate_service_request(json.dumps(request))
+        normalized, error = validate_service_request(json.dumps(request))
         self.assertEqual(error, "")
         assert normalized is not None
         arguments = [
@@ -415,7 +421,7 @@ class ClickGateServiceTests(ClickGateTestCase):
             ),
             mock.patch.object(Path, "read_text", transient_read),
         ):
-            snapshot = CLICK_GATE._service_snapshot(state_path, "service-1")
+            snapshot = CLICK_SERVICE.service_snapshot(state_path, "service-1")
         self.assertIsNotNone(snapshot)
         assert snapshot is not None
         self.assertEqual(snapshot["status"], "stopped")
@@ -423,8 +429,8 @@ class ClickGateServiceTests(ClickGateTestCase):
     def test_service_stop_does_not_treat_unreadable_state_as_stopped(self) -> None:
         with (
             mock.patch.object(
-                CLICK_GATE,
-                "_service_snapshot",
+                CLICK_SERVICE,
+                "service_snapshot",
                 side_effect=[None, {"status": "stopped"}],
             ) as snapshot,
             mock.patch.object(

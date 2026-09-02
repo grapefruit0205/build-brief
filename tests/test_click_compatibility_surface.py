@@ -47,6 +47,21 @@ def _private_forwarders() -> dict[str, str]:
     return bindings
 
 
+def _top_level_names() -> frozenset[str]:
+    tree = ast.parse((HOOKS / "click_gate.py").read_text(encoding="utf-8"))
+    names: set[str] = set()
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            names.add(node.name)
+        elif isinstance(node, ast.Assign):
+            names.update(
+                target.id for target in node.targets if isinstance(target, ast.Name)
+            )
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            names.add(node.target.id)
+    return frozenset(names)
+
+
 def _click_gate_surface(path: Path) -> frozenset[str]:
     tree = ast.parse(path.read_text(encoding="utf-8"))
     names = {
@@ -89,6 +104,19 @@ class ClickCompatibilitySurfaceTests(unittest.TestCase):
             with self.subTest(name=name):
                 self.assertEqual(actual.get(name), target)
 
+    def test_removed_domain_helpers_stay_out_of_the_gate_facade(self) -> None:
+        self.assertTrue(
+            {
+                "_fresh_mutation_state",
+                "_looks_like_managed_service",
+                "_mutation_is_running",
+                "_request_service_stop",
+                "_service_snapshot",
+                "_validate_mutation_request",
+                "_validate_service_request",
+            }.isdisjoint(_top_level_names())
+        )
+
     def test_only_declared_host_adapters_depend_on_the_gate_facade(self) -> None:
         actual: dict[str, frozenset[str]] = {}
         for path in HOOKS.glob("*.py"):
@@ -104,7 +132,7 @@ class ClickCompatibilitySurfaceTests(unittest.TestCase):
         policy = (ROOT / "COMPATIBILITY_SURFACE.md").read_text(encoding="utf-8")
 
         self.assertIn("started with 144 private module-forwarding bindings", policy)
-        self.assertIn("123 private module-forwarding bindings", policy)
+        self.assertIn("118 private module-forwarding bindings", policy)
         self.assertIn("baseline must not grow", policy)
         self.assertIn("not a general public extension API", policy)
         self.assertIn("formal host API", policy)
