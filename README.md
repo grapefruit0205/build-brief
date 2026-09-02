@@ -134,7 +134,14 @@ Cross-revision reuse is intentionally conservative. Evidence mode uses a committ
 .click/evidence-dependencies.json
 ~~~
 
-The map says which files can invalidate a specific check. It is optional; leaving it out simply means that the check runs again after a mutation.
+The committed map authorizes reuse for a specific check. Concrete paths remain
+hard dependencies. When the baseline observation is complete, expanding map
+patterns such as `*`, `**`, and directory prefixes are refined to the inputs
+the check actually consumed; observed inputs are then hashed into the receipt.
+Working-tree edits cannot narrow the committed policy. If observation is
+unavailable, fails, sees an external input, or cannot cover the full child-
+process tree, Click runs the check again after a mutation. The map remains
+optional; leaving it out also means that the check reruns.
 
 ## Completion receipt
 

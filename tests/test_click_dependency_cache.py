@@ -86,12 +86,15 @@ class ClickDependencyCacheTests(unittest.TestCase):
         }
 
     def receipts(
-        self, declarations: dict[str, list[str]] | None = None
+        self,
+        declarations: dict[str, list[str]] | None = None,
+        observations: dict[str, dict[str, object]] | None = None,
     ) -> dict[str, dict[str, object]]:
         return click_dependency_cache.receipts_for_groups(
             self.root,
             self.checks,
             declarations=declarations,
+            observations=observations,
             git_capture=self.git_capture,
         )
 
@@ -167,17 +170,78 @@ class ClickDependencyCacheTests(unittest.TestCase):
         self.assertEqual(first["entry_digest"], second["entry_digest"])
         self.assertEqual(first["dependency_digest"], second["dependency_digest"])
 
-    def test_relevant_or_uncommitted_manifest_change_fails_safe(self) -> None:
+    def test_committed_manifest_remains_authority_until_a_new_commit(self) -> None:
         self.write_manifest([self.entry(["src/unit.py"])])
         self.commit()
         first = self.receipts()["source"]
 
         self.write_manifest([self.entry(["src/", "docs/a.md"])])
-        self.assertEqual(self.receipts(), {})
+        uncommitted = self.receipts()["source"]
+        self.assertEqual(first["entry_digest"], uncommitted["entry_digest"])
+        self.assertEqual(first["dependency_digest"], uncommitted["dependency_digest"])
+
+        manifest = self.root / ".click" / "evidence-dependencies.json"
+        manifest.write_text("{not-json\n", encoding="utf-8")
+        malformed = self.receipts()["source"]
+        self.assertEqual(first["entry_digest"], malformed["entry_digest"])
+        self.assertEqual(first["dependency_digest"], malformed["dependency_digest"])
+
+        self.write_manifest([self.entry(["src/", "docs/a.md"])])
         self.commit("relevant entry")
         second = self.receipts()["source"]
         self.assertNotEqual(first["entry_digest"], second["entry_digest"])
         self.assertNotEqual(first["dependency_digest"], second["dependency_digest"])
+
+    def test_complete_observation_refines_expanding_manifest_patterns(self) -> None:
+        self.write_manifest([self.entry(["**", "docs/a.md"])])
+        self.commit()
+        observation = click_dependency_cache.dependency_observation(
+            ["src/unit.py"]
+        )
+
+        first = self.receipts(observations={"source": observation})["source"]
+        self.assertEqual(first["resolved_paths"], ["docs/a.md", "src/unit.py"])
+
+        (self.root / "docs" / "b.md").write_text(
+            "unrelated\n", encoding="utf-8"
+        )
+        unrelated = self.receipts(observations={"source": observation})["source"]
+        self.assertEqual(first["dependency_digest"], unrelated["dependency_digest"])
+
+        (self.root / "docs" / "a.md").write_text("required\n", encoding="utf-8")
+        required = self.receipts(observations={"source": observation})["source"]
+        self.assertNotEqual(first["dependency_digest"], required["dependency_digest"])
+
+    def test_incomplete_observation_cannot_refine_expanding_patterns(self) -> None:
+        self.write_manifest([self.entry(["**"])])
+        self.commit()
+        observation = click_dependency_cache.dependency_observation(
+            ["src/unit.py"], status="failed", process_tree_complete=False
+        )
+
+        receipt = self.receipts(observations={"source": observation})["source"]
+
+        self.assertIn("docs/b.md", receipt["resolved_paths"])
+        self.assertFalse(
+            click_dependency_cache.dependency_observation_is_complete(
+                receipt["observation"]
+            )
+        )
+
+    def test_worktree_manifest_change_invalidates_when_the_check_reads_it(self) -> None:
+        self.write_manifest([self.entry(["**"])])
+        self.commit()
+        observation = click_dependency_cache.dependency_observation(
+            [click_dependency_cache.CONFIG_RELATIVE_PATH, "src/unit.py"]
+        )
+        first = self.receipts(observations={"source": observation})["source"]
+
+        manifest = self.root / ".click" / "evidence-dependencies.json"
+        manifest.write_text("{not-json\n", encoding="utf-8")
+        changed = self.receipts(observations={"source": observation})["source"]
+
+        self.assertEqual(first["entry_digest"], changed["entry_digest"])
+        self.assertNotEqual(first["dependency_digest"], changed["dependency_digest"])
 
     def test_committed_manifest_accepts_windows_checkout_line_endings(self) -> None:
         subprocess.run(
@@ -197,7 +261,12 @@ class ClickDependencyCacheTests(unittest.TestCase):
         manifest.write_bytes(
             manifest.read_bytes().replace(b"src/unit.py", b"docs/a.md")
         )
-        self.assertEqual(self.receipts(), {})
+        uncommitted = self.receipts()["source"]
+        self.assertEqual(receipt["entry_digest"], uncommitted["entry_digest"])
+        self.commit("windows checkout manifest update")
+        committed_update = self.receipts()["source"]
+        self.assertEqual(committed_update["resolved_paths"], ["docs/a.md"])
+        self.assertNotEqual(receipt["entry_digest"], committed_update["entry_digest"])
 
     @unittest.skipIf(os.name == "nt", "Windows symlink creation needs host privileges")
     def test_internal_symlink_hashes_link_and_target_but_external_is_rejected(self) -> None:
@@ -230,6 +299,119 @@ class ClickDependencyCacheTests(unittest.TestCase):
                 )
                 self.assertIsNone(normalized)
                 self.assertTrue(error)
+
+    def test_observed_dependency_fills_a_silent_manifest_gap(self) -> None:
+        (self.root / "src" / "shared.py").write_text(
+            "SHARED = 1\n", encoding="utf-8"
+        )
+        self.write_manifest([self.entry(["src/unit.py"])])
+        self.commit()
+        observation = click_dependency_cache.dependency_observation(
+            ["src/shared.py"]
+        )
+
+        first = self.receipts(observations={"source": observation})["source"]
+
+        self.assertEqual(
+            first["resolved_paths"], ["src/shared.py", "src/unit.py"]
+        )
+        self.assertTrue(
+            click_dependency_cache.dependency_observation_is_complete(
+                first["observation"]
+            )
+        )
+        (self.root / "src" / "shared.py").write_text(
+            "SHARED = 2\n", encoding="utf-8"
+        )
+        changed = self.receipts(observations={"source": observation})["source"]
+        self.assertNotEqual(first["dependency_digest"], changed["dependency_digest"])
+
+    def test_failed_or_unavailable_observation_is_explicitly_incomplete(self) -> None:
+        self.write_manifest([self.entry(["src/unit.py"])])
+        self.commit()
+
+        unavailable = self.receipts()["source"]["observation"]
+        failed = click_dependency_cache.dependency_observation(
+            ["src/unit.py"], status="failed", process_tree_complete=False
+        )
+
+        self.assertEqual(unavailable["status"], "unavailable")
+        self.assertFalse(
+            click_dependency_cache.dependency_observation_is_complete(unavailable)
+        )
+        self.assertFalse(
+            click_dependency_cache.dependency_observation_is_complete(failed)
+        )
+
+    def test_external_input_marks_a_successful_trace_incomplete(self) -> None:
+        observation = click_dependency_cache.dependency_observation(
+            ["src/unit.py"], external_access=True
+        )
+
+        self.assertTrue(
+            click_dependency_cache.dependency_observation_is_valid(observation)
+        )
+        self.assertFalse(
+            click_dependency_cache.dependency_observation_is_complete(observation)
+        )
+
+    def test_child_process_requires_complete_process_tree_coverage(self) -> None:
+        partial = click_dependency_cache.dependency_observation(
+            ["src/unit.py"],
+            child_processes=1,
+            process_tree_complete=False,
+        )
+        followed = click_dependency_cache.dependency_observation(
+            ["src/unit.py"],
+            child_processes=1,
+            process_tree_complete=True,
+        )
+
+        self.assertFalse(
+            click_dependency_cache.dependency_observation_is_complete(partial)
+        )
+        self.assertTrue(
+            click_dependency_cache.dependency_observation_is_complete(followed)
+        )
+
+        combined = click_dependency_cache.combine_dependency_observations(
+            [
+                followed,
+                click_dependency_cache.dependency_observation(["docs/a.md"]),
+            ]
+        )
+        self.assertEqual(combined["paths"], ["docs/a.md", "src/unit.py"])
+        self.assertEqual(combined["child_processes"], 1)
+        self.assertTrue(
+            click_dependency_cache.dependency_observation_is_complete(combined)
+        )
+
+    def test_observed_missing_lookup_invalidates_when_the_path_appears(self) -> None:
+        self.write_manifest([self.entry(["src/unit.py"])])
+        self.commit()
+        observation = click_dependency_cache.dependency_observation(
+            ["optional.py"]
+        )
+        first = self.receipts(observations={"source": observation})["source"]
+
+        (self.root / "optional.py").write_text("OPTION = 1\n", encoding="utf-8")
+        appeared = self.receipts(observations={"source": observation})["source"]
+
+        self.assertIn("optional.py", first["resolved_paths"])
+        self.assertNotEqual(first["dependency_digest"], appeared["dependency_digest"])
+
+    def test_observed_directory_listing_invalidates_membership_change(self) -> None:
+        self.write_manifest([self.entry(["src/unit.py"])])
+        self.commit()
+        observation = click_dependency_cache.dependency_observation(["src/"])
+        first = self.receipts(observations={"source": observation})["source"]
+
+        (self.root / "src" / "added.py").write_text(
+            "ADDED = 1\n", encoding="utf-8"
+        )
+        changed = self.receipts(observations={"source": observation})["source"]
+
+        self.assertNotEqual(first["dependency_digest"], changed["dependency_digest"])
 
 
 if __name__ == "__main__":

@@ -5,10 +5,48 @@ import json
 from pathlib import Path
 import unittest
 
-from hooks import click_gate, click_verification
+from hooks import (
+    click_dependency_cache,
+    click_gate,
+    click_host_coverage,
+    click_verification,
+)
 
 
 class ClickVerificationTests(unittest.TestCase):
+    def _dependency_receipt(
+        self, observation: dict[str, object]
+    ) -> dict[str, object]:
+        return {
+            "provider": click_dependency_cache.CONTRACT_PROVIDER_NAME,
+            "manifest_digest": "",
+            "entry_digest": "1" * 64,
+            "dependency_digest": "2" * 64,
+            "resolved_paths": ["src/unit.py"],
+            "observation_digest": (
+                click_dependency_cache.dependency_observation_digest(observation)
+            ),
+            "observation": observation,
+        }
+
+    def _stale_dependency_source(
+        self, receipt: dict[str, object], host_coverage: dict[str, object]
+    ) -> dict[str, object]:
+        source: dict[str, object] = {
+            "status": "stale",
+            "verified_revision": 0,
+            "verified_at": 1,
+            "verified_contract_digest": "3" * 64,
+            "verified_check_digest": "4" * 64,
+            "verified_root": "/workspace",
+            "verified_tree_digest": "5" * 64,
+            "verified_environment_digest": "6" * 64,
+            "verified_executable_digest": "7" * 64,
+            "verified_host_coverage": host_coverage,
+        }
+        click_verification.store_dependency_receipt(source, receipt)
+        return source
+
     def test_verification_runtime_has_no_gate_host_router_or_service_dependency(self) -> None:
         source = Path(click_verification.__file__).read_text(encoding="utf-8")
         imported: set[str] = set()
@@ -121,6 +159,50 @@ class ClickVerificationTests(unittest.TestCase):
             "Click verification uses `checks` with argv arrays and a submitted "
             "`class`; legacy shell-string `commands` are no longer accepted.",
         )
+
+    def test_cross_revision_reuse_requires_complete_runtime_observation(self) -> None:
+        host_coverage = click_host_coverage.receipt("codex")
+        observations = {
+            "complete": click_dependency_cache.dependency_observation(
+                ["src/unit.py"]
+            ),
+            "trace-failed": click_dependency_cache.dependency_observation(
+                ["src/unit.py"], status="failed", process_tree_complete=False
+            ),
+            "external": click_dependency_cache.dependency_observation(
+                ["src/unit.py"], external_access=True
+            ),
+            "unfollowed-child": click_dependency_cache.dependency_observation(
+                ["src/unit.py"],
+                child_processes=1,
+                process_tree_complete=False,
+            ),
+        }
+
+        for label, observation in observations.items():
+            with self.subTest(label=label):
+                receipt = self._dependency_receipt(observation)
+                source = self._stale_dependency_source(receipt, host_coverage)
+                matched = click_verification.dependency_receipt_matches(
+                    source,
+                    receipt,
+                    contract_digest="3" * 64,
+                    revision=1,
+                    group_digest="4" * 64,
+                    git_root="/workspace",
+                    environment_digest="6" * 64,
+                    host_coverage=host_coverage,
+                )
+                self.assertEqual(matched, label == "complete")
+
+    def test_legacy_receipt_without_observation_fails_closed(self) -> None:
+        receipt = self._dependency_receipt(
+            click_dependency_cache.dependency_observation(["src/unit.py"])
+        )
+        receipt.pop("observation")
+        receipt.pop("observation_digest")
+
+        self.assertFalse(click_verification.dependency_receipt_is_valid(receipt))
 
 
 if __name__ == "__main__":

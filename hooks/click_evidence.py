@@ -75,6 +75,8 @@ def _fresh_source(kind: str, dependency_patterns: tuple[str, ...] = ()) -> dict[
         "verified_dependency_entry_digest": "",
         "verified_dependency_digest": "",
         "verified_dependency_paths": [],
+        "verified_dependency_observation_digest": "",
+        "verified_dependency_observation": {},
         "dependency_reuse_count": 0,
         "last_dependency_reused_at": 0,
         "last_dependency_reused_from_revision": -1,
@@ -169,10 +171,20 @@ def _dependency_fields_are_valid(source: dict[str, Any]) -> bool:
     entry_digest = source.get("verified_dependency_entry_digest", "")
     dependency_digest = source.get("verified_dependency_digest", "")
     paths = source.get("verified_dependency_paths", [])
+    observation_digest = source.get(
+        "verified_dependency_observation_digest", ""
+    )
+    observation = source.get("verified_dependency_observation", {})
     if not all(
         isinstance(value, str)
-        for value in (provider, manifest_digest, entry_digest, dependency_digest)
-    ) or not isinstance(paths, list):
+        for value in (
+            provider,
+            manifest_digest,
+            entry_digest,
+            dependency_digest,
+            observation_digest,
+        )
+    ) or not isinstance(paths, list) or not isinstance(observation, dict):
         return False
     if provider:
         if (
@@ -182,6 +194,18 @@ def _dependency_fields_are_valid(source: dict[str, Any]) -> bool:
             or manifest_digest
             and re.fullmatch(r"[0-9a-f]{64}", manifest_digest) is None
             or not click_dependency_cache.receipt_paths_are_valid(paths)
+            or observation
+            and (
+                not click_dependency_cache.dependency_observation_is_valid(
+                    observation
+                )
+                or observation_digest
+                != click_dependency_cache.dependency_observation_digest(
+                    observation
+                )
+            )
+            or not observation
+            and observation_digest
         ):
             return False
         if provider == click_dependency_cache.CONTRACT_PROVIDER_NAME:
@@ -189,7 +213,16 @@ def _dependency_fields_are_valid(source: dict[str, Any]) -> bool:
                 return False
         elif re.fullmatch(r"[0-9a-f]{64}", manifest_digest) is None:
             return False
-    elif any((manifest_digest, entry_digest, dependency_digest, paths)):
+    elif any(
+        (
+            manifest_digest,
+            entry_digest,
+            dependency_digest,
+            paths,
+            observation_digest,
+            observation,
+        )
+    ):
         return False
     reuse_count = source.get("dependency_reuse_count", 0)
     reused_at = source.get("last_dependency_reused_at", 0)

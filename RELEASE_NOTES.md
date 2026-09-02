@@ -2,6 +2,19 @@
 
 ## v0.50.0 — 2026-09-02
 
+- Cross-revision dependency receipts now combine hard concrete dependencies
+  with repository inputs observed during the baseline run. A complete
+  observation refines expanding committed-manifest patterns to consumed inputs,
+  while approval-bound paths remain hard dependencies. Missing or failed
+  observation, external input, and incomplete child-process coverage fail
+  closed to a real rerun without changing the check result.
+- The committed `HEAD` manifest is the policy authority. Malformed, deleted, or
+  changed working-tree copies cannot narrow it; a check that reads the working
+  copy still records it as an observed input and invalidates on content change.
+- The deterministic evidence-reuse benchmark exercises 500 controlled matrix
+  cases across Python, Node.js, C, and Java while keeping semantic oracle,
+  manifest variants, runtime observations, decisions, and shadow reruns
+  separate.
 - The executable gate facade now retains only the deliberately documented
   private compatibility binding
   `_validate_contract = click_contract.validate_contract`. The reviewed
@@ -15,9 +28,7 @@
   destructuring, preventing removed private forwarders from being hidden or
   reintroduced while preserving the two public state-lock timing constants.
 - Evidence and Guarded authority, exact errors, one-use claims, replay and
-  tamper rejection, revision-aware receipts, dependency-cache lineage, and
-  Codex/Antigravity host behavior remain unchanged. The synchronized
-  distributions pass the complete 467-test suite with three documented skips.
+  tamper rejection, and Codex/Antigravity host behavior remain unchanged.
 
 ## v0.36.2 — 2026-09-02
 

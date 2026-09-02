@@ -936,6 +936,7 @@ def _record_verification_result(
     workspace_root: str = "",
     workspace_digest: str = "",
     environment_digests: dict[str, str] | None = None,
+    dependency_observations: dict[str, dict[str, Any]] | None = None,
 ) -> bool:
     return click_verification.record_result(
         path,
@@ -948,6 +949,7 @@ def _record_verification_result(
         workspace_root=workspace_root,
         workspace_digest=workspace_digest,
         environment_digests=environment_digests,
+        dependency_observations=dependency_observations,
         git_capture=click_verification.git_capture,
     )
 

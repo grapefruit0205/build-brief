@@ -26,7 +26,7 @@ jobs:
         run: python scripts/validate_distribution.py
       - name: Compile Python sources
         if: runner.os == 'Linux'
-        run: python -m compileall -q hooks evals scripts tests
+        run: python -m compileall -q benchmarks hooks evals scripts tests
       - name: Check whitespace errors
         if: runner.os == 'Linux'
         run: git diff --check
