@@ -43,7 +43,7 @@ class RepositoryPolicyTests(core.RepositoryPolicyTests):
             (ROOT / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8")
         )
         self.assertEqual(manifest["name"], "click")
-        self.assertEqual(manifest["version"], "0.50.0")
+        self.assertEqual(manifest["version"], "0.51.0")
         self.assertEqual(manifest["license"], "MIT")
         combined_copy = " ".join(
             (
@@ -69,7 +69,7 @@ class RepositoryPolicyTests(core.RepositoryPolicyTests):
         self.assertEqual(marketplace["name"], "click")
         self.assertEqual(marketplace["plugins"][0]["name"], "click")
         self.assertEqual(
-            marketplace["plugins"][0]["source"]["ref"], "v0.50.0"
+            marketplace["plugins"][0]["source"]["ref"], "v0.51.0"
         )
 
     def test_readmes_lead_with_evidence_first_positioning(self) -> None:
@@ -214,13 +214,14 @@ class RepositoryPolicyTests(core.RepositoryPolicyTests):
 
     def test_release_documents_identify_current_and_preserve_release_history(self) -> None:
         for readme in _readmes().values():
-            self.assertIn("v0.50.0", readme)
+            self.assertIn("v0.51.0", readme)
             self.assertIn("codex plugin marketplace upgrade click", readme)
             self.assertIn("codex plugin add click@click", readme)
             self.assertIn("RELEASE_NOTES.md", readme)
 
         notes = (ROOT / "RELEASE_NOTES.md").read_text(encoding="utf-8")
         for marker in (
+            "## v0.51.0",
             "## v0.50.0",
             "## v0.36.2",
             "## v0.36.1",
@@ -243,6 +244,10 @@ class RepositoryPolicyTests(core.RepositoryPolicyTests):
             "## v0.20.0",
         ):
             self.assertIn(marker, notes)
+
+    def test_release_automation_has_no_version_specific_one_off_workflow(self) -> None:
+        workflows = ROOT / ".github" / "workflows"
+        self.assertEqual(list(workflows.glob("publish-v*.yml")), [])
 
     def test_readmes_document_trusted_reads_and_pre_execution_claims(self) -> None:
         protocol = _reference("capability-protocol.md")
