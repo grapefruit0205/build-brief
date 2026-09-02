@@ -168,7 +168,17 @@ def _evidence_receipts(
             if source.get("verified_host_coverage") != host_coverage:
                 return None, "The host coverage identity changed after argv evidence completed."
 
-        if kind == "argv" and int(source.get("dependency_reuse_count", 0)) > 0:
+        if kind == "argv" and int(source.get("safe_change_reuse_count", 0)) > 0:
+            lineage = {
+                "mode": "dependency-reused",
+                "from_revision": int(
+                    source.get("last_safe_change_reused_from_revision", -1)
+                ),
+                "dependency_digest": str(
+                    source.get("last_safe_change_decision_digest", "")
+                ),
+            }
+        elif kind == "argv" and int(source.get("dependency_reuse_count", 0)) > 0:
             lineage = {
                 "mode": "dependency-reused",
                 "from_revision": int(

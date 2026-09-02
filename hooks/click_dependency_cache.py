@@ -160,6 +160,15 @@ def _matches(pattern: str, relative: str) -> bool:
     return _glob_matches(tuple(pattern.split("/")), tuple(relative.split("/")))
 
 
+def path_matches(pattern: str, relative: str) -> bool:
+    """Match one already-normalized repository pattern against one path."""
+    return bool(
+        _valid_pattern(pattern)
+        and _safe_relative_path(relative)
+        and _matches(pattern, relative)
+    )
+
+
 def _pattern_expands_repository_members(pattern: str) -> bool:
     """Return whether a manifest pattern names a set rather than one path.
 

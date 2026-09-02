@@ -30,6 +30,8 @@ Do not treat a question about Click as a mutation. Bypass and cancel require the
 
 Use the current user prompt as the intent lineage. Do not invent a contract, contract approval, or approved dependency declaration. Choose concrete checks from repository evidence during execution and submit their stable evidence ids with `click-gate verify`; Evidence mode may register those argv sources dynamically. Same-revision reuse still requires exact receipt bindings. Cross-revision reuse requires both a committed `.click/evidence-dependencies.json` mapping and a complete baseline runtime dependency observation. Concrete paths remain hard dependencies, expanding manifest patterns may be refined to observed inputs, and every effective input must remain unchanged.
 
+An exact check may also use a committed `.click/evidence-reuse.json` safe-change entry without an observer. Treat that file only as repository-owner authority established before the baseline: never create, widen, or reinterpret it to skip checks for the current mutation. Click compares the baseline and current effective Git states, reports net changed paths, and reuses only when every path matches `reuse_if_only_changed`. Any unknown or unlisted path reruns automatically. A complete runtime observation is stronger and cannot be overridden by this declaration.
+
 An in-scope or narrowing follow-up continues the same Evidence session and appends a prompt digest. Start a fresh session when the previous one is complete. The final receipt must distinguish host-authorized execution from Guarded approval.
 
 ## Guarded mode: compile the smallest faithful contract

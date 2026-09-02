@@ -543,6 +543,214 @@ class ClickGateVerificationTests(ClickGateTestCase):
             source["verified_dependency_paths"], ["verification_fixture.py"]
         )
 
+    def test_committed_safe_change_policy_reuses_without_runtime_observer(self) -> None:
+        (self.workspace / ".gitignore").write_text(
+            "__pycache__/\n", encoding="utf-8"
+        )
+        (self.workspace / "README.md").write_text("before\n", encoding="utf-8")
+        policy = self.workspace / ".click" / "evidence-reuse.json"
+        policy.parent.mkdir()
+        command = self.verification_argv()
+        policy.write_text(
+            json.dumps(
+                {
+                    "version": 1,
+                    "entries": [
+                        {
+                            "checks": [command],
+                            "reuse_if_only_changed": ["README.md"],
+                        }
+                    ],
+                },
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        self.initialize_git(
+            ".gitignore",
+            "verification_fixture.py",
+            "README.md",
+            ".click/evidence-reuse.json",
+        )
+        self.approve_contract()
+
+        first = self.verify_gate([command])
+        self.assertEqual(self.run_rewritten(first).returncode, 0)
+        state_path = next(
+            (self.plugin_data / "gate-state").glob("session-contract-*.json")
+        )
+        baseline_state = json.loads(state_path.read_text(encoding="utf-8"))
+        source_key = CLICK_EVIDENCE.evidence_key("E1")
+        baseline_source = baseline_state["evidence_state"]["sources"][source_key]
+        self.assertEqual(baseline_source["verified_dependency_observation"], {})
+        self.assertEqual(
+            baseline_source["verified_safe_change_receipt"]["provider"],
+            "repository-safe-change-policy-v1",
+        )
+
+        self.assertIsNone(
+            self.pre_tool("apply_patch", "*** Begin Patch\n*** End Patch", "turn-2")
+        )
+        (self.workspace / "README.md").write_text("after\n", encoding="utf-8")
+        self.tool_hook(
+            "post-tool",
+            "apply_patch",
+            {"patch": "README"},
+            tool_use_id="tool-1",
+        )
+
+        reused = self.verify_gate([command])
+
+        self.assertEqual(reused["hookSpecificOutput"]["permissionDecision"], "allow")
+        self.assertIn(
+            "repository-declared safe-change cross-revision",
+            reused["hookSpecificOutput"]["updatedInput"]["command"],
+        )
+        self.assertIn("README.md", json.dumps(reused))
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        source = state["evidence_state"]["sources"][source_key]
+        self.assertEqual(source["status"], "passed")
+        self.assertEqual(source["verified_revision"], 1)
+        self.assertEqual(source["attempts"], 1)
+        self.assertEqual(source["safe_change_reuse_count"], 1)
+        self.assertEqual(source["last_safe_change_reused_from_revision"], 0)
+        self.assertEqual(source["last_safe_change_paths"], ["README.md"])
+
+        receipt = self.pre_tool(
+            "Bash", "click-gate receipt export", "turn-2", submit_prompt=False
+        )
+        self.assertIsNotNone(receipt)
+        exported = self.run_rewritten(receipt)
+        self.assertEqual(exported.returncode, 0, exported.stderr)
+        envelope = json.loads(exported.stdout)
+        evidence = envelope["receipt"]["evidence"]
+        self.assertEqual(evidence[0]["lineage"]["mode"], "dependency-reused")
+        self.assertEqual(evidence[0]["lineage"]["from_revision"], 0)
+
+    def test_safe_change_policy_reruns_when_code_is_also_changed(self) -> None:
+        (self.workspace / ".gitignore").write_text(
+            "__pycache__/\n", encoding="utf-8"
+        )
+        (self.workspace / "README.md").write_text("before\n", encoding="utf-8")
+        policy = self.workspace / ".click" / "evidence-reuse.json"
+        policy.parent.mkdir()
+        command = self.verification_argv()
+        policy.write_text(
+            json.dumps(
+                {
+                    "version": 1,
+                    "entries": [
+                        {
+                            "checks": [command],
+                            "reuse_if_only_changed": ["README.md"],
+                        }
+                    ],
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        self.initialize_git(
+            ".gitignore",
+            "verification_fixture.py",
+            "README.md",
+            ".click/evidence-reuse.json",
+        )
+        self.approve_contract()
+        first = self.verify_gate([command])
+        self.assertEqual(self.run_rewritten(first).returncode, 0)
+        self.assertIsNone(
+            self.pre_tool("apply_patch", "*** Begin Patch\n*** End Patch", "turn-2")
+        )
+        (self.workspace / "README.md").write_text("after\n", encoding="utf-8")
+        with (self.workspace / "verification_fixture.py").open(
+            "a", encoding="utf-8"
+        ) as handle:
+            handle.write("\n# changed\n")
+        self.tool_hook(
+            "post-tool",
+            "apply_patch",
+            {"patch": "mixed"},
+            tool_use_id="tool-1",
+        )
+
+        repeated = self.verify_gate([command])
+
+        self.assertIn(
+            "run-verification",
+            split_runner_command(
+                repeated["hookSpecificOutput"]["updatedInput"]["command"]
+            ),
+        )
+        rendered = json.dumps(repeated)
+        self.assertIn("path-not-declared-safe", rendered)
+        self.assertIn("verification_fixture.py", rendered)
+
+    def test_complete_observation_overrides_safe_change_policy(self) -> None:
+        (self.workspace / ".gitignore").write_text(
+            "__pycache__/\n", encoding="utf-8"
+        )
+        (self.workspace / "README.md").write_text("before\n", encoding="utf-8")
+        policy = self.workspace / ".click" / "evidence-reuse.json"
+        policy.parent.mkdir()
+        command = self.verification_argv()
+        policy.write_text(
+            json.dumps(
+                {
+                    "version": 1,
+                    "entries": [
+                        {
+                            "checks": [command],
+                            "reuse_if_only_changed": ["README.md"],
+                        }
+                    ],
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        self.initialize_git(
+            ".gitignore",
+            "verification_fixture.py",
+            "README.md",
+            ".click/evidence-reuse.json",
+        )
+        contract = self.contract()
+        contract["verification"]["evidence"][0]["dependencies"] = [
+            "verification_fixture.py",
+            "README.md",
+        ]
+        self.arm_gate("turn-1")
+        self.stage_gate(contract, "turn-1")
+        self.arm_gate("turn-2")
+        self.pass_gate(turn_id="turn-2")
+        first = self.verify_gate([command])
+        self.assertEqual(self.run_rewritten(first).returncode, 0)
+        self.install_complete_dependency_observation(
+            command, paths=["verification_fixture.py", "README.md"]
+        )
+        self.assertIsNone(
+            self.pre_tool("apply_patch", "*** Begin Patch\n*** End Patch", "turn-2")
+        )
+        (self.workspace / "README.md").write_text("after\n", encoding="utf-8")
+        self.tool_hook(
+            "post-tool",
+            "apply_patch",
+            {"patch": "README"},
+            tool_use_id="tool-1",
+        )
+
+        repeated = self.verify_gate([command])
+
+        self.assertIn(
+            "run-verification",
+            split_runner_command(
+                repeated["hookSpecificOutput"]["updatedInput"]["command"]
+            ),
+        )
+        self.assertNotIn("repository-declared safe-change", json.dumps(repeated))
+
     def test_unavailable_runtime_observation_reruns_after_any_revision(self) -> None:
         (self.workspace / ".gitignore").write_text(
             "__pycache__/\n", encoding="utf-8"

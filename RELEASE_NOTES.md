@@ -1,5 +1,19 @@
 # Release notes
 
+## Unreleased v0.51 candidate — observer-free safe-change preflight
+
+- A committed `.click/evidence-reuse.json` can bind an exact check group to
+  repository paths that are explicitly safe to change without rerunning it.
+- Successful baselines store a compact effective Git snapshot. Later
+  verification computes and reports net changed paths, and reuses only when
+  every path is covered by the unchanged committed entry.
+- Policy edits, unlisted or unsupported paths, unmerged or ambiguous Git state,
+  environment/executable/host-coverage drift, and mutation-boundary drift all
+  fail closed to a real check. Click policy files cannot authorize themselves.
+- This path requires no runtime observer or extra platform package and uses the
+  same implementation on Linux, macOS, and Windows. Existing complete runtime
+  observations remain stronger evidence and cannot be overridden by this policy.
+
 ## v0.50.0 — 2026-09-02
 
 - Cross-revision dependency receipts now combine hard concrete dependencies
