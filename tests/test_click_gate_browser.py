@@ -4,6 +4,7 @@ from click_gate_test_support import (
     CLICK_BROWSER,
     CLICK_EVIDENCE,
     CLICK_GATE,
+    CLICK_LIFECYCLE,
     CLICK_PROCESS,
     HOOK_CONFIG,
     Path,
@@ -495,7 +496,7 @@ class ClickGateBrowserTests(ClickGateTestCase):
             state["external_evidence"]["browser_source_key"],
             CLICK_EVIDENCE.evidence_key("E-browser"),
         )
-        self.assertFalse(CLICK_GATE._contract_is_completed(state))
+        self.assertFalse(CLICK_LIFECYCLE.contract_is_completed(state))
         premature = self.complete_evidence("E-browser")
         self.assertEqual(
             premature["hookSpecificOutput"]["permissionDecision"], "deny"
@@ -521,13 +522,13 @@ class ClickGateBrowserTests(ClickGateTestCase):
             tool_response={"status": "success"},
         )
         state = json.loads(state_path.read_text(encoding="utf-8"))
-        self.assertFalse(CLICK_GATE._contract_is_completed(state))
+        self.assertFalse(CLICK_LIFECYCLE.contract_is_completed(state))
         completed = self.complete_evidence("E-browser")
         self.assertEqual(
             completed["hookSpecificOutput"]["permissionDecision"], "allow"
         )
         state = json.loads(state_path.read_text(encoding="utf-8"))
-        self.assertTrue(CLICK_GATE._contract_is_completed(state))
+        self.assertTrue(CLICK_LIFECYCLE.contract_is_completed(state))
         repeated = self.tool_hook(
             "pre-tool",
             "mcp__node_repl__js",

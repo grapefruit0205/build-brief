@@ -49,21 +49,21 @@ class ClickObservationTests(unittest.TestCase):
             with self.subTest(required=required):
                 self.assertIn(required, imported)
 
-    def test_gate_keeps_observation_compatibility_aliases(self) -> None:
-        aliases = {
-            "_fresh_observation_state": click_observation.fresh_state,
-            "_unclaimed_reservation_is_fresh": click_observation.unclaimed_reservation_is_fresh,
-            "_observation_is_running": click_observation.is_running,
-            "_write_review_state": click_observation.write_review_state,
-            "_read_review_state": click_observation.read_review_state,
-            "_save_review_state": click_observation.save_review_state,
-            "_clear_review_state": click_observation.clear_review_state,
-            "_managed_observation_path": click_observation.managed_path,
-            "_record_observation_result": click_observation.record_result,
-        }
-        for name, expected in aliases.items():
+    def test_gate_does_not_reexport_observation_helpers(self) -> None:
+        aliases = (
+            "_fresh_observation_state",
+            "_unclaimed_reservation_is_fresh",
+            "_observation_is_running",
+            "_write_review_state",
+            "_read_review_state",
+            "_save_review_state",
+            "_clear_review_state",
+            "_managed_observation_path",
+            "_record_observation_result",
+        )
+        for name in aliases:
             with self.subTest(name=name):
-                self.assertIs(getattr(click_gate, name), expected)
+                self.assertFalse(hasattr(click_gate, name))
         self.assertEqual(
             click_gate.OBSERVATION_RESERVATION_TTL_SECONDS,
             click_observation.RESERVATION_TTL_SECONDS,

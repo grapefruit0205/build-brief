@@ -3,7 +3,9 @@ from __future__ import annotations
 from click_gate_test_support import (
     CLICK_EVIDENCE,
     CLICK_GATE,
+    CLICK_LIFECYCLE,
     CLICK_PROCESS,
+    CLICK_PROMPT,
     HOOK_CONFIG,
     Path,
     ClickGateTestCase,
@@ -543,7 +545,7 @@ class ClickGateLifecycleTests(ClickGateTestCase):
             "mutation_revision"
         ]
         state_path.write_text(json.dumps(state), encoding="utf-8")
-        self.assertTrue(CLICK_GATE._contract_is_completed(state))
+        self.assertTrue(CLICK_LIFECYCLE.contract_is_completed(state))
 
         replacement = self.contract()
         replacement["outcome"] = "send a purchasing summary"
@@ -567,7 +569,7 @@ class ClickGateLifecycleTests(ClickGateTestCase):
         ]
         state_path.write_text(json.dumps(state), encoding="utf-8")
 
-        self.assertFalse(CLICK_GATE._contract_is_completed(state))
+        self.assertFalse(CLICK_LIFECYCLE.contract_is_completed(state))
         replacement = self.contract()
         replacement["outcome"] = "send a purchasing summary"
         self.arm_gate("turn-3")
@@ -586,7 +588,7 @@ class ClickGateLifecycleTests(ClickGateTestCase):
         state["state_schema_version"] = 999
         state_path.write_text(json.dumps(state), encoding="utf-8")
 
-        self.assertFalse(CLICK_GATE._contract_is_completed(state))
+        self.assertFalse(CLICK_LIFECYCLE.contract_is_completed(state))
         replacement = self.contract()
         replacement["outcome"] = "send a purchasing summary"
         self.arm_gate("turn-3")
@@ -601,7 +603,7 @@ class ClickGateLifecycleTests(ClickGateTestCase):
         state = json.loads(state_path.read_text(encoding="utf-8"))
         state["evidence_state"] = {"version": 1, "sources": {}}
         state_path.write_text(json.dumps(state), encoding="utf-8")
-        self.assertFalse(CLICK_GATE._contract_is_completed(state))
+        self.assertFalse(CLICK_LIFECYCLE.contract_is_completed(state))
 
         mutation = self.pre_tool(
             "apply_patch", "*** Begin Patch\n*** End Patch", "turn-2"
@@ -637,7 +639,7 @@ class ClickGateLifecycleTests(ClickGateTestCase):
         remaining["verified_revision"] = state["verification"]["mutation_revision"]
         state_path.write_text(json.dumps(state), encoding="utf-8")
 
-        self.assertFalse(CLICK_GATE._contract_is_completed(state))
+        self.assertFalse(CLICK_LIFECYCLE.contract_is_completed(state))
         verification = self.verify_gate([self.verification_argv()])
         self.assertEqual(
             verification["hookSpecificOutput"]["permissionDecision"], "deny"
@@ -1177,7 +1179,7 @@ class ClickGateLifecycleTests(ClickGateTestCase):
         }
         for prompt, expected in accepted.items():
             with self.subTest(prompt=prompt):
-                self.assertEqual(CLICK_GATE._prompt_authorization(prompt), expected)
+                self.assertEqual(CLICK_PROMPT.prompt_authorization(prompt), expected)
 
         rejected = (
             "@Click bypass extra",
@@ -1191,7 +1193,7 @@ class ClickGateLifecycleTests(ClickGateTestCase):
         )
         for prompt in rejected:
             with self.subTest(prompt=prompt):
-                self.assertEqual(CLICK_GATE._prompt_authorization(prompt), "")
+                self.assertEqual(CLICK_PROMPT.prompt_authorization(prompt), "")
 
     def test_manual_incomplete_contract_survives_eight_day_cleanup(self) -> None:
         self.set_default("manual", "turn-0")

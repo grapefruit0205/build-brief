@@ -118,16 +118,16 @@ class ClickModeTests(unittest.TestCase):
                 self.assertEqual(click_mode.consume_migration_notice(), legacy)
                 self.assertEqual(click_mode.consume_migration_notice(), "")
 
-    def test_lifecycle_and_gate_keep_the_same_mode_compatibility_objects(self) -> None:
-        aliases = {
-            "_write_mode": click_mode.write_mode,
-            "_read_mode": click_mode.read_mode,
-            "_write_default_mode": click_mode.write_default_mode,
-            "_read_default_mode": click_mode.read_default_mode,
-        }
-        for name, expected in aliases.items():
+    def test_gate_does_not_reexport_mode_helpers(self) -> None:
+        aliases = (
+            "_write_mode",
+            "_read_mode",
+            "_write_default_mode",
+            "_read_default_mode",
+        )
+        for name in aliases:
             with self.subTest(name=name):
-                self.assertIs(getattr(click_gate, name), expected)
+                self.assertFalse(hasattr(click_gate, name))
         self.assertIs(click_lifecycle.write_mode, click_mode.write_mode)
         self.assertIs(click_lifecycle.read_mode, click_mode.read_mode)
         self.assertIs(

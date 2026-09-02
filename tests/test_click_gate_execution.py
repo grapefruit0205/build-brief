@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 from click_gate_test_support import (
+    CLICK_CAPABILITY,
     CLICK_GATE,
+    CLICK_INSPECTION,
     CLICK_MUTATION,
     CLICK_PROCESS,
+    CLICK_STATE,
+    CLICK_VERIFICATION,
     HOOK_CONFIG,
     Path,
     ClickGateTestCase,
@@ -51,7 +55,7 @@ class ClickGateExecutionTests(ClickGateTestCase):
         }
         for executable, expected in cases.items():
             with self.subTest(executable=executable):
-                argv, error = CLICK_GATE._validate_argv(
+                argv, error = CLICK_CAPABILITY.validate_argv(
                     [executable, "ignored"], "Mutation"
                 )
                 self.assertIsNone(argv)
@@ -122,7 +126,7 @@ class ClickGateExecutionTests(ClickGateTestCase):
             mock.patch.dict(
                 CLICK_GATE.os.environ, {"PLUGIN_DATA": str(self.plugin_data)}
             ),
-            mock.patch.object(CLICK_GATE, "_execute_argv_commands") as execute,
+            mock.patch.object(CLICK_INSPECTION, "execute_argv_commands") as execute,
         ):
             self.assertEqual(CLICK_GATE._run_mutation(tampered), 2)
         execute.assert_not_called()
@@ -138,7 +142,7 @@ class ClickGateExecutionTests(ClickGateTestCase):
                 CLICK_GATE.os.environ, {"PLUGIN_DATA": str(self.plugin_data)}
             ),
             mock.patch.object(
-                CLICK_GATE, "_execute_argv_commands", return_value=0
+                CLICK_INSPECTION, "execute_argv_commands", return_value=0
             ) as execute,
         ):
             self.assertEqual(CLICK_GATE._run_mutation(arguments), 0)
@@ -217,7 +221,7 @@ class ClickGateExecutionTests(ClickGateTestCase):
                 with self.subTest(label=label):
                     state_path.write_text(json.dumps(state), encoding="utf-8")
                     with mock.patch.object(
-                        CLICK_GATE, "_execute_argv_commands"
+                        CLICK_INSPECTION, "execute_argv_commands"
                     ) as execute:
                         self.assertEqual(CLICK_GATE._run_mutation(arguments), 2)
                     execute.assert_not_called()
@@ -236,7 +240,7 @@ class ClickGateExecutionTests(ClickGateTestCase):
             mock.patch.dict(
                 CLICK_GATE.os.environ, {"PLUGIN_DATA": str(self.plugin_data)}
             ),
-            mock.patch.object(CLICK_GATE, "_execute_argv_commands") as execute,
+            mock.patch.object(CLICK_INSPECTION, "execute_argv_commands") as execute,
         ):
             self.assertEqual(CLICK_GATE._run_mutation(arguments), 2)
         execute.assert_not_called()
@@ -303,7 +307,7 @@ class ClickGateExecutionTests(ClickGateTestCase):
                     side_effect=release_competing_lock,
                 ),
             ):
-                with CLICK_GATE._state_lock():
+                with CLICK_STATE.state_lock():
                     self.assertTrue(lock_path.exists())
 
             self.assertEqual(attempts, 2)
@@ -375,8 +379,8 @@ class ClickGateExecutionTests(ClickGateTestCase):
                 },
             ),
             mock.patch.object(
-                CLICK_GATE,
-                "_execute_inspection_commands",
+                CLICK_INSPECTION,
+                "execute_commands",
                 side_effect=execute_after_claim,
             ),
         ):
@@ -396,7 +400,7 @@ class ClickGateExecutionTests(ClickGateTestCase):
                     "CLICK_CONFIG_HOME": str(self.plugin_data),
                 },
             ),
-            mock.patch.object(CLICK_GATE, "_execute_inspection_commands") as execute,
+            mock.patch.object(CLICK_INSPECTION, "execute_commands") as execute,
         ):
             self.assertEqual(CLICK_GATE._run_observation(arguments), 2)
         execute.assert_not_called()
@@ -426,7 +430,7 @@ class ClickGateExecutionTests(ClickGateTestCase):
                     "CLICK_CONFIG_HOME": str(self.plugin_data),
                 },
             ),
-            mock.patch.object(CLICK_GATE, "_execute_inspection_commands") as execute,
+            mock.patch.object(CLICK_INSPECTION, "execute_commands") as execute,
         ):
             self.assertEqual(CLICK_GATE._run_observation(arguments), 2)
         execute.assert_not_called()
@@ -440,7 +444,7 @@ class ClickGateExecutionTests(ClickGateTestCase):
         arguments = self.observation_runner_arguments(payload)
         state_path = Path(arguments[0])
         request_digest, runner_token, encoded = arguments[1:]
-        raw, error = CLICK_GATE._decode_encoded_request(encoded, "observation")
+        raw, error = CLICK_CAPABILITY.decode_encoded_request(encoded, "observation")
         self.assertEqual(error, "")
         with mock.patch.dict(
             CLICK_GATE.os.environ,
@@ -449,7 +453,7 @@ class ClickGateExecutionTests(ClickGateTestCase):
                 "CLICK_CONFIG_HOME": str(self.plugin_data),
             },
         ):
-            with CLICK_GATE._state_lock():
+            with CLICK_STATE.state_lock():
                 request, claim_error = CLICK_GATE._claim_observation_run(
                     state_path, raw, request_digest, runner_token
                 )
@@ -522,8 +526,8 @@ class ClickGateExecutionTests(ClickGateTestCase):
                 },
             ),
             mock.patch.object(
-                CLICK_GATE,
-                "_execute_inspection_commands",
+                CLICK_INSPECTION,
+                "execute_commands",
                 side_effect=OSError("startup failed"),
             ),
         ):

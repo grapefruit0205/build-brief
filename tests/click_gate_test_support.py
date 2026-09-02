@@ -36,9 +36,15 @@ finally:
 
 CLICK_PROCESS = CLICK_GATE.click_process
 CLICK_BROWSER = CLICK_GATE.click_browser
+CLICK_CAPABILITY = CLICK_GATE.click_capability
 CLICK_EVIDENCE = CLICK_GATE.click_evidence
+CLICK_INSPECTION = CLICK_GATE.click_inspection
+CLICK_LIFECYCLE = CLICK_GATE.click_lifecycle
 CLICK_MUTATION = CLICK_GATE.click_mutation
+CLICK_PROMPT = CLICK_GATE.click_prompt
 CLICK_SERVICE = CLICK_GATE.click_service
+CLICK_STATE = CLICK_GATE.click_state
+CLICK_VERIFICATION = CLICK_GATE.click_verification
 
 
 def mark_git_boundary(root: Path) -> None:
@@ -306,7 +312,7 @@ class ClickGateTestCase(unittest.TestCase):
         if not state_paths:
             return "ctr_" + ("0" * 32)
         state = json.loads(state_paths[0].read_text(encoding="utf-8"))
-        contract_id = CLICK_GATE._contract_id_from_state(state)
+        contract_id = CLICK_LIFECYCLE.contract_id_from_state(state)
         if not contract_id:
             return "ctr_" + ("0" * 32)
         self.assertRegex(contract_id, r"^ctr_[0-9a-f]{32}$")

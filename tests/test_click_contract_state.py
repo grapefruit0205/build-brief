@@ -11,7 +11,6 @@ from unittest import mock
 from hooks import (
     click_browser,
     click_contract_state,
-    click_gate,
     click_lifecycle,
     click_mutation,
     click_observation,
@@ -137,7 +136,7 @@ class ClickContractStateTests(unittest.TestCase):
             click_contract_state.clear_contract_state(self.event)
         path.unlink.assert_called_once_with()
 
-    def test_runtime_domains_and_facades_share_the_leaf_symbols(self) -> None:
+    def test_runtime_domains_share_the_leaf_symbols(self) -> None:
         for module in (
             click_browser,
             click_lifecycle,
@@ -170,15 +169,15 @@ class ClickContractStateTests(unittest.TestCase):
             click_contract_state.clear_contract_state,
         )
         self.assertIs(
-            click_gate._read_contract_state,
+            click_contract_state.read_contract_state,
             click_contract_state.read_contract_state,
         )
         self.assertIs(
-            click_gate._save_contract_state,
+            click_contract_state.save_contract_state,
             click_contract_state.save_contract_state,
         )
         self.assertIs(
-            click_gate._clear_contract_state,
+            click_contract_state.clear_contract_state,
             click_contract_state.clear_contract_state,
         )
 

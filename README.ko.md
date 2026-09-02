@@ -285,16 +285,16 @@ Antigravity IDE에서는 `dist/antigravity`를 워크스페이스의 `.agents/pl
 
 Antigravity의 Hook contract는 Codex와 다릅니다. native file/search와 별도 MCP·Skill 도구는 계속 사용할 수 있지만 cross-tool 중복 제거와 Browser evidence는 아직 지원하지 않습니다. 정확한 제한은 [`platforms/antigravity/README.md`](platforms/antigravity/README.md)를 확인하세요.
 
-## 기존 설치 업데이트 — v0.36.2
+## 기존 설치 업데이트 — v0.50.0
 
-현재 릴리스는 **v0.36.2**입니다.
+현재 릴리스는 **v0.50.0**입니다.
 
 ```bash
 codex plugin marketplace upgrade click
 codex plugin add click@click
 ```
 
-ChatGPT 데스크톱 앱을 다시 시작하고 갱신된 Hook을 검토해 신뢰하세요. v0.36.2는 mode, inspection policy, prompt lineage, contract-state persistence를 명시적인 runtime leaf 경계로 분리했습니다. 기존 lifecycle·gate 호환 심볼과 Evidence/Guarded 권한, runner 복구, receipt 의미, Antigravity runtime 동작은 그대로 유지됩니다. 새 Hook 코드를 로드하려면 업그레이드 후 새 작업을 시작하세요.
+ChatGPT 데스크톱 앱을 다시 시작하고 갱신된 Hook을 검토해 신뢰하세요. v0.50.0은 gate facade의 과거 private module forwarder 144개를 문서화된 `_validate_contract` 호환 binding 하나로 줄이고, domain 테스트가 각 소유 모듈을 직접 사용하도록 정리했습니다. public host entry point와 Evidence/Guarded 권한, runner 복구, receipt 의미, Antigravity runtime 동작은 그대로 유지됩니다. 새 Hook 코드를 로드하려면 업그레이드 후 새 작업을 시작하세요.
 
 자세한 릴리스 이력은 [RELEASE_NOTES.md](RELEASE_NOTES.md)에 있습니다.
 

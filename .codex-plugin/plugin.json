@@ -1,6 +1,6 @@
 {
   "name": "click",
-  "version": "0.36.2",
+  "version": "0.50.0",
   "description": "Evidence by default: let the host run normally while Click records revision-aware proof. Opt into Guarded for one human-readable, approval-bound execution contract.",
   "author": {
     "name": "Junseok Pak",

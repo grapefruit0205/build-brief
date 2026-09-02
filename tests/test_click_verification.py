@@ -52,26 +52,26 @@ class ClickVerificationTests(unittest.TestCase):
             with self.subTest(required=required):
                 self.assertIn(required, imported)
 
-    def test_gate_keeps_verification_compatibility_aliases(self) -> None:
-        aliases = {
-            "_fresh_verification_state": click_verification.fresh_state,
-            "_validate_verification_batch": click_verification.validate_batch,
-            "_verification_groups": click_verification.verification_groups,
-            "_verification_group_digest": click_verification.group_digest,
-            "_file_content_digest": click_verification.file_content_digest,
-            "_verification_environment": click_verification.environment,
-            "_verification_environment_binding": click_verification.environment_binding,
-            "_verification_executable_records": click_verification.executable_records,
-            "_verification_environment_digest": click_verification.environment_digest,
-            "_verification_receipt_matches": click_verification.receipt_matches,
-            "_dependency_receipt_matches": click_verification.dependency_receipt_matches,
-            "_minimum_verification_class": click_verification.minimum_class,
-            "_git_workspace_snapshot": click_verification.git_workspace_snapshot,
-            "_new_untracked_is_suspicious": click_verification.new_untracked_is_suspicious,
-        }
-        for name, expected in aliases.items():
+    def test_gate_does_not_reexport_verification_helpers(self) -> None:
+        aliases = (
+            "_fresh_verification_state",
+            "_validate_verification_batch",
+            "_verification_groups",
+            "_verification_group_digest",
+            "_file_content_digest",
+            "_verification_environment",
+            "_verification_environment_binding",
+            "_verification_executable_records",
+            "_verification_environment_digest",
+            "_verification_receipt_matches",
+            "_dependency_receipt_matches",
+            "_minimum_verification_class",
+            "_git_workspace_snapshot",
+            "_new_untracked_is_suspicious",
+        )
+        for name in aliases:
             with self.subTest(name=name):
-                self.assertIs(getattr(click_gate, name), expected)
+                self.assertFalse(hasattr(click_gate, name))
         self.assertEqual(
             click_gate.VERIFICATION_PROTOCOL_VERSION,
             click_verification.PROTOCOL_VERSION,

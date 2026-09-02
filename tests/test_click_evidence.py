@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 import unittest
 
-from hooks import click_evidence, click_gate, click_host_coverage
+from hooks import click_evidence, click_gate, click_host_coverage, click_lifecycle
 
 
 class ClickEvidenceTests(unittest.TestCase):
@@ -280,13 +280,13 @@ class ClickEvidenceTests(unittest.TestCase):
             click_evidence.keys_for_kind(sources, "browser"), {browser_key}
         )
 
-    def test_gate_sources_wrapper_passes_the_contract_schema_version(self) -> None:
+    def test_lifecycle_sources_helper_passes_the_contract_schema_version(self) -> None:
         state = {
-            "state_schema_version": click_gate.CONTRACT_STATE_SCHEMA_VERSION,
+            "state_schema_version": click_lifecycle.CONTRACT_STATE_SCHEMA_VERSION,
             "evidence_state": click_evidence.fresh_state(self.contract),
         }
         self.assertEqual(
-            click_gate._evidence_sources(state),
+            click_lifecycle.evidence_sources(state),
             state["evidence_state"]["sources"],
         )
 

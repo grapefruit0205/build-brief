@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 from click_gate_test_support import (
+    CLICK_CAPABILITY,
     CLICK_GATE,
+    CLICK_INSPECTION,
     CLICK_PROCESS,
+    CLICK_VERIFICATION,
     HOOK_CONFIG,
     Path,
     ClickGateTestCase,
@@ -132,7 +135,7 @@ class ClickGateInspectionTests(ClickGateTestCase):
             "Test-Path",
         ):
             with self.subTest(command=command):
-                self.assertFalse(CLICK_GATE._is_read_only_tokens([command]))
+                self.assertFalse(CLICK_INSPECTION.is_read_only_tokens([command]))
 
     def test_evidence_default_allows_and_records_first_mutation(self) -> None:
         payload = self.pre_tool("apply_patch", "*** Begin Patch\n*** End Patch")
@@ -157,10 +160,10 @@ class ClickGateInspectionTests(ClickGateTestCase):
         )
         for argv in allowed:
             with self.subTest(allowed=argv):
-                self.assertTrue(CLICK_GATE._is_read_only_tokens(argv))
+                self.assertTrue(CLICK_INSPECTION.is_read_only_tokens(argv))
         for argv in denied:
             with self.subTest(denied=argv):
-                self.assertFalse(CLICK_GATE._is_read_only_tokens(argv))
+                self.assertFalse(CLICK_INSPECTION.is_read_only_tokens(argv))
 
     def test_structured_inspection_runs_shell_free_and_advises_repeat(self) -> None:
         self.approve_contract()
@@ -256,7 +259,7 @@ class ClickGateInspectionTests(ClickGateTestCase):
         ):
             with self.subTest(executable=executable):
                 self.assertTrue(
-                    CLICK_GATE._is_path_qualified_executable(executable)
+                    CLICK_INSPECTION.is_path_qualified_executable(executable)
                 )
         for argv in (
             ["./cat", "README.md"],
@@ -271,7 +274,7 @@ class ClickGateInspectionTests(ClickGateTestCase):
             ["./git", "status", "--short"],
         ):
             with self.subTest(argv=argv):
-                self.assertFalse(CLICK_GATE._is_read_only_tokens(argv))
+                self.assertFalse(CLICK_INSPECTION.is_read_only_tokens(argv))
 
     def test_windows_direct_command_tokenization_preserves_paths(self) -> None:
         cases = {
@@ -308,13 +311,13 @@ class ClickGateInspectionTests(ClickGateTestCase):
         }
         for command, expected in cases.items():
             with self.subTest(command=command):
-                tokens, error = CLICK_GATE._direct_command_tokens(
+                tokens, error = CLICK_INSPECTION.direct_command_tokens(
                     command, windows=True
                 )
                 self.assertEqual(error, "")
                 self.assertEqual(tokens, expected)
 
-        request, broad, error = CLICK_GATE._inspection_request_from_bash(
+        request, broad, error = CLICK_INSPECTION.request_from_bash(
             r'Get-Content -LiteralPath "C:\Program Files\README.md"',
             windows=True,
         )
@@ -391,7 +394,7 @@ class ClickGateInspectionTests(ClickGateTestCase):
     def test_inspection_never_executes_a_path_qualified_read_only_name(self) -> None:
         with mock.patch.object(CLICK_GATE.subprocess, "run") as run:
             run.return_value.returncode = 0
-            exit_code = CLICK_GATE._execute_inspection_commands(
+            exit_code = CLICK_INSPECTION.execute_commands(
                 [["./cat", "README.md"]], workspace=self.workspace
             )
         self.assertEqual(exit_code, 2)
@@ -406,7 +409,7 @@ class ClickGateInspectionTests(ClickGateTestCase):
             mock.patch.object(CLICK_GATE.subprocess, "run") as run,
         ):
             run.return_value.returncode = 0
-            exit_code = CLICK_GATE._execute_inspection_commands(
+            exit_code = CLICK_INSPECTION.execute_commands(
                 [["cat", "README.md"]], workspace=self.workspace
             )
         self.assertEqual(exit_code, 2)
@@ -432,7 +435,7 @@ class ClickGateInspectionTests(ClickGateTestCase):
             mock.patch.object(CLICK_GATE.subprocess, "run") as run,
         ):
             run.return_value.returncode = 0
-            exit_code = CLICK_GATE._execute_inspection_commands(
+            exit_code = CLICK_INSPECTION.execute_commands(
                 [["cat", "README.md"]], workspace=self.workspace
             )
         self.assertEqual(exit_code, 0)
@@ -465,7 +468,7 @@ class ClickGateInspectionTests(ClickGateTestCase):
             mock.patch.object(CLICK_GATE.subprocess, "run") as run,
         ):
             run.return_value.returncode = 0
-            exit_code = CLICK_GATE._execute_inspection_commands(
+            exit_code = CLICK_INSPECTION.execute_commands(
                 [["cat", "README.md"]], workspace=self.workspace
             )
         self.assertEqual(exit_code, 2)
@@ -487,7 +490,7 @@ class ClickGateInspectionTests(ClickGateTestCase):
             mock.patch.object(CLICK_GATE.subprocess, "run") as run,
         ):
             run.return_value.returncode = 0
-            exit_code = CLICK_GATE._execute_inspection_commands(
+            exit_code = CLICK_INSPECTION.execute_commands(
                 [["cat", "README.md"]], workspace=self.workspace
             )
         self.assertEqual(exit_code, 2)
@@ -507,7 +510,7 @@ class ClickGateInspectionTests(ClickGateTestCase):
         source = os.pathsep.join(
             ["", ".", "relative-bin", str(workspace_bin), str(workspace_link), str(outside)]
         )
-        sanitized = CLICK_GATE._sanitized_executable_path(
+        sanitized = CLICK_INSPECTION.sanitized_executable_path(
             source, workspace=self.workspace
         ).split(os.pathsep)
         self.assertEqual(sanitized, [str(outside.resolve())])
@@ -524,7 +527,7 @@ class ClickGateInspectionTests(ClickGateTestCase):
         fake.write_text("repository-owned reader\n", encoding="utf-8")
 
         with mock.patch("shutil.which", return_value=str(fake)):
-            executable, error = CLICK_GATE._resolve_read_only_executable(
+            executable, error = CLICK_INSPECTION.resolve_read_only_executable(
                 "cat", workspace=nested
             )
 
@@ -536,8 +539,8 @@ class ClickGateInspectionTests(ClickGateTestCase):
         (ancestor / ".git").mkdir(parents=True)
         nested = ancestor / "nested" / "workspace"
         nested.mkdir(parents=True)
-        self.assertEqual(CLICK_GATE._workspace_boundary(nested), nested.resolve())
-        self.assertFalse(CLICK_GATE._git_metadata_present(nested))
+        self.assertEqual(CLICK_INSPECTION.workspace_boundary(nested), nested.resolve())
+        self.assertFalse(CLICK_INSPECTION.git_metadata_present(nested))
 
     def test_sanitized_path_fails_closed_on_a_symlink_loop(self) -> None:
         mark_git_boundary(self.workspace)
@@ -549,7 +552,7 @@ class ClickGateInspectionTests(ClickGateTestCase):
         except OSError as exc:
             self.skipTest(f"symlinks unavailable: {exc}")
 
-        sanitized = CLICK_GATE._sanitized_executable_path(
+        sanitized = CLICK_INSPECTION.sanitized_executable_path(
             str(first), workspace=self.workspace
         )
         self.assertEqual(sanitized, "")
@@ -560,7 +563,7 @@ class ClickGateInspectionTests(ClickGateTestCase):
             alias.symlink_to(self.workspace, target_is_directory=True)
         except OSError as exc:
             self.skipTest(f"symlinks unavailable: {exc}")
-        self.assertTrue(CLICK_GATE._path_is_within(alias, self.workspace))
+        self.assertTrue(CLICK_INSPECTION.path_is_within(alias, self.workspace))
 
     def test_read_only_child_environments_strip_loader_injection(self) -> None:
         mark_git_boundary(self.workspace)
@@ -574,10 +577,10 @@ class ClickGateInspectionTests(ClickGateTestCase):
             "GIT_EXTERNAL_DIFF": "/tmp/helper",
         }
         with mock.patch.dict(CLICK_GATE.os.environ, source, clear=True):
-            read_environment = CLICK_GATE._sanitized_read_only_environment(
+            read_environment = CLICK_INSPECTION.sanitized_read_only_environment(
                 workspace=self.workspace
             )
-        git_environment = CLICK_GATE._sanitized_git_environment(
+        git_environment = CLICK_INSPECTION.sanitized_git_environment(
             source, workspace=self.workspace
         )
 
@@ -613,13 +616,13 @@ class ClickGateInspectionTests(ClickGateTestCase):
         ):
             run.return_value.returncode = 0
             self.assertEqual(
-                CLICK_GATE._execute_inspection_commands(
+                CLICK_INSPECTION.execute_commands(
                     [["git", "status", "--short"]], workspace=self.workspace
                 ),
                 0,
             )
             self.assertEqual(
-                CLICK_GATE._execute_inspection_commands(
+                CLICK_INSPECTION.execute_commands(
                     [["ssh", "example-host", "git", "status", "--short"]],
                     workspace=self.workspace,
                 ),
@@ -665,10 +668,10 @@ class ClickGateInspectionTests(ClickGateTestCase):
 
         for argv in allowed:
             with self.subTest(allowed=argv):
-                self.assertTrue(CLICK_GATE._is_read_only_tokens(argv))
+                self.assertTrue(CLICK_INSPECTION.is_read_only_tokens(argv))
         for argv in denied:
             with self.subTest(denied=argv):
-                self.assertFalse(CLICK_GATE._is_read_only_tokens(argv))
+                self.assertFalse(CLICK_INSPECTION.is_read_only_tokens(argv))
                 payload = self.inspect_gate([argv])
                 self.assertEqual(
                     payload["hookSpecificOutput"]["permissionDecision"], "deny"
@@ -677,7 +680,7 @@ class ClickGateInspectionTests(ClickGateTestCase):
     def test_direct_structured_ssh_read_becomes_an_observation(self) -> None:
         self.approve_contract()
         command = "ssh example-host git status --short"
-        request, broad, error = CLICK_GATE._inspection_request_from_bash(command)
+        request, broad, error = CLICK_INSPECTION.request_from_bash(command)
         self.assertEqual(error, "")
         self.assertFalse(broad)
         self.assertEqual(
@@ -710,8 +713,8 @@ class ClickGateInspectionTests(ClickGateTestCase):
             "literal|value;still-one-argument",
         ]
         argv = ["ssh", "example-host", *remote_argv]
-        prepared = CLICK_GATE._execution_argv(argv)
-        safe_git_argv, error = CLICK_GATE._build_read_only_git_argv(remote_argv)
+        prepared = CLICK_INSPECTION.execution_argv(argv)
+        safe_git_argv, error = CLICK_INSPECTION.build_read_only_git_argv(remote_argv)
         self.assertEqual(error, "")
         self.assertEqual(prepared[:4], ["ssh", "-n", "-F", "none"])
         self.assertIn("BatchMode=yes", prepared)
@@ -729,7 +732,7 @@ class ClickGateInspectionTests(ClickGateTestCase):
 
         with mock.patch.object(CLICK_GATE.subprocess, "run") as run:
             run.return_value.returncode = 0
-            self.assertEqual(CLICK_GATE._execute_argv_commands([argv]), 0)
+            self.assertEqual(CLICK_INSPECTION.execute_argv_commands([argv]), 0)
         self.assertEqual(run.call_args.args[0], prepared)
         self.assertFalse(run.call_args.kwargs["check"])
 
@@ -737,21 +740,21 @@ class ClickGateInspectionTests(ClickGateTestCase):
             r"C:\trusted\ssh.exe" if os.name == "nt" else "/trusted/bin/ssh"
         )
         pinned_argv = [pinned_ssh, "example-host", *remote_argv]
-        pinned = CLICK_GATE._execution_argv(pinned_argv)
+        pinned = CLICK_INSPECTION.execution_argv(pinned_argv)
         self.assertEqual(pinned[0], pinned_ssh)
         self.assertIn("BatchMode=yes", pinned)
-        self.assertIsNotNone(CLICK_GATE._structured_ssh_parts(pinned_argv))
+        self.assertIsNotNone(CLICK_INSPECTION.structured_ssh_parts(pinned_argv))
 
     def test_structured_ssh_execution_keeps_mutations_explicit(self) -> None:
         remote_argv = ["python3", "tool.py", "--value", "literal|value"]
         argv = ["ssh", "example-host", *remote_argv]
-        self.assertEqual(CLICK_GATE._execution_argv(argv), argv)
+        self.assertEqual(CLICK_INSPECTION.execution_argv(argv), argv)
         self.assertFalse(
-            CLICK_GATE._is_read_only_tokens(argv)
+            CLICK_INSPECTION.is_read_only_tokens(argv)
         )
 
         unsupported = ["ssh", "-p", "2222", "example-host", "git", "status"]
-        self.assertEqual(CLICK_GATE._execution_argv(unsupported), unsupported)
+        self.assertEqual(CLICK_INSPECTION.execution_argv(unsupported), unsupported)
 
     def test_structured_ssh_read_is_valid_targeted_verification(self) -> None:
         self.approve_contract()
@@ -767,7 +770,7 @@ class ClickGateInspectionTests(ClickGateTestCase):
         self.assertEqual(output["permissionDecision"], "allow")
 
     def test_git_remote_output_redacts_credentials_and_query_tokens(self) -> None:
-        output = CLICK_GATE._redact_git_remote_output(
+        output = CLICK_INSPECTION.redact_git_remote_output(
             b"https://user:token@example.com/repo.git?access_token=secret\n"
             b"ssh://user:password@example.com/repo.git#secret\n"
             b"token@example.com:owner/repo.git\n"
@@ -807,7 +810,7 @@ class ClickGateInspectionTests(ClickGateTestCase):
                         )
                         run.return_value.stderr = b""
                         self.assertEqual(
-                            CLICK_GATE._execute_argv_commands(
+                            CLICK_INSPECTION.execute_argv_commands(
                                 [argv], stdout_file, stderr_file
                             ),
                             0,
@@ -859,7 +862,7 @@ class ClickGateInspectionTests(ClickGateTestCase):
             ("verification", ["CI=1", "npm", "test"]),
         ):
             with self.subTest(label=label):
-                normalized, error = CLICK_GATE._validate_argv(argv, label.title())
+                normalized, error = CLICK_CAPABILITY.validate_argv(argv, label.title())
                 self.assertIsNone(normalized)
                 self.assertIn("NAME=value", error)
 
@@ -874,11 +877,11 @@ class ClickGateInspectionTests(ClickGateTestCase):
             ["Stop-Process", "-Id", "1234"],
         ):
             with self.subTest(argv=argv):
-                normalized, error = CLICK_GATE._validate_argv(argv, "Mutation")
+                normalized, error = CLICK_CAPABILITY.validate_argv(argv, "Mutation")
                 self.assertIsNone(normalized)
                 self.assertIn("process-control executable", error)
 
-        normalized, error = CLICK_GATE._validate_argv(
+        normalized, error = CLICK_CAPABILITY.validate_argv(
             ["kill-switch-check", "--help"], "Mutation"
         )
         self.assertEqual(normalized, ["kill-switch-check", "--help"])
@@ -917,16 +920,16 @@ class ClickGateInspectionTests(ClickGateTestCase):
             run.return_value.returncode = 0
             run.return_value.stdout = b"captured\n"
             self.assertEqual(
-                CLICK_GATE._execute_argv_commands([["echo", "ok"]]), 0
+                CLICK_INSPECTION.execute_argv_commands([["echo", "ok"]]), 0
             )
             self.assertEqual(
-                CLICK_GATE._execute_read_only_git(
+                CLICK_INSPECTION.execute_read_only_git(
                     ["git", "status", "--short"], None, None
                 ),
                 0,
             )
             self.assertEqual(
-                CLICK_GATE._git_capture(self.workspace, ["status", "--short"]),
+                CLICK_VERIFICATION.git_capture(self.workspace, ["status", "--short"]),
                 b"captured\n",
             )
 
@@ -960,7 +963,7 @@ class ClickGateInspectionTests(ClickGateTestCase):
         self.assertIn("version", denied["hookSpecificOutput"]["permissionDecisionReason"])
 
     def test_inspection_request_retains_the_eight_command_operational_cap(self) -> None:
-        request, broad, error = CLICK_GATE._validate_inspection_request(
+        request, broad, error = CLICK_INSPECTION.validate_request(
             json.dumps(
                 {
                     "version": 1,
@@ -1047,12 +1050,12 @@ class ClickGateInspectionTests(ClickGateTestCase):
             ["git", "remote", "get-url", "origin"],
         ):
             with self.subTest(argv=argv):
-                request, _, error = CLICK_GATE._validate_inspection_request(
+                request, _, error = CLICK_INSPECTION.validate_request(
                     json.dumps({"version": 1, "commands": [argv]})
                 )
                 self.assertEqual(error, "")
                 self.assertIsNotNone(request)
-        safe, error = CLICK_GATE._build_read_only_git_argv(
+        safe, error = CLICK_INSPECTION.build_read_only_git_argv(
             ["git", "diff", "--check"]
         )
         self.assertEqual(error, "")
@@ -1067,7 +1070,7 @@ class ClickGateInspectionTests(ClickGateTestCase):
         self.assertIn("--no-ext-diff", safe)
         self.assertIn("--no-textconv", safe)
 
-        environment = CLICK_GATE._sanitized_git_environment(
+        environment = CLICK_INSPECTION.sanitized_git_environment(
             {
                 "PATH": os.environ.get("PATH", ""),
                 "GIT_PAGER": "evil-pager",

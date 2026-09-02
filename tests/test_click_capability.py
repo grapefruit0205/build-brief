@@ -25,21 +25,21 @@ class ClickCapabilityTests(unittest.TestCase):
             imported,
         )
 
-    def test_gate_keeps_capability_compatibility_aliases(self) -> None:
-        aliases = {
-            "_decode_capability_request": click_capability.decode_request,
-            "_validate_argv": click_capability.validate_argv,
-            "_policy_executable_name": click_capability.policy_executable_name,
-            "_shell_segments": click_capability.shell_segments,
-            "_command_parts": click_capability.command_parts,
-            "_positional_arguments": click_capability.positional_arguments,
-            "_capability_digest": click_capability.digest,
-            "_encoded_request": click_capability.encode_request,
-            "_decode_encoded_request": click_capability.decode_encoded_request,
-        }
-        for name, expected in aliases.items():
+    def test_gate_does_not_reexport_capability_helpers(self) -> None:
+        aliases = (
+            "_decode_capability_request",
+            "_validate_argv",
+            "_policy_executable_name",
+            "_shell_segments",
+            "_command_parts",
+            "_positional_arguments",
+            "_capability_digest",
+            "_encoded_request",
+            "_decode_encoded_request",
+        )
+        for name in aliases:
             with self.subTest(name=name):
-                self.assertIs(getattr(click_gate, name), expected)
+                self.assertFalse(hasattr(click_gate, name))
         self.assertEqual(
             click_gate.CAPABILITY_PROTOCOL_VERSION,
             click_capability.PROTOCOL_VERSION,
