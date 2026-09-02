@@ -32,6 +32,18 @@ PROVIDER_NAMES = frozenset(
         COMBINED_PROVIDER_NAME,
     }
 )
+OBSERVATION_PROVIDER_NAME = "runtime-dependency-observation-v1"
+OBSERVATION_STATUSES = frozenset({"complete", "failed", "unavailable"})
+OBSERVATION_FIELDS = frozenset(
+    {
+        "provider",
+        "status",
+        "paths",
+        "external_access",
+        "child_processes",
+        "process_tree_complete",
+    }
+)
 MAX_CONFIG_BYTES = 256 * 1024
 
 GitCapture = Callable[[Path, list[str]], bytes | None]
@@ -148,6 +160,16 @@ def _matches(pattern: str, relative: str) -> bool:
     return _glob_matches(tuple(pattern.split("/")), tuple(relative.split("/")))
 
 
+def _pattern_expands_repository_members(pattern: str) -> bool:
+    """Return whether a manifest pattern names a set rather than one path.
+
+    A complete runtime observation can safely refine these conservative
+    discovery envelopes to the members that the check actually touched.
+    Concrete contract and manifest paths remain hard dependencies.
+    """
+    return pattern.endswith("/") or "*" in pattern
+
+
 def _safe_relative_path(relative: str, *, directory: bool = False) -> bool:
     candidate = relative[:-1] if directory and relative.endswith("/") else relative
     if not candidate or "\x00" in candidate or "\\" in candidate:
@@ -168,6 +190,123 @@ def receipt_paths_are_valid(value: Any) -> bool:
             and _safe_relative_path(relative, directory=relative.endswith("/"))
             for relative in value
         )
+    )
+
+
+def observation_paths_are_valid(value: Any) -> bool:
+    """Return whether observed paths are canonical repository-relative inputs."""
+    return bool(
+        isinstance(value, list)
+        and value == sorted(set(value))
+        and all(
+            isinstance(relative, str)
+            and _safe_relative_path(relative, directory=relative.endswith("/"))
+            for relative in value
+        )
+    )
+
+
+def dependency_observation(
+    paths: Iterable[str] = (),
+    *,
+    status: str = "complete",
+    external_access: bool = False,
+    child_processes: int = 0,
+    process_tree_complete: bool = True,
+) -> dict[str, Any]:
+    """Build one content-free runtime dependency observation receipt.
+
+    The observer reports repository-relative paths only. External input is
+    represented as a boolean because absolute host paths must not leak into
+    persisted Click state. A completed check may still have an incomplete
+    observation; callers must use :func:`dependency_observation_is_complete`
+    before reusing evidence.
+    """
+    if isinstance(paths, (str, bytes)):
+        raise ValueError("runtime dependency paths must be an iterable of paths")
+    try:
+        raw_paths = list(paths)
+        normalized_paths = sorted(set(raw_paths))
+    except (TypeError, ValueError) as error:
+        raise ValueError("invalid runtime dependency observation paths") from error
+    receipt = {
+        "provider": OBSERVATION_PROVIDER_NAME,
+        "status": status,
+        "paths": normalized_paths,
+        "external_access": external_access,
+        "child_processes": child_processes,
+        "process_tree_complete": process_tree_complete,
+    }
+    if not dependency_observation_is_valid(receipt):
+        raise ValueError("invalid runtime dependency observation")
+    return receipt
+
+
+def unavailable_dependency_observation(*, failed: bool = False) -> dict[str, Any]:
+    """Return an explicit fail-closed observation for an absent/failed tracer."""
+    return dependency_observation(
+        status="failed" if failed else "unavailable",
+        process_tree_complete=False,
+    )
+
+
+def dependency_observation_is_valid(value: Any) -> bool:
+    if not isinstance(value, dict) or set(value) != OBSERVATION_FIELDS:
+        return False
+    child_processes = value.get("child_processes")
+    return bool(
+        value.get("provider") == OBSERVATION_PROVIDER_NAME
+        and value.get("status") in OBSERVATION_STATUSES
+        and observation_paths_are_valid(value.get("paths"))
+        and isinstance(value.get("external_access"), bool)
+        and isinstance(child_processes, int)
+        and not isinstance(child_processes, bool)
+        and child_processes >= 0
+        and isinstance(value.get("process_tree_complete"), bool)
+    )
+
+
+def dependency_observation_is_complete(value: Any) -> bool:
+    """Return whether runtime observation can safely support evidence reuse."""
+    return bool(
+        dependency_observation_is_valid(value)
+        and value.get("status") == "complete"
+        and value.get("external_access") is False
+        and value.get("process_tree_complete") is True
+    )
+
+
+def dependency_observation_digest(value: Any) -> str:
+    return _digest(value) if dependency_observation_is_valid(value) else ""
+
+
+def combine_dependency_observations(values: Iterable[Any]) -> dict[str, Any]:
+    """Union per-check observations for one evidence source."""
+    observations = list(values)
+    if not observations:
+        return unavailable_dependency_observation()
+    if any(not dependency_observation_is_valid(value) for value in observations):
+        return unavailable_dependency_observation(failed=True)
+    statuses = {str(value["status"]) for value in observations}
+    status = (
+        "complete"
+        if statuses == {"complete"}
+        else "failed"
+        if "failed" in statuses
+        else "unavailable"
+    )
+    return dependency_observation(
+        {
+            relative
+            for value in observations
+            for relative in value["paths"]
+        },
+        status=status,
+        external_access=any(value["external_access"] for value in observations),
+        child_processes=sum(value["child_processes"] for value in observations),
+        process_tree_complete=all(
+            value["process_tree_complete"] for value in observations
+        ),
     )
 
 
@@ -267,7 +406,15 @@ def _hash_path(hasher: Any, root: Path, relative: str) -> bool:
         hasher.update(os.fsencode(link_value))
         return True
     if stat.S_ISDIR(metadata.st_mode) and directory_marker:
-        hasher.update(b"directory")
+        hasher.update(b"directory\0")
+        try:
+            entries = sorted(os.fsencode(entry.name) for entry in target.iterdir())
+        except OSError:
+            return False
+        hasher.update(len(entries).to_bytes(8, "big"))
+        for name in entries:
+            hasher.update(len(name).to_bytes(8, "big"))
+            hasher.update(name)
         return True
     if not stat.S_ISREG(metadata.st_mode):
         return False
@@ -302,27 +449,24 @@ def _load_repository(
     if any(not _safe_relative_path(relative) for relative in repository_paths):
         return None
 
-    config_path = root / CONFIG_RELATIVE_PATH
     committed = git_capture(root, ["show", f"HEAD:{CONFIG_RELATIVE_PATH}"])
-    try:
-        metadata = config_path.lstat()
-    except FileNotFoundError:
-        if committed is None:
-            return root, "", {}, repository_paths
-        return None
-    except OSError:
-        return None
-    if not stat.S_ISREG(metadata.st_mode) or metadata.st_size > MAX_CONFIG_BYTES:
-        return None
-    try:
-        raw = config_path.read_bytes()
-    except OSError:
-        return None
     if committed is None:
+        # An uncommitted manifest is never dependency authority. Contract-only
+        # receipts remain available only when no working-tree manifest exists.
+        try:
+            (root / CONFIG_RELATIVE_PATH).lstat()
+        except FileNotFoundError:
+            return root, "", {}, repository_paths
+        except OSError:
+            return None
         return None
-    canonical_raw = _canonical_config_bytes(raw)
-    if _canonical_config_bytes(committed) != canonical_raw:
+    if len(committed) > MAX_CONFIG_BYTES:
         return None
+    # HEAD is the authority boundary. A malformed, deleted, or otherwise
+    # modified working-tree copy cannot narrow or replace the committed map.
+    # If a verification command reads that copy, a complete runtime observer
+    # records the path and its content change still invalidates the receipt.
+    canonical_raw = _canonical_config_bytes(committed)
     try:
         value = json.loads(canonical_raw.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError):
@@ -357,14 +501,16 @@ def receipts_for_groups(
     grouped_checks: dict[str, list[dict[str, Any]]],
     *,
     declarations: dict[str, list[str] | tuple[str, ...]] | None = None,
+    observations: dict[str, dict[str, Any]] | None = None,
     git_capture: GitCapture,
 ) -> dict[str, dict[str, Any]]:
-    """Return exact dependency receipts, or `{}` when trust cannot be shown."""
+    """Return manifest-plus-observation receipts, or `{}` on ambiguity."""
     loaded = _load_repository(cwd, git_capture)
     if loaded is None:
         return {}
     root, manifest_digest, entries, repository_paths = loaded
     approved = declarations or {}
+    observed = observations or {}
     receipts: dict[str, dict[str, Any]] = {}
     for source_key, checks in grouped_checks.items():
         if not isinstance(source_key, str):
@@ -388,8 +534,32 @@ def receipts_for_groups(
             provider = CONTRACT_PROVIDER_NAME
         else:
             provider = MANIFEST_PROVIDER_NAME
+        raw_observation = observed.get(source_key)
+        if raw_observation is None:
+            observation = unavailable_dependency_observation()
+        elif dependency_observation_is_valid(raw_observation):
+            observation = {
+                **raw_observation,
+                "paths": list(raw_observation["paths"]),
+            }
+        else:
+            observation = unavailable_dependency_observation(failed=True)
+        # Approval-bound contract paths are always hard dependencies. With a
+        # complete runtime observation, expanding repository-manifest patterns
+        # act as conservative discovery envelopes; the observation identifies
+        # the members actually consumed. Literal manifest paths remain hard
+        # inputs so known implicit dependencies are never silently discarded.
+        required_manifest_patterns = (
+            tuple(
+                pattern
+                for pattern in manifest_patterns
+                if not _pattern_expands_repository_members(pattern)
+            )
+            if dependency_observation_is_complete(observation)
+            else manifest_patterns
+        )
         effective_patterns = tuple(
-            sorted(set(declared_patterns) | set(manifest_patterns))
+            sorted(set(declared_patterns) | set(required_manifest_patterns))
         )
         matched: set[str] = set()
         valid = True
@@ -403,12 +573,19 @@ def receipts_for_groups(
                 valid = False
                 break
             matched.update(pattern_matches)
-        if not valid or not matched:
+        if not valid or effective_patterns and not matched:
             continue
-        closure = _dependency_closure(root, matched, repository_paths)
-        if closure is None or not closure:
+        declared_closure = _dependency_closure(root, matched, repository_paths)
+        if declared_closure is None:
             continue
-        resolved_paths = sorted(closure)
+        observed_closure = _dependency_closure(
+            root, set(observation["paths"]), repository_paths
+        )
+        if observed_closure is None:
+            continue
+        resolved_paths = sorted(declared_closure | observed_closure)
+        if not resolved_paths:
+            continue
         entry_payload = {
             "checks": [check["argv"] for check in checks],
             "contract_paths": list(declared_patterns),
@@ -418,6 +595,8 @@ def receipts_for_groups(
         hasher = hashlib.sha256()
         hasher.update(provider.encode())
         hasher.update(entry_digest.encode())
+        observation_digest = dependency_observation_digest(observation)
+        hasher.update(observation_digest.encode())
         for relative in resolved_paths:
             if not _hash_path(hasher, root, relative):
                 valid = False
@@ -433,5 +612,7 @@ def receipts_for_groups(
             "entry_digest": entry_digest,
             "dependency_digest": hasher.hexdigest(),
             "resolved_paths": resolved_paths,
+            "observation_digest": observation_digest,
+            "observation": observation,
         }
     return receipts

@@ -26,6 +26,46 @@ from click_gate_test_support import (
 
 
 class ClickGateVerificationTests(ClickGateTestCase):
+    def install_complete_dependency_observation(
+        self,
+        command: list[str],
+        *,
+        paths: list[str] | None = None,
+    ) -> None:
+        state_path = next(
+            (self.plugin_data / "gate-state").glob("session-contract-*.json")
+        )
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        source_key = CLICK_EVIDENCE.evidence_key("E1")
+        sources = state["evidence_state"]["sources"]
+        grouped_checks = {
+            source_key: [
+                {
+                    "evidence_id": "E1",
+                    "argv": command,
+                    "class": "targeted",
+                }
+            ]
+        }
+        observation = (
+            CLICK_VERIFICATION.click_dependency_cache.dependency_observation(
+                paths or ["verification_fixture.py"]
+            )
+        )
+        receipts = CLICK_VERIFICATION.click_dependency_cache.receipts_for_groups(
+            self.workspace,
+            grouped_checks,
+            declarations=CLICK_VERIFICATION.dependency_declarations(
+                sources, {source_key}
+            ),
+            observations={source_key: observation},
+            git_capture=CLICK_VERIFICATION.git_capture,
+        )
+        CLICK_VERIFICATION.store_dependency_receipt(
+            sources[source_key], receipts[source_key]
+        )
+        state_path.write_text(json.dumps(state), encoding="utf-8")
+
     def test_evidence_mode_dynamically_registers_and_exports_host_authority(self) -> None:
         (self.workspace / ".gitignore").write_text(
             "__pycache__/\n", encoding="utf-8"
@@ -469,6 +509,7 @@ class ClickGateVerificationTests(ClickGateTestCase):
         first = self.verify_gate([command])
         completed = self.run_rewritten(first)
         self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.install_complete_dependency_observation(command)
         self.assertIsNone(
             self.pre_tool("apply_patch", "*** Begin Patch\n*** End Patch", "turn-2")
         )
@@ -502,6 +543,53 @@ class ClickGateVerificationTests(ClickGateTestCase):
             source["verified_dependency_paths"], ["verification_fixture.py"]
         )
 
+    def test_unavailable_runtime_observation_reruns_after_any_revision(self) -> None:
+        (self.workspace / ".gitignore").write_text(
+            "__pycache__/\n", encoding="utf-8"
+        )
+        (self.workspace / "notes.md").write_text("before\n", encoding="utf-8")
+        self.initialize_git(".gitignore", "verification_fixture.py", "notes.md")
+        contract = self.contract()
+        contract["verification"]["evidence"][0]["dependencies"] = [
+            "verification_fixture.py"
+        ]
+        self.arm_gate("turn-1")
+        self.stage_gate(contract, "turn-1")
+        self.arm_gate("turn-2")
+        self.pass_gate(turn_id="turn-2")
+        command = self.verification_argv()
+        first = self.verify_gate([command])
+        self.assertEqual(self.run_rewritten(first).returncode, 0)
+
+        state_path = next(
+            (self.plugin_data / "gate-state").glob("session-contract-*.json")
+        )
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        source = state["evidence_state"]["sources"][CLICK_EVIDENCE.evidence_key("E1")]
+        self.assertEqual(
+            source["verified_dependency_observation"]["status"], "unavailable"
+        )
+
+        self.assertIsNone(
+            self.pre_tool("apply_patch", "*** Begin Patch\n*** End Patch", "turn-2")
+        )
+        (self.workspace / "notes.md").write_text("after\n", encoding="utf-8")
+        self.tool_hook(
+            "post-tool",
+            "apply_patch",
+            {"patch": "notes"},
+            tool_use_id="tool-1",
+        )
+
+        repeated = self.verify_gate([command])
+
+        self.assertIn(
+            "run-verification",
+            split_runner_command(
+                repeated["hookSpecificOutput"]["updatedInput"]["command"]
+            ),
+        )
+
     def _prepare_approved_dependency_receipt(self) -> list[str]:
         (self.workspace / ".gitignore").write_text(
             "__pycache__/\n", encoding="utf-8"
@@ -519,6 +607,7 @@ class ClickGateVerificationTests(ClickGateTestCase):
         command = self.verification_argv()
         first = self.verify_gate([command])
         self.assertEqual(self.run_rewritten(first).returncode, 0)
+        self.install_complete_dependency_observation(command)
         self.assertIsNone(
             self.pre_tool("apply_patch", "*** Begin Patch\n*** End Patch", "turn-2")
         )
@@ -637,6 +726,7 @@ class ClickGateVerificationTests(ClickGateTestCase):
         self.approve_contract()
         first = self.verify_gate([command])
         self.assertEqual(self.run_rewritten(first).returncode, 0)
+        self.install_complete_dependency_observation(command)
         self.assertIsNone(
             self.pre_tool("apply_patch", "*** Begin Patch\n*** End Patch", "turn-2")
         )
@@ -1023,6 +1113,73 @@ class ClickGateVerificationTests(ClickGateTestCase):
             self.assertEqual(CLICK_GATE._run_verification(tokens[5:]), 0)
             self.assertEqual(CLICK_GATE._run_verification(tokens[5:]), 2)
         self.assertEqual(execute.call_count, 1)
+
+    def test_record_result_persists_supplied_dependency_observation(self) -> None:
+        (self.workspace / ".gitignore").write_text(
+            "__pycache__/\n", encoding="utf-8"
+        )
+        self.initialize_git(".gitignore", "verification_fixture.py")
+        contract = self.contract()
+        contract["verification"]["evidence"][0]["dependencies"] = [
+            "verification_fixture.py"
+        ]
+        self.arm_gate("turn-1")
+        self.stage_gate(contract, "turn-1")
+        self.arm_gate("turn-2")
+        self.pass_gate(turn_id="turn-2")
+        payload = self.verify_gate([self.verification_argv()])
+        tokens = split_runner_command(
+            payload["hookSpecificOutput"]["updatedInput"]["command"]
+        )
+        state_path = Path(tokens[5])
+        raw, error = CLICK_CAPABILITY.decode_encoded_request(
+            tokens[8], "verification"
+        )
+        self.assertEqual(error, "")
+        environment = {
+            "PLUGIN_DATA": str(self.plugin_data),
+            "CLICK_CONFIG_HOME": str(self.plugin_data),
+        }
+        with (
+            mock.patch.dict(CLICK_GATE.os.environ, environment),
+            mock.patch.object(CLICK_GATE.Path, "cwd", return_value=self.workspace),
+        ):
+            with CLICK_STATE.state_lock():
+                batch, claim_error = CLICK_GATE._claim_verification_run(
+                    state_path, raw, tokens[6], tokens[7]
+                )
+            self.assertEqual(claim_error, "")
+            assert batch is not None
+            batch.pop("_click_verification_environment")
+            batch.pop("_click_verification_environment_rebound")
+            snapshot = CLICK_VERIFICATION.git_workspace_snapshot(self.workspace)
+            assert snapshot is not None
+            source_key = CLICK_EVIDENCE.evidence_key("E1")
+            observation = (
+                CLICK_VERIFICATION.click_dependency_cache.dependency_observation(
+                    ["verification_fixture.py"]
+                )
+            )
+            with CLICK_STATE.state_lock():
+                recorded = CLICK_GATE._record_verification_result(
+                    state_path,
+                    batch,
+                    tokens[6],
+                    tokens[7],
+                    0,
+                    1,
+                    workspace_root=str(snapshot["root"]),
+                    workspace_digest=str(snapshot["digest"]),
+                    dependency_observations={source_key: observation},
+                )
+
+        self.assertTrue(recorded)
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        source = state["evidence_state"]["sources"][source_key]
+        self.assertEqual(source["verified_dependency_observation"], observation)
+        self.assertRegex(
+            source["verified_dependency_observation_digest"], r"^[0-9a-f]{64}$"
+        )
 
     def test_verification_runner_rejects_executable_change_before_execution(self) -> None:
         self.approve_contract()

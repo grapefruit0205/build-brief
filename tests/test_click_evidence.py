@@ -6,7 +6,13 @@ import json
 from pathlib import Path
 import unittest
 
-from hooks import click_evidence, click_gate, click_host_coverage, click_lifecycle
+from hooks import (
+    click_dependency_cache,
+    click_evidence,
+    click_gate,
+    click_host_coverage,
+    click_lifecycle,
+)
 
 
 class ClickEvidenceTests(unittest.TestCase):
@@ -136,6 +142,43 @@ class ClickEvidenceTests(unittest.TestCase):
 
         state = {"state_schema_version": 2, "evidence_state": ledger}
         source["dependency_patterns"] = ["src/other.py"]
+        self.assertEqual(
+            click_evidence.sources_from_state(
+                state, expected_contract_schema_version=2
+            ),
+            {},
+        )
+
+    def test_observed_dependency_receipt_is_integrity_checked(self) -> None:
+        ledger = click_evidence.fresh_state(self.contract)
+        source = ledger["sources"][click_evidence.evidence_key("E1")]
+        observation = click_dependency_cache.dependency_observation(
+            ["src/unit.py"]
+        )
+        source.update(
+            {
+                "verified_dependency_provider": (
+                    click_dependency_cache.CONTRACT_PROVIDER_NAME
+                ),
+                "verified_dependency_entry_digest": "1" * 64,
+                "verified_dependency_digest": "2" * 64,
+                "verified_dependency_paths": ["src/unit.py"],
+                "verified_dependency_observation_digest": (
+                    click_dependency_cache.dependency_observation_digest(
+                        observation
+                    )
+                ),
+                "verified_dependency_observation": observation,
+            }
+        )
+        state = {"state_schema_version": 2, "evidence_state": ledger}
+        self.assertIsNotNone(
+            click_evidence.sources_from_state(
+                state, expected_contract_schema_version=2
+            )
+        )
+
+        source["verified_dependency_observation"]["paths"] = ["src/other.py"]
         self.assertEqual(
             click_evidence.sources_from_state(
                 state, expected_contract_schema_version=2
