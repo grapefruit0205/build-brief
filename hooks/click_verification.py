@@ -27,6 +27,7 @@ from typing import Any
 if __package__:
     from . import (
         click_capability,
+        click_change_policy,
         click_claims,
         click_contract_state,
         click_dependency_cache,
@@ -43,6 +44,7 @@ if __package__:
     )
 else:  # Executed directly from the bundled hooks directory.
     import click_capability
+    import click_change_policy
     import click_claims
     import click_contract_state
     import click_dependency_cache
@@ -829,6 +831,99 @@ def _promote_dependency_receipt(
     source["last_dependency_reused_from_revision"] = prior_revision
 
 
+def _clear_safe_change_receipt(source: dict[str, Any]) -> None:
+    source["verified_safe_change_receipt"] = {}
+    source["safe_change_reuse_count"] = 0
+    source["last_safe_change_reused_at"] = 0
+    source["last_safe_change_reused_from_revision"] = -1
+    source["last_safe_change_paths"] = []
+    source["last_safe_change_path_count"] = 0
+    source["last_safe_change_decision_digest"] = ""
+
+
+def _store_safe_change_receipt(source: dict[str, Any], receipt: Any) -> None:
+    _clear_safe_change_receipt(source)
+    if not click_change_policy.receipt_is_valid(receipt):
+        return
+    source["verified_safe_change_receipt"] = receipt
+
+
+def _safe_change_receipt_matches(
+    source: dict[str, Any],
+    decision: Any,
+    *,
+    contract_digest: str,
+    revision: int,
+    group_digest: str,
+    git_root: str,
+    environment_digest: str,
+    host_coverage: dict[str, Any],
+) -> bool:
+    if not isinstance(decision, dict) or decision.get("status") != "reuse":
+        return False
+    receipt = decision.get("receipt")
+    decision_digest = decision.get("decision_digest")
+    changed_paths = decision.get("changed_paths")
+    if (
+        not click_change_policy.receipt_is_valid(receipt)
+        or not click_change_policy.changed_paths_are_valid(changed_paths)
+        or not isinstance(decision_digest, str)
+        or re.fullmatch(r"[0-9a-f]{64}", decision_digest) is None
+    ):
+        return False
+    verified_revision = source.get("verified_revision", -1)
+    verified_at = source.get("verified_at", 0)
+    return bool(
+        source.get("status") == "stale"
+        and isinstance(verified_revision, int)
+        and not isinstance(verified_revision, bool)
+        and 0 <= verified_revision < revision
+        and isinstance(verified_at, int)
+        and not isinstance(verified_at, bool)
+        and verified_at > 0
+        and source.get("verified_contract_digest") == contract_digest
+        and source.get("verified_check_digest") == group_digest
+        and source.get("verified_root") == git_root
+        and source.get("verified_environment_digest") == environment_digest
+        and isinstance(source.get("verified_executable_digest"), str)
+        and re.fullmatch(
+            r"[0-9a-f]{64}", str(source.get("verified_executable_digest", ""))
+        )
+        and click_host_coverage.receipt_is_current(host_coverage)
+        and source.get("verified_host_coverage") == host_coverage
+        and source.get("verified_safe_change_receipt", {})
+        != {}
+        and click_change_policy.receipt_is_valid(
+            source.get("verified_safe_change_receipt")
+        )
+    )
+
+
+def _promote_safe_change_receipt(
+    source: dict[str, Any],
+    decision: dict[str, Any],
+    *,
+    revision: int,
+    tree_digest: str,
+) -> None:
+    prior_revision = int(source.get("verified_revision", -1))
+    changed_paths = list(decision["changed_paths"])
+    source["status"] = "passed"
+    source["verified_revision"] = revision
+    source["verified_tree_digest"] = tree_digest
+    source["verified_safe_change_receipt"] = decision["receipt"]
+    source["last_exit_code"] = 0
+    source["unchanged_failure_retries"] = 0
+    source["safe_change_reuse_count"] = int(
+        source.get("safe_change_reuse_count", 0)
+    ) + 1
+    source["last_safe_change_reused_at"] = int(time.time()) or 1
+    source["last_safe_change_reused_from_revision"] = prior_revision
+    source["last_safe_change_paths"] = changed_paths[:128]
+    source["last_safe_change_path_count"] = len(changed_paths)
+    source["last_safe_change_decision_digest"] = decision["decision_digest"]
+
+
 def _contains_deep_verification_marker(values: list[str]) -> bool:
     joined = " ".join(values)
     return any(marker in joined for marker in DEEP_VERIFICATION_MARKERS)
@@ -1242,6 +1337,10 @@ dependency_receipt_matches = _dependency_receipt_matches
 clear_dependency_receipt = _clear_dependency_receipt
 store_dependency_receipt = _store_dependency_receipt
 promote_dependency_receipt = _promote_dependency_receipt
+clear_safe_change_receipt = _clear_safe_change_receipt
+store_safe_change_receipt = _store_safe_change_receipt
+safe_change_receipt_matches = _safe_change_receipt_matches
+promote_safe_change_receipt = _promote_safe_change_receipt
 minimum_class = _minimum_verification_class
 is_recognized_tokens = _is_recognized_verification_tokens
 is_recognized_command = _is_recognized_verification_command
@@ -1497,9 +1596,27 @@ def _prepare_verification(
         and sources[source_key].get("verified_dependency_provider")
         in click_dependency_cache.PROVIDER_NAMES
     }
+    safe_change_candidates = {
+        source_key
+        for source_key in requested_keys
+        if isinstance(sources.get(source_key), dict)
+        and sources[source_key].get("status") == "stale"
+        and isinstance(sources[source_key].get("verified_revision"), int)
+        and not isinstance(sources[source_key].get("verified_revision"), bool)
+        and 0 <= int(sources[source_key].get("verified_revision", -1)) < revision
+        and click_change_policy.receipt_is_valid(
+            sources[source_key].get("verified_safe_change_receipt")
+        )
+        # A complete observation is stronger evidence than a repository
+        # declaration. Never let the declaration override an observed input.
+        and not click_dependency_cache.dependency_observation_is_complete(
+            sources[source_key].get("verified_dependency_observation")
+        )
+    }
     reused_keys: set[str] = set()
     dependency_reused_keys: set[str] = set()
-    if current_requested or dependency_candidates:
+    safe_change_reused_keys: set[str] = set()
+    if current_requested or dependency_candidates or safe_change_candidates:
         workspace = Path(str(event.get("cwd", ""))).resolve()
         snapshot = git_workspace_snapshot(workspace)
         if snapshot is None:
@@ -1512,7 +1629,7 @@ def _prepare_verification(
             git_root = os.path.normcase(str(snapshot.get("root", "")))
             tree_digest = str(snapshot.get("digest", ""))
             mutation_boundary = verification.get("mutation_boundary")
-            if dependency_candidates and not (
+            if (dependency_candidates or safe_change_candidates) and not (
                 isinstance(mutation_boundary, dict)
                 and mutation_boundary.get("status") == "recorded"
                 and mutation_boundary.get("lineage_valid") is True
@@ -1523,6 +1640,7 @@ def _prepare_verification(
                 # A missing PostToolUse receipt or any later workspace drift is
                 # outside the observable approved mutation boundary. Rerun.
                 dependency_candidates = set()
+                safe_change_candidates = set()
             tree_changed = any(
                 isinstance(sources[source_key].get("verified_root"), str)
                 and bool(sources[source_key].get("verified_root"))
@@ -1629,6 +1747,75 @@ def _prepare_verification(
                         )
                         reused_keys.add(source_key)
                         dependency_reused_keys.add(source_key)
+                for source_key in safe_change_candidates - reused_keys:
+                    source = sources[source_key]
+                    decision = click_change_policy.decide(
+                        workspace,
+                        grouped_checks[source_key],
+                        source.get("verified_safe_change_receipt"),
+                        git_capture=git_capture,
+                    )
+                    changed_paths = decision.get("changed_paths", [])
+                    evidence_id = str(
+                        grouped_checks[source_key][0].get("evidence_id", "argv")
+                    )
+                    rendered_paths = ", ".join(
+                        json.dumps(path, ensure_ascii=True)
+                        for path in changed_paths[:8]
+                        if isinstance(path, str)
+                    )
+                    if len(changed_paths) > 8:
+                        rendered_paths += f", ... (+{len(changed_paths) - 8})"
+                    status = str(decision.get("status", "unknown"))
+                    reason = str(decision.get("reason", "preflight-unavailable"))
+                    if rendered_paths:
+                        detail = f" changed paths: {rendered_paths}."
+                    elif status == "unknown":
+                        detail = " changed paths unavailable."
+                    else:
+                        detail = " no net changed paths."
+                    preflight_advisory = (
+                        f"Click preflight [{evidence_id}]: {status} ({reason});{detail}"
+                    )
+                    environment_digest = _verification_environment_digest(
+                        grouped_checks[source_key], cwd=workspace
+                    )
+                    safe_change_matches = _safe_change_receipt_matches(
+                        source,
+                        decision,
+                        contract_digest=contract_digest,
+                        revision=revision,
+                        group_digest=group_digests[source_key],
+                        git_root=git_root,
+                        environment_digest=environment_digest,
+                        host_coverage=host_coverage,
+                    )
+                    if safe_change_matches:
+                        confirmed_snapshot = git_workspace_snapshot(workspace)
+                        if not (
+                            isinstance(confirmed_snapshot, dict)
+                            and os.path.normcase(
+                                str(confirmed_snapshot.get("root", ""))
+                            )
+                            == git_root
+                            and confirmed_snapshot.get("digest") == tree_digest
+                        ):
+                            verification_advisories.append(
+                                f"Click preflight [{evidence_id}]: workspace changed "
+                                "during preflight; running the real check."
+                            )
+                            continue
+                        verification_advisories.append(preflight_advisory)
+                        _promote_safe_change_receipt(
+                            source,
+                            decision,
+                            revision=revision,
+                            tree_digest=tree_digest,
+                        )
+                        reused_keys.add(source_key)
+                        safe_change_reused_keys.add(source_key)
+                    else:
+                        verification_advisories.append(preflight_advisory)
 
     unresolved_keys = {
         key for key in argv_keys if not _evidence_is_current(sources.get(key), revision)
@@ -1655,28 +1842,29 @@ def _prepare_verification(
         verification["last_units"] = 0
         state["verification"] = verification
         _save_contract_state(event, state)
-        exact_reused = len(reused_keys - dependency_reused_keys)
+        exact_reused = len(
+            reused_keys - dependency_reused_keys - safe_change_reused_keys
+        )
         dependency_reused = len(dependency_reused_keys)
-        if exact_reused and dependency_reused:
-            reuse_message = (
-                f"Click reused {exact_reused} current unchanged-tree and "
-                f"{dependency_reused} dependency-safe cross-revision verification "
-                "receipt(s)"
+        safe_change_reused = len(safe_change_reused_keys)
+        reuse_parts: list[str] = []
+        if exact_reused:
+            reuse_parts.append(f"{exact_reused} current unchanged-tree")
+        if dependency_reused:
+            reuse_parts.append(
+                f"{dependency_reused} dependency-safe cross-revision"
             )
-        elif dependency_reused:
-            reuse_message = (
-                f"Click reused {dependency_reused} dependency-safe cross-revision "
-                "verification receipt(s)"
+        if safe_change_reused:
+            reuse_parts.append(
+                f"{safe_change_reused} repository-declared safe-change cross-revision"
             )
-        else:
-            reuse_message = (
-                f"Click reused {exact_reused} current unchanged-tree verification "
-                "receipt(s)"
-            )
+        reuse_message = (
+            f"Click reused {' and '.join(reuse_parts)} verification receipt(s)"
+        )
         return (
             f"echo {reuse_message}",
             "",
-            "",
+            "\n".join(verification_advisories),
         )
 
     batch = {
@@ -1931,6 +2119,15 @@ def _record_verification_result(
         if not workspace_changed and workspace_root and workspace_digest
         else {}
     )
+    safe_change_receipts = (
+        click_change_policy.receipts_for_groups(
+            Path(workspace_root),
+            grouped_checks,
+            git_capture=git_capture,
+        )
+        if not workspace_changed and workspace_root and workspace_digest
+        else {}
+    )
     verification["running_evidence_keys"] = []
     verification["running_environment_digests"] = {}
     verification["running_environment_binding"] = []
@@ -2034,6 +2231,9 @@ def _record_verification_result(
                     _store_dependency_receipt(
                         source, dependency_receipts.get(source_key)
                     )
+                    _store_safe_change_receipt(
+                        source, safe_change_receipts.get(source_key)
+                    )
                 else:
                     source["verified_contract_digest"] = ""
                     source["verified_check_digest"] = ""
@@ -2045,6 +2245,7 @@ def _record_verification_result(
                     source["verified_host_coverage"] = {}
                     source["verified_at"] = 0
                     _clear_dependency_receipt(source)
+                    _clear_safe_change_receipt(source)
             elif source_ran:
                 source["status"] = "failed"
                 source["verified_revision"] = -1

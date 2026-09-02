@@ -143,6 +143,32 @@ unavailable, fails, sees an external input, or cannot cover the full child-
 process tree, Click runs the check again after a mutation. The map remains
 optional; leaving it out also means that the check reruns.
 
+For common changes that are known not to affect a check, such as documentation,
+the repository may instead commit an observer-free safe-change policy:
+
+~~~json
+{
+  "version": 1,
+  "entries": [
+    {
+      "checks": [["python3", "-m", "pytest", "tests/unit"]],
+      "reuse_if_only_changed": ["README.md", "docs/**"]
+    }
+  ]
+}
+~~~
+
+Save it as `.click/evidence-reuse.json`. After a successful baseline, Click
+records the Git commit plus compact fingerprints for effective uncommitted
+files. Before the same exact check runs again, it reports the net changed paths.
+It reuses the result only when every path matches the unchanged committed policy;
+any unlisted path, policy edit, Git ambiguity, environment or executable change,
+or later workspace drift runs the real check. Policy files cannot declare
+themselves safe. This path uses only Git and the plugin's Python runtime, so it
+does not require a platform-specific observer or another installation on Linux,
+macOS, or Windows. The declaration is repository-owner policy, not an inferred
+claim that Click discovered every dependency.
+
 ## Completion receipt
 
 Click can export a receipt after current evidence is complete:

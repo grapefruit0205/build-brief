@@ -57,6 +57,11 @@ model's claim that the earlier result is still valid.
 
 ## Current platform limits
 
+- Observer-free cross-revision reuse uses the shared committed
+  `.click/evidence-reuse.json` safe-change policy and Git preflight on Linux,
+  macOS, and Windows. Any unlisted or ambiguous change runs the real check; no
+  platform tracer or additional package is required.
+
 - Proposal and approval separation requires a fully idle `model_stop`, a new
   readable user transcript entry, and the following `PreInvocation`. The Skill
   still interprets whether the user's words actually approve the proposal. If

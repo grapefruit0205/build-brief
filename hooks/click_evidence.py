@@ -16,8 +16,9 @@ import secrets
 from typing import Any
 
 if __package__:
-    from . import click_dependency_cache, click_host_coverage
+    from . import click_change_policy, click_dependency_cache, click_host_coverage
 else:  # Executed directly from the bundled hooks directory.
+    import click_change_policy
     import click_dependency_cache
     import click_host_coverage
 
@@ -80,6 +81,13 @@ def _fresh_source(kind: str, dependency_patterns: tuple[str, ...] = ()) -> dict[
         "dependency_reuse_count": 0,
         "last_dependency_reused_at": 0,
         "last_dependency_reused_from_revision": -1,
+        "verified_safe_change_receipt": {},
+        "safe_change_reuse_count": 0,
+        "last_safe_change_reused_at": 0,
+        "last_safe_change_reused_from_revision": -1,
+        "last_safe_change_paths": [],
+        "last_safe_change_path_count": 0,
+        "last_safe_change_decision_digest": "",
     }
 
 
@@ -252,6 +260,56 @@ def _host_coverage_field_is_valid(source: dict[str, Any]) -> bool:
     )
 
 
+def _safe_change_fields_are_valid(source: dict[str, Any]) -> bool:
+    receipt = source.get("verified_safe_change_receipt", {})
+    reuse_count = source.get("safe_change_reuse_count", 0)
+    reused_at = source.get("last_safe_change_reused_at", 0)
+    reused_from = source.get("last_safe_change_reused_from_revision", -1)
+    paths = source.get("last_safe_change_paths", [])
+    path_count = source.get("last_safe_change_path_count", 0)
+    decision_digest = source.get("last_safe_change_decision_digest", "")
+    if not isinstance(receipt, dict) or not isinstance(paths, list):
+        return False
+    if any(
+        not isinstance(value, int) or isinstance(value, bool)
+        for value in (reuse_count, reused_at, reused_from, path_count)
+    ):
+        return False
+    if (
+        reuse_count < 0
+        or reused_at < 0
+        or reused_from < -1
+        or path_count < 0
+        or not isinstance(decision_digest, str)
+        or not click_change_policy.changed_paths_are_valid(paths, maximum=128)
+        or path_count < len(paths)
+    ):
+        return False
+    if not receipt:
+        return bool(
+            reuse_count == 0
+            and reused_at == 0
+            and reused_from == -1
+            and not paths
+            and path_count == 0
+            and not decision_digest
+        )
+    if not click_change_policy.receipt_is_valid(receipt):
+        return False
+    return bool(
+        reuse_count == 0
+        and reused_at == 0
+        and reused_from == -1
+        and not paths
+        and path_count == 0
+        and not decision_digest
+        or reuse_count > 0
+        and reused_at > 0
+        and reused_from >= 0
+        and re.fullmatch(r"[0-9a-f]{64}", decision_digest) is not None
+    )
+
+
 def sources_from_state(
     state: dict[str, Any],
     *,
@@ -312,6 +370,7 @@ def sources_from_state(
             )
             is None
             or not _dependency_fields_are_valid(source)
+            or not _safe_change_fields_are_valid(source)
             or not _host_coverage_field_is_valid(source)
             or (
                 "reserved_units" in source

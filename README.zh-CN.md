@@ -139,6 +139,29 @@ baseline 观察完整时，`*`、`**` 和目录前缀等扩展模式会收窄到
 策略。如果观察不可用、失败、读取了外部输入，或未覆盖完整的子进程树，Click
 会在 mutation 之后重新执行检查。该文件仍非必需；没有映射时也会重新检查。
 
+对于 README 或文档等仓库明确知道不会影响某项检查的改动，可以提交无需
+observer 的安全改动策略：
+
+~~~json
+{
+  "version": 1,
+  "entries": [
+    {
+      "checks": [["python3", "-m", "pytest", "tests/unit"]],
+      "reuse_if_only_changed": ["README.md", "docs/**"]
+    }
+  ]
+}
+~~~
+
+文件名为 `.click/evidence-reuse.json`。首次检查成功后，Click 会记录 Git commit
+以及当时有效的未提交文件指纹。再次执行完全相同的检查前，它会报告基线与当前
+状态之间的净变更路径；只有所有路径仍匹配同一个已提交策略时才复用结果。未列出
+的路径、策略修改、无法解释的 Git 状态、环境或可执行文件变化，以及 mutation
+后的额外漂移都会触发真实检查。策略文件不能把自身声明为安全路径。该流程只用
+Git 和插件自带的 Python，因此 Linux、macOS 与 Windows 都无需另装平台 observer。
+此列表是仓库所有者的明确策略，并不表示 Click 自动发现了全部依赖。
+
 ## 完成 receipt
 
 当前代码所需的 evidence 完整后，可以导出并验证 receipt：
