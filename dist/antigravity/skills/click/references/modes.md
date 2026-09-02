@@ -20,7 +20,7 @@ click-gate default off
 
 Evidence mode does not stage or approve a Click contract. The host remains the execution authority. Click creates an intent session from the user prompt, records mutation revisions and exact verification receipts, prevents stale evidence from claiming completion, and exports an honest receipt with `approval_bound: false` and `execution_authority: host`.
 
-The model chooses evidence ids and concrete argv during execution. Same-revision reuse requires the exact check, protected tree, environment, executable, and host-coverage bindings. Cross-revision reuse may use only a committed `.click/evidence-dependencies.json` mapping; an agent's runtime dependency guess is not authority in Evidence mode.
+The model chooses evidence ids and concrete argv during execution. Same-revision reuse requires the exact check, protected tree, environment, executable, and host-coverage bindings. Cross-revision reuse requires a committed `.click/evidence-dependencies.json` mapping plus a complete baseline runtime dependency observation. An agent's runtime dependency guess is not authority in Evidence mode.
 
 An in-scope or narrowing follow-up continues the same session and appends its prompt digest to the receipt lineage. When current evidence completes the session, the next software request starts a fresh Evidence session. Questions and explanations remain lightweight.
 

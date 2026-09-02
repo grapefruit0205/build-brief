@@ -20,7 +20,7 @@ Do not treat a question about Click as a mutation. Bypass and cancel require the
 
 ## Evidence mode: work first, bind evidence honestly
 
-Use the current user prompt as the intent lineage. Do not invent a contract, contract approval, or approved dependency declaration. Choose concrete checks from repository evidence during execution and submit their stable evidence ids with `click-gate verify`; Evidence mode may register those argv sources dynamically. Same-revision reuse still requires exact receipt bindings. Cross-revision reuse is allowed only through a committed `.click/evidence-dependencies.json` mapping whose resolved inputs are unchanged.
+Use the current user prompt as the intent lineage. Do not invent a contract, contract approval, or approved dependency declaration. Choose concrete checks from repository evidence during execution and submit their stable evidence ids with `click-gate verify`; Evidence mode may register those argv sources dynamically. Same-revision reuse still requires exact receipt bindings. Cross-revision reuse requires both a committed `.click/evidence-dependencies.json` mapping and a complete baseline runtime dependency observation. Concrete paths remain hard dependencies, expanding manifest patterns may be refined to observed inputs, and every effective input must remain unchanged.
 
 An in-scope or narrowing follow-up continues the same Evidence session and appends a prompt digest. Start a fresh session when the previous one is complete. The final receipt must distinguish host-authorized execution from Guarded approval.
 

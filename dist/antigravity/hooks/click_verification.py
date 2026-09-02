@@ -639,6 +639,25 @@ def _dependency_declarations(
     return declarations
 
 
+def _dependency_observations(
+    sources: dict[str, Any], source_keys: set[str]
+) -> dict[str, dict[str, Any]]:
+    observations: dict[str, dict[str, Any]] = {}
+    for source_key in source_keys:
+        source = sources.get(source_key)
+        observation = (
+            source.get("verified_dependency_observation")
+            if isinstance(source, dict)
+            else None
+        )
+        if click_dependency_cache.dependency_observation_is_valid(observation):
+            observations[source_key] = {
+                **observation,
+                "paths": list(observation["paths"]),
+            }
+    return observations
+
+
 def _dependency_receipt_is_valid(receipt: Any) -> bool:
     if not isinstance(receipt, dict):
         return False
@@ -646,6 +665,8 @@ def _dependency_receipt_is_valid(receipt: Any) -> bool:
     manifest_digest = receipt.get("manifest_digest")
     entry_digest = receipt.get("entry_digest")
     dependency_digest = receipt.get("dependency_digest")
+    observation_digest = receipt.get("observation_digest")
+    observation = receipt.get("observation")
     manifest_is_valid = bool(
         isinstance(manifest_digest, str)
         and (
@@ -666,6 +687,11 @@ def _dependency_receipt_is_valid(receipt: Any) -> bool:
         and re.fullmatch(r"[0-9a-f]{64}", entry_digest)
         and isinstance(dependency_digest, str)
         and re.fullmatch(r"[0-9a-f]{64}", dependency_digest)
+        and isinstance(observation_digest, str)
+        and re.fullmatch(r"[0-9a-f]{64}", observation_digest)
+        and click_dependency_cache.dependency_observation_is_valid(observation)
+        and observation_digest
+        == click_dependency_cache.dependency_observation_digest(observation)
         and click_dependency_cache.receipt_paths_are_valid(
             receipt.get("resolved_paths")
         )
@@ -684,6 +710,10 @@ def _dependency_receipt_matches(
     host_coverage: dict[str, Any],
 ) -> bool:
     if not _dependency_receipt_is_valid(receipt):
+        return False
+    if not click_dependency_cache.dependency_observation_is_complete(
+        receipt["observation"]
+    ):
         return False
     if not all(
         isinstance(value, str) and re.fullmatch(r"[0-9a-f]{64}", value)
@@ -728,6 +758,10 @@ def _dependency_receipt_matches(
         == receipt["dependency_digest"]
         and source.get("verified_dependency_paths")
         == receipt["resolved_paths"]
+        and source.get("verified_dependency_observation_digest")
+        == receipt["observation_digest"]
+        and source.get("verified_dependency_observation")
+        == receipt["observation"]
     )
 
 
@@ -737,6 +771,8 @@ def _clear_dependency_receipt(source: dict[str, Any]) -> None:
     source["verified_dependency_entry_digest"] = ""
     source["verified_dependency_digest"] = ""
     source["verified_dependency_paths"] = []
+    source["verified_dependency_observation_digest"] = ""
+    source["verified_dependency_observation"] = {}
     source["dependency_reuse_count"] = 0
     source["last_dependency_reused_at"] = 0
     source["last_dependency_reused_from_revision"] = -1
@@ -753,6 +789,13 @@ def _store_dependency_receipt(
     source["verified_dependency_entry_digest"] = receipt["entry_digest"]
     source["verified_dependency_digest"] = receipt["dependency_digest"]
     source["verified_dependency_paths"] = list(receipt["resolved_paths"])
+    source["verified_dependency_observation_digest"] = receipt[
+        "observation_digest"
+    ]
+    source["verified_dependency_observation"] = {
+        **receipt["observation"],
+        "paths": list(receipt["observation"]["paths"]),
+    }
 
 
 def _promote_dependency_receipt(
@@ -767,7 +810,16 @@ def _promote_dependency_receipt(
     source["verified_revision"] = revision
     source["verified_tree_digest"] = tree_digest
     source["verified_dependency_manifest_digest"] = receipt["manifest_digest"]
+    source["verified_dependency_entry_digest"] = receipt["entry_digest"]
+    source["verified_dependency_digest"] = receipt["dependency_digest"]
     source["verified_dependency_paths"] = list(receipt["resolved_paths"])
+    source["verified_dependency_observation_digest"] = receipt[
+        "observation_digest"
+    ]
+    source["verified_dependency_observation"] = {
+        **receipt["observation"],
+        "paths": list(receipt["observation"]["paths"]),
+    }
     source["last_exit_code"] = 0
     source["unchanged_failure_retries"] = 0
     source["dependency_reuse_count"] = int(
@@ -1184,6 +1236,7 @@ environment_digest_from_records = _verification_environment_digest_from_records
 environment_digest = _verification_environment_digest
 receipt_matches = _verification_receipt_matches
 dependency_declarations = _dependency_declarations
+dependency_observations = _dependency_observations
 dependency_receipt_is_valid = _dependency_receipt_is_valid
 dependency_receipt_matches = _dependency_receipt_matches
 clear_dependency_receipt = _clear_dependency_receipt
@@ -1543,6 +1596,9 @@ def _prepare_verification(
                         declarations=_dependency_declarations(
                             sources, dependency_candidates
                         ),
+                        observations=_dependency_observations(
+                            sources, dependency_candidates
+                        ),
                         git_capture=git_capture,
                     )
                     if candidate_checks
@@ -1760,6 +1816,7 @@ def _record_verification_result(
     workspace_root: str = "",
     workspace_digest: str = "",
     environment_digests: dict[str, str] | None = None,
+    dependency_observations: dict[str, dict[str, Any]] | None = None,
     *,
     git_capture: Callable[[Path, list[str]], bytes | None] = _git_capture,
 ) -> bool:
@@ -1868,6 +1925,7 @@ def _record_verification_result(
             Path(workspace_root),
             grouped_checks,
             declarations=_dependency_declarations(sources, running_keys),
+            observations=dependency_observations,
             git_capture=git_capture,
         )
         if not workspace_changed and workspace_root and workspace_digest
