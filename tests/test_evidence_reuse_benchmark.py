@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from collections import Counter
 from pathlib import Path
+import stat
+import tempfile
 import unittest
 
 from benchmarks.evidence_reuse import run_benchmark
@@ -10,7 +12,7 @@ from benchmarks.evidence_reuse.profiles import PROFILES
 from benchmarks.evidence_reuse.runtime_observations import (
     capture_baseline_observation,
 )
-from benchmarks.evidence_reuse.runner import runtime_available
+from benchmarks.evidence_reuse.runner import _remove_tree, runtime_available
 from benchmarks.evidence_reuse.scenarios import MUTATIONS, mutation_ids
 
 
@@ -88,6 +90,19 @@ class EvidenceReuseBenchmarkCatalogTests(unittest.TestCase):
 
 
 class EvidenceReuseBenchmarkCoreRuntimeTests(unittest.TestCase):
+    def test_fixture_cleanup_handles_read_only_git_artifacts(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "fixture"
+            pack = root / ".git" / "objects" / "pack"
+            pack.mkdir(parents=True)
+            index = pack / "pack-test.idx"
+            index.write_bytes(b"index")
+            index.chmod(stat.S_IREAD)
+
+            _remove_tree(root)
+
+            self.assertFalse(root.exists())
+
     def test_manifest_stress_inputs_are_scored_against_the_same_oracle(self) -> None:
         selected_names = {
             "docs-readme-append",

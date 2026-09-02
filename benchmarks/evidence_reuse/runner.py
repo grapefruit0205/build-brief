@@ -10,6 +10,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -706,6 +707,19 @@ def _copy_fixture(source: Path, destination: Path) -> None:
     )
 
 
+def _remove_tree(path: Path) -> None:
+    """Remove copied Git trees whose packed objects may be read-only on Windows."""
+
+    if not path.exists():
+        return
+
+    def make_writable_and_retry(function: Any, target: str, _error: Any) -> None:
+        os.chmod(target, stat.S_IWRITE | stat.S_IREAD | stat.S_IEXEC)
+        function(target)
+
+    shutil.rmtree(path, onerror=make_writable_and_retry)
+
+
 def _create_baseline(
     profile: FixtureProfile,
     root: Path,
@@ -714,9 +728,9 @@ def _create_baseline(
     variant: ManifestVariant,
 ) -> _Baseline:
     if root.exists():
-        shutil.rmtree(root)
+        _remove_tree(root)
     if snapshot.exists():
-        shutil.rmtree(snapshot)
+        _remove_tree(snapshot)
     _copy_fixture(profile.fixture_template, root)
     patterns = dependency_patterns(
         variant,
@@ -853,7 +867,7 @@ def _evaluate_case(
     variant: ManifestVariant,
 ) -> CaseResult:
     if root.exists():
-        shutil.rmtree(root)
+        _remove_tree(root)
     shutil.copytree(baseline.snapshot, root)
     _apply_mutation(root, mutation)
     _apply_manifest_post_mutation(root, variant)
