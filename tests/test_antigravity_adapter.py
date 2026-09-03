@@ -292,6 +292,52 @@ class AntigravityAdapterTests(unittest.TestCase):
         self.assertEqual(state["status"], "evidence")
         self.assertEqual(state["verification"]["mutation_revision"], 1)
 
+    def test_repeated_pre_invocation_requests_staged_approval_only_once(self) -> None:
+        self.pre_invocation("build the requested feature", invocation_num=1)
+        self.assertEqual(self.control("default", "on").returncode, 0)
+        contract_id = self.stage()
+
+        first = self.pre_invocation(
+            "build the requested feature", invocation_num=2
+        )
+        first_message = first["injectSteps"][0]["ephemeralMessage"]
+        self.assertIn(contract_id, first_message)
+        self.assertIn("projection exactly once", first_message)
+        self.assertIn("ask for approval once", first_message)
+        self.assertNotIn("compile the compact Click contract", first_message)
+
+        repeated = self.pre_invocation(
+            "build the requested feature", invocation_num=3
+        )
+        repeated_message = repeated["injectSteps"][0]["ephemeralMessage"]
+        self.assertIn(contract_id, repeated_message)
+        self.assertIn("was already returned for presentation", repeated_message)
+        self.assertIn("Do not compile, stage, present, or request", repeated_message)
+        self.assertNotIn("projection exactly once", repeated_message)
+        self.assertNotIn("compile the compact Click contract", repeated_message)
+
+    def test_approval_execution_does_not_request_another_contract(self) -> None:
+        self.pre_invocation("build the requested feature")
+        self.assertEqual(self.control("default", "on").returncode, 0)
+        contract_id = self.stage()
+        self.pre_invocation("build the requested feature", invocation_num=1)
+        self.stop()
+
+        approval = self.pre_invocation("I approve")
+        approval_message = approval["injectSteps"][0]["ephemeralMessage"]
+        self.assertIn(contract_id, approval_message)
+        self.assertIn("explicitly approves the existing proposal", approval_message)
+        self.assertIn("Do not compile, stage, restate, or request", approval_message)
+        self.assertNotIn("compile the compact Click contract", approval_message)
+
+        passed = self.control("pass", contract_id)
+        self.assertEqual(passed.returncode, 0, passed.stderr)
+        continued = self.pre_invocation("I approve", invocation_num=1)
+        continued_message = continued["injectSteps"][0]["ephemeralMessage"]
+        self.assertIn("already approved for this user execution", continued_message)
+        self.assertIn("without passing, staging, presenting, or requesting", continued_message)
+        self.assertNotIn("compile the compact Click contract", continued_message)
+
     def test_post_tool_closes_the_approved_mutation_snapshot(self) -> None:
         self.initialize_git("tests/test_sample.py")
         self.approve()
