@@ -1,6 +1,6 @@
 # Release notes
 
-## Unreleased v0.51 candidate — observer-free safe-change preflight
+## v0.51.0 — 2026-09-03
 
 - A committed `.click/evidence-reuse.json` can bind an exact check group to
   repository paths that are explicitly safe to change without rerunning it.
@@ -13,18 +13,22 @@
 - This path requires no runtime observer or extra platform package and uses the
   same implementation on Linux, macOS, and Windows. Existing complete runtime
   observations remain stronger evidence and cannot be overridden by this policy.
-
-## v0.50.0 — 2026-09-02
-
 - Cross-revision dependency receipts now combine hard concrete dependencies
   with repository inputs observed during the baseline run. A complete
   observation refines expanding committed-manifest patterns to consumed inputs,
   while approval-bound paths remain hard dependencies. Missing or failed
   observation, external input, and incomplete child-process coverage fail
   closed to a real rerun without changing the check result.
-- The committed `HEAD` manifest is the policy authority. Malformed, deleted, or
-  changed working-tree copies cannot narrow it; a check that reads the working
-  copy still records it as an observed input and invalidates on content change.
+- The committed `HEAD` dependency manifest is the policy authority. Malformed,
+  deleted, or changed working-tree copies cannot narrow it; a check that reads
+  the working copy still records it as an observed input and invalidates on
+  content change.
+- The obsolete one-off `publish-v0.24.6.yml` workflow has been removed. Release
+  metadata, the immutable marketplace ref, the Git tag, and the GitHub Release
+  are advanced together after the exact release commit passes CI.
+
+## v0.50.0 — 2026-09-02
+
 - The executable gate facade now retains only the deliberately documented
   private compatibility binding
   `_validate_contract = click_contract.validate_contract`. The reviewed
