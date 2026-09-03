@@ -1,5 +1,16 @@
 # Release notes
 
+## v0.51.1 — 2026-09-03
+
+- Antigravity now remembers when the staged Guarded projection has already
+  been delivered within one execution epoch. Repeated `PreInvocation` events
+  no longer ask the model to compile, present, or request approval for the same
+  contract again.
+- A later explicit approval is routed to the existing `contract_id`, and an
+  already approved execution continues without another pass, stage, or approval
+  request. The one-user-response approval boundary and fail-closed behavior are
+  unchanged.
+
 ## v0.51.0 — 2026-09-03
 
 - A committed `.click/evidence-reuse.json` can bind an exact check group to
