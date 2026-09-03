@@ -26,19 +26,25 @@ else:  # Executed directly from the bundled hooks directory.
 
 (
     click_capability,
+    click_contract_state,
     click_gate,
     click_host_coverage,
     click_inspection,
+    click_lifecycle,
     click_runner_transport,
+    click_runtime_state,
     click_state,
     platform_protocol,
 ) = click_import_bootstrap.load_siblings(
     __package__,
     "click_capability",
+    "click_contract_state",
     "click_gate",
     "click_host_coverage",
     "click_inspection",
+    "click_lifecycle",
     "click_runner_transport",
+    "click_runtime_state",
     "click_state",
     "platform_protocol",
 )
@@ -209,6 +215,59 @@ def _capture(
     return HOST_ROUTER.capture(action, event, output_adapter=adapter)
 
 
+def _guarded_continuation_context(
+    event: dict[str, Any], lifecycle: dict[str, Any]
+) -> str:
+    state = click_contract_state.read_contract_state(event)
+    runtime = click_runtime_state.view(state)
+    contract_id = click_lifecycle.contract_id_from_state(state)
+    if not contract_id or not click_lifecycle.session_contract_is_active(state):
+        return ""
+
+    current_turn_id = str(event.get("turn_id", ""))
+    if runtime.staged:
+        if str(state.get("staged_turn_id", "")) == current_turn_id:
+            if lifecycle.get("staged_projection_context_id") == contract_id:
+                return (
+                    "Click Guarded mode already staged contract_id "
+                    f"`{contract_id}` in this user execution. The existing "
+                    "Hook-generated projection was already returned for presentation. "
+                    "Do not compile, stage, present, or request approval for another "
+                    "contract; finish this execution and wait for the user's next response."
+                )
+            lifecycle["staged_projection_context_id"] = contract_id
+            return (
+                "Click Guarded mode already staged contract_id "
+                f"`{contract_id}` in this user execution. Do not compile or stage "
+                "another contract and do not pass this one yet. Present the existing "
+                "Hook-generated projection exactly once, ask for approval once, then "
+                "finish this execution and wait for a later user response."
+            )
+        return (
+            "Click Guarded mode has active staged contract_id "
+            f"`{contract_id}`. Do not compile, stage, restate, or request approval "
+            "for another contract. If and only if the current user response explicitly "
+            "approves the existing proposal, pass this exact id once; otherwise leave "
+            "the staged contract unchanged."
+        )
+
+    if runtime.guarded_approved:
+        if str(state.get("approved_turn_id", "")) == current_turn_id:
+            return (
+                "Click Guarded contract_id "
+                f"`{contract_id}` is already approved for this user execution. "
+                "Continue the approved implementation without passing, staging, "
+                "presenting, or requesting approval again."
+            )
+        return (
+            "Click Guarded contract_id "
+            f"`{contract_id}` is already approved and incomplete. Resume it by "
+            "passing this exact id once for the current user execution. Do not compile, "
+            "stage, present, or request approval for another contract."
+        )
+    return ""
+
+
 def _record_pre_invocation(raw: dict[str, Any]) -> dict[str, Any]:
     conversation_id = _conversation_id(raw)
     workspace = _workspace(raw)
@@ -238,6 +297,9 @@ def _record_pre_invocation(raw: dict[str, Any]) -> dict[str, Any]:
             "invocation_num": raw.get("invocationNum"),
             "prompt_fingerprint": prompt_fingerprint,
             "awaiting_next_execution": awaiting_next,
+            "staged_projection_context_id": str(
+                lifecycle.get("staged_projection_context_id", "")
+            ),
             "updated_at": int(time.time()),
         }
         click_state.write_json(lifecycle_path, context)
@@ -246,9 +308,15 @@ def _record_pre_invocation(raw: dict[str, Any]) -> dict[str, Any]:
         payload = _capture(
             AntigravityOutputAdapter(), "prompt-submit", event
         )
+        continuation_context = _guarded_continuation_context(event, context)
+        if continuation_context:
+            click_state.write_json(lifecycle_path, context)
+            click_state.write_json(_workspace_context_path(workspace), context)
         steps = payload.get("injectSteps") if isinstance(payload, dict) else None
         if isinstance(steps, list) and steps and isinstance(steps[0], dict):
-            message = str(steps[0].get("ephemeralMessage", ""))
+            message = continuation_context or str(
+                steps[0].get("ephemeralMessage", "")
+            )
             steps[0]["ephemeralMessage"] = (
                 "Use this exact absolute Click control launcher for this installation: `"
                 f"{_control_launcher_command()}`. "
