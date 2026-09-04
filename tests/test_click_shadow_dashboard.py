@@ -164,7 +164,7 @@ class ClickShadowDashboardTests(ClickGateTestCase):
             (self.plugin_data / "gate-state").glob("session-contract-*.json")
         ).resolve()
         instance_id = "dashboard-instance-12345"
-        access_token = "dashboard-access-token"
+        access_token = hashlib.sha256(instance_id.encode()).hexdigest()
         with CLICK_STATE.state_lock():
             state = json.loads(state_path.read_text(encoding="utf-8"))
             state[CLICK_SHADOW_DASHBOARD.DASHBOARD_FIELD] = {
