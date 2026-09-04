@@ -263,7 +263,7 @@ def validate(root: Path = ROOT) -> list[str]:
 
     for json_path in root.rglob("*.json"):
         _json(json_path, errors, root)
-    for directory in ("hooks", "evals", "scripts", "tests"):
+    for directory in ("hooks", "evals", "scripts", "benchmarks", "tests"):
         for python_path in (root / directory).rglob("*.py"):
             try:
                 compile(

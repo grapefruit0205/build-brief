@@ -1,4 +1,4 @@
-# Click — 코딩 에이전트를 위한 revision-aware evidence
+# Click — 코딩 에이전트를 위한 증분 검증
 
 [English](README.md) | 한국어 | [简体中文](README.zh-CN.md)
 
@@ -7,11 +7,11 @@
 [![CI](https://github.com/grapefruit0205/click/actions/workflows/ci.yml/badge.svg)](https://github.com/grapefruit0205/click/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-> 테스트 결과가 지금 코드에도 유효한지 기억합니다.
+> 코드가 조금 바뀔 때마다 전체 검증 대신 영향을 받은 검사만 다시 실행합니다.
 
-Click의 핵심은 **revision-aware evidence**입니다.
+Click의 핵심은 **Incremental verification for coding agents**입니다. 통과한 검사가 의존하는 코드가 실제로 바뀔 때까지 그 결과를 재사용할 수 있게 관리합니다. 이 판단은 모델의 추측이 아니라 **revision-aware evidence**에 남습니다.
 
-쉽게 말하면, “예전에 테스트가 통과했다”가 아니라 **어떤 코드에서 어떤 검사가 통과했는지** 기록하는 플러그인입니다.
+Click은 코드가 올바르거나 선택한 테스트가 충분하다고 증명하지 않습니다. 기존 검증 결과가 현재 코드에도 적용되는지만 추적합니다.
 
 평소처럼 AI에게 일을 맡기면 Click이 다음을 기억합니다.
 
@@ -106,7 +106,7 @@ Guarded를 직접 선택할 수도 있습니다.
 
 ## 업데이트
 
-현재 릴리스: **v0.60.0**
+현재 릴리스: **v0.70.0**
 
 ~~~bash
 codex plugin marketplace upgrade click
@@ -169,11 +169,16 @@ Git과 플러그인의 Python만 사용하므로 Linux, macOS, Windows에서 별
 모든 의존성을 자동 발견했다는 뜻은 아닙니다.
 커밋된 [Evidence Shards 맵](skills/click/references/evidence-shards-v1.md)은 정확한 broad suite 하나를 독립 자식으로 나눠, 뒤의 shard가 실패해도 앞의 통과 결과를 보존합니다. 이 맵만으로 mutation 뒤 재사용할 수는 없으며 위 규칙이 자식별로 다시 적용되고, 맵이 잘못되면 원래 suite를 실행합니다.
 
-Linux에서는 신뢰할 수 있는 시스템 `strace`로 실제 argv 검사를 함께 관찰합니다.
-Phase 2는 다음 실제 재실행 전에 비권위 예측을 고정하고, 실행 뒤 결과를 평가해
-현재 lifecycle의 Evidence Map과 정직한 ROI 화면으로 보여줍니다. 모든 검사는 계속
-실행되며 실제 절약 시간은 0입니다. `click-gate dashboard start`, `status`, `stop`으로
-열고 확인하고 닫습니다. 관찰 불가나 실패도 기존 검증 동작을 바꾸지 않습니다.
+Observer는 기본적으로 꺼져 있고 Dashboard와 별개입니다. `click-gate observer off`,
+`shadow`, `status`로 제어하며, 명시적으로 `shadow`를 켠 때만 호환되는 실제 검사에
+네이티브 수집기를 붙입니다. Linux는 `strace`, 권한이 이미 있는 macOS는 `fs_usage`,
+Windows는 기본 ETW 도구인 `logman.exe`와 `tracerpt.exe`를 사용합니다. Click은 어떤
+도구도 설치하거나 권한을 올리지 않습니다. Shadow 예측만으로 검사를 생략하지
+않습니다. Dashboard는 실제 실행, 권한 있는 exact/dependency/policy 재사용, 최근
+실행 기준 추정 회피 시간, Shadow 잠재값을 분리합니다. `click-gate dashboard start`,
+`status`, `stop`으로 열고 확인하고 닫습니다.
+
+`python3 benchmarks/incremental_verification.py`를 실행하면 작은 로컬 fixture를 측정합니다. 실제 실행 시간과 최근 성공한 전체 실행을 기준으로 한 추정 회피 시간을 분리하며, 결과를 제품 성능 주장으로 사용하지 않습니다.
 
 ## 완료 영수증
 

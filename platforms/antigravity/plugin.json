@@ -1,5 +1,5 @@
 {
   "$schema": "https://antigravity.google/schemas/v1/plugin.json",
   "name": "click",
-  "description": "Record revision-aware evidence by default in Antigravity, with opt-in approval-bound Guarded execution and no constraint on model reasoning."
+  "description": "Incremental verification for coding agents in Antigravity, with revision-aware evidence and optional Guarded approval boundaries."
 }

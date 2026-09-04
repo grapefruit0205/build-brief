@@ -6,9 +6,11 @@
 
 English | [한국어](README.ko.md) | [简体中文](README.zh-CN.md)
 
-> Keep proof in sync with the code.
+> Incremental verification for coding agents.
 
-Click gives coding agents **revision-aware evidence**: test and verification results that stay attached to the code they actually checked.
+Click keeps passing checks reusable until the code they depend on actually changes. Its **revision-aware evidence** lets the runtime rerun only the checks affected by the current edit instead of blindly repeating the whole verification set.
+
+Click does not prove that the code is correct or that the selected tests are sufficient. It tracks whether existing verification evidence still applies to the current code.
 
 You keep working normally. Click remembers:
 
@@ -104,7 +106,7 @@ Or explicitly choose Guarded:
 
 ## Update
 
-Current release: **v0.60.0**
+Current release: **v0.70.0**
 
 ~~~bash
 codex plugin marketplace upgrade click
@@ -169,12 +171,9 @@ macOS, or Windows. The declaration is repository-owner policy, not an inferred
 claim that Click discovered every dependency.
 A committed [Evidence Shards map](skills/click/references/evidence-shards-v1.md) can split one exact broad suite into independent children, retaining a passed sibling after another fails. The map alone never permits reuse after a mutation; the rules above still decide each child, and an invalid map runs the original suite.
 
-On Linux, a trusted system `strace` can shadow compatible real argv checks. Phase
-2 freezes a non-authoritative prediction before the next real rerun, evaluates
-it afterward, and shows the current lifecycle as a local Evidence Map and honest
-ROI view. Every check still runs; actual saved time remains zero. Use
-`click-gate dashboard start`, `status`, or `stop`. Click installs nothing, and
-unavailable collection changes no behavior.
+Observer collection is off by default and independent from the dashboard. Use `click-gate observer off`, `shadow`, or `status`; only explicit `shadow` mode attaches a trusted native collector to compatible real checks. Linux uses `strace`, privileged macOS uses `fs_usage`, and Windows uses the inbox `logman.exe` and `tracerpt.exe` ETW tools. Click installs nothing or elevates no privilege. Shadow predictions never authorize a skipped check.
+
+The dashboard separately shows checks actually executed, authoritative exact/dependency/policy reuse, estimated avoided time based on recent runs, and Shadow potential. Use `click-gate dashboard start`, `status`, or `stop`. Run `python3 benchmarks/incremental_verification.py` for a small local fixture; wall-clock durations are measured, while avoided verification time is explicitly an estimate based on the most recent successful full run, not a product claim.
 
 ## Completion receipt
 
