@@ -465,6 +465,7 @@ class RepositoryPolicyTests(unittest.TestCase):
         self.assertIn("hooks/click_observer_linux.py", classification)
         self.assertIn("hooks/click_observer_macos.py", classification)
         self.assertIn("hooks/click_evidence_shards.py", classification)
+        self.assertIn("hooks/click_incremental.py", classification)
         self.assertIn("hooks/click_shadow_intelligence.py", classification)
         self.assertIn("hooks/click_shadow_dashboard.py", classification)
         self.assertIn("hooks/click_host_coverage.py", classification)
@@ -560,6 +561,7 @@ class RepositoryPolicyTests(unittest.TestCase):
                 "click_observer_linux.py",
                 "click_observer_macos.py",
                 "click_evidence_shards.py",
+                "click_incremental.py",
                 "click_shadow_dashboard.py",
                 "click_shadow_intelligence.py",
                 "click_evidence.py",

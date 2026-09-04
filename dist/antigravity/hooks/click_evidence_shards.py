@@ -10,10 +10,11 @@ decision so the caller runs the original parent suite.
 from __future__ import annotations
 
 from collections.abc import Callable
+import fnmatch
 import hashlib
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import re
 import stat
 from typing import Any
@@ -188,10 +189,132 @@ def _matched_paths(patterns: tuple[str, ...], paths: list[str]) -> list[str]:
     ]
 
 
+def _unittest_discovery_spec(
+    parent_checks: list[list[str]],
+) -> tuple[tuple[str, str] | None, str]:
+    """Return ``(start directory, pattern)`` for one unittest discover check."""
+    if len(parent_checks) != 1:
+        return None, ""
+    argv = parent_checks[0]
+    if not argv:
+        return None, ""
+    executable = Path(argv[0]).name.lower()
+    index = 1
+    if executable in {"py", "py.exe"} and index < len(argv) and re.fullmatch(
+        r"-\d+(?:\.\d+)?(?:-\d+)?", argv[index]
+    ):
+        index += 1
+    if executable not in {
+        "python",
+        "python.exe",
+        "python3",
+        "python3.exe",
+        "pypy",
+        "pypy.exe",
+        "pypy3",
+        "pypy3.exe",
+        "py",
+        "py.exe",
+    }:
+        return None, ""
+    if argv[index : index + 3] != ["-m", "unittest", "discover"]:
+        return None, ""
+
+    arguments = argv[index + 3 :]
+    start: str | None = None
+    pattern: str | None = None
+    positionals: list[str] = []
+    cursor = 0
+    while cursor < len(arguments):
+        argument = arguments[cursor]
+        if argument in {"-s", "--start-directory", "-p", "--pattern"}:
+            if cursor + 1 >= len(arguments):
+                return None, "parent-discovery-arguments-unsupported"
+            value = arguments[cursor + 1]
+            if argument in {"-s", "--start-directory"}:
+                if start is not None:
+                    return None, "parent-discovery-arguments-unsupported"
+                start = value
+            else:
+                if pattern is not None:
+                    return None, "parent-discovery-arguments-unsupported"
+                pattern = value
+            cursor += 2
+            continue
+        if argument.startswith("--start-directory="):
+            if start is not None:
+                return None, "parent-discovery-arguments-unsupported"
+            start = argument.split("=", 1)[1]
+        elif argument.startswith("--pattern="):
+            if pattern is not None:
+                return None, "parent-discovery-arguments-unsupported"
+            pattern = argument.split("=", 1)[1]
+        elif argument in {"-t", "--top-level-directory", "-k"}:
+            if cursor + 1 >= len(arguments):
+                return None, "parent-discovery-arguments-unsupported"
+            cursor += 2
+            continue
+        elif argument.startswith("-"):
+            pass
+        else:
+            positionals.append(argument)
+        cursor += 1
+
+    if len(positionals) > 3:
+        return None, "parent-discovery-arguments-unsupported"
+    if start is None and positionals:
+        start = positionals[0]
+    if pattern is None and len(positionals) > 1:
+        pattern = positionals[1]
+    start = start or "."
+    pattern = pattern or "test*.py"
+    if (
+        not start
+        or not pattern
+        or "\x00" in start
+        or "\x00" in pattern
+        or "\\" in start
+        or PurePosixPath(start).is_absolute()
+        or any(part in {"", ".."} for part in PurePosixPath(start).parts)
+        or "/" in pattern
+        or "\\" in pattern
+    ):
+        return None, "parent-discovery-arguments-unsupported"
+    return (start, pattern), ""
+
+
+def _parent_discovery_paths(
+    parent_checks: list[list[str]],
+    repository_paths: list[str],
+    *,
+    working_prefix: str,
+) -> tuple[set[str] | None, str]:
+    spec, error = _unittest_discovery_spec(parent_checks)
+    if error or spec is None:
+        return None, error
+    start, pattern = spec
+    start_parts = [] if start == "." else list(PurePosixPath(start).parts)
+    prefix_parts = (
+        [] if not working_prefix else list(PurePosixPath(working_prefix).parts)
+    )
+    discovery_root = PurePosixPath(*prefix_parts, *start_parts).as_posix()
+    if discovery_root == ".":
+        discovery_root = ""
+    prefix = f"{discovery_root}/" if discovery_root else ""
+    return {
+        relative
+        for relative in repository_paths
+        if (not prefix or relative.startswith(prefix))
+        and relative.endswith(".py")
+        and fnmatch.fnmatchcase(PurePosixPath(relative).name, pattern)
+    }, ""
+
+
 def _normalize_entry(
     raw: Any,
     repository_paths: list[str],
     *,
+    working_prefix: str,
     parent_digests: set[str],
 ) -> tuple[dict[str, Any] | None, str]:
     if not isinstance(raw, dict) or set(raw) != ENTRY_FIELDS:
@@ -212,6 +335,17 @@ def _normalize_entry(
     inventory_paths = _matched_paths(inventory_patterns, repository_paths)
     if not inventory_paths or CONFIG_RELATIVE_PATH in inventory_paths:
         return None, "inventory-empty-or-protected"
+    parent_discovery, discovery_error = _parent_discovery_paths(
+        parent_checks,
+        repository_paths,
+        working_prefix=working_prefix,
+    )
+    if discovery_error:
+        return None, discovery_error
+    if parent_discovery is not None and not parent_discovery.issubset(
+        set(inventory_paths)
+    ):
+        return None, "inventory-narrower-than-parent-discovery"
 
     raw_shards = raw.get("shards")
     if (
@@ -297,6 +431,13 @@ def _load_entries(
     if root_output is None:
         return None, "git-root-unavailable"
     root = Path(os.fsdecode(root_output.strip()))
+    try:
+        resolved_root = root.resolve(strict=True)
+        resolved_cwd = cwd.resolve(strict=True)
+        working_relative = resolved_cwd.relative_to(resolved_root)
+    except (OSError, RuntimeError, ValueError):
+        return None, "git-workdir-unavailable"
+    working_prefix = "" if working_relative == Path(".") else working_relative.as_posix()
     head_output = git_capture(root, ["rev-parse", "--verify", "HEAD"])
     if head_output is None:
         return None, "head-unavailable"
@@ -311,10 +452,17 @@ def _load_entries(
     listed = git_capture(
         root, ["ls-files", "--cached", "--others", "--exclude-standard", "-z"]
     )
-    if listed is None:
+    ignored = git_capture(
+        root, ["ls-files", "--others", "--ignored", "--exclude-standard", "-z"]
+    )
+    if listed is None or ignored is None:
         return None, "inventory-unavailable"
-    repository_paths = _decode_repository_paths(listed)
-    if repository_paths is None:
+    visible_paths = _decode_repository_paths(listed)
+    ignored_paths = _decode_repository_paths(ignored)
+    if visible_paths is None or ignored_paths is None:
+        return None, "inventory-invalid-or-too-large"
+    repository_paths = sorted(set(visible_paths) | set(ignored_paths))
+    if len(repository_paths) > MAX_REPOSITORY_PATHS:
         return None, "inventory-invalid-or-too-large"
 
     canonical = _canonical_config_bytes(committed)
@@ -338,7 +486,10 @@ def _load_entries(
     parent_digests: set[str] = set()
     for raw_entry in raw_entries:
         entry, error = _normalize_entry(
-            raw_entry, repository_paths, parent_digests=parent_digests
+            raw_entry,
+            repository_paths,
+            working_prefix=working_prefix,
+            parent_digests=parent_digests,
         )
         if error or entry is None:
             return None, error or "entry-invalid"
@@ -349,7 +500,14 @@ def _load_entries(
     listed_again = git_capture(
         root, ["ls-files", "--cached", "--others", "--exclude-standard", "-z"]
     )
-    if listed_again != listed or not _policy_file_matches(root, committed):
+    ignored_again = git_capture(
+        root, ["ls-files", "--others", "--ignored", "--exclude-standard", "-z"]
+    )
+    if (
+        listed_again != listed
+        or ignored_again != ignored
+        or not _policy_file_matches(root, committed)
+    ):
         return None, "manifest-or-inventory-raced"
     return entries, ""
 

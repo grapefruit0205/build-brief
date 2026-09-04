@@ -35,6 +35,7 @@ if __package__:
         click_evidence,
         click_evidence_shards,
         click_host_coverage,
+        click_incremental,
         click_inspection,
         click_mutation,
         click_observation,
@@ -55,6 +56,7 @@ else:  # Executed directly from the bundled hooks directory.
     import click_evidence
     import click_evidence_shards
     import click_host_coverage
+    import click_incremental
     import click_inspection
     import click_mutation
     import click_observation
@@ -628,6 +630,7 @@ def _verification_receipt_matches(
     git_root: str,
     tree_digest: str,
     environment_digest: str,
+    executable_digest: str,
     host_coverage: dict[str, Any],
 ) -> bool:
     if not all(
@@ -637,6 +640,7 @@ def _verification_receipt_matches(
             group_digest,
             tree_digest,
             environment_digest,
+            executable_digest,
         )
     ):
         return False
@@ -655,10 +659,7 @@ def _verification_receipt_matches(
         and source.get("verified_root") == git_root
         and source.get("verified_tree_digest") == tree_digest
         and source.get("verified_environment_digest") == environment_digest
-        and isinstance(source.get("verified_executable_digest"), str)
-        and re.fullmatch(
-            r"[0-9a-f]{64}", str(source.get("verified_executable_digest", ""))
-        )
+        and source.get("verified_executable_digest") == executable_digest
         and click_host_coverage.receipt_is_current(host_coverage)
         and source.get("verified_host_coverage") == host_coverage
     )
@@ -744,6 +745,7 @@ def _dependency_receipt_matches(
     group_digest: str,
     git_root: str,
     environment_digest: str,
+    executable_digest: str,
     host_coverage: dict[str, Any],
 ) -> bool:
     if not _dependency_receipt_is_valid(receipt):
@@ -754,7 +756,12 @@ def _dependency_receipt_matches(
         return False
     if not all(
         isinstance(value, str) and re.fullmatch(r"[0-9a-f]{64}", value)
-        for value in (contract_digest, group_digest, environment_digest)
+        for value in (
+            contract_digest,
+            group_digest,
+            environment_digest,
+            executable_digest,
+        )
     ):
         return False
     verified_revision = source.get("verified_revision", -1)
@@ -780,10 +787,7 @@ def _dependency_receipt_matches(
         and source.get("verified_check_digest") == group_digest
         and source.get("verified_root") == git_root
         and source.get("verified_environment_digest") == environment_digest
-        and isinstance(source.get("verified_executable_digest"), str)
-        and re.fullmatch(
-            r"[0-9a-f]{64}", str(source.get("verified_executable_digest", ""))
-        )
+        and source.get("verified_executable_digest") == executable_digest
         and click_host_coverage.receipt_is_current(host_coverage)
         and source.get("verified_host_coverage") == host_coverage
         and source.get("verified_dependency_provider") == receipt["provider"]
@@ -892,6 +896,7 @@ def _safe_change_receipt_matches(
     group_digest: str,
     git_root: str,
     environment_digest: str,
+    executable_digest: str,
     host_coverage: dict[str, Any],
 ) -> bool:
     if not isinstance(decision, dict) or decision.get("status") != "reuse":
@@ -920,10 +925,7 @@ def _safe_change_receipt_matches(
         and source.get("verified_check_digest") == group_digest
         and source.get("verified_root") == git_root
         and source.get("verified_environment_digest") == environment_digest
-        and isinstance(source.get("verified_executable_digest"), str)
-        and re.fullmatch(
-            r"[0-9a-f]{64}", str(source.get("verified_executable_digest", ""))
-        )
+        and source.get("verified_executable_digest") == executable_digest
         and click_host_coverage.receipt_is_current(host_coverage)
         and source.get("verified_host_coverage") == host_coverage
         and source.get("verified_safe_change_receipt", {})
@@ -957,6 +959,117 @@ def _promote_safe_change_receipt(
     source["last_safe_change_paths"] = changed_paths[:128]
     source["last_safe_change_path_count"] = len(changed_paths)
     source["last_safe_change_decision_digest"] = decision["decision_digest"]
+
+
+def _reuse_binding_reason(
+    source: dict[str, Any],
+    *,
+    contract_digest: str,
+    group_digest: str,
+    git_root: str,
+    tree_digest: str,
+    environment_digest: str,
+    executable_digest: str,
+    host_coverage: dict[str, Any],
+    cross_revision: bool = False,
+) -> str:
+    """Explain a failed reuse binding without changing its authority decision."""
+    if source.get("verified_contract_digest") != contract_digest:
+        return "contract-binding-changed"
+    if source.get("verified_check_digest") != group_digest:
+        return "check-binding-changed"
+    if (
+        source.get("verified_root") != git_root
+        or not cross_revision
+        and source.get("verified_tree_digest") != tree_digest
+    ):
+        return "workspace-ambiguous"
+    if source.get("verified_executable_digest") != executable_digest:
+        return "executable-binding-changed"
+    if source.get("verified_environment_digest") != environment_digest:
+        return "environment-binding-changed"
+    if (
+        not click_host_coverage.receipt_is_current(host_coverage)
+        or source.get("verified_host_coverage") != host_coverage
+    ):
+        return "host-coverage-binding-changed"
+    return "receipt-invalid"
+
+
+def _observation_nonreuse_reason(observation: Any) -> str:
+    if not click_dependency_cache.dependency_observation_is_valid(observation):
+        return "observer-incomplete"
+    if observation.get("external_access") is True:
+        return "external-input-unmodeled"
+    if not click_dependency_cache.dependency_observation_is_complete(observation):
+        return "observer-incomplete"
+    return "observed-input-changed"
+
+
+def _default_incremental_reason(source: dict[str, Any]) -> tuple[str, bool]:
+    """Return a conservative initial run reason and evaluability marker."""
+    if source.get("status") == "failed":
+        return "previous-verification-failed", False
+    if source.get("status") != "stale":
+        return "no-passing-evidence", False
+    observation = source.get("verified_dependency_observation")
+    if observation:
+        reason = _observation_nonreuse_reason(observation)
+        return reason, reason in {"observer-incomplete", "external-input-unmodeled"}
+    if click_change_policy.receipt_is_valid(
+        source.get("verified_safe_change_receipt")
+    ):
+        return "safe-change-policy-not-covered", False
+    return "policy-unavailable", False
+
+
+def _canonical_incremental_plan(
+    sources: dict[str, Any],
+    *,
+    requested_keys: set[str],
+    group_digests: dict[str, str],
+    revision: int,
+    previous_revisions: dict[str, int],
+    reused_keys: set[str],
+    dependency_reused_keys: set[str],
+    safe_change_reused_keys: set[str],
+    not_evaluable_keys: set[str],
+    reason_codes: dict[str, str],
+) -> dict[str, Any]:
+    decisions: list[dict[str, Any]] = []
+    for source_key in sorted(requested_keys):
+        source = sources[source_key]
+        if source_key in dependency_reused_keys:
+            selected = "reuse-dependency"
+            authority = "runtime-dependency-observation"
+        elif source_key in safe_change_reused_keys:
+            selected = "reuse-safe-change"
+            authority = "repository-safe-change-policy"
+        elif source_key in reused_keys:
+            selected = "reuse-exact"
+            authority = "exact-receipt"
+        elif source_key in not_evaluable_keys:
+            selected = "not-evaluable"
+            authority = "none"
+        else:
+            selected = "run"
+            authority = "runner"
+        avoided = source.get("last_success_duration_ms", 0)
+        if not isinstance(avoided, int) or isinstance(avoided, bool) or avoided < 0:
+            avoided = 0
+        decisions.append(
+            click_incremental.decision(
+                source_key=source_key,
+                decision=selected,
+                reason_code=reason_codes[source_key],
+                current_revision=revision,
+                previous_revision=previous_revisions[source_key],
+                check_digest=group_digests[source_key],
+                authority_source=authority,
+                estimated_avoided_ms=avoided if source_key in reused_keys else 0,
+            )
+        )
+    return click_incremental.build_plan(decisions, current_revision=revision)
 
 
 def _contains_deep_verification_marker(values: list[str]) -> bool:
@@ -1843,6 +1956,51 @@ def _prepare_verification(
         if not str(source.get("reserved_check_digest", "")):
             source["reserved_check_digest"] = group_digests[source_key]
 
+    previous_revisions: dict[str, int] = {}
+    reason_codes: dict[str, str] = {}
+    not_evaluable_keys: set[str] = set()
+    for source_key in requested_keys:
+        source = sources[source_key]
+        previous_revision = source.get("verified_revision", -1)
+        previous_revisions[source_key] = (
+            previous_revision
+            if isinstance(previous_revision, int)
+            and not isinstance(previous_revision, bool)
+            and previous_revision >= -1
+            else -1
+        )
+        reason, not_evaluable = _default_incremental_reason(source)
+        reason_codes[source_key] = reason
+        if not_evaluable:
+            not_evaluable_keys.add(source_key)
+
+    prepared_environment = _verification_environment(cwd=workspace)
+    current_environment_digests: dict[str, str] = {}
+    current_executable_digests: dict[str, str] = {}
+    for source_key in requested_keys:
+        executable_records = _verification_executable_records(
+            grouped_checks[source_key],
+            cwd=workspace,
+            environment=prepared_environment,
+        )
+        if executable_records is None:
+            return (
+                "",
+                "Click could not resolve and fingerprint every verification "
+                "executable before planning the runner batch.",
+                "",
+            )
+        current_environment_digests[source_key] = (
+            _verification_environment_digest_from_records(
+                executable_records,
+                cwd=workspace,
+                environment=prepared_environment,
+            )
+        )
+        current_executable_digests[source_key] = _capability_digest(
+            {"executables": _verification_executable_payload(executable_records)}
+        )
+
     current_requested = {
         source_key
         for source_key in requested_keys
@@ -1872,9 +2030,7 @@ def _prepare_verification(
         )
         # A complete observation is stronger evidence than a repository
         # declaration. Never let the declaration override an observed input.
-        and not click_dependency_cache.dependency_observation_is_complete(
-            sources[source_key].get("verified_dependency_observation")
-        )
+        and not sources[source_key].get("verified_dependency_observation")
     }
     reused_keys: set[str] = set()
     dependency_reused_keys: set[str] = set()
@@ -1882,6 +2038,11 @@ def _prepare_verification(
     if current_requested or dependency_candidates or safe_change_candidates:
         snapshot = git_workspace_snapshot(workspace)
         if snapshot is None:
+            for source_key in (
+                current_requested | dependency_candidates | safe_change_candidates
+            ):
+                reason_codes[source_key] = "workspace-ambiguous"
+                not_evaluable_keys.add(source_key)
             for source_key in current_requested:
                 source = sources[source_key]
                 source["status"] = "ready"
@@ -1901,6 +2062,9 @@ def _prepare_verification(
             ):
                 # A missing PostToolUse receipt or any later workspace drift is
                 # outside the observable approved mutation boundary. Rerun.
+                for source_key in dependency_candidates | safe_change_candidates:
+                    reason_codes[source_key] = "mutation-boundary-ambiguous"
+                    not_evaluable_keys.add(source_key)
                 dependency_candidates = set()
                 safe_change_candidates = set()
             tree_changed = any(
@@ -1913,6 +2077,11 @@ def _prepare_verification(
                 for source_key in current_requested
             )
             if tree_changed:
+                for source_key in (
+                    current_requested | dependency_candidates | safe_change_candidates
+                ):
+                    reason_codes[source_key] = "workspace-ambiguous"
+                    not_evaluable_keys.add(source_key)
                 revision += 1
                 verification["mutation_revision"] = revision
                 verification["status"] = "ready"
@@ -1947,9 +2116,8 @@ def _prepare_verification(
             else:
                 for source_key in current_requested:
                     source = sources[source_key]
-                    environment_digest = _verification_environment_digest(
-                        grouped_checks[source_key], cwd=workspace
-                    )
+                    environment_digest = current_environment_digests[source_key]
+                    executable_digest = current_executable_digests[source_key]
                     if _verification_receipt_matches(
                         source,
                         contract_digest=contract_digest,
@@ -1958,10 +2126,24 @@ def _prepare_verification(
                         git_root=git_root,
                         tree_digest=tree_digest,
                         environment_digest=environment_digest,
+                        executable_digest=executable_digest,
                         host_coverage=host_coverage,
                     ):
                         reused_keys.add(source_key)
+                        reason_codes[source_key] = (
+                            "same-revision-receipt-current"
+                        )
                     else:
+                        reason_codes[source_key] = _reuse_binding_reason(
+                            source,
+                            contract_digest=contract_digest,
+                            group_digest=group_digests[source_key],
+                            git_root=git_root,
+                            tree_digest=tree_digest,
+                            environment_digest=environment_digest,
+                            executable_digest=executable_digest,
+                            host_coverage=host_coverage,
+                        )
                         source["status"] = "ready"
                         source["verified_revision"] = -1
                         source["last_exit_code"] = None
@@ -1987,9 +2169,8 @@ def _prepare_verification(
                 for source_key in dependency_candidates:
                     source = sources[source_key]
                     receipt = dependency_receipts.get(source_key)
-                    environment_digest = _verification_environment_digest(
-                        grouped_checks[source_key], cwd=workspace
-                    )
+                    environment_digest = current_environment_digests[source_key]
+                    executable_digest = current_executable_digests[source_key]
                     if _dependency_receipt_matches(
                         source,
                         receipt,
@@ -1998,6 +2179,7 @@ def _prepare_verification(
                         group_digest=group_digests[source_key],
                         git_root=git_root,
                         environment_digest=environment_digest,
+                        executable_digest=executable_digest,
                         host_coverage=host_coverage,
                     ):
                         assert isinstance(receipt, dict)
@@ -2009,6 +2191,35 @@ def _prepare_verification(
                         )
                         reused_keys.add(source_key)
                         dependency_reused_keys.add(source_key)
+                        not_evaluable_keys.discard(source_key)
+                        reason_codes[source_key] = (
+                            "observed-dependencies-unchanged"
+                        )
+                    else:
+                        binding_reason = _reuse_binding_reason(
+                            source,
+                            contract_digest=contract_digest,
+                            group_digest=group_digests[source_key],
+                            git_root=git_root,
+                            tree_digest=tree_digest,
+                            environment_digest=environment_digest,
+                            executable_digest=executable_digest,
+                            host_coverage=host_coverage,
+                            cross_revision=True,
+                        )
+                        if binding_reason != "receipt-invalid":
+                            reason_codes[source_key] = binding_reason
+                            not_evaluable_keys.discard(source_key)
+                        else:
+                            observation_reason = _observation_nonreuse_reason(
+                                source.get("verified_dependency_observation")
+                            )
+                            reason_codes[source_key] = observation_reason
+                            if observation_reason in {
+                                "observer-incomplete",
+                                "external-input-unmodeled",
+                            }:
+                                not_evaluable_keys.add(source_key)
                 for source_key in safe_change_candidates - reused_keys:
                     source = sources[source_key]
                     decision = click_change_policy.decide(
@@ -2039,9 +2250,8 @@ def _prepare_verification(
                     preflight_advisory = (
                         f"Click preflight [{evidence_id}]: {status} ({reason});{detail}"
                     )
-                    environment_digest = _verification_environment_digest(
-                        grouped_checks[source_key], cwd=workspace
-                    )
+                    environment_digest = current_environment_digests[source_key]
+                    executable_digest = current_executable_digests[source_key]
                     safe_change_matches = _safe_change_receipt_matches(
                         source,
                         decision,
@@ -2050,6 +2260,7 @@ def _prepare_verification(
                         group_digest=group_digests[source_key],
                         git_root=git_root,
                         environment_digest=environment_digest,
+                        executable_digest=executable_digest,
                         host_coverage=host_coverage,
                     )
                     if safe_change_matches:
@@ -2066,6 +2277,8 @@ def _prepare_verification(
                                 f"Click preflight [{evidence_id}]: workspace changed "
                                 "during preflight; running the real check."
                             )
+                            reason_codes[source_key] = "workspace-ambiguous"
+                            not_evaluable_keys.add(source_key)
                             continue
                         verification_advisories.append(preflight_advisory)
                         _promote_safe_change_receipt(
@@ -2076,13 +2289,50 @@ def _prepare_verification(
                         )
                         reused_keys.add(source_key)
                         safe_change_reused_keys.add(source_key)
+                        not_evaluable_keys.discard(source_key)
+                        reason_codes[source_key] = "safe-change-policy-covered"
                     else:
                         verification_advisories.append(preflight_advisory)
+                        binding_reason = _reuse_binding_reason(
+                            source,
+                            contract_digest=contract_digest,
+                            group_digest=group_digests[source_key],
+                            git_root=git_root,
+                            tree_digest=tree_digest,
+                            environment_digest=environment_digest,
+                            executable_digest=executable_digest,
+                            host_coverage=host_coverage,
+                            cross_revision=True,
+                        )
+                        if binding_reason != "receipt-invalid":
+                            reason_codes[source_key] = binding_reason
+                        elif status == "unknown":
+                            reason_codes[source_key] = "policy-unavailable"
+                            not_evaluable_keys.add(source_key)
+                        else:
+                            reason_codes[source_key] = (
+                                "safe-change-policy-not-covered"
+                            )
 
     unresolved_keys = {
         key for key in argv_keys if not _evidence_is_current(sources.get(key), revision)
     }
-    pending_keys = requested_keys - reused_keys
+    try:
+        incremental_plan = _canonical_incremental_plan(
+            sources,
+            requested_keys=requested_keys,
+            group_digests=group_digests,
+            revision=revision,
+            previous_revisions=previous_revisions,
+            reused_keys=reused_keys,
+            dependency_reused_keys=dependency_reused_keys,
+            safe_change_reused_keys=safe_change_reused_keys,
+            not_evaluable_keys=not_evaluable_keys,
+            reason_codes=reason_codes,
+        )
+        pending_keys = click_incremental.keys_to_execute(incremental_plan)
+    except ValueError:
+        return "", "Click could not build a valid incremental verification plan.", ""
     repeated_keys = pending_keys - unresolved_keys
     if repeated_keys:
         return (
@@ -2091,6 +2341,7 @@ def _prepare_verification(
             "an exact reusable success receipt.",
             "",
         )
+    click_incremental.store_plan(verification, incremental_plan)
 
     if not pending_keys:
         all_argv_current = bool(argv_keys) and all(
@@ -2171,7 +2422,6 @@ def _prepare_verification(
 
     canonical = json.dumps(batch, sort_keys=True, separators=(",", ":"))
     batch_digest = hashlib.sha256(canonical.encode()).hexdigest()
-    prepared_environment = _verification_environment(cwd=workspace)
     runner_token = secrets.token_urlsafe(24)
     running_host_coverage_digest = (
         _verification_host_coverage_binding_digest(host_coverage, runner_token)

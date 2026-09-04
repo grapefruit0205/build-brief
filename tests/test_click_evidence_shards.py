@@ -157,6 +157,57 @@ class ClickEvidenceShardsTests(unittest.TestCase):
         self.assertEqual(drifted["status"], "fallback")
         self.assertEqual(drifted["reason"], "inventory-not-covered-exactly-once")
 
+    def test_default_unittest_discovery_cannot_be_narrower_than_inventory(
+        self,
+    ) -> None:
+        # unittest discover defaults to test*.py, not test_*.py.  An untracked
+        # file is executable by the parent runner and therefore must prevent
+        # decomposition when the committed shard inventory omits it.
+        (self.root / "tests" / "testfoo.py").write_text(
+            "# discovered by the parent only\n", encoding="utf-8"
+        )
+
+        plan = self.resolve()
+
+        self.assertEqual(plan["status"], "fallback")
+        self.assertEqual(plan["reason"], "inventory-narrower-than-parent-discovery")
+
+    def test_explicit_unittest_pattern_bounds_parent_discovery(self) -> None:
+        (self.root / "tests" / "testfoo.py").write_text(
+            "# outside the explicit parent pattern\n", encoding="utf-8"
+        )
+        self.parent_argv = [
+            "python3",
+            "-m",
+            "unittest",
+            "discover",
+            "-s",
+            "tests",
+            "-p",
+            "test_*.py",
+            "-q",
+        ]
+        self.write_manifest()
+        self.commit()
+
+        plan = self.resolve()
+
+        self.assertEqual(plan["status"], "sharded")
+
+    def test_ignored_parent_discovery_member_also_forces_fallback(self) -> None:
+        (self.root / ".gitignore").write_text(
+            "tests/testignored.py\n", encoding="utf-8"
+        )
+        self.commit()
+        (self.root / "tests" / "testignored.py").write_text(
+            "# ignored by Git but executable by unittest\n", encoding="utf-8"
+        )
+
+        plan = self.resolve()
+
+        self.assertEqual(plan["status"], "fallback")
+        self.assertEqual(plan["reason"], "inventory-narrower-than-parent-discovery")
+
     def test_overlap_or_unsupported_child_is_not_decomposition_authority(self) -> None:
         value = self.manifest()
         shards = value["entries"][0]["shards"]

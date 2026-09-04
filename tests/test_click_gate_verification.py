@@ -475,6 +475,18 @@ class ClickGateVerificationTests(ClickGateTestCase):
             "reused 1 current unchanged-tree",
             repeated["hookSpecificOutput"]["updatedInput"]["command"],
         )
+        state_path = next(
+            (self.plugin_data / "gate-state").glob("session-contract-*.json")
+        )
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        plan = state["verification"]["incremental_plan"]
+        self.assertEqual(plan["executed_source_count"], 0)
+        self.assertEqual(plan["exact_reuse_count"], 1)
+        self.assertEqual(plan["decisions"][0]["decision"], "reuse-exact")
+        self.assertEqual(
+            plan["decisions"][0]["reason_code"],
+            "same-revision-receipt-current",
+        )
 
         self.assertIsNone(
             self.pre_tool("apply_patch", "*** Begin Patch\n*** End Patch", "turn-2")
@@ -541,6 +553,13 @@ class ClickGateVerificationTests(ClickGateTestCase):
         self.assertEqual(source["last_dependency_reused_from_revision"], 0)
         self.assertEqual(
             source["verified_dependency_paths"], ["verification_fixture.py"]
+        )
+        plan = state["verification"]["incremental_plan"]
+        self.assertEqual(plan["dependency_reuse_count"], 1)
+        self.assertEqual(plan["decisions"][0]["decision"], "reuse-dependency")
+        self.assertEqual(
+            plan["decisions"][0]["reason_code"],
+            "observed-dependencies-unchanged",
         )
 
     def test_committed_safe_change_policy_reuses_without_runtime_observer(self) -> None:
@@ -616,6 +635,12 @@ class ClickGateVerificationTests(ClickGateTestCase):
         self.assertEqual(source["safe_change_reuse_count"], 1)
         self.assertEqual(source["last_safe_change_reused_from_revision"], 0)
         self.assertEqual(source["last_safe_change_paths"], ["README.md"])
+        plan = state["verification"]["incremental_plan"]
+        self.assertEqual(plan["safe_change_reuse_count"], 1)
+        self.assertEqual(plan["decisions"][0]["decision"], "reuse-safe-change")
+        self.assertEqual(
+            plan["decisions"][0]["reason_code"], "safe-change-policy-covered"
+        )
 
         receipt = self.pre_tool(
             "Bash", "click-gate receipt export", "turn-2", submit_prompt=False
@@ -683,6 +708,15 @@ class ClickGateVerificationTests(ClickGateTestCase):
                 repeated["hookSpecificOutput"]["updatedInput"]["command"]
             ),
         )
+        state_path = next(
+            (self.plugin_data / "gate-state").glob("session-contract-*.json")
+        )
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        decision = state["verification"]["incremental_plan"]["decisions"][0]
+        self.assertEqual(decision["decision"], "run")
+        self.assertEqual(
+            decision["reason_code"], "safe-change-policy-not-covered"
+        )
         rendered = json.dumps(repeated)
         self.assertIn("path-not-declared-safe", rendered)
         self.assertIn("verification_fixture.py", rendered)
@@ -749,6 +783,13 @@ class ClickGateVerificationTests(ClickGateTestCase):
                 repeated["hookSpecificOutput"]["updatedInput"]["command"]
             ),
         )
+        state_path = next(
+            (self.plugin_data / "gate-state").glob("session-contract-*.json")
+        )
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        decision = state["verification"]["incremental_plan"]["decisions"][0]
+        self.assertEqual(decision["decision"], "run")
+        self.assertEqual(decision["reason_code"], "observed-input-changed")
         self.assertNotIn("repository-declared safe-change", json.dumps(repeated))
 
     def test_unavailable_runtime_observation_reruns_after_any_revision(self) -> None:
@@ -797,6 +838,78 @@ class ClickGateVerificationTests(ClickGateTestCase):
                 repeated["hookSpecificOutput"]["updatedInput"]["command"]
             ),
         )
+        state_path = next(
+            (self.plugin_data / "gate-state").glob("session-contract-*.json")
+        )
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        decision = state["verification"]["incremental_plan"]["decisions"][0]
+        self.assertEqual(decision["decision"], "not-evaluable")
+        self.assertEqual(decision["reason_code"], "observer-incomplete")
+
+    def test_incomplete_observation_cannot_fall_back_to_safe_change_skip(self) -> None:
+        (self.workspace / ".gitignore").write_text(
+            "__pycache__/\n", encoding="utf-8"
+        )
+        (self.workspace / "README.md").write_text("before\n", encoding="utf-8")
+        command = self.verification_argv()
+        policy = self.workspace / ".click" / "evidence-reuse.json"
+        policy.parent.mkdir()
+        policy.write_text(
+            json.dumps(
+                {
+                    "version": 1,
+                    "entries": [
+                        {
+                            "checks": [command],
+                            "reuse_if_only_changed": ["README.md"],
+                        }
+                    ],
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        self.initialize_git(
+            ".gitignore",
+            "verification_fixture.py",
+            "README.md",
+            ".click/evidence-reuse.json",
+        )
+        contract = self.contract()
+        contract["verification"]["evidence"][0]["dependencies"] = [
+            "verification_fixture.py"
+        ]
+        self.arm_gate("turn-1")
+        self.stage_gate(contract, "turn-1")
+        self.arm_gate("turn-2")
+        self.pass_gate(turn_id="turn-2")
+        first = self.verify_gate([command])
+        self.assertEqual(self.run_rewritten(first).returncode, 0)
+        self.assertIsNone(
+            self.pre_tool("apply_patch", "*** Begin Patch\n*** End Patch", "turn-2")
+        )
+        (self.workspace / "README.md").write_text("after\n", encoding="utf-8")
+        self.tool_hook(
+            "post-tool",
+            "apply_patch",
+            {"patch": "README"},
+            tool_use_id="tool-1",
+        )
+
+        repeated = self.verify_gate([command])
+
+        rendered = split_runner_command(
+            repeated["hookSpecificOutput"]["updatedInput"]["command"]
+        )
+        self.assertIn("run-verification", rendered)
+        self.assertNotIn("repository-declared safe-change", json.dumps(repeated))
+        state_path = next(
+            (self.plugin_data / "gate-state").glob("session-contract-*.json")
+        )
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        decision = state["verification"]["incremental_plan"]["decisions"][0]
+        self.assertEqual(decision["decision"], "not-evaluable")
+        self.assertEqual(decision["reason_code"], "observer-incomplete")
 
     def _prepare_approved_dependency_receipt(self) -> list[str]:
         (self.workspace / ".gitignore").write_text(
@@ -842,6 +955,13 @@ class ClickGateVerificationTests(ClickGateTestCase):
                 repeated["hookSpecificOutput"]["updatedInput"]["command"]
             ),
         )
+        state_path = next(
+            (self.plugin_data / "gate-state").glob("session-contract-*.json")
+        )
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        decision = state["verification"]["incremental_plan"]["decisions"][0]
+        self.assertEqual(decision["decision"], "run")
+        self.assertEqual(decision["reason_code"], "observed-input-changed")
 
     def test_environment_change_reruns_cross_revision_check(self) -> None:
         command = self._prepare_approved_dependency_receipt()
@@ -864,6 +984,13 @@ class ClickGateVerificationTests(ClickGateTestCase):
                 repeated["hookSpecificOutput"]["updatedInput"]["command"]
             ),
         )
+        state_path = next(
+            (self.plugin_data / "gate-state").glob("session-contract-*.json")
+        )
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        decision = state["verification"]["incremental_plan"]["decisions"][0]
+        self.assertEqual(decision["decision"], "run")
+        self.assertEqual(decision["reason_code"], "environment-binding-changed")
 
     def test_change_after_approved_mutation_receipt_disables_dependency_reuse(
         self,
@@ -2630,7 +2757,11 @@ class ClickGateVerificationTests(ClickGateTestCase):
         )
 
     def install_evidence_shard_fixture(
-        self, *, transient_failure: bool = False, safe_readme_reuse: bool = False
+        self,
+        *,
+        transient_failure: bool = False,
+        safe_readme_reuse: bool = False,
+        dependency_observation: bool = False,
     ) -> list[str]:
         (self.workspace / ".gitignore").write_text(
             "__pycache__/\n.shard-attempt\n", encoding="utf-8"
@@ -2743,6 +2874,23 @@ class ClickGateVerificationTests(ClickGateTestCase):
                 encoding="utf-8",
             )
             tracked.append(".click/evidence-reuse.json")
+        if dependency_observation:
+            dependency_map = self.workspace / ".click" / "evidence-dependencies.json"
+            dependency_map.write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "entries": [
+                            {"checks": [alpha], "paths": ["*_shard.py"]},
+                            {"checks": [beta], "paths": ["*_shard.py"]},
+                        ],
+                    },
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            tracked.append(".click/evidence-dependencies.json")
         self.initialize_git(*tracked)
         return parent
 
@@ -2865,6 +3013,71 @@ class ClickGateVerificationTests(ClickGateTestCase):
 
         rerun = self.verify_gate([parent])
         self.assertEqual(len(self.decoded_verification_batch(rerun)["checks"]), 2)
+
+    def test_changed_shard_dependency_runs_only_affected_child(self) -> None:
+        parent = self.install_evidence_shard_fixture(dependency_observation=True)
+        self.approve_contract()
+
+        prepared = self.verify_gate([parent])
+        first_batch = self.decoded_verification_batch(prepared)
+        self.assertEqual(self.run_rewritten(prepared).returncode, 0)
+        state_path = next(
+            (self.plugin_data / "gate-state").glob("session-contract-*.json")
+        )
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        sources = state["evidence_state"]["sources"]
+        grouped: dict[str, list[dict]] = {}
+        observations: dict[str, dict] = {}
+        for check in first_batch["checks"]:
+            source_key = CLICK_EVIDENCE.evidence_key(check["evidence_id"])
+            grouped[source_key] = [check]
+            shard_id = sources[source_key]["shard"]["shard_id"]
+            observations[source_key] = (
+                CLICK_VERIFICATION.click_dependency_cache.dependency_observation(
+                    [f"{shard_id[0]}_shard.py"]
+                )
+            )
+        receipts = CLICK_VERIFICATION.click_dependency_cache.receipts_for_groups(
+            self.workspace,
+            grouped,
+            declarations=CLICK_VERIFICATION.dependency_declarations(
+                sources, set(grouped)
+            ),
+            observations=observations,
+            git_capture=CLICK_VERIFICATION.git_capture,
+        )
+        for source_key, receipt in receipts.items():
+            CLICK_VERIFICATION.store_dependency_receipt(
+                sources[source_key], receipt
+            )
+        state_path.write_text(json.dumps(state), encoding="utf-8")
+
+        self.assertIsNone(
+            self.pre_tool("apply_patch", "*** Begin Patch\n*** End Patch", "turn-2")
+        )
+        with (self.workspace / "a_shard.py").open("a", encoding="utf-8") as handle:
+            handle.write("\n# alpha changed\n")
+        self.tool_hook(
+            "post-tool", "apply_patch", {"patch": "alpha"}, tool_use_id="tool-1"
+        )
+
+        incremental = self.verify_gate([parent])
+
+        batch = self.decoded_verification_batch(incremental)
+        planned = json.loads(state_path.read_text(encoding="utf-8"))
+        self.assertEqual(
+            len(batch["checks"]),
+            1,
+            json.dumps(planned["verification"]["incremental_plan"], indent=2),
+        )
+        self.assertIn("a_shard", " ".join(batch["checks"][0]["argv"]))
+        plan = planned["verification"]["incremental_plan"]
+        self.assertEqual(plan["executed_source_count"], 1)
+        self.assertEqual(plan["dependency_reuse_count"], 1)
+        self.assertEqual(
+            sorted(item["decision"] for item in plan["decisions"]),
+            ["reuse-dependency", "run"],
+        )
 
     def test_each_shard_can_use_existing_committed_safe_change_authority(self) -> None:
         parent = self.install_evidence_shard_fixture(safe_readme_reuse=True)
