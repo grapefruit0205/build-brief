@@ -36,9 +36,11 @@ than private compatibility reach-through.
 facade for Shadow Observer v1. It selects a backend through
 `hooks/click_observer_backend.py`, delegates operating-system-neutral record and
 lifecycle handling to `hooks/click_observer_common.py`, and delegates Linux
-`strace` collection and parsing to `hooks/click_observer_linux.py`. The facade
-continues to expose the existing tested entry points while native macOS and
-Windows collectors remain intentionally unavailable.
+`strace` collection and parsing to `hooks/click_observer_linux.py`. Privileged
+native macOS `fs_usage` collection lives in `hooks/click_observer_macos.py`.
+The facade continues to expose the existing tested entry points. macOS never
+elevates its own privilege and falls back when permission is absent; Windows
+remains an explicit unavailable placeholder.
 
 ## Documented legacy symbol
 

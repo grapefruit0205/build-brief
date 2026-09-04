@@ -32,3 +32,6 @@ jobs:
         run: git diff --check
       - name: Run deterministic Hook, grader, and repository-policy tests
         run: python -m unittest discover -s tests -v
+      - name: Run privileged macOS fs_usage smoke
+        if: runner.os == 'macOS'
+        run: sudo -n env PYTHONDONTWRITEBYTECODE=1 "${pythonLocation}/bin/python" -B -m unittest tests.test_click_observer_macos.MacOSNativeSmokeTests -v

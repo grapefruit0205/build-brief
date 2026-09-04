@@ -168,6 +168,7 @@ class ClickDependencyTraceTests(unittest.TestCase):
                 "non-Linux must not resolve strace"
             ),
             system_name="Darwin",
+            macos_privilege_probe=lambda: False,
         )
 
         self.assertEqual(result.exit_code, 7)

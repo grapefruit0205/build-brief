@@ -11,6 +11,7 @@ from hooks import (
     click_observer_backend,
     click_observer_common,
     click_observer_linux,
+    click_observer_macos,
 )
 
 
@@ -19,22 +20,33 @@ CHECK_DIGEST = "b" * 64
 
 
 class ClickObserverBackendTests(unittest.TestCase):
-    def test_selector_exposes_linux_and_honest_native_placeholders(self) -> None:
+    def test_selector_exposes_linux_macos_and_honest_windows_placeholder(self) -> None:
         linux = click_observer_backend.select_backend("Linux")
         self.assertEqual(linux.system, "Linux")
         self.assertEqual(linux.backend_name, "strace")
         self.assertEqual(linux.status, "available")
         self.assertEqual(linux.reason, "runtime-probe-required")
 
-        for system in ("Darwin", "Windows"):
-            with self.subTest(system=system):
-                capability = click_observer_backend.select_backend(system)
-                self.assertEqual(capability.system, system)
-                self.assertIsNone(capability.backend_name)
-                self.assertEqual(capability.status, "unavailable")
-                self.assertEqual(
-                    capability.reason, "native-backend-not-implemented"
-                )
+        macos = click_observer_backend.select_backend(
+            "Darwin", macos_privileged=False
+        )
+        self.assertEqual(macos.system, "Darwin")
+        self.assertEqual(macos.backend_name, "fs_usage")
+        self.assertEqual(macos.status, "permission-required")
+        self.assertEqual(macos.reason, "root-privilege-required")
+
+        privileged_macos = click_observer_backend.select_backend(
+            "Darwin", macos_privileged=True
+        )
+        self.assertEqual(privileged_macos.backend_name, "fs_usage")
+        self.assertEqual(privileged_macos.status, "available")
+        self.assertEqual(privileged_macos.reason, "runtime-probe-required")
+
+        windows = click_observer_backend.select_backend("Windows")
+        self.assertEqual(windows.system, "Windows")
+        self.assertIsNone(windows.backend_name)
+        self.assertEqual(windows.status, "unavailable")
+        self.assertEqual(windows.reason, "native-backend-not-implemented")
 
         unknown = click_observer_backend.select_backend("OtherOS")
         self.assertIsNone(unknown.backend_name)
@@ -64,7 +76,7 @@ class ClickObserverBackendTests(unittest.TestCase):
                 reason="invalid",
             )
 
-    def test_non_linux_facade_executes_target_once_without_backend_probe(self) -> None:
+    def test_unavailable_facade_executes_target_once_without_backend_probe(self) -> None:
         calls: list[str] = []
         for system in ("Darwin", "Windows"):
             with self.subTest(system=system):
@@ -80,6 +92,7 @@ class ClickObserverBackendTests(unittest.TestCase):
                         "an unavailable backend must not be probed"
                     ),
                     system_name=system,
+                    macos_privilege_probe=lambda: False,
                 )
                 self.assertEqual(result.exit_code, 7)
                 self.assertEqual(result.record["status"], "unavailable")
@@ -141,6 +154,42 @@ class ClickObserverBackendTests(unittest.TestCase):
         self.assertEqual(run.call_count, 1)
         fallback.assert_not_called()
 
+    def test_macos_facade_dispatches_through_backend_boundary(self) -> None:
+        record = click_dependency_cache.shadow_observer_record(
+            evidence_key=EVIDENCE_KEY,
+            check_digest=CHECK_DIGEST,
+            mutation_revision=5,
+            backend_name="fs_usage",
+            backend_version="15.0",
+            backend_digest="c" * 64,
+            status="partial",
+            unresolved_event_count=1,
+            process_tree_complete=False,
+        )
+        expected = click_observer_common.ShadowExecution(0, record)
+        fallback = mock.Mock(return_value=91)
+        collector = mock.Mock()
+        with mock.patch.object(
+            click_observer_macos, "run_command", return_value=expected
+        ) as run:
+            result = click_dependency_trace.run_command(
+                ["check"],
+                workspace=Path.cwd(),
+                environment={},
+                evidence_key=EVIDENCE_KEY,
+                check_digest=CHECK_DIGEST,
+                mutation_revision=5,
+                execute_unobserved=fallback,
+                resolve_backend=lambda *_args, **_kwargs: ("/usr/bin/fs_usage", ""),
+                system_name="Darwin",
+                macos_privilege_probe=lambda: True,
+                macos_collector=collector,
+            )
+        self.assertIs(result, expected)
+        self.assertEqual(run.call_count, 1)
+        self.assertIs(run.call_args.kwargs["collector"], collector)
+        fallback.assert_not_called()
+
     def test_backend_layers_do_not_import_authority_domains(self) -> None:
         forbidden = {
             "click_contract",
@@ -154,6 +203,7 @@ class ClickObserverBackendTests(unittest.TestCase):
             click_observer_backend,
             click_observer_common,
             click_observer_linux,
+            click_observer_macos,
         ):
             with self.subTest(module=module.__name__):
                 tree = ast.parse(Path(module.__file__).read_text(encoding="utf-8"))
