@@ -34,6 +34,7 @@ MAX_PATH_BYTES = 4096
 PROTECTED_POLICY_PATHS = (
     CONFIG_RELATIVE_PATH,
     click_dependency_cache.CONFIG_RELATIVE_PATH,
+    ".click/evidence-shards.json",
 )
 RECEIPT_FIELDS = frozenset(
     {"provider", "config_digest", "entry_digest", "patterns", "baseline"}

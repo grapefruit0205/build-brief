@@ -1,0 +1,39 @@
+{
+  "version": 1,
+  "mode": "shadow",
+  "status": "partial",
+  "binding": {
+    "evidence_key": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "check_digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "mutation_revision": 15
+  },
+  "backend": {
+    "name": "strace",
+    "version": "6.8",
+    "digest": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+  },
+  "inputs": [
+    {
+      "path": "src/auth/token.py",
+      "kind": "file",
+      "operations": [
+        "read"
+      ]
+    }
+  ],
+  "external_input_count": 1,
+  "unresolved_event_count": 2,
+  "child_process_count": 1,
+  "process_tree_complete": false,
+  "command_duration_ms": 18200,
+  "observer_overhead_ms": 110,
+  "authoritative": false,
+  "reuse_authorized": false,
+  "ineligibility_reasons": [
+    "external-input",
+    "observation-partial",
+    "process-tree-incomplete",
+    "shadow-mode",
+    "unresolved-event"
+  ]
+}

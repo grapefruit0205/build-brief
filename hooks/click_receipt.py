@@ -17,7 +17,12 @@ from typing import Any
 
 LEGACY_RECEIPT_VERSION = 1
 RECEIPT_VERSION = 2
-SUPPORTED_RECEIPT_VERSIONS = {LEGACY_RECEIPT_VERSION, RECEIPT_VERSION}
+SHARD_RECEIPT_VERSION = 3
+SUPPORTED_RECEIPT_VERSIONS = {
+    LEGACY_RECEIPT_VERSION,
+    RECEIPT_VERSION,
+    SHARD_RECEIPT_VERSION,
+}
 ENVELOPE_VERSION = 1
 UNSIGNED_ASSURANCE = "unsigned-integrity-only"
 CONTRACT_ID_PATTERN = re.compile(r"^ctr_[0-9a-f]{32}$")
@@ -90,6 +95,19 @@ EVIDENCE_FIELDS = {
     "result",
     "lineage",
 }
+SHARDED_EVIDENCE_FIELDS = EVIDENCE_FIELDS | {"shard"}
+SHARD_FIELDS = {
+    "provider",
+    "parent_source_key",
+    "parent_check_digest",
+    "shard_id",
+    "shard_count",
+    "plan_digest",
+    "entry_digest",
+    "inventory_digest",
+}
+SHARD_PROVIDER = "repository-evidence-shards-v1"
+SHARD_ID_PATTERN = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
 EVIDENCE_RESULT_FIELDS = {"status", "exit_code", "completed_at"}
 LINEAGE_FIELDS = {"mode", "from_revision", "dependency_digest"}
 COVERAGE_FIELDS = {
@@ -359,10 +377,58 @@ def _normalize_lineage(
     }, ""
 
 
+def _normalize_shard(value: Any, *, source_key: str) -> tuple[dict[str, Any] | None, str]:
+    if value is None:
+        return None, ""
+    error = _exact_fields(value, SHARD_FIELDS, "evidence.shard")
+    if error:
+        return None, error
+    assert isinstance(value, dict)
+    parent_source_key = value.get("parent_source_key")
+    shard_id = value.get("shard_id")
+    shard_count = value.get("shard_count")
+    if value.get("provider") != SHARD_PROVIDER:
+        return None, "Completion receipt evidence shard provider is unsupported."
+    if not _is_digest(parent_source_key) or parent_source_key == source_key:
+        return None, "Completion receipt evidence shard parent identity is invalid."
+    if not isinstance(shard_id, str) or not SHARD_ID_PATTERN.fullmatch(shard_id):
+        return None, "Completion receipt evidence shard id is invalid."
+    if (
+        not isinstance(shard_count, int)
+        or isinstance(shard_count, bool)
+        or shard_count < 2
+        or shard_count > 64
+    ):
+        return None, "Completion receipt evidence shard count is invalid."
+    for field in (
+        "parent_check_digest",
+        "plan_digest",
+        "entry_digest",
+        "inventory_digest",
+    ):
+        if not _is_digest(value.get(field)):
+            return None, f"Completion receipt evidence shard `{field}` is invalid."
+    return {
+        "provider": SHARD_PROVIDER,
+        "parent_source_key": parent_source_key,
+        "parent_check_digest": value["parent_check_digest"],
+        "shard_id": shard_id,
+        "shard_count": shard_count,
+        "plan_digest": value["plan_digest"],
+        "entry_digest": value["entry_digest"],
+        "inventory_digest": value["inventory_digest"],
+    }, ""
+
+
 def _normalize_evidence(
-    value: Any, *, revision: int
+    value: Any, *, revision: int, receipt_version: int
 ) -> tuple[dict[str, Any] | None, str]:
-    error = _exact_fields(value, EVIDENCE_FIELDS, "evidence source")
+    fields = (
+        SHARDED_EVIDENCE_FIELDS
+        if receipt_version == SHARD_RECEIPT_VERSION
+        else EVIDENCE_FIELDS
+    )
+    error = _exact_fields(value, fields, "evidence source")
     if error:
         return None, error
     assert isinstance(value, dict)
@@ -412,7 +478,7 @@ def _normalize_evidence(
     if error:
         return None, error
     assert lineage is not None
-    return {
+    normalized = {
         "source_key": source_key,
         "kind": kind,
         "verified_revision": verified_revision,
@@ -425,7 +491,15 @@ def _normalize_evidence(
             "completed_at": completed_at,
         },
         "lineage": lineage,
-    }, ""
+    }
+    if receipt_version == SHARD_RECEIPT_VERSION:
+        if kind != "argv" and value.get("shard") is not None:
+            return None, "Only argv evidence may carry shard provenance."
+        shard, error = _normalize_shard(value.get("shard"), source_key=source_key)
+        if error:
+            return None, error
+        normalized["shard"] = shard
+    return normalized, ""
 
 
 def _normalize_coverage(
@@ -473,7 +547,7 @@ def validate_receipt(value: Any) -> tuple[dict[str, Any] | None, str]:
     if version not in SUPPORTED_RECEIPT_VERSIONS or isinstance(version, bool):
         return None, "Completion receipt `version` is unsupported."
     authority: dict[str, Any] | None = None
-    if version == RECEIPT_VERSION:
+    if version in {RECEIPT_VERSION, SHARD_RECEIPT_VERSION}:
         authority, error = _normalize_authority(value.get("authority"))
         if error:
             return None, error
@@ -528,7 +602,9 @@ def validate_receipt(value: Any) -> tuple[dict[str, Any] | None, str]:
     normalized_evidence: list[dict[str, Any]] = []
     seen: set[str] = set()
     for source in evidence:
-        normalized, error = _normalize_evidence(source, revision=revision)
+        normalized, error = _normalize_evidence(
+            source, revision=revision, receipt_version=int(version)
+        )
         if error:
             return None, error
         assert normalized is not None
@@ -538,6 +614,36 @@ def validate_receipt(value: Any) -> tuple[dict[str, Any] | None, str]:
         seen.add(source_key)
         normalized_evidence.append(normalized)
     normalized_evidence.sort(key=lambda source: str(source["source_key"]))
+    if version == SHARD_RECEIPT_VERSION:
+        sharded = [
+            source for source in normalized_evidence if source.get("shard") is not None
+        ]
+        if not sharded:
+            return None, "Receipt v3 requires at least one sharded evidence source."
+        groups: dict[str, list[dict[str, Any]]] = {}
+        for source in sharded:
+            shard = source["shard"]
+            assert isinstance(shard, dict)
+            groups.setdefault(str(shard["parent_source_key"]), []).append(shard)
+        for shards in groups.values():
+            first = shards[0]
+            shared_fields = (
+                "provider",
+                "parent_check_digest",
+                "shard_count",
+                "plan_digest",
+                "entry_digest",
+                "inventory_digest",
+            )
+            if (
+                len(shards) != first["shard_count"]
+                or len({str(shard["shard_id"]) for shard in shards}) != len(shards)
+                or any(
+                    any(shard[field] != first[field] for field in shared_fields)
+                    for shard in shards[1:]
+                )
+            ):
+                return None, "Completion receipt evidence shard set is incomplete."
 
     workspace = execution["workspace"]
     assert isinstance(workspace, dict)

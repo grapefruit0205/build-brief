@@ -129,6 +129,29 @@ class ClickGateBrowserTests(ClickGateTestCase):
         self.assertIn(
             "browser-retry", state["external_evidence"]["browser_running"]
         )
+        expired_claim = next(
+            entry
+            for entry in state["capability_ledger"]["entries"]
+            if entry["binding_digest"]
+            == CLICK_BROWSER.click_claims.host_binding_digest("lost-browser-post")
+        )
+        self.assertEqual(expired_claim["result"], {"status": "failed", "exit_code": 124})
+        self.assertIsNone(
+            self.tool_hook(
+                "post-tool",
+                "mcp__node_repl__js",
+                {"code": "await page.title()", "timeout_ms": 5000},
+                tool_use_id="browser-retry",
+                tool_response={"content": [{"type": "text", "text": "ready"}]},
+            )
+        )
+        self.complete_evidence("E-browser")
+        receipt = self.pre_tool(
+            "Bash", "click-gate receipt export", "turn-2", submit_prompt=False
+        )
+        assert receipt is not None
+        exported = self.run_rewritten(receipt)
+        self.assertEqual(exported.returncode, 0, exported.stderr)
 
     def test_browser_primary_source_uses_structured_kind_not_localized_text(self) -> None:
         conditions = (

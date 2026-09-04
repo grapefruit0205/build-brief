@@ -56,23 +56,22 @@ execution_authority: host
 
 Use Guarded for payments, authentication, deletion, migrations, public API changes, or any task where changing the wrong thing would matter.
 
-The approval view is written for people:
+The approval view starts with one plain-language contract, not a list of developer fields. For example:
 
 ~~~text
-Goal
-What should be true when the task is done?
-
-Changes
-What may change?
-
-Unchanged
-What must remain compatible or untouched?
-
-Completion checks
-How will the result be verified?
+Revision 12 changed src/auth/token.py.
+The authentication tests that used this file are affected.
+The previous result is now stale, so those tests must run again.
+Click will record the changed revision, the affected check, why the old result became stale, and the completion checks.
+It only displays this information; the contract excludes test-skipping authority, UI work, and external transmission.
+In short: this builds the safe data layer that a future Evidence Map can read.
 ~~~
 
-The raw JSON contract is optional technical detail. Approval happens in a later user turn, and work inside the approved boundary continues without repeated approval prompts.
+The original canonical JSON stays hidden unless the user requests the original contract. Viewing it keeps the same contract id and does not approve, change, or restage anything. The approval prompt is equivalent to:
+
+> The contract above is explained in plain language. Do you approve it as written, or would you like to see the original contract first?
+
+Approve, request changes, cancel, and view original are all available. Approval happens in a later user turn, and work inside the approved boundary continues without repeated approval prompts.
 
 ## Install
 
@@ -105,7 +104,7 @@ Or explicitly choose Guarded:
 
 ## Update
 
-Current release: **v0.51.1**
+Current release: **v0.60.0**
 
 ~~~bash
 codex plugin marketplace upgrade click
@@ -168,6 +167,14 @@ themselves safe. This path uses only Git and the plugin's Python runtime, so it
 does not require a platform-specific observer or another installation on Linux,
 macOS, or Windows. The declaration is repository-owner policy, not an inferred
 claim that Click discovered every dependency.
+A committed [Evidence Shards map](skills/click/references/evidence-shards-v1.md) can split one exact broad suite into independent children, retaining a passed sibling after another fails. The map alone never permits reuse after a mutation; the rules above still decide each child, and an invalid map runs the original suite.
+
+On Linux, a trusted system `strace` can shadow compatible real argv checks. Phase
+2 freezes a non-authoritative prediction before the next real rerun, evaluates
+it afterward, and shows the current lifecycle as a local Evidence Map and honest
+ROI view. Every check still runs; actual saved time remains zero. Use
+`click-gate dashboard start`, `status`, or `stop`. Click installs nothing, and
+unavailable collection changes no behavior.
 
 ## Completion receipt
 
@@ -225,6 +232,7 @@ The README stays short on purpose. Protocol and architecture details live here:
 - [Guarded contract format](skills/click/references/directive-format.md)
 - [Verification profiles](skills/click/references/verification-profiles.md)
 - [Capability protocol](skills/click/references/capability-protocol.md)
+- [Shadow Observer v1](skills/click/references/observer-v1.md), [Shadow Intelligence v1](skills/click/references/shadow-intelligence-v1.md), and [Evidence Shards v1](skills/click/references/evidence-shards-v1.md)
 - [Anti-loop policy](skills/click/references/anti-loop-policy.md)
 
 ## License

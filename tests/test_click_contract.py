@@ -102,28 +102,10 @@ class ClickContractTests(unittest.TestCase):
         self.assertEqual(error, "")
         self.assertEqual(value, full)
 
-    def test_human_view_is_a_deterministic_four_section_projection(self) -> None:
+    def test_human_view_is_the_exact_plain_language_projection(self) -> None:
         view = click_contract.human_view(self.contract)
 
-        self.assertEqual(set(view), {"goal", "changes", "unchanged", "completion"})
-        self.assertEqual(view["goal"], self.contract["outcome"])
-        self.assertEqual(
-            view["changes"]["scope"], self.contract["boundary"]["in_scope"]
-        )
-        self.assertEqual(
-            view["changes"]["approach"], self.contract["build"]["approach"]
-        )
-        self.assertEqual(
-            view["unchanged"]["must_hold"], self.contract["must_hold"]
-        )
-        self.assertEqual(
-            view["completion"]["scale"],
-            self.contract["verification"]["scale"],
-        )
-        self.assertEqual(
-            view["completion"]["checks"],
-            [self.contract["verification"]["done_when"][0]["condition"]],
-        )
+        self.assertEqual(view, {"plain_language": self.contract["plain_language"]})
 
     def test_rendered_human_view_contains_the_exact_stage_projection(self) -> None:
         contract_id = "ctr_" + ("1" * 32)
@@ -131,13 +113,26 @@ class ClickContractTests(unittest.TestCase):
         rendered = click_contract.render_human_view(contract_id, self.contract)
 
         self.assertIn(f"CLICK_CONTRACT_ID={contract_id}", rendered)
-        self.assertIn("Goal\n" + self.contract["outcome"], rendered)
-        self.assertIn("Changes\n  Scope", rendered)
-        self.assertIn(self.contract["build"]["approach"][0], rendered)
         self.assertIn(
-            f"Completion checks\n  Scale: {self.contract['verification']['scale']}",
-            rendered,
+            "Plain-language contract\n" + self.contract["plain_language"], rendered
         )
+        self.assertEqual(rendered.count(self.contract["plain_language"]), 1)
+        self.assertNotIn(self.contract["outcome"], rendered)
+        self.assertNotIn(self.contract["boundary"]["in_scope"][0], rendered)
+        self.assertNotIn(self.contract["must_hold"][0], rendered)
+        self.assertNotIn(self.contract["build"]["approach"][0], rendered)
+        self.assertNotIn(self.contract["verification"]["scale"], rendered)
+        self.assertIn("unless the user asks to see the original contract", rendered)
+        self.assertIn("does not approve, change, or restage", rendered)
+        self.assertIn("same contract_id", rendered)
+        for response in (
+            "approve",
+            "request changes",
+            "cancel",
+            "view the original",
+        ):
+            with self.subTest(response=response):
+                self.assertIn(response, rendered)
 
     def test_argv_evidence_may_bind_deterministic_dependency_patterns(self) -> None:
         contract = copy.deepcopy(self.contract)

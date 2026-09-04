@@ -29,18 +29,28 @@ def run_argv(
     stdin: Any | None = None,
     stdout: Any | None = None,
     stderr: Any | None = None,
+    timeout: float | None = None,
 ) -> subprocess.CompletedProcess[Any]:
     """Run one already-authorized argv without a shell in an isolated group."""
-    return subprocess.run(
-        list(argv),
+    command = list(argv)
+    child = spawn_argv(
+        command,
         cwd=cwd,
         env=env,
         stdin=stdin,
         stdout=stdout,
         stderr=stderr,
-        check=False,
-        shell=False,
-        **isolated_subprocess_kwargs(),
+    )
+    try:
+        captured_stdout, captured_stderr = child.communicate(timeout=timeout)
+    except BaseException:
+        terminate_process_group(child)
+        raise
+    return subprocess.CompletedProcess(
+        command,
+        int(child.returncode),
+        captured_stdout,
+        captured_stderr,
     )
 
 

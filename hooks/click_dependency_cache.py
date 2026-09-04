@@ -16,6 +16,7 @@ import hashlib
 import json
 import os
 from pathlib import Path, PurePosixPath
+import re
 import stat
 from typing import Any
 
@@ -45,6 +46,60 @@ OBSERVATION_FIELDS = frozenset(
     }
 )
 MAX_CONFIG_BYTES = 256 * 1024
+
+SHADOW_OBSERVER_SCHEMA_VERSION = 1
+SHADOW_OBSERVER_MODE = "shadow"
+SHADOW_OBSERVER_STATUSES = frozenset(
+    {"complete", "partial", "failed", "unavailable"}
+)
+SHADOW_OBSERVER_INPUT_KINDS = frozenset({"directory", "file", "missing"})
+SHADOW_OBSERVER_OPERATIONS = frozenset(
+    {"enumerate", "execute", "metadata", "read"}
+)
+SHADOW_OBSERVER_REASONS = frozenset(
+    {
+        "collector-failed",
+        "collector-unavailable",
+        "external-input",
+        "observation-partial",
+        "process-tree-incomplete",
+        "shadow-mode",
+        "unresolved-event",
+    }
+)
+SHADOW_OBSERVER_FIELDS = frozenset(
+    {
+        "version",
+        "mode",
+        "status",
+        "binding",
+        "backend",
+        "inputs",
+        "external_input_count",
+        "unresolved_event_count",
+        "child_process_count",
+        "process_tree_complete",
+        "command_duration_ms",
+        "observer_overhead_ms",
+        "authoritative",
+        "reuse_authorized",
+        "ineligibility_reasons",
+    }
+)
+SHADOW_OBSERVER_BINDING_FIELDS = frozenset(
+    {"evidence_key", "check_digest", "mutation_revision"}
+)
+SHADOW_OBSERVER_BACKEND_FIELDS = frozenset({"name", "version", "digest"})
+SHADOW_OBSERVER_INPUT_FIELDS = frozenset({"path", "kind", "operations"})
+MAX_SHADOW_OBSERVER_BYTES = 256 * 1024
+MAX_SHADOW_OBSERVER_INPUTS = 4_096
+MAX_SHADOW_OBSERVER_PATH_BYTES = 4_096
+MAX_SHADOW_OBSERVER_TEXT_CHARS = 256
+MAX_JSON_SAFE_INTEGER = (1 << 53) - 1
+
+_SHA256_DIGEST = re.compile(r"^[0-9a-f]{64}$")
+_SHADOW_BACKEND_NAME = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
+_SHADOW_BACKEND_VERSION = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$")
 
 GitCapture = Callable[[Path, list[str]], bytes | None]
 
@@ -317,6 +372,371 @@ def combine_dependency_observations(values: Iterable[Any]) -> dict[str, Any]:
             value["process_tree_complete"] for value in observations
         ),
     )
+
+
+def _shadow_text(
+    value: Any,
+    *,
+    field: str,
+    pattern: re.Pattern[str] | None = None,
+) -> tuple[str | None, str]:
+    if not isinstance(value, str) or not value:
+        return None, f"{field} must be a non-empty string"
+    if len(value) > MAX_SHADOW_OBSERVER_TEXT_CHARS:
+        return None, f"{field} exceeds the character limit"
+    if any(ord(character) < 32 or ord(character) == 127 for character in value):
+        return None, f"{field} must not contain control characters"
+    if pattern is not None and pattern.fullmatch(value) is None:
+        return None, f"{field} has an invalid format"
+    return value, ""
+
+
+def _shadow_count(value: Any, *, field: str) -> tuple[int | None, str]:
+    if (
+        not isinstance(value, int)
+        or isinstance(value, bool)
+        or value < 0
+        or value > MAX_JSON_SAFE_INTEGER
+    ):
+        return None, f"{field} must be a non-negative JSON-safe integer"
+    return value, ""
+
+
+def _normalize_shadow_binding(value: Any) -> tuple[dict[str, Any] | None, str]:
+    if not isinstance(value, dict) or set(value) != SHADOW_OBSERVER_BINDING_FIELDS:
+        return None, "binding must contain only the Observer v1 binding fields"
+    evidence_key, error = _shadow_text(
+        value.get("evidence_key"),
+        field="binding.evidence_key",
+        pattern=_SHA256_DIGEST,
+    )
+    if error:
+        return None, error
+    check_digest, error = _shadow_text(
+        value.get("check_digest"), field="binding.check_digest", pattern=_SHA256_DIGEST
+    )
+    if error:
+        return None, error
+    mutation_revision, error = _shadow_count(
+        value.get("mutation_revision"), field="binding.mutation_revision"
+    )
+    if error:
+        return None, error
+    return {
+        "evidence_key": evidence_key,
+        "check_digest": check_digest,
+        "mutation_revision": mutation_revision,
+    }, ""
+
+
+def _normalize_shadow_backend(
+    value: Any, *, status: str
+) -> tuple[dict[str, Any] | None, str]:
+    if status == "unavailable":
+        if value is not None:
+            return None, "backend must be null when observation is unavailable"
+        return None, ""
+    if not isinstance(value, dict) or set(value) != SHADOW_OBSERVER_BACKEND_FIELDS:
+        return None, "backend must contain only the Observer v1 backend fields"
+    name, error = _shadow_text(
+        value.get("name"), field="backend.name", pattern=_SHADOW_BACKEND_NAME
+    )
+    if error:
+        return None, error
+    version, error = _shadow_text(
+        value.get("version"),
+        field="backend.version",
+        pattern=_SHADOW_BACKEND_VERSION,
+    )
+    if error:
+        return None, error
+    digest, error = _shadow_text(
+        value.get("digest"), field="backend.digest", pattern=_SHA256_DIGEST
+    )
+    if error:
+        return None, error
+    return {"name": name, "version": version, "digest": digest}, ""
+
+
+def _shadow_path_is_canonical(path: str, *, kind: str) -> bool:
+    directory_marker = path.endswith("/")
+    candidate = path[:-1] if directory_marker else path
+    if any(ord(character) < 32 or ord(character) == 127 for character in path):
+        return False
+    try:
+        encoded = path.encode("utf-8")
+    except UnicodeEncodeError:
+        return False
+    if len(encoded) > MAX_SHADOW_OBSERVER_PATH_BYTES:
+        return False
+    if not _safe_relative_path(path, directory=directory_marker):
+        return False
+    if PurePosixPath(candidate).as_posix() != candidate:
+        return False
+    if kind == "directory" and not directory_marker:
+        return False
+    if kind == "file" and directory_marker:
+        return False
+    return True
+
+
+def _normalize_shadow_inputs(value: Any) -> tuple[list[dict[str, Any]] | None, str]:
+    if not isinstance(value, list):
+        return None, "inputs must be a list"
+    if len(value) > MAX_SHADOW_OBSERVER_INPUTS:
+        return None, "inputs exceed the entry limit"
+    merged: dict[str, dict[str, Any]] = {}
+    for item in value:
+        if not isinstance(item, dict) or set(item) != SHADOW_OBSERVER_INPUT_FIELDS:
+            return None, "each input must contain only the Observer v1 input fields"
+        path = item.get("path")
+        kind = item.get("kind")
+        operations = item.get("operations")
+        if not isinstance(path, str) or not path:
+            return None, "input.path must be a non-empty string"
+        if not isinstance(kind, str) or kind not in SHADOW_OBSERVER_INPUT_KINDS:
+            return None, "input.kind is not supported"
+        if not _shadow_path_is_canonical(path, kind=kind):
+            return None, "input.path must be a canonical repository-relative path"
+        if (
+            not isinstance(operations, list)
+            or not operations
+            or len(operations) > len(SHADOW_OBSERVER_OPERATIONS)
+            or any(
+                not isinstance(operation, str)
+                or operation not in SHADOW_OBSERVER_OPERATIONS
+                for operation in operations
+            )
+        ):
+            return (
+                None,
+                "input.operations must be a non-empty list of supported operations",
+            )
+        existing = merged.get(path)
+        if existing is not None and existing["kind"] != kind:
+            return None, "one input path must not have conflicting kinds"
+        if existing is None:
+            merged[path] = {
+                "path": path,
+                "kind": kind,
+                "operations": set(operations),
+            }
+        else:
+            existing["operations"].update(operations)
+    return [
+        {
+            "path": path,
+            "kind": merged[path]["kind"],
+            "operations": sorted(merged[path]["operations"]),
+        }
+        for path in sorted(merged)
+    ], ""
+
+
+def _shadow_ineligibility_reasons(
+    *,
+    status: str,
+    external_input_count: int,
+    unresolved_event_count: int,
+    process_tree_complete: bool,
+) -> list[str]:
+    reasons = {"shadow-mode"}
+    if status == "failed":
+        reasons.add("collector-failed")
+    elif status == "unavailable":
+        reasons.add("collector-unavailable")
+    elif status == "partial":
+        reasons.add("observation-partial")
+    if external_input_count:
+        reasons.add("external-input")
+    if unresolved_event_count:
+        reasons.add("unresolved-event")
+    if not process_tree_complete:
+        reasons.add("process-tree-incomplete")
+    return sorted(reasons)
+
+
+def normalize_shadow_observer_record(
+    value: Any,
+) -> tuple[dict[str, Any] | None, str]:
+    """Validate and canonicalize one content-free Shadow Observer v1 record.
+
+    This pure contract does not feed verification, evidence reuse, approval, or
+    completion. Strict consumers should additionally require
+    :func:`shadow_observer_record_is_valid` so non-canonical input fails closed.
+    """
+    if not isinstance(value, dict) or set(value) != SHADOW_OBSERVER_FIELDS:
+        return None, "record must contain only the Observer v1 fields"
+    if value.get("version") != SHADOW_OBSERVER_SCHEMA_VERSION:
+        return None, "unsupported Observer schema version"
+    if value.get("mode") != SHADOW_OBSERVER_MODE:
+        return None, "Observer v1 records must use shadow mode"
+    status = value.get("status")
+    if not isinstance(status, str) or status not in SHADOW_OBSERVER_STATUSES:
+        return None, "unsupported Observer status"
+
+    binding, error = _normalize_shadow_binding(value.get("binding"))
+    if error:
+        return None, error
+    backend, error = _normalize_shadow_backend(value.get("backend"), status=status)
+    if error:
+        return None, error
+    inputs, error = _normalize_shadow_inputs(value.get("inputs"))
+    if error:
+        return None, error
+
+    counts: dict[str, int] = {}
+    for field in (
+        "external_input_count",
+        "unresolved_event_count",
+        "child_process_count",
+        "command_duration_ms",
+        "observer_overhead_ms",
+    ):
+        count, error = _shadow_count(value.get(field), field=field)
+        if error or count is None:
+            return None, error
+        counts[field] = count
+    process_tree_complete = value.get("process_tree_complete")
+    if not isinstance(process_tree_complete, bool):
+        return None, "process_tree_complete must be a boolean"
+    if value.get("authoritative") is not False:
+        return None, "Shadow Observer records must never be authoritative"
+    if value.get("reuse_authorized") is not False:
+        return None, "Shadow Observer records must never authorize reuse"
+    reasons = value.get("ineligibility_reasons")
+    if (
+        not isinstance(reasons, list)
+        or len(reasons) > len(SHADOW_OBSERVER_REASONS)
+        or any(
+            not isinstance(reason, str) or reason not in SHADOW_OBSERVER_REASONS
+            for reason in reasons
+        )
+    ):
+        return None, "ineligibility_reasons contains an unsupported value"
+    if counts["observer_overhead_ms"] > counts["command_duration_ms"]:
+        return None, "observer overhead must not exceed command duration"
+    if status == "complete" and (
+        not process_tree_complete or counts["unresolved_event_count"]
+    ):
+        return None, "complete observation requires complete process coverage"
+    if status == "partial" and (
+        process_tree_complete and not counts["unresolved_event_count"]
+    ):
+        return None, "partial observation must identify incomplete coverage"
+    if status == "failed" and process_tree_complete:
+        return None, "failed observation cannot claim complete process coverage"
+    if status == "unavailable" and (
+        inputs
+        or counts["external_input_count"]
+        or counts["unresolved_event_count"]
+        or counts["child_process_count"]
+        or process_tree_complete
+    ):
+        return None, "unavailable observation cannot claim collected events"
+
+    normalized_reasons = _shadow_ineligibility_reasons(
+        status=status,
+        external_input_count=counts["external_input_count"],
+        unresolved_event_count=counts["unresolved_event_count"],
+        process_tree_complete=process_tree_complete,
+    )
+    normalized = {
+        "version": SHADOW_OBSERVER_SCHEMA_VERSION,
+        "mode": SHADOW_OBSERVER_MODE,
+        "status": status,
+        "binding": binding,
+        "backend": backend,
+        "inputs": inputs,
+        "external_input_count": counts["external_input_count"],
+        "unresolved_event_count": counts["unresolved_event_count"],
+        "child_process_count": counts["child_process_count"],
+        "process_tree_complete": process_tree_complete,
+        "command_duration_ms": counts["command_duration_ms"],
+        "observer_overhead_ms": counts["observer_overhead_ms"],
+        "authoritative": False,
+        "reuse_authorized": False,
+        "ineligibility_reasons": normalized_reasons,
+    }
+    encoded = json.dumps(
+        normalized,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    ).encode("utf-8")
+    if len(encoded) > MAX_SHADOW_OBSERVER_BYTES:
+        return None, "record exceeds the serialized byte limit"
+    return normalized, ""
+
+
+def shadow_observer_record(
+    *,
+    evidence_key: str,
+    check_digest: str,
+    mutation_revision: int,
+    backend_name: str | None,
+    backend_version: str = "",
+    backend_digest: str = "",
+    inputs: Iterable[dict[str, Any]] = (),
+    status: str = "complete",
+    external_input_count: int = 0,
+    unresolved_event_count: int = 0,
+    child_process_count: int = 0,
+    process_tree_complete: bool = True,
+    command_duration_ms: int = 0,
+    observer_overhead_ms: int = 0,
+) -> dict[str, Any]:
+    """Build a canonical, permanently non-authoritative shadow record."""
+    if isinstance(inputs, (str, bytes)):
+        raise ValueError("Observer inputs must be an iterable of input records")
+    try:
+        raw_inputs = list(inputs)
+    except TypeError as error:
+        raise ValueError(
+            "Observer inputs must be an iterable of input records"
+        ) from error
+    raw = {
+        "version": SHADOW_OBSERVER_SCHEMA_VERSION,
+        "mode": SHADOW_OBSERVER_MODE,
+        "status": status,
+        "binding": {
+            "evidence_key": evidence_key,
+            "check_digest": check_digest,
+            "mutation_revision": mutation_revision,
+        },
+        "backend": (
+            None
+            if backend_name is None
+            else {
+                "name": backend_name,
+                "version": backend_version,
+                "digest": backend_digest,
+            }
+        ),
+        "inputs": raw_inputs,
+        "external_input_count": external_input_count,
+        "unresolved_event_count": unresolved_event_count,
+        "child_process_count": child_process_count,
+        "process_tree_complete": process_tree_complete,
+        "command_duration_ms": command_duration_ms,
+        "observer_overhead_ms": observer_overhead_ms,
+        "authoritative": False,
+        "reuse_authorized": False,
+        "ineligibility_reasons": [],
+    }
+    normalized, error = normalize_shadow_observer_record(raw)
+    if error or normalized is None:
+        raise ValueError(error or "invalid Shadow Observer record")
+    return normalized
+
+
+def shadow_observer_record_is_valid(value: Any) -> bool:
+    normalized, error = normalize_shadow_observer_record(value)
+    return not error and normalized == value
+
+
+def shadow_observer_record_digest(value: Any) -> str:
+    return _digest(value) if shadow_observer_record_is_valid(value) else ""
 
 
 def _inside(root: Path, target: Path) -> bool:

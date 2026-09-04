@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "mode": "shadow",
+  "status": "unavailable",
+  "binding": {
+    "evidence_key": "1111111111111111111111111111111111111111111111111111111111111111",
+    "check_digest": "2222222222222222222222222222222222222222222222222222222222222222",
+    "mutation_revision": 16
+  },
+  "backend": null,
+  "inputs": [],
+  "external_input_count": 0,
+  "unresolved_event_count": 0,
+  "child_process_count": 0,
+  "process_tree_complete": false,
+  "command_duration_ms": 18300,
+  "observer_overhead_ms": 1,
+  "authoritative": false,
+  "reuse_authorized": false,
+  "ineligibility_reasons": [
+    "collector-unavailable",
+    "process-tree-incomplete",
+    "shadow-mode"
+  ]
+}

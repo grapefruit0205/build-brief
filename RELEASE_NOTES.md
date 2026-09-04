@@ -1,5 +1,72 @@
 # Release notes
 
+## v0.60.0 — 2026-09-04
+
+- Guarded staging now presents the exact digest-bound plain-language contract
+  once as the default approval body. The canonical technical contract is shown
+  only on request under the same id, and viewing it never approves or restages
+  the proposal. Approval, requested changes, cancellation, and original-view
+  are explicit responses.
+- Added automatic Linux shadow collection around compatible argv verification
+  when a trusted system `strace` is already available. Click binds the backend
+  version and executable digest but does not install it.
+- Shadow records are forced to `authoritative: false` and
+  `reuse_authorized: false`; they cannot affect live verification, evidence,
+  approval, reuse, blocking, or completion.
+- Exact field allowlists, canonical repository-relative paths, aggregate-only
+  external and unresolved event counters, strict status invariants, and size
+  limits keep malformed or privacy-sensitive records fail-closed.
+- Raw trace data crosses a private transient FIFO outside the repository, with
+  only a bounded in-memory prefix retained for normalization. The FIFO and raw
+  data are always discarded. Only the latest canonical record per evidence
+  source is kept in the active lifecycle, outside completion receipts.
+- Missing, unsupported, denied, failed, incomplete, or overflowing collection
+  never blocks, reruns, or changes a real check. Non-Linux hosts preserve their
+  existing verification behavior and may record collector unavailability.
+- Phase 2 fingerprints bounded observed repository inputs after a successful
+  real check, freezes a non-authoritative prediction before the next run, and
+  evaluates that prediction only after the real check finishes. Environment,
+  executable, host-coverage, collector, workspace, and input drift remain
+  explicit reasons to rerun or mark the comparison not evaluable.
+- An explicit local dashboard presents the current lifecycle as an Evidence
+  Map with prediction reasons and outcome labels. It is an authenticated,
+  read-only IPv4-loopback service with embedded assets, strict Host checks, no
+  CORS, restrictive CSP, no-store responses, and automatic session cleanup.
+- Shadow ROI reports zero actual time saved, counts gross potential only for a
+  candidate confirmed by its real rerun, reports measured observer overhead,
+  and labels tracing slowdown as unmeasured. It makes no net-saving claim.
+- Fingerprints, predictions, evaluations, map data, and ROI remain bounded,
+  lifecycle-only telemetry excluded from evidence and completion receipts.
+- A Browser call whose PostToolUse event is lost now closes its exact expired
+  capability claim as failed before a receipt-bound retry. A later successful
+  Browser check can therefore complete and export without leaving a phantom
+  running claim.
+- The technical contract and generated Antigravity distribution are kept in
+  sync for the v0.60.0 release.
+- A committed `.click/evidence-shards.json` can bind one exact broad argv group
+  to stable child groups and a complete current test-file inventory. Every
+  inventory member must belong to exactly one child; edited, malformed,
+  incomplete, unsupported, or racing maps run the original parent suite.
+- Shard children use the existing evidence ledger. A passing child survives a
+  later sibling failure, failed and unexecuted children never pass, and the
+  next parent request runs only unresolved children at the same revision.
+- The shard map authorizes decomposition only. Cross-revision reuse still
+  requires each child's complete dependency receipt or exact committed
+  safe-change entry; the shard policy path cannot declare itself safe.
+- The one-use runner revalidates the relevant committed entry, identical
+  working copy, inventory, and child bindings before execution. Unsharded
+  receipts stay at v2; sharded completion uses strict v3 provenance while the
+  offline verifier remains compatible with receipt v1 and v2.
+- Click's own broad verification suite now rolls out through six committed
+  evidence shards, so passing siblings can remain reusable when another shard
+  fails or remains unresolved.
+- Codex verification batches can bind an explicit canonical working directory.
+  Shard filtering and expansion preserve that binding, and the runner rejects
+  any actual working-directory mismatch before executing a check.
+- Interrupting verification now terminates the retained process group, records
+  a non-passing exit status, and releases the one-use claim instead of leaving
+  a permanently running verification lock.
+
 ## v0.51.1 — 2026-09-03
 
 - Antigravity now remembers when the staged Guarded projection has already

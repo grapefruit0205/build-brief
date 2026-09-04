@@ -1,0 +1,50 @@
+{
+  "version": 1,
+  "mode": "shadow",
+  "status": "complete",
+  "binding": {
+    "evidence_key": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "check_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "mutation_revision": 14
+  },
+  "backend": {
+    "name": "strace",
+    "version": "6.8",
+    "digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  },
+  "inputs": [
+    {
+      "path": "pyproject.toml",
+      "kind": "file",
+      "operations": [
+        "metadata",
+        "read"
+      ]
+    },
+    {
+      "path": "src/auth/token.py",
+      "kind": "file",
+      "operations": [
+        "read"
+      ]
+    },
+    {
+      "path": "tests/auth/",
+      "kind": "directory",
+      "operations": [
+        "enumerate"
+      ]
+    }
+  ],
+  "external_input_count": 0,
+  "unresolved_event_count": 0,
+  "child_process_count": 1,
+  "process_tree_complete": true,
+  "command_duration_ms": 18400,
+  "observer_overhead_ms": 94,
+  "authoritative": false,
+  "reuse_authorized": false,
+  "ineligibility_reasons": [
+    "shadow-mode"
+  ]
+}

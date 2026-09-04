@@ -11,7 +11,10 @@ import unittest
 from hooks import click_dependency_cache
 
 
-class ClickDependencyCacheTests(unittest.TestCase):
+SHADOW_FIXTURES = Path(__file__).parent / "fixtures" / "shadow-observer-v1"
+
+
+class ClickDependencyCacheFixture:
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
@@ -98,6 +101,8 @@ class ClickDependencyCacheTests(unittest.TestCase):
             git_capture=self.git_capture,
         )
 
+
+class ClickDependencyCacheTests(ClickDependencyCacheFixture, unittest.TestCase):
     def test_module_has_no_upward_runtime_dependency(self) -> None:
         source = Path(click_dependency_cache.__file__).read_text(encoding="utf-8")
         imported: set[str] = set()
@@ -133,6 +138,288 @@ class ClickDependencyCacheTests(unittest.TestCase):
         changed = self.receipts({"source": ["src/*.py"]})["source"]
         self.assertNotEqual(first["dependency_digest"], changed["dependency_digest"])
 
+
+class ShadowObserverContractTests(unittest.TestCase):
+    def fixture(self, name: str) -> dict[str, object]:
+        return json.loads(
+            (SHADOW_FIXTURES / name).read_text(encoding="utf-8")
+        )
+
+    def clone(self, value: dict[str, object]) -> dict[str, object]:
+        return json.loads(json.dumps(value))
+
+    def test_canonical_fixtures_are_valid_and_digestible(self) -> None:
+        for name in ("complete.json", "partial.json", "unavailable.json"):
+            with self.subTest(name=name):
+                record = self.fixture(name)
+                normalized, error = (
+                    click_dependency_cache.normalize_shadow_observer_record(
+                        record
+                    )
+                )
+                self.assertEqual(error, "")
+                self.assertEqual(normalized, record)
+                self.assertTrue(
+                    click_dependency_cache.shadow_observer_record_is_valid(
+                        record
+                    )
+                )
+                self.assertRegex(
+                    click_dependency_cache.shadow_observer_record_digest(
+                        record
+                    ),
+                    r"^[0-9a-f]{64}$",
+                )
+
+    def test_builder_merges_and_sorts_inputs_deterministically(self) -> None:
+        inputs = [
+            {
+                "path": "src/token.py",
+                "kind": "file",
+                "operations": ["read"],
+            },
+            {
+                "path": "docs/",
+                "kind": "directory",
+                "operations": ["enumerate"],
+            },
+            {
+                "path": "src/token.py",
+                "kind": "file",
+                "operations": ["metadata", "read"],
+            },
+        ]
+        parameters = {
+            "evidence_key": "a" * 64,
+            "check_digest": "b" * 64,
+            "mutation_revision": 9,
+            "backend_name": "strace",
+            "backend_version": "6.8",
+            "backend_digest": "c" * 64,
+            "command_duration_ms": 100,
+            "observer_overhead_ms": 2,
+        }
+
+        first = click_dependency_cache.shadow_observer_record(
+            inputs=inputs,
+            **parameters,
+        )
+        second = click_dependency_cache.shadow_observer_record(
+            inputs=reversed(inputs),
+            **parameters,
+        )
+
+        self.assertEqual(first, second)
+        self.assertEqual(
+            first["inputs"],
+            [
+                {
+                    "path": "docs/",
+                    "kind": "directory",
+                    "operations": ["enumerate"],
+                },
+                {
+                    "path": "src/token.py",
+                    "kind": "file",
+                    "operations": ["metadata", "read"],
+                },
+            ],
+        )
+        self.assertEqual(first["ineligibility_reasons"], ["shadow-mode"])
+        self.assertIs(first["authoritative"], False)
+        self.assertIs(first["reuse_authorized"], False)
+
+    def test_partial_record_derives_every_fail_closed_reason(self) -> None:
+        record = click_dependency_cache.shadow_observer_record(
+            evidence_key="d" * 64,
+            check_digest="e" * 64,
+            mutation_revision=10,
+            backend_name="strace",
+            backend_version="6.8",
+            backend_digest="f" * 64,
+            status="partial",
+            external_input_count=1,
+            unresolved_event_count=2,
+            child_process_count=1,
+            process_tree_complete=False,
+            command_duration_ms=200,
+            observer_overhead_ms=3,
+        )
+
+        self.assertEqual(
+            record["ineligibility_reasons"],
+            [
+                "external-input",
+                "observation-partial",
+                "process-tree-incomplete",
+                "shadow-mode",
+                "unresolved-event",
+            ],
+        )
+
+    def test_external_inputs_are_aggregate_only(self) -> None:
+        record = click_dependency_cache.shadow_observer_record(
+            evidence_key="1" * 64,
+            check_digest="2" * 64,
+            mutation_revision=11,
+            backend_name="strace",
+            backend_version="6.8",
+            backend_digest="3" * 64,
+            external_input_count=2,
+            command_duration_ms=20,
+            observer_overhead_ms=1,
+        )
+        encoded = json.dumps(record, sort_keys=True)
+
+        self.assertEqual(record["external_input_count"], 2)
+        self.assertIn("external-input", record["ineligibility_reasons"])
+        self.assertNotIn("/home/", encoded)
+        self.assertNotIn("environment", encoded)
+        self.assertNotIn("content", encoded)
+
+    def test_unknown_private_or_noncanonical_data_fails_strict_validation(self) -> None:
+        base = self.fixture("complete.json")
+        authoritative = self.clone(base)
+        authoritative["authoritative"] = True
+        reuse = self.clone(base)
+        reuse["reuse_authorized"] = True
+        private = self.clone(base)
+        private["environment"] = {"TOKEN": "secret"}
+        absolute = self.clone(base)
+        absolute["inputs"][0]["path"] = "/home/user/private"  # type: ignore[index]
+        traversal = self.clone(base)
+        traversal["inputs"][0]["path"] = "../private"  # type: ignore[index]
+        noncanonical = self.clone(base)
+        noncanonical["inputs"][0]["path"] = "src//token.py"  # type: ignore[index]
+        missing_reason = self.clone(base)
+        missing_reason["ineligibility_reasons"] = []
+        unknown_version = self.clone(base)
+        unknown_version["version"] = 2
+
+        for name, record in (
+            ("authoritative", authoritative),
+            ("reuse", reuse),
+            ("private", private),
+            ("absolute", absolute),
+            ("traversal", traversal),
+            ("noncanonical", noncanonical),
+            ("missing-reason", missing_reason),
+            ("unknown-version", unknown_version),
+        ):
+            with self.subTest(name=name):
+                self.assertFalse(
+                    click_dependency_cache.shadow_observer_record_is_valid(
+                        record
+                    )
+                )
+                self.assertEqual(
+                    click_dependency_cache.shadow_observer_record_digest(record),
+                    "",
+                )
+
+    def test_malformed_types_and_contradictory_statuses_fail_closed(self) -> None:
+        base = self.fixture("complete.json")
+        bad_status = self.clone(base)
+        bad_status["status"] = []
+        bad_kind = self.clone(base)
+        bad_kind["inputs"][0]["kind"] = {}  # type: ignore[index]
+        bad_operation = self.clone(base)
+        bad_operation["inputs"][0]["operations"] = [{}]  # type: ignore[index]
+        bad_counter = self.clone(base)
+        bad_counter["child_process_count"] = True
+        excessive_overhead = self.clone(base)
+        excessive_overhead["observer_overhead_ms"] = 20_000
+        incomplete = self.clone(base)
+        incomplete["process_tree_complete"] = False
+        partial = self.clone(base)
+        partial["status"] = "partial"
+        failed = self.clone(base)
+        failed["status"] = "failed"
+        unavailable = self.fixture("unavailable.json")
+        unavailable["inputs"] = [
+            {"path": "src/token.py", "kind": "file", "operations": ["read"]}
+        ]
+
+        for name, record in (
+            ("bad-status", bad_status),
+            ("bad-kind", bad_kind),
+            ("bad-operation", bad_operation),
+            ("bad-counter", bad_counter),
+            ("excessive-overhead", excessive_overhead),
+            ("incomplete-complete", incomplete),
+            ("complete-partial", partial),
+            ("complete-failed", failed),
+            ("events-unavailable", unavailable),
+        ):
+            with self.subTest(name=name):
+                normalized, error = (
+                    click_dependency_cache.normalize_shadow_observer_record(
+                        record
+                    )
+                )
+                self.assertIsNone(normalized)
+                self.assertTrue(error)
+
+    def test_input_and_serialized_size_limits_are_enforced(self) -> None:
+        base = self.fixture("complete.json")
+        too_many = self.clone(base)
+        too_many["inputs"] = [
+            {"path": f"src/{index}.py", "kind": "file", "operations": ["read"]}
+            for index in range(
+                click_dependency_cache.MAX_SHADOW_OBSERVER_INPUTS + 1
+            )
+        ]
+        normalized, error = (
+            click_dependency_cache.normalize_shadow_observer_record(too_many)
+        )
+        self.assertIsNone(normalized)
+        self.assertIn("entry limit", error)
+
+        large_inputs = [
+            {
+                "path": f"generated/{index:04d}-{'x' * 96}.json",
+                "kind": "file",
+                "operations": ["metadata", "read"],
+            }
+            for index in range(2_500)
+        ]
+        with self.assertRaisesRegex(ValueError, "serialized byte limit"):
+            click_dependency_cache.shadow_observer_record(
+                evidence_key="4" * 64,
+                check_digest="5" * 64,
+                mutation_revision=12,
+                backend_name="strace",
+                backend_version="6.8",
+                backend_digest="6" * 64,
+                inputs=large_inputs,
+                command_duration_ms=100,
+                observer_overhead_ms=1,
+            )
+
+    def test_legacy_runtime_observation_shape_is_unchanged(self) -> None:
+        legacy = click_dependency_cache.dependency_observation(
+            ["src/token.py"],
+            external_access=True,
+            child_processes=2,
+        )
+
+        self.assertEqual(set(legacy), click_dependency_cache.OBSERVATION_FIELDS)
+        self.assertEqual(
+            legacy["provider"],
+            click_dependency_cache.OBSERVATION_PROVIDER_NAME,
+        )
+        self.assertTrue(
+            click_dependency_cache.dependency_observation_is_valid(legacy)
+        )
+        self.assertFalse(
+            click_dependency_cache.shadow_observer_record_is_valid(legacy)
+        )
+
+
+class ClickDependencyBehaviorTests(
+    ClickDependencyCacheFixture,
+    unittest.TestCase,
+):
     def test_double_star_is_cross_directory_and_star_is_one_segment(self) -> None:
         nested = self.root / "src" / "nested"
         nested.mkdir()

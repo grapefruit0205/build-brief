@@ -16,10 +16,16 @@ import secrets
 from typing import Any
 
 if __package__:
-    from . import click_change_policy, click_dependency_cache, click_host_coverage
+    from . import (
+        click_change_policy,
+        click_dependency_cache,
+        click_evidence_shards,
+        click_host_coverage,
+    )
 else:  # Executed directly from the bundled hooks directory.
     import click_change_policy
     import click_dependency_cache
+    import click_evidence_shards
     import click_host_coverage
 
 
@@ -120,7 +126,100 @@ def fresh_state(contract: dict[str, Any]) -> dict[str, Any]:
         "source_count": len(sources),
         "registry_digest": registry_digest(sources),
         "sources": sources,
+        "shard_sets": {},
     }
+
+
+def _refresh_registry(evidence_state: dict[str, Any], sources: dict[str, Any]) -> None:
+    evidence_state["sources"] = sources
+    evidence_state["source_count"] = len(sources)
+    evidence_state["registry_digest"] = registry_digest(sources)
+
+
+def activate_shard_plan(
+    state: dict[str, Any], parent_source_key: str, plan: dict[str, Any]
+) -> tuple[dict[str, Any] | None, str]:
+    """Replace one declared parent source with stable internal shard sources."""
+    evidence_state = state.get("evidence_state")
+    if not isinstance(evidence_state, dict):
+        return None, "Click Evidence Shards registry is unavailable."
+    sources = evidence_state.get("sources")
+    if not isinstance(sources, dict):
+        return None, "Click Evidence Shards registry is unavailable."
+    existing_set = click_evidence_shards.active_set(
+        evidence_state, parent_source_key
+    )
+    if existing_set is not None:
+        if click_evidence_shards.plan_matches_shard_set(plan, existing_set):
+            return sources, ""
+        return None, "The active Evidence Shards plan changed unexpectedly."
+    parent = sources.get(parent_source_key)
+    if not isinstance(parent, dict) or parent.get("kind") != "argv":
+        return None, "The broad parent evidence source is unavailable."
+    if click_evidence_shards.is_child_source(parent):
+        return None, "A shard child cannot become a broad parent source."
+    patterns = parent.get("dependency_patterns", [])
+    declaration_digest = parent.get("dependency_declaration_digest", "")
+    if not isinstance(patterns, list) or not isinstance(declaration_digest, str):
+        return None, "The broad parent dependency declaration is malformed."
+    shard_set = click_evidence_shards.shard_set_for_plan(
+        plan,
+        dependency_patterns=patterns,
+        dependency_declaration_digest=declaration_digest,
+    )
+    children = plan.get("children")
+    if not isinstance(children, list) or not children:
+        return None, "The Evidence Shards plan has no child checks."
+    child_keys = {
+        str(child.get("source_key", ""))
+        for child in children
+        if isinstance(child, dict)
+    }
+    if len(child_keys) != len(children) or any(key in sources for key in child_keys):
+        return None, "The Evidence Shards child identity collided with active evidence."
+
+    sources.pop(parent_source_key)
+    for child in children:
+        assert isinstance(child, dict)
+        source = _fresh_source("argv", tuple(patterns))
+        source["shard"] = click_evidence_shards.source_metadata(plan, child)
+        sources[str(child["source_key"])] = source
+    shard_sets = evidence_state.setdefault("shard_sets", {})
+    if not isinstance(shard_sets, dict):
+        return None, "Click Evidence Shards registry is malformed."
+    shard_sets[parent_source_key] = shard_set
+    _refresh_registry(evidence_state, sources)
+    state["evidence_state"] = evidence_state
+    return sources, ""
+
+
+def collapse_shard_plan(
+    state: dict[str, Any], parent_source_key: str
+) -> tuple[dict[str, Any] | None, str]:
+    """Discard shard-only results and restore a fresh parent for full fallback."""
+    evidence_state = state.get("evidence_state")
+    if not isinstance(evidence_state, dict):
+        return None, "Click Evidence Shards registry is unavailable."
+    sources = evidence_state.get("sources")
+    shard_sets = evidence_state.get("shard_sets", {})
+    if not isinstance(sources, dict) or not isinstance(shard_sets, dict):
+        return None, "Click Evidence Shards registry is malformed."
+    shard_set = shard_sets.get(parent_source_key)
+    if not isinstance(shard_set, dict):
+        return sources, ""
+    children = shard_set.get("children")
+    patterns = shard_set.get("dependency_patterns")
+    if not isinstance(children, list) or not isinstance(patterns, list):
+        return None, "Click Evidence Shards fallback state is malformed."
+    for child in children:
+        if not isinstance(child, dict) or not isinstance(child.get("source_key"), str):
+            return None, "Click Evidence Shards fallback state is malformed."
+        sources.pop(str(child["source_key"]), None)
+    sources[parent_source_key] = _fresh_source("argv", tuple(patterns))
+    shard_sets.pop(parent_source_key, None)
+    _refresh_registry(evidence_state, sources)
+    state["evidence_state"] = evidence_state
+    return sources, ""
 
 
 def register_runtime_sources(
@@ -401,6 +500,7 @@ def sources_from_state(
         or not isinstance(stored_digest, str)
         or not re.fullmatch(r"[0-9a-f]{64}", stored_digest)
         or not secrets.compare_digest(stored_digest, registry_digest(sources))
+        or not click_evidence_shards.state_is_valid(evidence_state, sources)
     ):
         return {}
     return sources

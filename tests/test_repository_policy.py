@@ -18,6 +18,9 @@ TECHNICAL_LINKS = (
     "skills/click/references/directive-format.md",
     "skills/click/references/verification-profiles.md",
     "skills/click/references/capability-protocol.md",
+    "skills/click/references/observer-v1.md",
+    "skills/click/references/shadow-intelligence-v1.md",
+    "skills/click/references/evidence-shards-v1.md",
     "skills/click/references/anti-loop-policy.md",
 )
 
@@ -43,7 +46,7 @@ class RepositoryPolicyTests(core.RepositoryPolicyTests):
             (ROOT / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8")
         )
         self.assertEqual(manifest["name"], "click")
-        self.assertEqual(manifest["version"], "0.51.1")
+        self.assertEqual(manifest["version"], "0.60.0")
         self.assertEqual(manifest["license"], "MIT")
         combined_copy = " ".join(
             (
@@ -69,7 +72,7 @@ class RepositoryPolicyTests(core.RepositoryPolicyTests):
         self.assertEqual(marketplace["name"], "click")
         self.assertEqual(marketplace["plugins"][0]["name"], "click")
         self.assertEqual(
-            marketplace["plugins"][0]["source"]["ref"], "v0.51.1"
+            marketplace["plugins"][0]["source"]["ref"], "v0.60.0"
         )
 
     def test_readmes_lead_with_evidence_first_positioning(self) -> None:
@@ -204,6 +207,7 @@ class RepositoryPolicyTests(core.RepositoryPolicyTests):
             "click-gate inspect",
             "click-gate mutate",
             "click-gate service",
+            "click-gate dashboard",
             "click-gate verify",
             "shell=False",
             "process group",
@@ -212,9 +216,119 @@ class RepositoryPolicyTests(core.RepositoryPolicyTests):
         ):
             self.assertIn(marker, protocol)
 
+    def test_shadow_observer_contract_is_non_authoritative_and_content_free(self) -> None:
+        observer = _reference("observer-v1.md")
+        observer_words = " ".join(observer.lower().split())
+        for marker in (
+            '"authoritative": false',
+            '"reuse_authorized": false',
+            "no file contents",
+            "raw environment variables",
+            "absolute external paths",
+            "never feeds Click's authority-bearing dependency observation",
+            "Linux-only",
+            "Unknown schema versions fail closed",
+        ):
+            self.assertIn(marker.lower(), observer_words)
+
+        dependency_runtime = (
+            ROOT / "hooks" / "click_dependency_cache.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn("SHADOW_OBSERVER_SCHEMA_VERSION = 1", dependency_runtime)
+        self.assertIn('SHADOW_OBSERVER_MODE = "shadow"', dependency_runtime)
+        trace_runtime = (
+            ROOT / "hooks" / "click_dependency_trace.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn("run_command", trace_runtime)
+        self.assertIn("reuse_authorized", dependency_runtime)
+        for path in (
+            ROOT / "hooks" / "click_evidence.py",
+            ROOT / "hooks" / "click_receipt.py",
+            ROOT / "hooks" / "click_receipt_runtime.py",
+        ):
+            self.assertNotIn(
+                "shadow_observer",
+                path.read_text(encoding="utf-8"),
+            )
+
+    def test_shadow_intelligence_is_non_authoritative_local_telemetry(self) -> None:
+        intelligence = _reference("shadow-intelligence-v1.md")
+        normalized = " ".join(intelligence.lower().split())
+        for marker in (
+            '"authoritative": false',
+            '"reuse_authorized": false',
+            "every compatible argv check still runs exactly once",
+            "actual_saved_ms` is always `0",
+            "127.0.0.1",
+            "no state-changing method",
+            "click-gate dashboard start",
+            "current click lifecycle",
+        ):
+            self.assertIn(marker.lower(), normalized)
+
+        runtime = (
+            ROOT / "hooks" / "click_shadow_intelligence.py"
+        ).read_text(encoding="utf-8")
+        dashboard = (
+            ROOT / "hooks" / "click_shadow_dashboard.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn('actual_saved_ms": 0', runtime)
+        self.assertIn('"reuse-candidate"', runtime)
+        self.assertIn('("127.0.0.1", 0)', dashboard)
+        self.assertIn("Content-Security-Policy", dashboard)
+        self.assertNotIn("Access-Control-Allow-Origin", dashboard)
+        for forbidden in (
+            "click_receipt",
+            "click_evidence",
+            "runtime-dependency-observation-v1",
+        ):
+            self.assertNotIn(forbidden, runtime)
+
+    def test_evidence_shards_are_decomposition_only_and_fail_closed(self) -> None:
+        reference = _reference("evidence-shards-v1.md")
+        normalized = " ".join(reference.lower().split())
+        for marker in (
+            ".click/evidence-shards.json",
+            "authorizes decomposition only",
+            "exactly one shard",
+            "runs the original parent suite",
+            "existing reuse rules",
+            "receipt v3",
+            "does not provide zero-configuration framework discovery",
+        ):
+            self.assertIn(marker.lower(), normalized)
+
+        shards = (
+            ROOT / "hooks" / "click_evidence_shards.py"
+        ).read_text(encoding="utf-8")
+        verification = (
+            ROOT / "hooks" / "click_verification.py"
+        ).read_text(encoding="utf-8")
+        change_policy = (
+            ROOT / "hooks" / "click_change_policy.py"
+        ).read_text(encoding="utf-8")
+        receipt = (ROOT / "hooks" / "click_receipt.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("running_plan_error", verification)
+        self.assertIn("collapse_shard_plan", verification)
+        self.assertIn('SHARD_RECEIPT_VERSION = 3', receipt)
+        self.assertIn('".click/evidence-shards.json"', change_policy)
+        for forbidden in (
+            "click_gate",
+            "click_contract",
+            "click_evidence",
+            "click_state",
+            "click_process",
+            "platform_protocol",
+        ):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(f"import {forbidden}", shards)
+                self.assertNotIn(f"from {forbidden}", shards)
+
     def test_release_documents_identify_current_and_preserve_release_history(self) -> None:
         for readme in _readmes().values():
-            self.assertIn("v0.51.1", readme)
+            self.assertIn("v0.60.0", readme)
             self.assertIn("codex plugin marketplace upgrade click", readme)
             self.assertIn("codex plugin add click@click", readme)
             self.assertIn("RELEASE_NOTES.md", readme)

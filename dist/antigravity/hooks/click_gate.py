@@ -44,6 +44,8 @@ else:  # Executed directly from the bundled hooks directory.
     click_receipt_runtime,
     click_runner_transport,
     click_service,
+    click_shadow_dashboard,
+    click_shadow_intelligence,
     click_state,
     click_verification,
     click_verification_policy,
@@ -67,6 +69,8 @@ else:  # Executed directly from the bundled hooks directory.
     "click_receipt_runtime",
     "click_runner_transport",
     "click_service",
+    "click_shadow_dashboard",
+    "click_shadow_intelligence",
     "click_state",
     "click_verification",
     "click_verification_policy",
@@ -459,6 +463,7 @@ def _handle_prompt_submit(event: dict[str, Any]) -> None:
 
 def _handle_session_end(event: dict[str, Any]) -> None:
     click_service.request_stop(event)
+    click_shadow_dashboard.request_stop(event)
 
 
 def _handle_pre_tool(event: dict[str, Any]) -> None:
@@ -503,6 +508,7 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
                     _deny(authorization_error)
                     return
                 click_service.request_stop(event)
+                click_shadow_dashboard.request_stop(event)
                 click_contract_state.clear_contract_state(event)
                 click_observation.clear_review_state(event)
                 click_lifecycle.write_state(event, "idle")
@@ -662,6 +668,37 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
                 rewritten, service_error = _prepare_service(event, value)
                 if service_error:
                     _deny(service_error)
+                    return
+                _allow_rewritten(rewritten)
+                return
+            if action == "dashboard":
+                current_status = click_lifecycle.read_state(event).get("status")
+                runtime_state = click_contract_state.read_contract_state(event)
+                evidence_active = runtime_state.get("status") == "evidence"
+                approved_active = click_lifecycle.approved_contract_is_active(
+                    runtime_state
+                )
+                if (
+                    current_status != "passed"
+                    and click_lifecycle.read_mode(event) != "strict"
+                    and not evidence_active
+                    and not approved_active
+                ):
+                    _deny(
+                        "Start Guarded or Evidence runtime state before opening its "
+                        "Shadow dashboard."
+                    )
+                    return
+                rewritten, dashboard_error = click_shadow_dashboard.prepare(
+                    event,
+                    value,
+                    runner_script=Path(__file__).resolve(),
+                    render_command=(
+                        click_runner_transport.render_runner_shell_command
+                    ),
+                )
+                if dashboard_error:
+                    _deny(dashboard_error)
                     return
                 _allow_rewritten(rewritten)
                 return
@@ -895,8 +932,9 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
             "verification.done_when, and plain_language; add build.semantics, build.order, "
             "or an intermediate gate only "
             "when the work materially requires them; "
-            "stage the JSON once, show four human approval sections with optional technical "
-            "details and the emitted contract_id, "
+            "stage the JSON once, show its exact easy explanation once with the emitted "
+            "contract_id, keep the original technical contract hidden unless requested, "
+            "and offer approve, request changes, cancel, or view-original choices; "
             "obtain approval, arm the later approval turn, then pass only that exact id. "
             "Do not resend the JSON. In Guarded mode, arm is optional because the "
             "persistent preference already activates the gate. If the user does not want "
@@ -937,6 +975,10 @@ def _record_verification_result(
     workspace_digest: str = "",
     environment_digests: dict[str, str] | None = None,
     dependency_observations: dict[str, dict[str, Any]] | None = None,
+    shadow_observer_records: dict[str, dict[str, Any]] | None = None,
+    shadow_intelligence_baselines: dict[str, dict[str, Any]] | None = None,
+    shadow_source_exit_codes: dict[str, int] | None = None,
+    shadow_execution_contexts: dict[str, dict[str, Any]] | None = None,
 ) -> bool:
     return click_verification.record_result(
         path,
@@ -950,6 +992,10 @@ def _record_verification_result(
         workspace_digest=workspace_digest,
         environment_digests=environment_digests,
         dependency_observations=dependency_observations,
+        shadow_observer_records=shadow_observer_records,
+        shadow_intelligence_baselines=shadow_intelligence_baselines,
+        shadow_source_exit_codes=shadow_source_exit_codes,
+        shadow_execution_contexts=shadow_execution_contexts,
         git_capture=click_verification.git_capture,
     )
 
@@ -1043,6 +1089,25 @@ def _run_service_stop(arguments: list[str]) -> int:
         arguments,
         snapshot_reader=click_service.service_snapshot,
     )
+
+
+def _run_dashboard_start(arguments: list[str]) -> int:
+    return click_shadow_dashboard.run_start(
+        arguments,
+        runner_script=Path(__file__).resolve(),
+    )
+
+
+def _run_dashboard_stop(arguments: list[str]) -> int:
+    return click_shadow_dashboard.run_stop(arguments)
+
+
+def _run_dashboard_status(arguments: list[str]) -> int:
+    return click_shadow_dashboard.run_status(arguments)
+
+
+def _run_dashboard_server(arguments: list[str]) -> int:
+    return click_shadow_dashboard.run_server(arguments)
 
 
 
@@ -1161,6 +1226,10 @@ STATEFUL_RUNNER_ACTIONS = {
     "run-service-start",
     "run-service-stop",
     "run-service-supervisor",
+    "run-dashboard-start",
+    "run-dashboard-stop",
+    "run-dashboard-status",
+    "run-dashboard-server",
     "run-verification",
 }
 
@@ -1226,6 +1295,14 @@ def main() -> int:
         return _run_service_stop(arguments[1:])
     if arguments and arguments[0] == "run-service-supervisor":
         return _run_service_supervisor(arguments[1:])
+    if arguments and arguments[0] == "run-dashboard-start":
+        return _run_dashboard_start(arguments[1:])
+    if arguments and arguments[0] == "run-dashboard-stop":
+        return _run_dashboard_stop(arguments[1:])
+    if arguments and arguments[0] == "run-dashboard-status":
+        return _run_dashboard_status(arguments[1:])
+    if arguments and arguments[0] == "run-dashboard-server":
+        return _run_dashboard_server(arguments[1:])
     if arguments and arguments[0] == "run-verification":
         return _run_verification(arguments[1:])
     if arguments and arguments[0] == "run-receipt-export":

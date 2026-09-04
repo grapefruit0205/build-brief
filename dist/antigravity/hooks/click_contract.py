@@ -44,87 +44,35 @@ VERIFICATION_CLASSES = click_verification_meter.VERIFICATION_CLASSES
 
 
 def human_view(contract: dict[str, Any]) -> dict[str, Any]:
-    """Return the deterministic four-section approval projection.
+    """Return the deterministic plain-language approval projection.
 
-    The structured contract remains canonical. This projection is returned on
-    the staging Hook path so hosts and skills can present a readable approval
-    without persisting contract prose or making raw JSON the default interface.
+    The structured contract remains canonical and digest-bound. The staging
+    Hook exposes only its exact easy explanation by default so technical fields
+    stay behind an explicit request for the original contract.
     """
-    boundary = contract.get("boundary")
-    build = contract.get("build")
-    verification = contract.get("verification")
-    done_when = (
-        verification.get("done_when") if isinstance(verification, dict) else []
-    )
-    return {
-        "goal": str(contract.get("outcome", "")),
-        "changes": {
-            "scope": list(boundary.get("in_scope", []))
-            if isinstance(boundary, dict)
-            else [],
-            "approach": list(build.get("approach", []))
-            if isinstance(build, dict)
-            else [],
-        },
-        "unchanged": {
-            "out_of_scope": list(boundary.get("out_of_scope", []))
-            if isinstance(boundary, dict)
-            else [],
-            "must_hold": list(contract.get("must_hold", [])),
-        },
-        "completion": {
-            "scale": str(verification.get("scale", ""))
-            if isinstance(verification, dict)
-            else "",
-            "checks": [
-                str(item.get("condition", ""))
-                for item in done_when
-                if isinstance(item, dict)
-            ],
-        },
-    }
-
-
-def _human_view_lines(values: list[Any], *, indent: str) -> list[str]:
-    lines: list[str] = []
-    for value in values:
-        rendered = str(value).splitlines() or [""]
-        lines.append(f"{indent}- {rendered[0]}")
-        lines.extend(f"{indent}  {line}" for line in rendered[1:])
-    return lines or [f"{indent}- (none)"]
+    return {"plain_language": str(contract.get("plain_language", ""))}
 
 
 def render_human_view(contract_id: str, contract: dict[str, Any]) -> str:
     """Render the exact staged projection for Hook-provided approval context."""
     view = human_view(contract)
-    changes = view["changes"]
-    unchanged = view["unchanged"]
-    completion = view["completion"]
     lines = [
-        "Click Guarded contract staged. Present this Hook-generated projection "
-        "as the approval surface; do not replace it with raw contract JSON.",
+        "Click Guarded contract staged. Present the exact Hook-generated easy "
+        "contract below once as the default approval body; do not independently "
+        "summarize, expand, or repeat it.",
         f"CLICK_CONTRACT_ID={contract_id}",
         "",
-        "Goal",
-        str(view["goal"]),
+        "Plain-language contract",
+        str(view["plain_language"]),
         "",
-        "Changes",
-        "  Scope",
-        *_human_view_lines(changes["scope"], indent="    "),
-        "  Approach",
-        *_human_view_lines(changes["approach"], indent="    "),
-        "",
-        "Unchanged",
-        "  Out of scope",
-        *_human_view_lines(unchanged["out_of_scope"], indent="    "),
-        "  Must hold",
-        *_human_view_lines(unchanged["must_hold"], indent="    "),
-        "",
-        "Completion checks",
-        f"  Scale: {completion['scale']}",
-        *_human_view_lines(completion["checks"], indent="    "),
-        "",
-        "The canonical JSON remains optional Technical contract detail."
+        "Keep the canonical JSON hidden unless the user asks to see the original "
+        "contract. Viewing it does not approve, change, or restage this contract; "
+        "show the exact staged object with the same contract_id.",
+        "End with one compact question in the user's language equivalent to: "
+        '"The contract above is explained in plain language. Do you approve it as '
+        'written, or would you like to see the original contract first?"',
+        "Make approve, request changes, cancel, and view the original contract "
+        "available responses, then stop without mutating files.",
     ]
     return "\n".join(lines)
 

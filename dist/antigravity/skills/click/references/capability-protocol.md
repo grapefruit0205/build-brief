@@ -39,19 +39,48 @@ click-gate service '{"version":1,"action":"stop"}'
 
 Only `start` and `stop` are accepted. `start` requires direct argv for a recognizable development server and counts as a mutation, so prior completion evidence becomes stale. `stop` omits `argv`. Before either the start runner or its detached supervisor may spawn a process, it atomically claims the approved service id, request-plus-working-directory digest, and one-use token; replay, tampering, stale state, or cancellation before the corresponding claim therefore launches no additional server. A cancellation racing after a successful claim may briefly launch the child, which is then terminated when its state can no longer be recorded. The supervisor retains the exact child handle, starts the child in its own process group, and terminates only that retained group. It responds to explicit stop and `SessionEnd`, applies bounded start/stop waits, and enforces a final two-hour lifetime ceiling. One managed service may be active per contract. This avoids exposing a general process-control capability to the agent.
 
+## Shadow dashboard
+
+Open the current lifecycle's non-authoritative Evidence Map and ROI view only
+when requested:
+
+```text
+click-gate dashboard start
+click-gate dashboard status
+click-gate dashboard stop
+```
+
+This viewer is distinct from a development service. It is read-only, does not
+advance the mutation revision, and never changes evidence status. Start uses a
+one-use launch token and prints a random access token in a `127.0.0.1` URL
+fragment. Click persists only token digests. The server validates the loopback
+Host header and Bearer token, serves no external assets, grants no CORS access,
+uses a restrictive Content Security Policy and no-store responses, and exposes
+only one sanitized snapshot endpoint. It has no mutation method, arbitrary
+file reader, raw-state endpoint, or remote bind. Stop is state-cooperative;
+`SessionEnd` also requests cleanup, and a two-hour lifetime is final. See
+[Shadow Intelligence v1](shadow-intelligence-v1.md) for schema, privacy,
+prediction, map, and ROI semantics.
+
 ## Verification
 
 Submit a nonempty set of argv checks with stable evidence ids. Guarded ids are declared in the contract; Evidence ids register dynamically on first accepted use:
 
 ```text
-click-gate verify '{"version":2,"checks":[{"evidence_id":"E1","argv":["python3","-m","unittest","discover","-s","tests","-q"],"class":"broad"},{"evidence_id":"E2","argv":["git","diff","--check"],"class":"targeted"}]}'
+click-gate verify '{"version":2,"workdir":"/absolute/path/to/repository","checks":[{"evidence_id":"E1","argv":["python3","-m","unittest","discover","-s","tests","-q"],"class":"broad"},{"evidence_id":"E2","argv":["git","diff","--check"],"class":"targeted"}]}'
 ```
 
 Classes are `targeted`, `broad`, and `deep`. They remain compatibility metadata, not cost, sufficiency, or evidence strength. Several adjacent checks may share one id and all must pass. The first accepted group reserves its normalized digest for the active intent or contract; later attempts must match it. Guarded rejects unknown or wrong-kind ids. Evidence creates argv sources from valid ids but grants no runtime dependency authority. Protocol-v1 verification, empty requests, missing ids, and shell-string batches are rejected.
 
-Python checks must use an explicit supported pytest, unittest, or coverage module runner; Windows `py -3 -m ...` and `uv run pytest` are recognized. Python `-c` and direct Python scripts are not verification capabilities. Exact-file `node --check` and `node --test` are targeted; project-wide `node --test` is broad, while Node eval/print forms are not verification. Verification environment binding canonicalizes Hook-owned `PLUGIN_ROOT` alongside existing shell bookkeeping but continues to fingerprint project, user, PATH, and toolchain values. The prepared key/value HMAC records are protected by an aggregate runner-token binding. If a prepared value changes or disappears before the runner claims the batch, the runner projects current values onto the prepared key set, ignores runner-only additions, re-fingerprints the canonical environment, and rebinds the reserved environment digest without another approval. The exact resolved executable fingerprint remains fixed, so an executable change or malformed or tampered binding still fails closed. A successful receipt records the actual rebound environment digest. If runner admission otherwise fails before any check executes, only the exact digest/token-matched unclaimed reservation returns to `ready`; it records no evidence and consumes no test-failure retry. Claimed, stale, unavailable, tampered, and replayed state remains fail-closed. A claimed batch remains running until it records a result or the contract is explicitly cancelled; only an unclaimed reservation may expire into a retry.
+`workdir` is an optional top-level absolute path for compatibility with hosts whose session cwd is already the execution directory. Supply it whenever the execution tool selects a different directory. Click resolves and stores the canonical directory before shard discovery, preserves it through pending-check filtering and shard expansion, and the one-use runner compares it with its real cwd before claiming the batch. A missing directory, relative path, or mismatch executes no check. Codex Hook input exposes the session cwd rather than the unified exec call's selected workdir, so Codex callers using a per-call workdir must include this field explicitly.
+
+An exact broad group may be decomposed by committed [Evidence Shards v1](evidence-shards-v1.md). The submitted parent id and argv remain the approval identity; stable internal child ids cannot be called directly. Each child uses the normal runner and evidence receipt path, so a successful child survives a same-revision sibling failure and a retry runs only unresolved children. The runner revalidates the committed map, identical working copy, complete inventory, and exact child bindings immediately before execution. Any absent, changed, malformed, incomplete, unsupported, or racing plan falls back to the original parent suite or executes no child. The map authorizes decomposition, never reuse.
+
+Python checks must use an explicit supported pytest, unittest, or coverage module runner; Windows `py -3 -m ...` and `uv run pytest` are recognized. Python `-c` and direct Python scripts are not verification capabilities. Exact-file `node --check` and `node --test` are targeted; project-wide `node --test` is broad, while Node eval/print forms are not verification. Verification environment binding canonicalizes Hook-owned `PLUGIN_ROOT` alongside existing shell bookkeeping but continues to fingerprint project, user, PATH, and toolchain values. The prepared key/value HMAC records are protected by an aggregate runner-token binding. If a prepared value changes or disappears before the runner claims the batch, the runner projects current values onto the prepared key set, ignores runner-only additions, re-fingerprints the canonical environment, and rebinds the reserved environment digest without another approval. The exact resolved executable fingerprint remains fixed, so an executable change or malformed or tampered binding still fails closed. A successful receipt records the actual rebound environment digest. If runner admission otherwise fails before any check executes, only the exact digest/token-matched unclaimed reservation returns to `ready`; it records no evidence and consumes no test-failure retry. Claimed, stale, unavailable, tampered, and replayed state remains fail-closed. A claimed batch remains running until it records a result, the runner receives an interrupt and records exit `130`, or the contract is explicitly cancelled; only an unclaimed reservation may expire into a retry. Click terminates the retained isolated child process group before recording an interrupted check as non-passing, so an ordinary Ctrl-C does not leave a permanent claimed-runner lock.
 
 The Hook skips a successful same-revision check only when the receipt still matches the active intent or contract, normalized group, protected tree, environment, executable, and host coverage. For dependency-aware cross-revision reuse, Guarded may use approval-bound `dependencies`, a committed manifest entry, or both. Evidence may use only the committed manifest. In both modes the baseline must also carry a complete runtime dependency observation. Approval-bound paths and concrete manifest paths remain hard dependencies. A complete observation may refine expanding manifest patterns (`*`, `**`, and directory prefixes) to repository inputs actually consumed, and the resulting effective inputs are hashed. An unavailable or failed observer, an observed external input, or incomplete child-process-tree coverage makes only cross-revision reuse unavailable; it does not change the check's PASS/FAIL result. The provider, relevant normalized entry, observation digest, resolved paths and contents, check, identity, Git root, environment, executable, coverage, and host-recorded mutation snapshot must match. Missing post state or later drift runs the check. Reuse never occurs outside Git.
+
+The separate [Shadow Observer v1 contract](observer-v1.md) is emitted as non-authoritative telemetry beside compatible Linux argv verification when a trusted `strace` is already available. Its bounded aggregate is retained only in the active lifecycle; raw events are discarded. [Shadow Intelligence v1](shadow-intelligence-v1.md) may fingerprint that aggregate after a successful run, freeze a prediction before the next real rerun, and evaluate it afterward. Neither layer has a conversion or bridge into `runtime-dependency-observation-v1`, evidence reuse, approval, completion, or receipt export, and neither can authorize a skipped check. Collector or analysis absence and failure leave the established verification path and result unchanged.
 
 The observer-free alternative is a committed `.click/evidence-reuse.json` file with exact `checks` groups and `reuse_if_only_changed` patterns. A successful run stores its unchanged policy digest and an effective Git baseline consisting of the commit identity plus bounded fingerprints for dirty and untracked files. Preflight compares that baseline with the current commit and worktree, reports net changed paths, and reuses only if every path matches the same policy entry. The policy and dependency-map paths are protected from self-authorization. Missing or edited policy, duplicate groups, malformed patterns, unsupported file types, excessive or racing changes, unmerged state, unavailable Git data, and any unlisted path rerun without asking. Environment, executable, contract, host coverage, and the host-recorded mutation boundary remain mandatory. A complete runtime observation takes precedence, so a safe-change entry cannot override a changed observed input. This policy is explicit repository-owner authority rather than automatic dependency discovery and needs no platform observer or extra install.
 
@@ -93,6 +122,11 @@ environment, executable, host-coverage, and dependency lineage. It excludes
 raw argv, runner tokens and token digests, contract prose, and the workspace
 path. Save the stdout JSON separately, then verify it without network access or
 active contract state:
+
+Unsharded exports remain receipt v2. A completion containing Evidence Shards
+uses strict receipt v3 with the parent, complete child count, plan, relevant
+entry, inventory, and per-child lineage digests. Offline verification continues
+to accept legacy v1 and unsharded v2, and rejects incomplete v3 shard sets.
 
 If a host omits the working directory selected by a nested execution tool,
 export may recover it only from the sole canonical Git root shared by every
