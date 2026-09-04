@@ -35,3 +35,6 @@ jobs:
       - name: Run privileged macOS fs_usage smoke
         if: runner.os == 'macOS'
         run: sudo -n env PYTHONDONTWRITEBYTECODE=1 "${pythonLocation}/bin/python" -B -m unittest tests.test_click_observer_macos.MacOSNativeSmokeTests -v
+      - name: Run native Windows ETW smoke
+        if: runner.os == 'Windows'
+        run: python -B -m unittest tests.test_click_observer_windows.WindowsNativeSmokeTests -v

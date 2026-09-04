@@ -228,6 +228,10 @@ class RepositoryPolicyTests(core.RepositoryPolicyTests):
             "never feeds Click's authority-bearing dependency observation",
             "macOS Phase 3B.1 collector",
             "never invokes `sudo`",
+            "Windows Phase 3B.2 collector",
+            "never runs the target again",
+            "logman.exe",
+            "tracerpt.exe",
             "Unknown schema versions fail closed",
         ):
             self.assertIn(marker.lower(), observer_words)

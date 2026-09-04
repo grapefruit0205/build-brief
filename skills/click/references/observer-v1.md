@@ -1,11 +1,11 @@
 # Shadow Observer v1 contract
 
 Shadow Observer v1 is a versioned, content-free record emitted beside real argv
-verification. Native collection uses trusted Linux `strace` or, when the
-current process is already privileged, macOS `fs_usage`; Windows remains an
-honest unavailable backend. Collection never elevates privilege, and its output
-remains separate from evidence authority, cache, approval, reuse, and completion
-paths.
+verification. Native collection uses trusted Linux `strace`, macOS `fs_usage`
+when the current process is already privileged, or the Windows inbox ETW tools
+`logman.exe` and `tracerpt.exe`. Collection never elevates privilege, and its
+output remains separate from evidence authority, cache, approval, reuse, and
+completion paths.
 
 Every v1 record is heuristic telemetry. The following values are mandatory and
 immutable:
@@ -131,6 +131,32 @@ truncation, malformed line, missing root execution event, or ambiguous path
 prevents complete process-tree coverage. The native executable digest is checked
 again after collection; drift discards the trace as unavailable.
 
+## Windows Phase 3B.2 collector
+
+The Windows adapter resolves the inbox `logman.exe` and `tracerpt.exe` tools
+through Click's repository-shadow-safe trust boundary and accepts them only
+from the Windows system directory. Their combined executable digest and the
+bounded Windows version identify the backend. Click installs no driver, helper,
+service, or Python dependency and never requests elevation.
+
+For an eligible run, `logman` starts separate bounded ETW sessions for the
+native Kernel Process and Kernel File providers in a private temporary
+directory outside the repository. Only after both sessions are live does Click
+start the original argv once in its ordinary isolated process group. A setup
+failure before that launch may use the established execution path once. After
+the target starts, a stop, decode, parse, event-loss, or cleanup failure only
+downgrades the Shadow record; it never runs the target again.
+
+`tracerpt` decodes the bounded ETL logs to temporary XML after the target exits.
+Click binds file events to the launched root PID and descendants learned from
+process-start events, translates native device paths when the operating system
+provides a safe drive mapping, and retains only repository-relative aggregate
+inputs. Event loss, an incomplete process tree, unresolved PID or path data,
+unknown relevant events, output truncation, and modeled external inputs remain
+visible as fail-closed counters. ETL and XML are removed before the collector
+returns, absolute external paths are counted by digest only, and both tool
+digests are rechecked after collection.
+
 ## Event-to-record semantics
 
 The collector observes file reads, metadata lookups, missing-path lookups,
@@ -184,10 +210,11 @@ The existing `runtime-dependency-observation-v1` receipt remains unchanged and
 continues to be the only runtime observation shape understood by the current
 cross-revision reuse logic. Shadow Observer v1 deliberately has no conversion
 or automatic bridge into that receipt. It never feeds Click's authority-bearing
-dependency observation. Linux or macOS collection, failure, absence, and record
-storage therefore cannot change whether a check runs, passes, satisfies
-evidence, or is reused. macOS without existing privilege and Windows retain the
-established verification behavior and may keep an `unavailable` record.
+dependency observation. Linux, macOS, or Windows collection, failure, absence,
+and record storage therefore cannot change whether a check runs, passes,
+satisfies evidence, or is reused. macOS without existing privilege and Windows
+without usable inbox ETW tools retain the established verification behavior and
+may keep an `unavailable` record.
 
 ## Phase 3B backend boundary
 
@@ -197,7 +224,9 @@ storage and advisory rendering live in `click_observer_common.py`; bounded
 backend selection and capability states live in `click_observer_backend.py`;
 Linux probing, raw-event parsing and command collection live in
 `click_observer_linux.py`; native macOS permission checks, synchronized launch,
-parsing and collection live in `click_observer_macos.py`.
+parsing and collection live in `click_observer_macos.py`; Windows inbox-tool
+identity, ETW session control, PID-tree filtering, parsing and cleanup live in
+`click_observer_windows.py`.
 
 Backend capability state is internal selection provenance rather than a new
 Observer v1 field. An implemented adapter may report `available`, `degraded`,
@@ -205,5 +234,6 @@ Observer v1 field. An implemented adapter may report `available`, `degraded`,
 only the strict v1 statuses above. Linux selection remains subject to its
 trusted executable and runtime capability probe. macOS reports
 `permission-required` unless the process is already privileged, then still
-requires the trusted native executable; Windows remains an unavailable
-placeholder. No backend manufactures events or implies collection coverage.
+requires the trusted native executable. Windows reports a runtime-probed ETW
+adapter and falls back when either trusted inbox tool or required ETW access is
+unavailable. No backend manufactures events or implies collection coverage.

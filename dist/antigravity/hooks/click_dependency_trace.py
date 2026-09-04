@@ -21,12 +21,14 @@ if __package__:
         click_observer_common,
         click_observer_linux,
         click_observer_macos,
+        click_observer_windows,
     )
 else:  # Executed directly from the bundled hooks directory.
     import click_observer_backend
     import click_observer_common
     import click_observer_linux
     import click_observer_macos
+    import click_observer_windows
 
 
 SHADOW_STATE_VERSION = click_observer_common.SHADOW_STATE_VERSION
@@ -48,6 +50,7 @@ FileDigester = click_observer_linux.FileDigester
 BackendProbe = click_observer_linux.BackendProbe
 SpawnArgv = click_observer_linux.SpawnArgv
 MacOSCollector = click_observer_macos.Collector
+WindowsCollector = Callable[..., click_observer_windows.CollectedExecution]
 
 select_backend = click_observer_backend.select_backend
 run_unobserved = click_observer_common.run_unobserved
@@ -66,6 +69,8 @@ _file_digest = click_observer_linux._file_digest
 parse_fs_usage = click_observer_macos.parse_fs_usage
 probe_macos_version = click_observer_macos.probe_macos_version
 macos_has_privilege = click_observer_macos.has_privilege
+parse_windows_etw = click_observer_windows.parse_windows_etw
+probe_windows_version = click_observer_windows.probe_windows_version
 click_process = click_observer_linux.click_process
 
 
@@ -90,6 +95,7 @@ def run_command(
     already_traced: Callable[[], bool] = _already_traced,
     macos_privilege_probe: Callable[[], bool] = macos_has_privilege,
     macos_collector: MacOSCollector = click_observer_macos.collect_command,
+    windows_collector: WindowsCollector = click_observer_windows.collect_command,
     capture_limit: int = MAX_RAW_TRACE_BYTES,
 ) -> ShadowExecution:
     """Select one backend and execute the target exactly once."""
@@ -149,6 +155,24 @@ def run_command(
             digest_file=digest_file,
             privilege_probe=macos_privilege_probe,
             collector=macos_collector,
+            spawn_argv=spawn_argv,
+            terminate_group=terminate_group,
+            system_name=system,
+            capture_limit=capture_limit,
+        )
+    if capability.backend_name == "windows-etw":
+        return click_observer_windows.run_command(
+            argv,
+            workspace=workspace,
+            observation_root=observation_root,
+            environment=environment,
+            evidence_key=evidence_key,
+            check_digest=check_digest,
+            mutation_revision=mutation_revision,
+            execute_unobserved=execute_unobserved,
+            resolve_backend=resolve_backend,
+            digest_file=digest_file,
+            collector=windows_collector,
             spawn_argv=spawn_argv,
             terminate_group=terminate_group,
             system_name=system,

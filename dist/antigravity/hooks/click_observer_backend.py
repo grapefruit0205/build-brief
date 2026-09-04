@@ -89,9 +89,9 @@ def select_backend(
     if system == "Windows":
         return BackendCapability(
             system="Windows",
-            backend_name=None,
-            status="unavailable",
-            reason="native-backend-not-implemented",
+            backend_name="windows-etw",
+            status="available",
+            reason="runtime-probe-required",
         )
     return BackendCapability(
         system=system[:64],

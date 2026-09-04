@@ -29,6 +29,7 @@ HOOK_FILES = (
     "click_observer_control.py",
     "click_observer_linux.py",
     "click_observer_macos.py",
+    "click_observer_windows.py",
     "click_evidence.py",
     "click_evidence_shards.py",
     "click_receipt.py",
