@@ -41,6 +41,21 @@ Only `start` and `stop` are accepted. `start` requires direct argv for a recogni
 
 ## Shadow dashboard
 
+Observer collection is lifecycle-local, explicitly controlled, and off by
+default:
+
+```text
+click-gate observer off
+click-gate observer shadow
+click-gate observer status
+```
+
+Only `shadow` attaches the selected native collector to compatible argv
+verification. The setting is non-authoritative, never grants reuse, and does
+not advance the mutation revision or change evidence. Dashboard activation is
+independent: opening the viewer does not enable collection, and stopping the
+viewer does not disable it.
+
 Open the current lifecycle's non-authoritative Evidence Map and ROI view only
 when requested:
 
@@ -80,7 +95,7 @@ Python checks must use an explicit supported pytest, unittest, or coverage modul
 
 The Hook skips a successful same-revision check only when the receipt still matches the active intent or contract, normalized group, protected tree, environment, executable, and host coverage. For dependency-aware cross-revision reuse, Guarded may use approval-bound `dependencies`, a committed manifest entry, or both. Evidence may use only the committed manifest. In both modes the baseline must also carry a complete runtime dependency observation. Approval-bound paths and concrete manifest paths remain hard dependencies. A complete observation may refine expanding manifest patterns (`*`, `**`, and directory prefixes) to repository inputs actually consumed, and the resulting effective inputs are hashed. An unavailable or failed observer, an observed external input, or incomplete child-process-tree coverage makes only cross-revision reuse unavailable; it does not change the check's PASS/FAIL result. The provider, relevant normalized entry, observation digest, resolved paths and contents, check, identity, Git root, environment, executable, coverage, and host-recorded mutation snapshot must match. Missing post state or later drift runs the check. Reuse never occurs outside Git.
 
-The separate [Shadow Observer v1 contract](observer-v1.md) is emitted as non-authoritative telemetry beside compatible argv verification when a trusted Linux `strace` is available or the macOS process already has permission to use native `fs_usage`. Its bounded aggregate is retained only in the active lifecycle; raw events are discarded. Click never elevates macOS privilege. [Shadow Intelligence v1](shadow-intelligence-v1.md) may fingerprint that aggregate after a successful run, freeze a prediction before the next real rerun, and evaluate it afterward. Neither layer has a conversion or bridge into `runtime-dependency-observation-v1`, evidence reuse, approval, completion, or receipt export, and neither can authorize a skipped check. Collector or analysis absence and failure leave the established verification path and result unchanged.
+The separate [Shadow Observer v1 contract](observer-v1.md) emits non-authoritative telemetry beside compatible argv verification only after `click-gate observer shadow` explicitly enables it for the lifecycle. New lifecycles default to `off`. The selected backend may use trusted Linux `strace` or native macOS `fs_usage` when the current process already has permission. Its bounded aggregate is retained only in the active lifecycle; raw events are discarded. Click never elevates macOS privilege. [Shadow Intelligence v1](shadow-intelligence-v1.md) may fingerprint that aggregate after a successful run, freeze a prediction before the next real rerun, and evaluate it afterward. Neither layer has a conversion or bridge into `runtime-dependency-observation-v1`, evidence reuse, approval, completion, or receipt export, and neither can authorize a skipped check. Collector or analysis absence and failure leave the established verification path and result unchanged.
 
 The observer-free alternative is a committed `.click/evidence-reuse.json` file with exact `checks` groups and `reuse_if_only_changed` patterns. A successful run stores its unchanged policy digest and an effective Git baseline consisting of the commit identity plus bounded fingerprints for dirty and untracked files. Preflight compares that baseline with the current commit and worktree, reports net changed paths, and reuses only if every path matches the same policy entry. The policy and dependency-map paths are protected from self-authorization. Missing or edited policy, duplicate groups, malformed patterns, unsupported file types, excessive or racing changes, unmerged state, unavailable Git data, and any unlisted path rerun without asking. Environment, executable, contract, host coverage, and the host-recorded mutation boundary remain mandatory. A complete runtime observation takes precedence, so a safe-change entry cannot override a changed observed input. This policy is explicit repository-owner authority rather than automatic dependency discovery and needs no platform observer or extra install.
 

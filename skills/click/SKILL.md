@@ -66,6 +66,11 @@ When submitting verification, include the actual repository directory as the top
 
 When the user asks to view Shadow data, use the explicit `click-gate dashboard start`, `status`, and `stop` controls described in the capability protocol. Treat its Evidence Map and ROI as current-lifecycle, non-authoritative telemetry, and stop the viewer when the inspection is complete.
 
+Keep Observer collection separate from that viewer. New lifecycles default to
+`click-gate observer off`; use the explicit `shadow` control only when Shadow
+collection is intended, and never interpret either the control or dashboard as
+reuse authority.
+
 In Guarded mode, do not request reapproval for an in-scope detail, a narrowing instruction, or a technical choice. Record the follow-up turn digest and continue. Reapproval is required only when the approved outcome, visible behavior, boundary, invariant, authority, or verification commitment materially changes. The digest proves that the follow-up was recorded, not that the Hook semantically proved it was inside the prior boundary; interpret that distinction faithfully. In Evidence mode there is no Click approval to repeat; follow the host's authority prompts.
 
 The Hook enforces observable contract shape, id/digest binding, turn order, supported tool paths, one-use runners, and evidence receipts. It cannot prove semantic approval, hidden reasoning, unmatched connector behavior, architecture truth, implementation fidelity, or the optimal amount of verification. If Hook enforcement is unavailable, preserve the same ordering and disclose that limitation.

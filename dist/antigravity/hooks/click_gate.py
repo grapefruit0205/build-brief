@@ -39,6 +39,7 @@ else:  # Executed directly from the bundled hooks directory.
     click_lifecycle,
     click_mutation,
     click_observation,
+    click_observer_control,
     click_process,
     click_prompt,
     click_receipt_runtime,
@@ -64,6 +65,7 @@ else:  # Executed directly from the bundled hooks directory.
     "click_lifecycle",
     "click_mutation",
     "click_observation",
+    "click_observer_control",
     "click_process",
     "click_prompt",
     "click_receipt_runtime",
@@ -559,6 +561,49 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
                 if value == "adaptive":
                     click_lifecycle.write_state(event, "idle")
                 _allow_rewritten(f"echo Click mode set to {value}")
+                return
+            if action == "observer":
+                runtime_state = click_contract_state.read_contract_state(event)
+                verification = runtime_state.get("verification")
+                if value == "status":
+                    selected = click_observer_control.mode(verification)
+                    _allow_rewritten(
+                        f"echo Click observer mode: {selected} - "
+                        "non-authoritative, reuse disabled"
+                    )
+                    return
+                current_status = click_lifecycle.read_state(event).get("status")
+                evidence_active = runtime_state.get("status") == "evidence"
+                approved_active = click_lifecycle.approved_contract_is_active(
+                    runtime_state
+                )
+                if (
+                    current_status != "passed"
+                    and click_lifecycle.read_mode(event) != "strict"
+                    and not evidence_active
+                    and not approved_active
+                ):
+                    _deny(
+                        "Start Guarded or Evidence runtime state before changing its "
+                        "Observer mode."
+                    )
+                    return
+                if not isinstance(verification, dict):
+                    _deny("Click verification state is unavailable.")
+                    return
+                if verification.get("status") == "running":
+                    _deny(
+                        "Wait for the active verification batch before changing its "
+                        "Observer mode."
+                    )
+                    return
+                click_observer_control.set_mode(verification, value)
+                runtime_state["verification"] = verification
+                click_contract_state.save_contract_state(event, runtime_state)
+                _allow_rewritten(
+                    f"echo Click observer mode set to {value} - "
+                    "non-authoritative, reuse disabled"
+                )
                 return
             if action == "receipt-export":
                 state = click_contract_state.read_contract_state(event)
