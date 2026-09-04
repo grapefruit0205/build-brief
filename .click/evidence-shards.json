@@ -14,7 +14,7 @@
         ]
       ],
       "inventory": [
-        "tests/test_*.py"
+        "tests/test*.py"
       ],
       "shards": [
         {
@@ -121,6 +121,7 @@
               "tests.test_click_dependency_cache",
               "tests.test_click_evidence_shards",
               "tests.test_click_gate_verification",
+              "tests.test_click_incremental",
               "tests.test_click_receipt",
               "tests.test_click_receipt_runtime",
               "tests.test_click_verification",
@@ -132,6 +133,7 @@
             "tests/test_click_dependency_cache.py",
             "tests/test_click_evidence_shards.py",
             "tests/test_click_gate_verification.py",
+            "tests/test_click_incremental.py",
             "tests/test_click_receipt.py",
             "tests/test_click_receipt_runtime.py",
             "tests/test_click_verification.py"

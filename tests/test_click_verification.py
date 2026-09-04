@@ -114,6 +114,7 @@ class ClickVerificationTests(unittest.TestCase):
             "click_evidence",
             "click_evidence_shards",
             "click_host_coverage",
+            "click_incremental",
             "click_inspection",
             "click_mutation",
             "click_observation",
@@ -264,6 +265,7 @@ class ClickVerificationTests(unittest.TestCase):
                     group_digest="4" * 64,
                     git_root="/workspace",
                     environment_digest="6" * 64,
+                    executable_digest="7" * 64,
                     host_coverage=host_coverage,
                 )
                 self.assertEqual(matched, label == "complete")
