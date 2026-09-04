@@ -239,6 +239,39 @@ class ClickObserverMacOSTests(unittest.TestCase):
         self.assertEqual(parsed.unresolved_event_count, 1)
         self.assertFalse(parsed.process_tree_complete)
 
+    def test_parser_projects_bound_relative_open_paths_as_partial(self) -> None:
+        parsed = click_observer_macos.parse_fs_usage(
+            self.trace_text(
+                "12:00:00.000001 open F=3 (R_____) input.txt "
+                "0.000010 Python.20",
+                "12:00:00.000002 openat F=4 (R_____) [ -2]/nested.txt "
+                "0.000011 Python.20",
+                "12:00:00.000003 openat F=5 (R_____) [ 9]/unknown.txt "
+                "0.000012 Python.20",
+            ),
+            workspace=self.workspace,
+            root_execution_bound=True,
+            process_scope_complete=False,
+        )
+
+        self.assertEqual(
+            parsed.inputs,
+            (
+                {
+                    "path": "input.txt",
+                    "kind": "file",
+                    "operations": ["read"],
+                },
+                {
+                    "path": "nested.txt",
+                    "kind": "file",
+                    "operations": ["read"],
+                },
+            ),
+        )
+        self.assertEqual(parsed.unresolved_event_count, 3)
+        self.assertFalse(parsed.process_tree_complete)
+
     def test_parser_normalizes_macos_data_volume_and_private_aliases(self) -> None:
         logical_root = self.workspace.as_posix()
         physical_root = "/System/Volumes/Data" + logical_root
