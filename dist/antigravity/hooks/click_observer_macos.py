@@ -2,49 +2,21 @@
 """Native macOS ``fs_usage`` backend for Shadow Observer v1.
 
 The backend never raises privilege.  When the current process is already
-privileged, it starts a PID-filtered system collector before releasing a tiny
-launcher that ``exec`` replaces itself with the approved target.  Raw output
-is bounded in memory and discarded after it is normalized into the existing
-non-authoritative Observer v1 record.
+privileged, it creates the approved target in macOS's native suspended state,
+attaches a PID-filtered system collector, and then resumes that exact process.
+Raw output is bounded in memory and discarded after it is normalized into the
+existing non-authoritative Observer v1 record.
 """
 
 from __future__ import annotations
 
+import ctypes
 import os
 from pathlib import Path, PurePosixPath
-import sys
-
-
-def _launcher_entry(arguments: list[str]) -> int:
-    """Wait for one release byte, then replace this process with the target."""
-
-    if len(arguments) < 2:
-        return 126
-    fifo = arguments[0]
-    target = arguments[1:]
-    try:
-        descriptor = os.open(fifo, os.O_RDONLY)
-        try:
-            released = os.read(descriptor, 1)
-        finally:
-            os.close(descriptor)
-        if released != b"1":
-            return 126
-        os.execvpe(target[0], target, dict(os.environ))
-    except (OSError, ValueError):
-        return 127
-    return 127
-
-
-# The synchronized launcher must work under ``python -I -S -B`` without
-# importing repository or plugin modules before it waits for the collector.
-if __name__ == "__main__" and len(sys.argv) > 1 and sys.argv[1] == "--launch":
-    raise SystemExit(_launcher_entry(sys.argv[2:]))
 
 
 from collections.abc import Callable, Mapping, Sequence  # noqa: E402
 from dataclasses import dataclass, field  # noqa: E402
-import errno  # noqa: E402
 from functools import lru_cache  # noqa: E402
 import hashlib  # noqa: E402
 import platform  # noqa: E402
@@ -52,7 +24,6 @@ import posixpath  # noqa: E402
 import re  # noqa: E402
 import signal  # noqa: E402
 import subprocess  # noqa: E402
-import tempfile  # noqa: E402
 import threading  # noqa: E402
 import time  # noqa: E402
 from typing import Any, BinaryIO  # noqa: E402
@@ -67,10 +38,12 @@ else:  # Executed directly from the bundled hooks directory.
 
 MAX_RAW_TRACE_BYTES = 4 * 1024 * 1024
 COLLECTOR_STARTUP_SECONDS = 0.2
-LAUNCH_RELEASE_SECONDS = 1.0
 NATIVE_FS_USAGE_PATHS = frozenset({"/usr/bin/fs_usage", "/usr/sbin/fs_usage"})
 MACOS_DATA_VOLUME_PREFIX = "/System/Volumes/Data"
 MACOS_PRIVATE_ALIASES = ("/etc", "/tmp", "/var")
+POSIX_SPAWN_SETPGROUP = 0x0002
+POSIX_SPAWN_START_SUSPENDED = 0x0080
+POSIX_SPAWN_CLOEXEC_DEFAULT = 0x4000
 
 _DIGEST = re.compile(r"^[0-9a-f]{64}$")
 _VERSION = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$")
@@ -125,7 +98,10 @@ BackendResolver = Callable[..., tuple[str | None, str]]
 FileDigester = Callable[[Path], str]
 NativeBackendProbe = Callable[[str], bool]
 SpawnArgv = Callable[..., subprocess.Popen[Any]]
-TerminateGroup = Callable[[subprocess.Popen[Any]], int]
+SpawnSuspended = Callable[..., Any]
+ResumeTarget = Callable[[Any], bool]
+DiscardTarget = Callable[[Any], int]
+TerminateGroup = Callable[[Any], int]
 
 
 @dataclass(frozen=True, slots=True)
@@ -147,6 +123,46 @@ class CollectedExecution:
     target_started: bool
     command_duration_ms: int
     collector_overhead_ms: int
+
+
+@dataclass(slots=True)
+class _SuspendedProcess:
+    """Small Popen-compatible owner for a suspended posix_spawn child."""
+
+    pid: int
+    returncode: int | None = None
+
+    def poll(self) -> int | None:
+        if self.returncode is not None:
+            return self.returncode
+        try:
+            waited, status = os.waitpid(self.pid, os.WNOHANG)
+        except ChildProcessError:
+            self.returncode = 127
+            return self.returncode
+        if waited == 0:
+            return None
+        self.returncode = os.waitstatus_to_exitcode(status)
+        return self.returncode
+
+    def wait(self, timeout: float | None = None) -> int:
+        if self.returncode is not None:
+            return self.returncode
+        if timeout is None:
+            try:
+                _, status = os.waitpid(self.pid, 0)
+            except ChildProcessError:
+                self.returncode = 127
+            else:
+                self.returncode = os.waitstatus_to_exitcode(status)
+            return int(self.returncode)
+        deadline = time.monotonic() + max(0.0, timeout)
+        while time.monotonic() <= deadline:
+            result = self.poll()
+            if result is not None:
+                return result
+            time.sleep(0.01)
+        raise subprocess.TimeoutExpired(str(self.pid), timeout)
 
 
 @dataclass(slots=True)
@@ -220,12 +236,160 @@ def _bounded_add(left: int, right: int) -> int:
     return click_observer_common.bounded_add(left, right)
 
 
-def _outside_workspace(workspace: Path, candidate: Path) -> bool:
+def _encoded_c_string(value: str) -> bytes:
+    if not isinstance(value, str) or "\x00" in value:
+        raise ValueError("invalid native process string")
+    return os.fsencode(value)
+
+
+def _spawn_suspended_macos(
+    argv: Sequence[str],
+    *,
+    cwd: Path,
+    env: Mapping[str, str],
+) -> _SuspendedProcess:
+    """Spawn the actual target suspended, in its own process group."""
+
+    if not argv:
+        raise ValueError("empty argv")
+    encoded_argv = [_encoded_c_string(value) for value in argv]
+    encoded_environment = [
+        _encoded_c_string(f"{key}={value}")
+        for key, value in sorted(env.items())
+        if isinstance(key, str)
+        and isinstance(value, str)
+        and key
+        and "=" not in key
+    ]
+    if len(encoded_environment) != len(env):
+        raise ValueError("invalid native process environment")
+    argv_array = (ctypes.c_char_p * (len(encoded_argv) + 1))(
+        *encoded_argv, None
+    )
+    environment_array = (ctypes.c_char_p * (len(encoded_environment) + 1))(
+        *encoded_environment, None
+    )
+
+    libc = ctypes.CDLL(None, use_errno=True)
+    attributes = ctypes.c_void_p()
+    actions = ctypes.c_void_p()
+    attributes_ready = False
+    actions_ready = False
+    child_pid = ctypes.c_int()
+
+    libc.posix_spawnattr_init.argtypes = [ctypes.POINTER(ctypes.c_void_p)]
+    libc.posix_spawnattr_init.restype = ctypes.c_int
+    libc.posix_spawnattr_destroy.argtypes = [ctypes.POINTER(ctypes.c_void_p)]
+    libc.posix_spawnattr_destroy.restype = ctypes.c_int
+    libc.posix_spawnattr_setpgroup.argtypes = [
+        ctypes.POINTER(ctypes.c_void_p),
+        ctypes.c_int,
+    ]
+    libc.posix_spawnattr_setpgroup.restype = ctypes.c_int
+    libc.posix_spawnattr_setflags.argtypes = [
+        ctypes.POINTER(ctypes.c_void_p),
+        ctypes.c_short,
+    ]
+    libc.posix_spawnattr_setflags.restype = ctypes.c_int
+    libc.posix_spawn_file_actions_init.argtypes = [
+        ctypes.POINTER(ctypes.c_void_p)
+    ]
+    libc.posix_spawn_file_actions_init.restype = ctypes.c_int
+    libc.posix_spawn_file_actions_destroy.argtypes = [
+        ctypes.POINTER(ctypes.c_void_p)
+    ]
+    libc.posix_spawn_file_actions_destroy.restype = ctypes.c_int
+    add_chdir = getattr(libc, "posix_spawn_file_actions_addchdir_np")
+    add_chdir.argtypes = [ctypes.POINTER(ctypes.c_void_p), ctypes.c_char_p]
+    add_chdir.restype = ctypes.c_int
+    add_inherit = getattr(libc, "posix_spawn_file_actions_addinherit_np")
+    add_inherit.argtypes = [ctypes.POINTER(ctypes.c_void_p), ctypes.c_int]
+    add_inherit.restype = ctypes.c_int
+    libc.posix_spawnp.argtypes = [
+        ctypes.POINTER(ctypes.c_int),
+        ctypes.c_char_p,
+        ctypes.POINTER(ctypes.c_void_p),
+        ctypes.POINTER(ctypes.c_void_p),
+        ctypes.POINTER(ctypes.c_char_p),
+        ctypes.POINTER(ctypes.c_char_p),
+    ]
+    libc.posix_spawnp.restype = ctypes.c_int
+
     try:
-        candidate.relative_to(workspace)
-    except ValueError:
-        return True
-    return False
+        error = int(libc.posix_spawnattr_init(ctypes.byref(attributes)))
+        if error:
+            raise OSError(error, os.strerror(error))
+        attributes_ready = True
+        error = int(libc.posix_spawnattr_setpgroup(ctypes.byref(attributes), 0))
+        if error:
+            raise OSError(error, os.strerror(error))
+        flags = (
+            POSIX_SPAWN_SETPGROUP
+            | POSIX_SPAWN_START_SUSPENDED
+            | POSIX_SPAWN_CLOEXEC_DEFAULT
+        )
+        error = int(
+            libc.posix_spawnattr_setflags(ctypes.byref(attributes), flags)
+        )
+        if error:
+            raise OSError(error, os.strerror(error))
+        error = int(libc.posix_spawn_file_actions_init(ctypes.byref(actions)))
+        if error:
+            raise OSError(error, os.strerror(error))
+        actions_ready = True
+        error = int(
+            add_chdir(
+                ctypes.byref(actions), _encoded_c_string(os.fspath(cwd))
+            )
+        )
+        if error:
+            raise OSError(error, os.strerror(error))
+        for descriptor in (0, 1, 2):
+            error = int(add_inherit(ctypes.byref(actions), descriptor))
+            if error:
+                raise OSError(error, os.strerror(error))
+        error = int(
+            libc.posix_spawnp(
+                ctypes.byref(child_pid),
+                encoded_argv[0],
+                ctypes.byref(actions),
+                ctypes.byref(attributes),
+                argv_array,
+                environment_array,
+            )
+        )
+        if error:
+            raise OSError(error, os.strerror(error), argv[0])
+        if child_pid.value <= 0:
+            raise OSError("posix_spawnp returned an invalid pid")
+        return _SuspendedProcess(pid=int(child_pid.value))
+    finally:
+        if actions_ready:
+            libc.posix_spawn_file_actions_destroy(ctypes.byref(actions))
+        if attributes_ready:
+            libc.posix_spawnattr_destroy(ctypes.byref(attributes))
+
+
+def _resume_suspended_target(target: Any) -> bool:
+    if target.poll() is not None:
+        return False
+    try:
+        os.kill(int(target.pid), signal.SIGCONT)
+    except (OSError, TypeError, ValueError):
+        return False
+    return True
+
+
+def _discard_suspended_target(target: Any) -> int:
+    """Kill a child that has never been resumed, without running its code."""
+
+    if target.poll() is not None:
+        return int(target.returncode or 0)
+    try:
+        os.killpg(int(target.pid), signal.SIGKILL)
+        return int(target.wait(timeout=1.0))
+    except (OSError, subprocess.SubprocessError, TypeError, ValueError):
+        return 1
 
 
 def _candidate_path(details: str) -> str:
@@ -266,6 +430,7 @@ def parse_fs_usage(
     *,
     workspace: Path,
     truncated: bool = False,
+    root_execution_bound: bool = False,
 ) -> ParsedTrace:
     """Parse bounded fs_usage text into content-free repository inputs."""
 
@@ -280,7 +445,7 @@ def parse_fs_usage(
     external_digests: set[str] = set()
     unresolved = 1 if truncated else 0
     child_processes = 0
-    root_exec_observed = False
+    root_exec_observed = bool(root_execution_bound)
 
     def add_path(path_text: str, *, kind: str, operation: str) -> None:
         nonlocal unresolved
@@ -438,48 +603,6 @@ def parse_fs_usage(
     )
 
 
-def _create_launch_fifo(workspace: Path) -> tuple[Path, Path] | None:
-    try:
-        workspace_root = workspace.resolve(strict=True)
-    except (OSError, RuntimeError):
-        return None
-    for raw_root in ("/tmp", "/var/tmp"):
-        directory: Path | None = None
-        fifo: Path | None = None
-        try:
-            temporary_root = Path(raw_root).resolve(strict=True)
-            if not temporary_root.is_dir():
-                continue
-            if not _outside_workspace(workspace_root, temporary_root):
-                continue
-            directory = Path(
-                tempfile.mkdtemp(prefix="click-shadow-macos-", dir=temporary_root)
-            )
-            if not _outside_workspace(workspace_root, directory):
-                directory.rmdir()
-                continue
-            directory.chmod(0o700)
-            fifo = directory / "launch.pipe"
-            os.mkfifo(fifo, mode=0o600)
-            return directory, fifo
-        except OSError:
-            _remove_launch_fifo(directory, fifo)
-    return None
-
-
-def _remove_launch_fifo(directory: Path | None, fifo: Path | None) -> None:
-    if fifo is not None:
-        try:
-            fifo.unlink(missing_ok=True)
-        except OSError:
-            pass
-    if directory is not None:
-        try:
-            directory.rmdir()
-        except OSError:
-            pass
-
-
 def _drain_stream(stream: BinaryIO, capture: _BoundedCapture) -> None:
     try:
         while True:
@@ -514,28 +637,6 @@ def _stop_collector(
     return int(terminate_group(collector))
 
 
-def _release_target(fifo: Path, *, timeout: float = LAUNCH_RELEASE_SECONDS) -> bool:
-    deadline = time.monotonic() + max(0.0, timeout)
-    while time.monotonic() <= deadline:
-        try:
-            descriptor = os.open(fifo, os.O_WRONLY | os.O_NONBLOCK)
-        except OSError as error:
-            if error.errno not in {errno.ENXIO, errno.ENOENT}:
-                return False
-            time.sleep(0.01)
-            continue
-        try:
-            return os.write(descriptor, b"1") == 1
-        except OSError:
-            return False
-        finally:
-            try:
-                os.close(descriptor)
-            except OSError:
-                pass
-    return False
-
-
 def collect_command(
     argv: Sequence[str],
     *,
@@ -543,17 +644,15 @@ def collect_command(
     environment: Mapping[str, str],
     executable: str,
     spawn_argv: SpawnArgv = click_process.spawn_argv,
+    spawn_suspended: SpawnSuspended = _spawn_suspended_macos,
+    resume_target: ResumeTarget = _resume_suspended_target,
+    discard_suspended: DiscardTarget = _discard_suspended_target,
     terminate_group: TerminateGroup = click_process.terminate_process_group,
     capture_limit: int = MAX_RAW_TRACE_BYTES,
-    launcher_path: Path | None = None,
 ) -> CollectedExecution:
     """Collect one PID-scoped trace while executing the target at most once."""
 
     started = time.monotonic()
-    location = _create_launch_fifo(workspace)
-    if location is None:
-        return CollectedExecution(127, b"", False, True, False, 0, 0)
-    directory, fifo = location
     bounded_limit = (
         capture_limit
         if isinstance(capture_limit, int)
@@ -562,7 +661,7 @@ def collect_command(
         else MAX_RAW_TRACE_BYTES
     )
     capture = _BoundedCapture(limit=bounded_limit)
-    launcher: subprocess.Popen[Any] | None = None
+    target: Any | None = None
     collector: subprocess.Popen[Any] | None = None
     readers: list[threading.Thread] = []
     target_started = False
@@ -572,18 +671,8 @@ def collect_command(
     collector_cleanup_started = 0.0
     collector_cleanup_ms = 0
     try:
-        helper = (launcher_path or Path(__file__)).resolve(strict=True)
-        launcher = spawn_argv(
-            [
-                sys.executable,
-                "-I",
-                "-S",
-                "-B",
-                str(helper),
-                "--launch",
-                str(fifo),
-                *list(argv),
-            ],
+        target = spawn_suspended(
+            list(argv),
             cwd=workspace,
             env=dict(environment),
         )
@@ -596,7 +685,7 @@ def collect_command(
                 "pathname",
                 "-f",
                 "exec",
-                str(launcher.pid),
+                str(target.pid),
             ],
             cwd=workspace,
             env=dict(environment),
@@ -619,48 +708,35 @@ def collect_command(
             pass
         else:
             failed = True
-            return CollectedExecution(
-                int(collector.returncode or 1),
-                capture.bytes(),
-                capture.truncated,
-                True,
-                False,
-                0,
-                max(0, int((time.monotonic() - collector_started) * 1000)),
-            )
+            exit_code = int(collector.returncode or 1)
         collector_preparation_ms = max(
             0, int((time.monotonic() - collector_started) * 1000)
         )
-        if not _release_target(fifo):
+        if not failed and not resume_target(target):
             failed = True
-            return CollectedExecution(
-                127,
-                capture.bytes(),
-                capture.truncated,
-                True,
-                False,
-                0,
-                collector_preparation_ms,
-            )
-        target_started = True
-        exit_code = int(launcher.wait())
-        if collector.poll() is not None:
-            failed = True
+        if not failed:
+            target_started = True
+            exit_code = int(target.wait())
+            if collector.poll() is not None:
+                failed = True
     except KeyboardInterrupt:
         failed = True
         exit_code = 130
     except (OSError, RuntimeError, subprocess.SubprocessError, TypeError, ValueError):
         failed = True
-        if target_started and launcher is not None:
+        if target_started and target is not None:
             try:
-                exit_code = int(launcher.wait())
+                exit_code = int(target.wait())
             except (OSError, subprocess.SubprocessError, TypeError, ValueError):
                 exit_code = 127
     finally:
         collector_cleanup_started = time.monotonic()
-        if launcher is not None and launcher.poll() is None:
+        if target is not None and target.poll() is None:
             try:
-                terminate_group(launcher)
+                if target_started:
+                    terminate_group(target)
+                else:
+                    discard_suspended(target)
             except Exception:
                 failed = True
         if collector is not None and collector.poll() is None:
@@ -672,7 +748,6 @@ def collect_command(
             reader.join(timeout=1)
             if reader.is_alive():
                 capture.failed = True
-        _remove_launch_fifo(directory, fifo)
         collector_cleanup_ms = max(
             0, int((time.monotonic() - collector_cleanup_started) * 1000)
         )
@@ -807,6 +882,7 @@ def run_command(
             raw_trace,
             workspace=observation_root or workspace,
             truncated=collected.truncated or collected.failed,
+            root_execution_bound=collected.target_started,
         )
     except Exception:
         parsed = ParsedTrace((), 0, 1, 0, False, False)

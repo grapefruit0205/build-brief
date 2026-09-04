@@ -71,12 +71,6 @@ class ClickObserverMacOSTests(unittest.TestCase):
     def trace_text(self, *lines: str) -> bytes:
         return ("\n".join(lines) + "\n").encode()
 
-    def fake_fifo_location(self) -> tuple[Path, Path]:
-        temporary = tempfile.TemporaryDirectory()
-        self.addCleanup(temporary.cleanup)
-        directory = Path(temporary.name).resolve()
-        return directory, directory / "launch.pipe"
-
     def test_parser_normalizes_inputs_and_never_retains_external_paths(self) -> None:
         root = self.workspace.as_posix()
         raw = self.trace_text(
@@ -135,6 +129,34 @@ class ClickObserverMacOSTests(unittest.TestCase):
         self.assertFalse(parsed.root_exec_observed)
         self.assertFalse(parsed.process_tree_complete)
         self.assertEqual(parsed.unresolved_event_count, 2)
+
+    def test_suspended_target_binding_replaces_missing_exec_event(self) -> None:
+        parsed = click_observer_macos.parse_fs_usage(
+            self.trace_text(
+                f"12:00:00.000002 open F=3 (R_____) "
+                f"{self.workspace.as_posix()}/input.txt 0.000011 Python.20"
+            ),
+            workspace=self.workspace,
+            root_execution_bound=True,
+        )
+
+        self.assertTrue(parsed.root_exec_observed)
+        self.assertTrue(parsed.process_tree_complete)
+        self.assertEqual(parsed.unresolved_event_count, 0)
+
+    def test_native_suspended_spawn_rejects_invalid_inputs_before_launch(self) -> None:
+        with self.assertRaises(ValueError):
+            click_observer_macos._spawn_suspended_macos(
+                [], cwd=self.workspace, env={}
+            )
+        with self.assertRaises(ValueError):
+            click_observer_macos._spawn_suspended_macos(
+                ["bad\x00command"], cwd=self.workspace, env={}
+            )
+        with self.assertRaises(ValueError):
+            click_observer_macos._spawn_suspended_macos(
+                ["tool"], cwd=self.workspace, env={"BAD=KEY": "value"}
+            )
 
     def test_parser_handles_errno_write_only_and_pathless_events_safely(self) -> None:
         root = self.workspace.as_posix()
@@ -408,10 +430,10 @@ class ClickObserverMacOSTests(unittest.TestCase):
         collector.assert_not_called()
         self.assertEqual(result.record["status"], "unavailable")
 
-    def test_collector_uses_pid_filter_and_cleans_external_fifo(self) -> None:
-        launches: list[list[str]] = []
-        directory, fifo = self.fake_fifo_location()
-        launcher = _FakeProcess(pid=4321, returncode=4)
+    def test_collector_suspends_actual_target_before_pid_filter(self) -> None:
+        collector_launches: list[list[str]] = []
+        target_spawns: list[list[str]] = []
+        target = _FakeProcess(pid=4321, returncode=4, running=True)
         collector = _FakeProcess(
             pid=4322,
             returncode=0,
@@ -419,58 +441,49 @@ class ClickObserverMacOSTests(unittest.TestCase):
             stdout=b"trace-output",
         )
 
-        def spawn(argv: list[str], **_kwargs: object) -> _FakeProcess:
-            launches.append(list(argv))
-            return launcher if len(launches) == 1 else collector
+        def spawn_suspended(argv: list[str], **_kwargs: object) -> _FakeProcess:
+            target_spawns.append(list(argv))
+            return target
+
+        def spawn_collector(argv: list[str], **_kwargs: object) -> _FakeProcess:
+            collector_launches.append(list(argv))
+            return collector
 
         terminated: list[int] = []
+        resumed: list[int] = []
 
         def terminate(child: _FakeProcess) -> int:
             terminated.append(child.pid)
             return child.terminate_for_test()
 
-        with (
-            mock.patch.object(
-                click_observer_macos,
-                "_create_launch_fifo",
-                return_value=(directory, fifo),
-            ),
-            mock.patch.object(
-                click_observer_macos, "_release_target", return_value=True
-            ),
-        ):
-            result = click_observer_macos.collect_command(
-                ["tool", "--flag"],
-                workspace=self.workspace,
-                environment={"PATH": os.environ.get("PATH", os.defpath)},
-                executable="/usr/bin/fs_usage",
-                spawn_argv=spawn,
-                terminate_group=terminate,
-            )
+        result = click_observer_macos.collect_command(
+            ["tool", "--flag"],
+            workspace=self.workspace,
+            environment={"PATH": os.environ.get("PATH", os.defpath)},
+            executable="/usr/bin/fs_usage",
+            spawn_argv=spawn_collector,
+            spawn_suspended=spawn_suspended,
+            resume_target=lambda child: resumed.append(child.pid) or True,
+            discard_suspended=terminate,
+            terminate_group=terminate,
+        )
 
         self.assertTrue(result.target_started)
         self.assertEqual(result.exit_code, 4)
         self.assertEqual(result.raw, b"trace-output")
-        self.assertIn("--launch", launches[0])
-        self.assertEqual(launches[0][-2:], ["tool", "--flag"])
-        self.assertEqual(launches[1][-1], "4321")
+        self.assertEqual(target_spawns, [["tool", "--flag"]])
+        self.assertEqual(resumed, [4321])
+        self.assertEqual(collector_launches[0][-1], "4321")
         self.assertEqual(
-            launches[1][1:-1], ["-w", "-f", "pathname", "-f", "exec"]
+            collector_launches[0][1:-1],
+            ["-w", "-f", "pathname", "-f", "exec"],
         )
-        self.assertNotIn("sudo", launches[1])
-        fifo = Path(launches[0][launches[0].index("--launch") + 1])
-        self.assertFalse(fifo.exists())
+        self.assertNotIn("sudo", collector_launches[0])
         self.assertEqual(terminated, [4322])
 
     def test_collector_interrupt_stops_both_retained_groups(self) -> None:
-        launches: list[list[str]] = []
-        directory, fifo = self.fake_fifo_location()
-        launcher = _FakeProcess(pid=5321, returncode=0, running=True, interrupt=True)
+        target = _FakeProcess(pid=5321, returncode=0, running=True, interrupt=True)
         collector = _FakeProcess(pid=5322, returncode=0, running=True)
-
-        def spawn(argv: list[str], **_kwargs: object) -> _FakeProcess:
-            launches.append(list(argv))
-            return launcher if len(launches) == 1 else collector
 
         terminated: list[int] = []
 
@@ -478,75 +491,79 @@ class ClickObserverMacOSTests(unittest.TestCase):
             terminated.append(child.pid)
             return child.terminate_for_test()
 
-        with (
-            mock.patch.object(
-                click_observer_macos,
-                "_create_launch_fifo",
-                return_value=(directory, fifo),
-            ),
-            mock.patch.object(
-                click_observer_macos, "_release_target", return_value=True
-            ),
-        ):
-            result = click_observer_macos.collect_command(
-                ["tool"],
-                workspace=self.workspace,
-                environment={},
-                executable="/usr/bin/fs_usage",
-                spawn_argv=spawn,
-                terminate_group=terminate,
-            )
+        result = click_observer_macos.collect_command(
+            ["tool"],
+            workspace=self.workspace,
+            environment={},
+            executable="/usr/bin/fs_usage",
+            spawn_argv=lambda *_args, **_kwargs: collector,
+            spawn_suspended=lambda *_args, **_kwargs: target,
+            resume_target=lambda _target: True,
+            discard_suspended=terminate,
+            terminate_group=terminate,
+        )
         self.assertTrue(result.target_started)
         self.assertEqual(result.exit_code, 130)
         self.assertTrue(result.failed)
         self.assertEqual(terminated, [5321, 5322])
 
-    def test_collector_early_exit_after_release_marks_trace_failed(self) -> None:
-        launches: list[list[str]] = []
-        directory, fifo = self.fake_fifo_location()
+    def test_collector_early_exit_after_resume_marks_trace_failed(self) -> None:
         collector = _FakeProcess(
             pid=6322,
             returncode=2,
             running=True,
             stdout=b"partial trace",
         )
-        launcher = _FakeProcess(pid=6321, returncode=0)
-        launcher_wait = launcher.wait
+        target = _FakeProcess(pid=6321, returncode=0, running=True)
+        target_wait = target.wait
 
         def stop_collector_then_wait(timeout: float | None = None) -> int:
             if timeout is None:
                 collector._running = False
                 collector.returncode = 2
-            return launcher_wait(timeout)
+            return target_wait(timeout)
 
-        launcher.wait = stop_collector_then_wait  # type: ignore[method-assign]
+        target.wait = stop_collector_then_wait  # type: ignore[method-assign]
 
-        def spawn(argv: list[str], **_kwargs: object) -> _FakeProcess:
-            launches.append(list(argv))
-            return launcher if len(launches) == 1 else collector
-
-        with (
-            mock.patch.object(
-                click_observer_macos,
-                "_create_launch_fifo",
-                return_value=(directory, fifo),
-            ),
-            mock.patch.object(
-                click_observer_macos, "_release_target", return_value=True
-            ),
-        ):
-            result = click_observer_macos.collect_command(
-                ["tool"],
-                workspace=self.workspace,
-                environment={},
-                executable="/usr/bin/fs_usage",
-                spawn_argv=spawn,
-                terminate_group=lambda child: child.terminate_for_test(),
-            )
+        result = click_observer_macos.collect_command(
+            ["tool"],
+            workspace=self.workspace,
+            environment={},
+            executable="/usr/bin/fs_usage",
+            spawn_argv=lambda *_args, **_kwargs: collector,
+            spawn_suspended=lambda *_args, **_kwargs: target,
+            resume_target=lambda _target: True,
+            discard_suspended=lambda child: child.terminate_for_test(),
+            terminate_group=lambda child: child.terminate_for_test(),
+        )
 
         self.assertTrue(result.target_started)
         self.assertEqual(result.exit_code, 0)
         self.assertTrue(result.failed)
+
+    def test_collector_failure_before_resume_discards_without_starting(self) -> None:
+        target = _FakeProcess(pid=7321, returncode=-9, running=True)
+        collector = _FakeProcess(pid=7322, returncode=2, stdout=b"denied")
+        resumed = mock.Mock(return_value=True)
+        discarded: list[int] = []
+
+        result = click_observer_macos.collect_command(
+            ["tool"],
+            workspace=self.workspace,
+            environment={},
+            executable="/usr/bin/fs_usage",
+            spawn_argv=lambda *_args, **_kwargs: collector,
+            spawn_suspended=lambda *_args, **_kwargs: target,
+            resume_target=resumed,
+            discard_suspended=lambda child: (
+                discarded.append(child.pid) or child.terminate_for_test()
+            ),
+        )
+
+        self.assertFalse(result.target_started)
+        self.assertTrue(result.failed)
+        resumed.assert_not_called()
+        self.assertEqual(discarded, [7321])
 
 
 @unittest.skipUnless(platform.system() == "Darwin", "native smoke is macOS-only")
