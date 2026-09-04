@@ -1489,6 +1489,9 @@ class ClickGateVerificationTests(ClickGateTestCase):
 
     def test_keyboard_interrupt_records_failure_and_releases_runner(self) -> None:
         self.approve_contract()
+        self.pre_tool(
+            "Bash", "click-gate observer shadow", "turn-2", submit_prompt=False
+        )
         payload = self.verify_gate([self.verification_argv()])
         tokens = split_runner_command(
             payload["hookSpecificOutput"]["updatedInput"]["command"]
@@ -1525,12 +1528,53 @@ class ClickGateVerificationTests(ClickGateTestCase):
         self.assertEqual(verification["runner_claimed_at"], 0)
         self.assertEqual(verification["runner_token_digest"], "")
 
+    def test_shadow_observer_is_off_by_default(self) -> None:
+        (self.workspace / ".gitignore").write_text(
+            "__pycache__/\n", encoding="utf-8"
+        )
+        self.initialize_git(".gitignore", "verification_fixture.py")
+        self.approve_contract()
+        payload = self.verify_gate([self.verification_argv()])
+        tokens = split_runner_command(
+            payload["hookSpecificOutput"]["updatedInput"]["command"]
+        )
+        execute = mock.Mock(return_value=0)
+        shadow = mock.Mock()
+        environment = {
+            "PLUGIN_DATA": str(self.plugin_data),
+            "CLICK_CONFIG_HOME": str(self.plugin_data),
+        }
+        with (
+            mock.patch.dict(os.environ, environment),
+            mock.patch.object(
+                CLICK_VERIFICATION.Path, "cwd", return_value=self.workspace
+            ),
+        ):
+            result = CLICK_VERIFICATION.run(
+                tokens[5:],
+                file_content_digest=CLICK_VERIFICATION.file_content_digest,
+                git_workspace_snapshot=CLICK_VERIFICATION.git_workspace_snapshot,
+                git_metadata_present=CLICK_INSPECTION.git_metadata_present,
+                execute_commands=execute,
+                git_capture=CLICK_VERIFICATION.git_capture,
+                shadow_execute=shadow,
+            )
+
+        self.assertEqual(result, 0)
+        execute.assert_called_once()
+        shadow.assert_not_called()
+        state = json.loads(Path(tokens[5]).read_text(encoding="utf-8"))
+        self.assertEqual(state["verification"]["shadow_observer"]["records"], {})
+
     def test_shadow_observer_records_without_affecting_evidence_or_receipt(self) -> None:
         (self.workspace / ".gitignore").write_text(
             "__pycache__/\n", encoding="utf-8"
         )
         self.initialize_git(".gitignore", "verification_fixture.py")
         self.approve_contract()
+        self.pre_tool(
+            "Bash", "click-gate observer shadow", "turn-2", submit_prompt=False
+        )
         payload = self.verify_gate([self.verification_argv()])
         tokens = split_runner_command(
             payload["hookSpecificOutput"]["updatedInput"]["command"]
@@ -1616,6 +1660,9 @@ class ClickGateVerificationTests(ClickGateTestCase):
         (self.workspace / "notes.md").write_text("before\n", encoding="utf-8")
         self.initialize_git(".gitignore", "verification_fixture.py", "notes.md")
         self.approve_contract()
+        self.pre_tool(
+            "Bash", "click-gate observer shadow", "turn-2", submit_prompt=False
+        )
         source_key = CLICK_EVIDENCE.evidence_key("E1")
         execute = mock.Mock(return_value=0)
 

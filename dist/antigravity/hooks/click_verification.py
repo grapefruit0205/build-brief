@@ -39,6 +39,7 @@ if __package__:
         click_inspection,
         click_mutation,
         click_observation,
+        click_observer_control,
         click_process,
         click_runtime_state,
         click_shadow_intelligence,
@@ -60,6 +61,7 @@ else:  # Executed directly from the bundled hooks directory.
     import click_inspection
     import click_mutation
     import click_observation
+    import click_observer_control
     import click_process
     import click_runtime_state
     import click_shadow_intelligence
@@ -161,6 +163,9 @@ def _fresh_verification_state(contract: dict[str, Any]) -> dict[str, Any]:
         "workspace_changed": False,
         "mutation_boundary": _fresh_mutation_boundary(),
         "started_at": 0,
+        click_observer_control.CONTROL_FIELD: (
+            click_observer_control.fresh_state()
+        ),
         click_dependency_trace.SHADOW_STATE_FIELD: (
             click_dependency_trace.fresh_state()
         ),
@@ -3105,6 +3110,7 @@ def _claim_verification_run(
     batch["_click_mutation_revision"] = int(
         verification.get("mutation_revision", 0)
     )
+    batch["_click_observer_mode"] = click_observer_control.mode(verification)
     return batch, ""
 
 
@@ -3232,10 +3238,8 @@ def _run_verification(
     shadow_bindings = batch.pop("_click_shadow_bindings", {})
     shadow_contexts = batch.pop("_click_shadow_contexts", {})
     shadow_revision = batch.pop("_click_mutation_revision", -1)
-    shadow_enabled = bool(
-        shadow_execute is not None
-        or execute_commands is _execute_argv_commands
-    )
+    observer_mode = batch.pop("_click_observer_mode", "off")
+    shadow_enabled = observer_mode == "shadow"
     active_shadow_execute = shadow_execute or click_dependency_trace.run_command
     if environment_rebound:
         print(

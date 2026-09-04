@@ -24,6 +24,12 @@ The model chooses evidence ids and concrete argv during execution. Same-revision
 
 An in-scope or narrowing follow-up continues the same session and appends its prompt digest to the receipt lineage. When current evidence completes the session, the next software request starts a fresh Evidence session. Questions and explanations remain lightweight.
 
+Each lifecycle starts with native Observer collection off. The explicit
+`click-gate observer shadow` command enables only non-authoritative telemetry,
+while `observer off` disables it and `observer status` reports it. These
+controls neither change the current mutation revision nor grant evidence
+reuse. The dashboard remains an independent read-only viewer.
+
 For a read-only code review, use `click-gate review`, remain read-only, and collect only relevant inspection evidence. A request that also asks for fixes follows Evidence mode and does not introduce Click approval.
 
 ## Guarded

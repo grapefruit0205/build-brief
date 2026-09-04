@@ -26,6 +26,7 @@ HOOK_FILES = (
     "click_dependency_trace.py",
     "click_observer_backend.py",
     "click_observer_common.py",
+    "click_observer_control.py",
     "click_observer_linux.py",
     "click_observer_macos.py",
     "click_evidence.py",
