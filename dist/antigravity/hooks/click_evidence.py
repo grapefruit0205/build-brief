@@ -77,6 +77,7 @@ def _fresh_source(kind: str, dependency_patterns: tuple[str, ...] = ()) -> dict[
         "verified_executable_digest": "",
         "verified_host_coverage": {},
         "verified_at": 0,
+        "last_success_duration_ms": 0,
         "verified_dependency_provider": "",
         "verified_dependency_manifest_digest": "",
         "verified_dependency_entry_digest": "",
@@ -462,6 +463,9 @@ def sources_from_state(
             or not isinstance(source.get("last_check_digest"), str)
             or not isinstance(source.get("locked_check_digest"), str)
             or not isinstance(source.get("verified_executable_digest", ""), str)
+            or not isinstance(source.get("last_success_duration_ms", 0), int)
+            or isinstance(source.get("last_success_duration_ms", 0), bool)
+            or source.get("last_success_duration_ms", 0) < 0
             or source.get("verified_executable_digest", "")
             and re.fullmatch(
                 r"[0-9a-f]{64}",

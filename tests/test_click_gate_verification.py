@@ -482,11 +482,20 @@ class ClickGateVerificationTests(ClickGateTestCase):
         plan = state["verification"]["incremental_plan"]
         self.assertEqual(plan["executed_source_count"], 0)
         self.assertEqual(plan["exact_reuse_count"], 1)
+        self.assertGreater(plan["estimated_avoided_ms"], 0)
+        self.assertEqual(plan["executed_duration_ms"], 0)
         self.assertEqual(plan["decisions"][0]["decision"], "reuse-exact")
         self.assertEqual(
             plan["decisions"][0]["reason_code"],
             "same-revision-receipt-current",
         )
+        history = state["verification"]["incremental_history"]
+        self.assertEqual(len(history), 2)
+        self.assertEqual(history[-1]["decision"], "reuse-exact")
+        source = state["evidence_state"]["sources"][
+            CLICK_EVIDENCE.evidence_key("E1")
+        ]
+        self.assertGreater(source["last_success_duration_ms"], 0)
 
         self.assertIsNone(
             self.pre_tool("apply_patch", "*** Begin Patch\n*** End Patch", "turn-2")

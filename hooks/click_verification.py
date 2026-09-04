@@ -2342,6 +2342,7 @@ def _prepare_verification(
             "",
         )
     click_incremental.store_plan(verification, incremental_plan)
+    click_incremental.append_plan_history(verification, incremental_plan)
 
     if not pending_keys:
         all_argv_current = bool(argv_keys) and all(
@@ -2566,6 +2567,7 @@ def _record_verification_result(
     workspace_root: str = "",
     workspace_digest: str = "",
     environment_digests: dict[str, str] | None = None,
+    source_durations_ms: dict[str, int] | None = None,
     dependency_observations: dict[str, dict[str, Any]] | None = None,
     shadow_observer_records: dict[str, dict[str, Any]] | None = None,
     shadow_intelligence_baselines: dict[str, dict[str, Any]] | None = None,
@@ -2620,6 +2622,19 @@ def _record_verification_result(
         for key in verification.get("running_evidence_keys", [])
         if isinstance(key, str)
     }
+    measured_durations = source_durations_ms or {}
+    if (
+        not isinstance(measured_durations, dict)
+        or any(
+            not isinstance(source_key, str)
+            or source_key not in running_keys
+            or not isinstance(duration, int)
+            or isinstance(duration, bool)
+            or duration < 0
+            for source_key, duration in measured_durations.items()
+        )
+    ):
+        return False
     prepared_environment_digests = verification.get(
         "running_environment_digests"
     )
@@ -2768,6 +2783,9 @@ def _record_verification_result(
                 source["locked_check_digest"] = str(
                     source.get("last_check_digest", "")
                 )
+                source["last_success_duration_ms"] = int(
+                    measured_durations.get(source_key, 0)
+                )
                 environment_digest = str(
                     environment_digests.get(source_key, "")
                 )
@@ -2856,6 +2874,11 @@ def _record_verification_result(
         except Exception:
             # Analysis is telemetry only and cannot change an evidence result.
             pass
+    try:
+        click_incremental.record_execution(verification, measured_durations)
+    except Exception:
+        # Measurement cannot alter evidence authority or the recorded result.
+        pass
     if not click_claims.complete_claim(
         state,
         capability="verification",
@@ -3238,6 +3261,7 @@ def _run_verification(
 
     exit_code = 2 if snapshot_failed else 0
     succeeded_count = 0
+    source_durations_ms: dict[str, int] = {}
     per_source_shadow_records: dict[str, list[dict[str, Any]]] = {}
     if not snapshot_failed:
         try:
@@ -3267,48 +3291,57 @@ def _run_verification(
                     and not isinstance(shadow_revision, bool)
                     and shadow_revision >= 0
                 )
-                if can_record_shadow:
-                    execute_unobserved = lambda current=argv: execute_commands(
-                        [current], environment=verification_environment
-                    )
-                    observer_compatible = bool(
-                        click_inspection.execution_argv(argv) == argv
-                        and not click_inspection.is_git_remote_output_request(argv)
-                    )
-                    if observer_compatible:
-                        shadow_result = active_shadow_execute(
-                            argv,
-                            workspace=Path.cwd(),
-                            observation_root=shadow_workspace,
-                            environment=verification_environment,
-                            evidence_key=source_key,
-                            check_digest=check_digest,
-                            mutation_revision=shadow_revision,
-                            execute_unobserved=execute_unobserved,
-                            resolve_backend=_resolve_read_only_executable,
-                            digest_file=file_content_digest,
+                command_started = time.monotonic_ns()
+                try:
+                    if can_record_shadow:
+                        execute_unobserved = lambda current=argv: execute_commands(
+                            [current], environment=verification_environment
+                        )
+                        observer_compatible = bool(
+                            click_inspection.execution_argv(argv) == argv
+                            and not click_inspection.is_git_remote_output_request(argv)
+                        )
+                        if observer_compatible:
+                            shadow_result = active_shadow_execute(
+                                argv,
+                                workspace=Path.cwd(),
+                                observation_root=shadow_workspace,
+                                environment=verification_environment,
+                                evidence_key=source_key,
+                                check_digest=check_digest,
+                                mutation_revision=shadow_revision,
+                                execute_unobserved=execute_unobserved,
+                                resolve_backend=_resolve_read_only_executable,
+                                digest_file=file_content_digest,
+                            )
+                        else:
+                            shadow_result = click_dependency_trace.run_unobserved(
+                                execute_unobserved,
+                                evidence_key=source_key,
+                                check_digest=check_digest,
+                                mutation_revision=shadow_revision,
+                            )
+                        exit_code = shadow_result.exit_code
+                        if click_dependency_cache.shadow_observer_record_is_valid(
+                            shadow_result.record
+                        ):
+                            per_source_shadow_records.setdefault(
+                                source_key, []
+                            ).append(shadow_result.record)
+                        print(
+                            click_dependency_trace.advisory(shadow_result.record),
+                            flush=True,
                         )
                     else:
-                        shadow_result = click_dependency_trace.run_unobserved(
-                            execute_unobserved,
-                            evidence_key=source_key,
-                            check_digest=check_digest,
-                            mutation_revision=shadow_revision,
+                        exit_code = execute_commands(
+                            [argv], environment=verification_environment
                         )
-                    exit_code = shadow_result.exit_code
-                    if click_dependency_cache.shadow_observer_record_is_valid(
-                        shadow_result.record
-                    ):
-                        per_source_shadow_records.setdefault(source_key, []).append(
-                            shadow_result.record
-                        )
-                    print(
-                        click_dependency_trace.advisory(shadow_result.record),
-                        flush=True,
+                finally:
+                    elapsed_ms = max(
+                        1, (time.monotonic_ns() - command_started) // 1_000_000
                     )
-                else:
-                    exit_code = execute_commands(
-                        [argv], environment=verification_environment
+                    source_durations_ms[source_key] = (
+                        source_durations_ms.get(source_key, 0) + elapsed_ms
                     )
                 if exit_code != 0:
                     break
@@ -3437,6 +3470,7 @@ def _run_verification(
             workspace_changed=workspace_changed,
             workspace_root=workspace_root if not workspace_changed else "",
             workspace_digest=workspace_digest if not workspace_changed else "",
+            source_durations_ms=source_durations_ms,
             shadow_observer_records=combined_shadow_records,
             shadow_intelligence_baselines=shadow_intelligence_baselines,
             shadow_source_exit_codes=shadow_source_exit_codes,

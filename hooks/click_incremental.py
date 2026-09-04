@@ -18,6 +18,11 @@ from typing import Any, Iterable
 
 PLAN_VERSION = 1
 PLAN_FIELD = "incremental_plan"
+HISTORY_FIELD = "incremental_history"
+HISTORY_EVENT = "verification-planned"
+MAX_HISTORY_EVENTS = 1_000
+MAX_HISTORY_AGE_SECONDS = 7 * 24 * 60 * 60
+MAX_HISTORY_BYTES = 4 * 1024 * 1024
 
 DECISIONS = frozenset(
     {"run", "reuse-exact", "reuse-dependency", "reuse-safe-change", "not-evaluable"}
@@ -82,7 +87,20 @@ _PLAN_FIELDS = frozenset(
         "dependency_reuse_count",
         "safe_change_reuse_count",
         "estimated_avoided_ms",
+        "executed_duration_ms",
         "decisions",
+    }
+)
+_HISTORY_FIELDS = frozenset(
+    {
+        "event",
+        "source_key",
+        "decision",
+        "reason",
+        "current_revision",
+        "previous_revision",
+        "estimated_avoided_ms",
+        "timestamp",
     }
 )
 
@@ -194,6 +212,7 @@ def build_plan(
             for item in normalized
             if item["decision"] in REUSE_DECISIONS
         ),
+        "executed_duration_ms": 0,
         "decisions": normalized,
     }
     if not plan_is_valid(plan):
@@ -249,6 +268,7 @@ def plan_is_valid(value: Any) -> bool:
                 "dependency_reuse_count",
                 "safe_change_reuse_count",
                 "estimated_avoided_ms",
+                "executed_duration_ms",
             )
         )
     )
@@ -274,6 +294,142 @@ def store_plan(verification: dict[str, Any], plan: dict[str, Any]) -> None:
     )
 
 
+def record_execution(
+    verification: dict[str, Any], source_durations_ms: dict[str, int]
+) -> bool:
+    """Attach measured runner time without changing any plan decision."""
+    plan = verification.get(PLAN_FIELD)
+    if not plan_is_valid(plan) or not isinstance(source_durations_ms, dict):
+        return False
+    executable_keys = keys_to_execute(plan)
+    if any(
+        not isinstance(key, str)
+        or key not in executable_keys
+        or not _is_integer(duration)
+        for key, duration in source_durations_ms.items()
+    ):
+        return False
+    plan["executed_duration_ms"] = sum(source_durations_ms.values())
+    return plan_is_valid(plan)
+
+
+def _history_event_is_valid(value: Any) -> bool:
+    return bool(
+        isinstance(value, dict)
+        and set(value) == _HISTORY_FIELDS
+        and value.get("event") == HISTORY_EVENT
+        and isinstance(value.get("source_key"), str)
+        and _DIGEST.fullmatch(value["source_key"]) is not None
+        and value.get("decision") in DECISIONS
+        and value.get("reason") in REASON_CODES
+        and _is_integer(value.get("current_revision"))
+        and _is_integer(value.get("previous_revision"), minimum=-1)
+        and _is_integer(value.get("estimated_avoided_ms"))
+        and _is_integer(value.get("timestamp"), minimum=1)
+    )
+
+
+def history_is_valid(value: Any) -> bool:
+    return bool(
+        isinstance(value, list)
+        and len(value) <= MAX_HISTORY_EVENTS
+        and all(_history_event_is_valid(event) for event in value)
+        and value == sorted(value, key=lambda event: event["timestamp"])
+        and len(_canonical_bytes(value)) <= MAX_HISTORY_BYTES
+    )
+
+
+def _canonical_bytes(value: Any) -> bytes:
+    return json.dumps(
+        value, sort_keys=True, separators=(",", ":"), ensure_ascii=True
+    ).encode("utf-8")
+
+
+def prune_history(
+    events: Iterable[dict[str, Any]],
+    *,
+    now: int,
+    max_events: int = MAX_HISTORY_EVENTS,
+    max_age_seconds: int = MAX_HISTORY_AGE_SECONDS,
+    max_bytes: int = MAX_HISTORY_BYTES,
+) -> list[dict[str, Any]]:
+    """Apply age, count, and encoded-size caps by dropping oldest events."""
+    if not all(
+        _is_integer(value, minimum=1)
+        for value in (now, max_events, max_age_seconds, max_bytes)
+    ):
+        raise ValueError("invalid incremental history bounds")
+    cutoff = max(1, now - max_age_seconds)
+    retained = sorted(
+        (
+            dict(event)
+            for event in events
+            if _history_event_is_valid(event) and event["timestamp"] >= cutoff
+        ),
+        key=lambda event: event["timestamp"],
+    )[-max_events:]
+    while retained and len(_canonical_bytes(retained)) > max_bytes:
+        retained.pop(0)
+    return retained
+
+
+def append_plan_history(
+    verification: dict[str, Any], plan: dict[str, Any]
+) -> None:
+    """Persist bounded, content-free planning events for one canonical plan."""
+    if not plan_is_valid(plan):
+        raise ValueError("invalid incremental-verification plan")
+    existing = verification.get(HISTORY_FIELD, [])
+    if not isinstance(existing, list):
+        existing = []
+    timestamp = plan["planned_at"]
+    additions = [
+        {
+            "event": HISTORY_EVENT,
+            "source_key": item["source_key"],
+            "decision": item["decision"],
+            "reason": item["reason_code"],
+            "current_revision": item["current_revision"],
+            "previous_revision": item["previous_revision"],
+            "estimated_avoided_ms": item["estimated_avoided_ms"],
+            "timestamp": timestamp,
+        }
+        for item in plan["decisions"]
+    ]
+    verification[HISTORY_FIELD] = prune_history(
+        [*existing, *additions], now=timestamp
+    )
+
+
+def current_history(verification: Any) -> list[dict[str, Any]]:
+    value = verification.get(HISTORY_FIELD) if isinstance(verification, dict) else None
+    if not history_is_valid(value):
+        return []
+    return json.loads(json.dumps(value, sort_keys=True, separators=(",", ":")))
+
+
 def current_plan(verification: Any) -> dict[str, Any] | None:
     value = verification.get(PLAN_FIELD) if isinstance(verification, dict) else None
-    return dict(value) if plan_is_valid(value) else None
+    return (
+        json.loads(json.dumps(value, sort_keys=True, separators=(",", ":")))
+        if plan_is_valid(value)
+        else None
+    )
+
+
+def summary(verification: Any) -> dict[str, int]:
+    """Return authoritative incremental metrics, never Shadow counterfactuals."""
+    plan = current_plan(verification)
+    fields = (
+        "total_source_count",
+        "executed_source_count",
+        "authoritative_reuse_count",
+        "exact_reuse_count",
+        "dependency_reuse_count",
+        "safe_change_reuse_count",
+        "executed_duration_ms",
+        "estimated_avoided_ms",
+    )
+    if plan is None:
+        return {field: 0 for field in fields}
+    return {field: int(plan[field]) for field in fields}
