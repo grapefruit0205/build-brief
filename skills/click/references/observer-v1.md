@@ -1,10 +1,11 @@
 # Shadow Observer v1 contract
 
 Shadow Observer v1 is a versioned, content-free record emitted beside real argv
-verification. Phase 1 adds a Linux-only `strace` collector to the deterministic
-Phase 0 data boundary. Collection is automatic when a trusted system `strace`
-is available, but its output remains separate from evidence authority, cache,
-approval, reuse, and completion paths.
+verification. Native collection remains Linux-only through `strace`, while the
+Phase 3B.0 backend boundary selects collectors consistently on Linux, macOS and
+Windows. Collection is automatic when a trusted system `strace` is available,
+but its output remains separate from evidence authority, cache, approval,
+reuse, and completion paths.
 
 Every v1 record is heuristic telemetry. The following values are mandatory and
 immutable:
@@ -164,3 +165,20 @@ dependency observation. Linux collection, failure, absence, and record storage
 therefore cannot change whether a check runs, passes, satisfies evidence, or is
 reused. macOS and Windows retain their prior verification behavior and may keep
 an `unavailable` record.
+
+## Phase 3B.0 backend boundary
+
+`click_dependency_trace.py` remains the compatibility facade used by the
+verification runtime. Operating-system-neutral record combination, lifecycle
+storage and advisory rendering live in `click_observer_common.py`; bounded
+backend selection and capability states live in `click_observer_backend.py`;
+Linux probing, raw-event parsing and command collection live in
+`click_observer_linux.py`.
+
+Backend capability state is internal selection provenance rather than a new
+Observer v1 field. An implemented adapter may report `available`, `degraded`,
+`permission-required`, or `unavailable`, but the persisted record still uses
+only the strict v1 statuses above. Linux selection remains subject to its
+trusted executable and runtime capability probe. The macOS and Windows entries
+are explicit unavailable placeholders until separate native backend contracts
+are implemented; they never manufacture events or imply collection coverage.

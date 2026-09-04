@@ -30,6 +30,16 @@ adapter routing and runner transport. The remaining `click_gate.main` and
 `click_gate.host_router` entries are the explicit host-facing facade rather
 than private compatibility reach-through.
 
+## Shadow Observer backend boundary
+
+`hooks/click_dependency_trace.py` remains the verification-facing compatibility
+facade for Shadow Observer v1. It selects a backend through
+`hooks/click_observer_backend.py`, delegates operating-system-neutral record and
+lifecycle handling to `hooks/click_observer_common.py`, and delegates Linux
+`strace` collection and parsing to `hooks/click_observer_linux.py`. The facade
+continues to expose the existing tested entry points while native macOS and
+Windows collectors remain intentionally unavailable.
+
 ## Documented legacy symbol
 
 `click_gate._validate_contract` remains bound to
