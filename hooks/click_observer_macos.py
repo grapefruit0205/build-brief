@@ -11,7 +11,7 @@ non-authoritative Observer v1 record.
 from __future__ import annotations
 
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import sys
 
 
@@ -48,7 +48,9 @@ import errno  # noqa: E402
 from functools import lru_cache  # noqa: E402
 import hashlib  # noqa: E402
 import platform  # noqa: E402
+import posixpath  # noqa: E402
 import re  # noqa: E402
+import signal  # noqa: E402
 import subprocess  # noqa: E402
 import tempfile  # noqa: E402
 import threading  # noqa: E402
@@ -75,7 +77,10 @@ _EVENT = re.compile(
     r"(?P<operation>\S+)\s+(?P<details>.*?)\s+"
     r"\d+\.\d+(?:\s+[A-Z]+)?\s+\S+\s*$"
 )
-_ABSOLUTE_PATH = re.compile(r"(?<!\S)(/(?:[^\x00\r\n])*?)\s*$")
+_ABSOLUTE_PATH = re.compile(
+    r"(?<!\S)((?:/|[A-Za-z]:/)(?:[^\x00\r\n])*?)\s*$"
+)
+_POSIX_DRIVE_PATH = re.compile(r"^[A-Za-z]:/")
 _OPEN_FLAGS = re.compile(r"\((?P<flags>[A-Z_]{2,32})\)")
 _MISSING_ERRNO = re.compile(r"\[\s*2\s*\]")
 
@@ -237,9 +242,11 @@ def parse_fs_usage(
     """Parse bounded fs_usage text into content-free repository inputs."""
 
     try:
-        root = workspace.resolve(strict=True)
+        root_text = workspace.resolve(strict=True).as_posix()
     except (OSError, RuntimeError):
-        root = Path(os.path.abspath(workspace))
+        root_text = Path(os.path.abspath(workspace)).as_posix()
+    root_text = posixpath.normpath(root_text)
+    root = PurePosixPath(root_text)
     inputs: dict[str, dict[str, Any]] = {}
     conflicts: set[str] = set()
     external_digests: set[str] = set()
@@ -250,15 +257,20 @@ def parse_fs_usage(
     def add_path(path_text: str, *, kind: str, operation: str) -> None:
         nonlocal unresolved
         try:
-            candidate = Path(os.path.normpath(path_text))
-            if not candidate.is_absolute():
+            normalized = posixpath.normpath(path_text)
+            if not normalized.startswith("/") and _POSIX_DRIVE_PATH.match(
+                normalized
+            ) is None:
                 raise ValueError("not absolute")
+            candidate = PurePosixPath(normalized)
         except (OSError, TypeError, ValueError):
             unresolved = _bounded_add(unresolved, 1)
             return
-        if _outside_workspace(root, candidate):
+        try:
+            relative = candidate.relative_to(root).as_posix()
+        except ValueError:
             try:
-                digest = hashlib.sha256(os.fsencode(candidate)).hexdigest()
+                digest = hashlib.sha256(os.fsencode(normalized)).hexdigest()
             except (OSError, TypeError, UnicodeError, ValueError):
                 unresolved = _bounded_add(unresolved, 1)
                 return
@@ -270,11 +282,6 @@ def parse_fs_usage(
                     unresolved = _bounded_add(unresolved, 1)
                 else:
                     external_digests.add(digest)
-            return
-        try:
-            relative = candidate.relative_to(root).as_posix()
-        except ValueError:
-            unresolved = _bounded_add(unresolved, 1)
             return
         if not relative or relative == ".":
             unresolved = _bounded_add(unresolved, 1)
@@ -461,6 +468,24 @@ def _drain_stream(stream: BinaryIO, capture: _BoundedCapture) -> None:
             pass
 
 
+def _stop_collector(
+    collector: subprocess.Popen[Any],
+    *,
+    terminate_group: TerminateGroup,
+) -> int:
+    """Request fs_usage's graceful flush, then use the shared hard fallback."""
+
+    if collector.poll() is not None:
+        return int(collector.returncode or 0)
+    if os.name != "nt":
+        try:
+            os.killpg(collector.pid, signal.SIGINT)
+            return int(collector.wait(timeout=1.0))
+        except (OSError, subprocess.SubprocessError, TypeError, ValueError):
+            pass
+    return int(terminate_group(collector))
+
+
 def _release_target(fifo: Path, *, timeout: float = LAUNCH_RELEASE_SECONDS) -> bool:
     deadline = time.monotonic() + max(0.0, timeout)
     while time.monotonic() <= deadline:
@@ -614,7 +639,7 @@ def collect_command(
                 failed = True
         if collector is not None and collector.poll() is None:
             try:
-                terminate_group(collector)
+                _stop_collector(collector, terminate_group=terminate_group)
             except Exception:
                 failed = True
         for reader in readers:

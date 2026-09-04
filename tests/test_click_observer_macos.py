@@ -70,6 +70,12 @@ class ClickObserverMacOSTests(unittest.TestCase):
     def trace_text(self, *lines: str) -> bytes:
         return ("\n".join(lines) + "\n").encode()
 
+    def fake_fifo_location(self) -> tuple[Path, Path]:
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        directory = Path(temporary.name).resolve()
+        return directory, directory / "launch.pipe"
+
     def test_parser_normalizes_inputs_and_never_retains_external_paths(self) -> None:
         root = self.workspace.as_posix()
         raw = self.trace_text(
@@ -337,6 +343,7 @@ class ClickObserverMacOSTests(unittest.TestCase):
 
     def test_collector_uses_pid_filter_and_cleans_external_fifo(self) -> None:
         launches: list[list[str]] = []
+        directory, fifo = self.fake_fifo_location()
         launcher = _FakeProcess(pid=4321, returncode=4)
         collector = _FakeProcess(
             pid=4322,
@@ -355,8 +362,15 @@ class ClickObserverMacOSTests(unittest.TestCase):
             terminated.append(child.pid)
             return child.terminate_for_test()
 
-        with mock.patch.object(
-            click_observer_macos, "_release_target", return_value=True
+        with (
+            mock.patch.object(
+                click_observer_macos,
+                "_create_launch_fifo",
+                return_value=(directory, fifo),
+            ),
+            mock.patch.object(
+                click_observer_macos, "_release_target", return_value=True
+            ),
         ):
             result = click_observer_macos.collect_command(
                 ["tool", "--flag"],
@@ -380,6 +394,7 @@ class ClickObserverMacOSTests(unittest.TestCase):
 
     def test_collector_interrupt_stops_both_retained_groups(self) -> None:
         launches: list[list[str]] = []
+        directory, fifo = self.fake_fifo_location()
         launcher = _FakeProcess(pid=5321, returncode=0, running=True, interrupt=True)
         collector = _FakeProcess(pid=5322, returncode=0, running=True)
 
@@ -393,8 +408,15 @@ class ClickObserverMacOSTests(unittest.TestCase):
             terminated.append(child.pid)
             return child.terminate_for_test()
 
-        with mock.patch.object(
-            click_observer_macos, "_release_target", return_value=True
+        with (
+            mock.patch.object(
+                click_observer_macos,
+                "_create_launch_fifo",
+                return_value=(directory, fifo),
+            ),
+            mock.patch.object(
+                click_observer_macos, "_release_target", return_value=True
+            ),
         ):
             result = click_observer_macos.collect_command(
                 ["tool"],
@@ -411,6 +433,7 @@ class ClickObserverMacOSTests(unittest.TestCase):
 
     def test_collector_early_exit_after_release_marks_trace_failed(self) -> None:
         launches: list[list[str]] = []
+        directory, fifo = self.fake_fifo_location()
         collector = _FakeProcess(
             pid=6322,
             returncode=2,
@@ -432,8 +455,15 @@ class ClickObserverMacOSTests(unittest.TestCase):
             launches.append(list(argv))
             return launcher if len(launches) == 1 else collector
 
-        with mock.patch.object(
-            click_observer_macos, "_release_target", return_value=True
+        with (
+            mock.patch.object(
+                click_observer_macos,
+                "_create_launch_fifo",
+                return_value=(directory, fifo),
+            ),
+            mock.patch.object(
+                click_observer_macos, "_release_target", return_value=True
+            ),
         ):
             result = click_observer_macos.collect_command(
                 ["tool"],
@@ -477,7 +507,8 @@ class MacOSNativeSmokeTests(unittest.TestCase):
                             "-S",
                             "-B",
                             "-c",
-                            "from pathlib import Path; Path('input.txt').read_bytes()",
+                            "from pathlib import Path; import time; "
+                            "Path('input.txt').read_bytes(); time.sleep(1)",
                         ],
                         cwd=workspace,
                         env=dict(os.environ),
@@ -491,7 +522,8 @@ class MacOSNativeSmokeTests(unittest.TestCase):
                     "-S",
                     "-B",
                     "-c",
-                    "from pathlib import Path; Path('input.txt').read_bytes()",
+                    "from pathlib import Path; import time; "
+                    "Path('input.txt').read_bytes(); time.sleep(1)",
                 ],
                 workspace=workspace,
                 environment=dict(os.environ),
