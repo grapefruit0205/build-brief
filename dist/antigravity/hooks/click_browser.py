@@ -249,6 +249,68 @@ def prepare(
                 "One browser evidence call is already running; keep the session serial.",
                 "",
             )
+        ledger, ledger_error = click_claims.validate_ledger(
+            state.get("capability_ledger")
+        )
+        if ledger_error or ledger is None:
+            return (
+                True,
+                "Click could not safely close the expired Browser capability claim.",
+                "",
+            )
+        expired_claims: list[tuple[str, str, int]] = []
+        for tool_use_id, running_entry in running.items():
+            binding_digest = click_claims.host_binding_digest(str(tool_use_id))
+            matches = [
+                entry
+                for entry in ledger["entries"]
+                if entry["capability"] == "browser"
+                and entry["claim_mode"] == "host-tool-use"
+                and entry["binding_digest"] == binding_digest
+                and entry["result"]["status"] == "running"
+            ]
+            if len(matches) != 1:
+                return (
+                    True,
+                    "Click could not safely match the expired Browser capability claim.",
+                    "",
+                )
+            request_digest = str(matches[0]["request_digest"])
+            stored_digest = (
+                str(running_entry.get("attempt_digest", ""))
+                if isinstance(running_entry, dict)
+                else ""
+            )
+            if stored_digest and stored_digest != request_digest:
+                return (
+                    True,
+                    "Click expired Browser state did not match its capability claim.",
+                    "",
+                )
+            expired_claims.append(
+                (
+                    request_digest,
+                    binding_digest,
+                    int(matches[0]["mutation_revision"]),
+                )
+            )
+        if not all(
+            click_claims.complete_claim(
+                state,
+                capability="browser",
+                claim_mode="host-tool-use",
+                request_digest=request_digest,
+                binding_digest=binding_digest,
+                mutation_revision=claimed_revision,
+                exit_code=124,
+            )
+            for request_digest, binding_digest, claimed_revision in expired_claims
+        ):
+            return (
+                True,
+                "Click could not safely record the expired Browser capability claim.",
+                "",
+            )
         attempts = external.get("browser_attempts")
         if not isinstance(attempts, dict):
             attempts = {}

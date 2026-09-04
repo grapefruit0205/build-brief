@@ -205,9 +205,13 @@ class RepositoryPolicyTests(unittest.TestCase):
         english = (ROOT / "README.md").read_text(encoding="utf-8")
         korean = (ROOT / "README.ko.md").read_text(encoding="utf-8")
         chinese = (ROOT / "README.zh-CN.md").read_text(encoding="utf-8")
-        self.assertIn("renders that exact value once", english)
-        self.assertIn("같은 뜻을 별도의 두 번째 요약으로 다시 쓰지 않습니다", korean)
-        self.assertIn("不会把同一说明输出两遍", chinese)
+        self.assertIn("one plain-language contract", english)
+        self.assertIn("original canonical JSON stays hidden", english)
+        self.assertIn("Approve, request changes, cancel, and view original", english)
+        self.assertIn("위 계약문은 쉽게 풀어 설명한 것입니다", korean)
+        self.assertIn("승인, 수정 요청, 취소, 원문 보기", korean)
+        self.assertIn("通俗易懂的合同", chinese)
+        self.assertIn("批准、要求修改、取消或查看原文", chinese)
 
     def test_readmes_document_distinct_turn_approval_and_git_mutation_guard(self) -> None:
         english = (ROOT / "README.md").read_text(encoding="utf-8")
@@ -322,7 +326,7 @@ class RepositoryPolicyTests(unittest.TestCase):
         golden = (ROOT / "evals" / "golden-prompts.yaml").read_text(
             encoding="utf-8"
         )
-        self.assertIn("version: 23", golden)
+        self.assertIn("version: 24", golden)
         self.assertIn(
             "## Evidence-bound completion in v0.21.0",
             (ROOT / "README.md").read_text(encoding="utf-8"),
@@ -455,6 +459,10 @@ class RepositoryPolicyTests(unittest.TestCase):
         self.assertIn("hooks/click_verification_meter.py", classification)
         self.assertIn("hooks/click_browser_advisory.py", classification)
         self.assertIn("hooks/click_dependency_cache.py", classification)
+        self.assertIn("hooks/click_dependency_trace.py", classification)
+        self.assertIn("hooks/click_evidence_shards.py", classification)
+        self.assertIn("hooks/click_shadow_intelligence.py", classification)
+        self.assertIn("hooks/click_shadow_dashboard.py", classification)
         self.assertIn("hooks/click_host_coverage.py", classification)
 
         gate_runtime = (ROOT / "hooks" / "click_gate.py").read_text(
@@ -542,6 +550,10 @@ class RepositoryPolicyTests(unittest.TestCase):
                 "click_contract.py",
                 "click_contract_state.py",
                 "click_dependency_cache.py",
+                "click_dependency_trace.py",
+                "click_evidence_shards.py",
+                "click_shadow_dashboard.py",
+                "click_shadow_intelligence.py",
                 "click_evidence.py",
                 "click_receipt.py",
                 "click_receipt_runtime.py",
@@ -683,6 +695,7 @@ class RepositoryPolicyTests(unittest.TestCase):
 
         for required in (
             "RECEIPT_VERSION = 2",
+            "SHARD_RECEIPT_VERSION = 3",
             "def validate_receipt(",
             "def canonical_bytes(",
             "def receipt_digest(",
@@ -876,7 +889,7 @@ class RepositoryPolicyTests(unittest.TestCase):
         catalog = (
             ROOT / "evals" / "golden-prompts.yaml"
         ).read_text(encoding="utf-8")
-        self.assertIn("version: 23", catalog)
+        self.assertIn("version: 24", catalog)
         for case_id in (
             "unset-evidence-default",
             "evidence-trivial-edit",
@@ -890,6 +903,7 @@ class RepositoryPolicyTests(unittest.TestCase):
         self.assertIn("id: structured-capability-review", catalog)
         self.assertIn("id: completed-contract-rollover", catalog)
         self.assertIn("id: verification-minimum-class", catalog)
+        self.assertIn("id: broad-suite-evidence-shards", catalog)
         self.assertIn("id: verification-workspace-mutation", catalog)
         self.assertIn("id: distinct-turn-contract-approval", catalog)
         self.assertIn("id: active-lifecycle-plan-advisory", catalog)

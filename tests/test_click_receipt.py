@@ -102,6 +102,35 @@ def _valid_receipt() -> dict[str, object]:
     }
 
 
+def _valid_sharded_receipt() -> dict[str, object]:
+    receipt = _valid_receipt()
+    receipt["version"] = 3
+    receipt["authority"] = {
+        "mode": "guarded",
+        "approval_bound": True,
+        "execution_authority": "click-contract",
+        "intent_digest": _digest("a"),
+        "intent_turn_id": "turn-stage",
+        "follow_up_turns": [],
+        "history_complete": True,
+    }
+    shared = {
+        "provider": "repository-evidence-shards-v1",
+        "parent_source_key": _digest("f"),
+        "parent_check_digest": _digest("6"),
+        "shard_count": 2,
+        "plan_digest": _digest("7"),
+        "entry_digest": _digest("8"),
+        "inventory_digest": _digest("9"),
+    }
+    alpha = _argv_source(_digest("1"))
+    alpha["shard"] = {**shared, "shard_id": "alpha"}
+    beta = _argv_source(_digest("2"))
+    beta["shard"] = {**shared, "shard_id": "beta"}
+    receipt["evidence"] = [beta, alpha]
+    return receipt
+
+
 class ClickReceiptTests(unittest.TestCase):
     def test_antigravity_distribution_contains_the_exact_receipt_module(self) -> None:
         root = Path(__file__).resolve().parents[1]
@@ -146,6 +175,36 @@ class ClickReceiptTests(unittest.TestCase):
             normalized["coverage"]["excluded"],
             sorted(click_receipt.BASE_COVERAGE_EXCLUSIONS),
         )
+
+    def test_v3_binds_one_complete_shard_set_and_v2_remains_strict(self) -> None:
+        receipt = _valid_sharded_receipt()
+        normalized, error = click_receipt.validate_receipt(receipt)
+
+        self.assertEqual(error, "")
+        assert normalized is not None
+        self.assertEqual(normalized["version"], 3)
+        self.assertEqual(
+            [source["shard"]["shard_id"] for source in normalized["evidence"]],
+            ["alpha", "beta"],
+        )
+
+        incomplete = copy.deepcopy(receipt)
+        incomplete["evidence"].pop()  # type: ignore[union-attr]
+        rejected, error = click_receipt.validate_receipt(incomplete)
+        self.assertIsNone(rejected)
+        self.assertIn("incomplete", error)
+
+        mismatched = copy.deepcopy(receipt)
+        mismatched["evidence"][0]["shard"]["plan_digest"] = _digest("0")  # type: ignore[index]
+        rejected, error = click_receipt.validate_receipt(mismatched)
+        self.assertIsNone(rejected)
+        self.assertIn("incomplete", error)
+
+        legacy_shape = _valid_receipt()
+        legacy_shape["evidence"][1]["shard"] = None  # type: ignore[index]
+        rejected, error = click_receipt.validate_receipt(legacy_shape)
+        self.assertIsNone(rejected)
+        self.assertIn("unsupported field", error)
 
     def test_unknown_sensitive_or_self_referential_fields_fail_closed(self) -> None:
         for path, field in (

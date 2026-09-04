@@ -57,23 +57,23 @@ execution_authority: host
 
 ### Guarded: 잘못 바꾸면 위험한 작업에 사용합니다
 
-사용자는 복잡한 JSON 대신 네 부분만 확인합니다.
+사용자에게는 개발자용 필드 목록 대신 쉬운 계약문을 먼저 보여줍니다. 예를 들면 다음과 같습니다.
 
 ~~~text
-작업 목표
-무엇이 완성되어야 하나요?
-
-변경 범위
-어디까지 바꿔도 되나요?
-
-변경하지 않는 부분
-무엇을 그대로 두어야 하나요?
-
-완료 확인
-무엇이 통과하면 끝인가요?
+Revision 12에서 src/auth/token.py가 변경됐습니다.
+이 파일을 입력으로 사용했던 인증 테스트가 영향을 받았습니다.
+이전 테스트 결과는 오래된 상태가 됐고, 현재는 재실행이 필요합니다.
+Click은 어떤 revision에서 무엇이 바뀌었고 어떤 검사가 영향을 받았는지, 왜 이전 결과가 무효화됐는지, 무엇이 통과하면 끝인지 기록합니다.
+이 정보는 보여주기만 하며 테스트 생략 권한을 만들지 않습니다.
+이번 계약에는 UI, 테스트 자동 생략, 외부 전송이 포함되지 않습니다.
+한 문장으로 줄이면, 미래의 Evidence Map 화면이 믿고 읽을 수 있는 안전한 데이터 계층을 만드는 작업입니다.
 ~~~
 
-원본 JSON은 필요할 때만 기술 계약으로 볼 수 있습니다. 승인 후 기존 범위 안의 세부 요청은 다시 승인하지 않고 계속 처리합니다.
+원문 JSON은 사용자가 원문 계약문을 요청할 때만 보여줍니다. 원문을 보는 것은 승인·변경·재계약이 아니며 같은 계약 ID를 유지합니다. 마지막에는 다음처럼 묻습니다.
+
+> 위 계약문은 쉽게 풀어 설명한 것입니다. 이대로 승인하시겠습니까, 아니면 원문 계약문을 먼저 보시겠습니까?
+
+승인, 수정 요청, 취소, 원문 보기 중에서 선택할 수 있습니다. 승인 후 기존 범위 안의 세부 요청은 다시 승인하지 않고 계속 처리합니다.
 
 ## 설치
 
@@ -106,7 +106,7 @@ Guarded를 직접 선택할 수도 있습니다.
 
 ## 업데이트
 
-현재 릴리스: **v0.51.1**
+현재 릴리스: **v0.60.0**
 
 ~~~bash
 codex plugin marketplace upgrade click
@@ -167,6 +167,13 @@ README나 문서처럼 특정 검사에 영향을 주지 않는다고 저장소�
 Git과 플러그인의 Python만 사용하므로 Linux, macOS, Windows에서 별도 관찰기나
 추가 설치가 필요 없습니다. 이 목록은 저장소 소유자의 명시적 정책이며 Click이
 모든 의존성을 자동 발견했다는 뜻은 아닙니다.
+커밋된 [Evidence Shards 맵](skills/click/references/evidence-shards-v1.md)은 정확한 broad suite 하나를 독립 자식으로 나눠, 뒤의 shard가 실패해도 앞의 통과 결과를 보존합니다. 이 맵만으로 mutation 뒤 재사용할 수는 없으며 위 규칙이 자식별로 다시 적용되고, 맵이 잘못되면 원래 suite를 실행합니다.
+
+Linux에서는 신뢰할 수 있는 시스템 `strace`로 실제 argv 검사를 함께 관찰합니다.
+Phase 2는 다음 실제 재실행 전에 비권위 예측을 고정하고, 실행 뒤 결과를 평가해
+현재 lifecycle의 Evidence Map과 정직한 ROI 화면으로 보여줍니다. 모든 검사는 계속
+실행되며 실제 절약 시간은 0입니다. `click-gate dashboard start`, `status`, `stop`으로
+열고 확인하고 닫습니다. 관찰 불가나 실패도 기존 검증 동작을 바꾸지 않습니다.
 
 ## 완료 영수증
 
@@ -220,6 +227,7 @@ README는 일부러 쉽게 유지합니다. 세부 프로토콜은 아래 문서
 - [Guarded 계약 형식](skills/click/references/directive-format.md)
 - [검증 profile](skills/click/references/verification-profiles.md)
 - [Capability protocol](skills/click/references/capability-protocol.md)
+- [Shadow Observer v1](skills/click/references/observer-v1.md), [Shadow Intelligence v1](skills/click/references/shadow-intelligence-v1.md), [Evidence Shards v1](skills/click/references/evidence-shards-v1.md)
 - [Anti-loop 정책](skills/click/references/anti-loop-policy.md)
 
 ## 라이선스

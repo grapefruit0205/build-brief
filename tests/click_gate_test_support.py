@@ -43,6 +43,8 @@ CLICK_LIFECYCLE = CLICK_GATE.click_lifecycle
 CLICK_MUTATION = CLICK_GATE.click_mutation
 CLICK_PROMPT = CLICK_GATE.click_prompt
 CLICK_SERVICE = CLICK_GATE.click_service
+CLICK_SHADOW_DASHBOARD = CLICK_GATE.click_shadow_dashboard
+CLICK_SHADOW_INTELLIGENCE = CLICK_GATE.click_shadow_intelligence
 CLICK_STATE = CLICK_GATE.click_state
 CLICK_VERIFICATION = CLICK_GATE.click_verification
 

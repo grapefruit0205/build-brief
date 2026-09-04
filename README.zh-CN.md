@@ -55,23 +55,27 @@ execution_authority: host
 
 ### Guarded：风险较高时使用
 
-用户看到的是四个容易理解的部分，而不是原始 JSON：
+用户首先看到的是一份通俗易懂的合同，而不是开发者字段列表。例如：
 
 ~~~text
-目标
-完成后应该得到什么？
+Revision 12 修改了 src/auth/token.py。
+使用这个文件作为输入的认证测试会受到影响。
+以前的测试结果已经过期，现在需要重新运行。
 
-变更范围
-允许修改什么？
+Click 会记录哪一版修改了什么、哪些检查受影响、旧结果为何失效，
+以及怎样确认工作完成。这些数据只用于说明状态，不会授权跳过测试。
+这份合同不包含 UI、自动跳过测试或向外部发送数据。
 
-保持不变
-什么必须兼容或不能触碰？
-
-完成检查
-怎样确认任务完成？
+一句话概括：先建立一个让未来 Evidence Map 可以安全读取的数据层。
 ~~~
 
-原始 JSON 只是可选技术细节。批准发生在后续用户 turn；批准后，原范围内的细节调整无需反复批准。
+只有用户要求查看原始合同时，才显示规范 JSON。查看原文不会批准、修改
+或重新暂存合同，并且继续使用同一个合同 ID。最后的问题等价于：
+
+> 上面的合同已经用通俗语言说明。您要按当前内容批准，还是先查看原始合同？
+
+用户可以选择批准、要求修改、取消或查看原文。批准发生在后续用户 turn；
+批准后，原范围内的细节调整无需反复批准。
 
 ## 安装
 
@@ -104,7 +108,7 @@ Evidence 模式下直接提出普通请求即可：
 
 ## 更新
 
-当前版本：**v0.51.1**
+当前版本：**v0.60.0**
 
 ~~~bash
 codex plugin marketplace upgrade click
@@ -161,6 +165,13 @@ observer 的安全改动策略：
 后的额外漂移都会触发真实检查。策略文件不能把自身声明为安全路径。该流程只用
 Git 和插件自带的 Python，因此 Linux、macOS 与 Windows 都无需另装平台 observer。
 此列表是仓库所有者的明确策略，并不表示 Click 自动发现了全部依赖。
+已提交的 [Evidence Shards 映射](skills/click/references/evidence-shards-v1.md)可把一个精确 broad suite 拆成独立子项，并在后续 shard 失败时保留先前通过结果。该映射本身不能授权 mutation 后复用；上述规则仍逐项生效，映射无效时会执行原始 suite。
+
+在 Linux 上，Click 可用可信的系统 `strace` 旁路观察真实 argv 检查。Phase 2 会在
+下一次真实重跑前固定非权威预测，执行后再评估，并把当前 lifecycle 显示为本地
+Evidence Map 和诚实的 ROI 视图。所有检查仍会执行，实际节省时间恒为零。使用
+`click-gate dashboard start`、`status`、`stop` 打开、查看或关闭；观察失败不会
+改变原有验证行为。
 
 ## 完成 receipt
 
@@ -214,6 +225,7 @@ README 有意保持简单。协议和架构细节放在以下文档：
 - [Guarded contract 格式](skills/click/references/directive-format.md)
 - [验证 profile](skills/click/references/verification-profiles.md)
 - [Capability protocol](skills/click/references/capability-protocol.md)
+- [Shadow Observer v1](skills/click/references/observer-v1.md)、[Shadow Intelligence v1](skills/click/references/shadow-intelligence-v1.md) 与 [Evidence Shards v1](skills/click/references/evidence-shards-v1.md)
 - [Anti-loop policy](skills/click/references/anti-loop-policy.md)
 
 ## 许可证

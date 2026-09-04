@@ -19,7 +19,9 @@ plugin. It maps Antigravity lifecycle and mutation tools onto that common runtim
 ## Modes
 
 - **Evidence** is the default: Antigravity retains host authority while Click records prompt lineage, mutation revisions, exact checks, cache lineage, and an approval-free receipt.
-- **Guarded** adds one human-readable approval contract for higher-risk work.
+- **Guarded** adds one plain-language approval contract for higher-risk work.
+  Its canonical technical object stays hidden unless the user requests the
+  original; viewing it keeps the same id and does not count as approval.
 - **Off** leaves ordinary work unmanaged; explicit `@Click` may still start Guarded.
 
 Existing pre-v2 `on` and `manual` preferences migrate once to Evidence. An active Guarded contract remains locked until completion or explicit cancellation.
@@ -61,6 +63,9 @@ model's claim that the earlier result is still valid.
   `.click/evidence-reuse.json` safe-change policy and Git preflight on Linux,
   macOS, and Windows. Any unlisted or ambiguous change runs the real check; no
   platform tracer or additional package is required.
+- Committed `.click/evidence-shards.json` broad-suite decomposition uses the
+  same shared child ledger, fallback, per-child reuse, and receipt v3 rules as
+  Codex. It requires no Antigravity-specific observer or command parser.
 
 - Proposal and approval separation requires a fully idle `model_stop`, a new
   readable user transcript entry, and the following `PreInvocation`. The Skill

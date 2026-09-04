@@ -30,6 +30,7 @@ if __package__:
         click_prompt,
         click_runtime_state,
         click_service,
+        click_shadow_dashboard,
         click_state,
         click_verification,
     )
@@ -46,6 +47,7 @@ else:  # Executed directly from the bundled hooks directory.
     import click_prompt
     import click_runtime_state
     import click_service
+    import click_shadow_dashboard
     import click_state
     import click_verification
 
@@ -128,6 +130,9 @@ def _write_contract_state(
             "observations": click_observation.fresh_state(),
             "mutation": click_mutation.fresh_state(),
             "service": click_service.fresh_state(),
+            click_shadow_dashboard.DASHBOARD_FIELD: (
+                click_shadow_dashboard.fresh_state()
+            ),
             "updated_at": int(time.time()),
         },
     )
@@ -167,6 +172,9 @@ def _fresh_evidence_state(
         "observations": click_observation.fresh_state(),
         "mutation": click_mutation.fresh_state(),
         "service": click_service.fresh_state(),
+        click_shadow_dashboard.DASHBOARD_FIELD: (
+            click_shadow_dashboard.fresh_state()
+        ),
         "updated_at": int(time.time()),
     }
 
@@ -354,6 +362,12 @@ def _control_request(command: str) -> tuple[str | None, str, str]:
         return "mode", tokens[2], ""
     if len(tokens) == 3 and tokens[1:3] == ["receipt", "export"]:
         return "receipt-export", "", ""
+    if len(tokens) == 3 and tokens[1] == "dashboard" and tokens[2] in {
+        "start",
+        "stop",
+        "status",
+    }:
+        return "dashboard", tokens[2], ""
     if len(tokens) == 4 and tokens[1:3] == ["receipt", "verify"]:
         return "receipt-verify", tokens[3], ""
     if len(tokens) == 3 and tokens[1] in {
@@ -374,6 +388,7 @@ def _control_request(command: str) -> tuple[str | None, str, str]:
         f"`{CONTROL_COMMAND} inspect '<Inspection JSON>'`, "
         f"`{CONTROL_COMMAND} mutate '<Mutation JSON>'`, "
         f"`{CONTROL_COMMAND} service '<Managed Service JSON>'`, "
+        f"`{CONTROL_COMMAND} dashboard start|stop|status`, "
         f"`{CONTROL_COMMAND} evidence '<Evidence Completion JSON>'`, "
         f"`{CONTROL_COMMAND} verify '<Verification Batch JSON>'`, "
         f"`{CONTROL_COMMAND} receipt export`, "
@@ -421,8 +436,10 @@ def prompt_context(event: dict[str, Any]) -> str:
             "kind `browser`; calls remain serial and receipt-bound while repeat and timing "
             "guidance is advisory. Use "
             "`click-gate bypass` only when the user explicitly opts out for the current turn. "
-            "Present approval as four human sections: goal, changes, unchanged safeguards, "
-            "and completion checks. Keep raw JSON in optional technical details. An in-scope "
+            "Present the exact digest-bound easy contract once as the default approval "
+            "body. Keep the original canonical JSON hidden unless the user asks for it, "
+            "and treat viewing it as neither approval nor a replacement stage. Offer "
+            "approve, request changes, cancel, and view-original choices. An in-scope "
             "detail or narrowing instruction continues under the same contract and is recorded "
             "as a follow-up turn; require a new contract only when outcome, boundary, must-hold "
             "behavior, or verification commitment changes."
@@ -661,7 +678,7 @@ def pass_contract(event: dict[str, Any], contract_id: str) -> tuple[str, str]:
             "",
             "The contract_id differs from the proposal staged for user approval. "
             "Pass the exact id emitted by stage, or replace the proposal before "
-            "approval and show both contract views again.",
+            "approval and show the new easy contract again.",
         )
     if staged.get("status") == "staged":
         staged["approved_turn_id"] = current_turn_id

@@ -13,6 +13,7 @@ if __package__:
     from . import (
         click_claims,
         click_evidence,
+        click_evidence_shards,
         click_host_coverage,
         click_mutation,
         click_observation,
@@ -21,6 +22,7 @@ if __package__:
 else:  # Executed directly from the bundled hooks directory.
     import click_claims
     import click_evidence
+    import click_evidence_shards
     import click_host_coverage
     import click_mutation
     import click_observation
@@ -131,6 +133,7 @@ def _evidence_receipts(
     workspace_root: str,
     workspace_digest: str,
     host_coverage: dict[str, Any],
+    receipt_version: int,
 ) -> tuple[list[dict[str, Any]] | None, str]:
     receipts: list[dict[str, Any]] = []
     for source_key, source in sorted(sources.items()):
@@ -203,8 +206,7 @@ def _evidence_receipts(
                 "from_revision": revision,
                 "dependency_digest": "",
             }
-        receipts.append(
-            {
+        receipt_source = {
                 "source_key": source_key,
                 "kind": kind,
                 "verified_revision": revision,
@@ -218,7 +220,17 @@ def _evidence_receipts(
                 },
                 "lineage": lineage,
             }
-        )
+        if receipt_version == click_receipt.SHARD_RECEIPT_VERSION:
+            metadata = source.get("shard")
+            receipt_source["shard"] = (
+                {
+                    field: metadata[field]
+                    for field in click_receipt.SHARD_FIELDS
+                }
+                if click_evidence_shards.source_metadata_is_valid(metadata)
+                else None
+            )
+        receipts.append(receipt_source)
     if not receipts:
         return None, "Click cannot export a receipt without declared completion evidence."
     return receipts, ""
@@ -259,12 +271,22 @@ def build_envelope(
     workspace, normalized_root, error = _workspace_receipt(workspace_snapshot)
     if error:
         return None, error
+    receipt_version = (
+        click_receipt.SHARD_RECEIPT_VERSION
+        if any(
+            click_evidence_shards.source_metadata_is_valid(source.get("shard"))
+            for source in sources.values()
+            if isinstance(source, dict)
+        )
+        else click_receipt.RECEIPT_VERSION
+    )
     evidence, error = _evidence_receipts(
         sources,
         revision=revision,
         workspace_root=normalized_root,
         workspace_digest=str(workspace.get("tree_digest", "")),
         host_coverage=host_coverage,
+        receipt_version=receipt_version,
     )
     if error:
         return None, error
@@ -293,7 +315,7 @@ def build_envelope(
     intent_digest = state.get("intent_digest", state.get("contract_digest"))
     intent_turn_id = state.get("intent_turn_id", state.get("staged_turn_id"))
     body = {
-        "version": click_receipt.RECEIPT_VERSION,
+        "version": receipt_version,
         "authority": {
             "mode": "guarded" if guarded else "evidence",
             "approval_bound": guarded,

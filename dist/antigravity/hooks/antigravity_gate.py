@@ -231,7 +231,7 @@ def _guarded_continuation_context(
                 return (
                     "Click Guarded mode already staged contract_id "
                     f"`{contract_id}` in this user execution. The existing "
-                    "Hook-generated projection was already returned for presentation. "
+                    "Hook-generated easy contract was already returned for presentation. "
                     "Do not compile, stage, present, or request approval for another "
                     "contract; finish this execution and wait for the user's next response."
                 )
@@ -240,8 +240,10 @@ def _guarded_continuation_context(
                 "Click Guarded mode already staged contract_id "
                 f"`{contract_id}` in this user execution. Do not compile or stage "
                 "another contract and do not pass this one yet. Present the existing "
-                "Hook-generated projection exactly once, ask for approval once, then "
-                "finish this execution and wait for a later user response."
+                "Hook-generated easy contract exactly once, keep the original contract "
+                "hidden unless requested, offer approval, changes, cancellation, or "
+                "original-view once, then finish this execution and wait for a later "
+                "user response."
             )
         return (
             "Click Guarded mode has active staged contract_id "

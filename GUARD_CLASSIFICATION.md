@@ -1,6 +1,6 @@
 # Click Guard Classification
 
-Status: **Living inventory; v0.30 policy migrations complete; dependency-aware receipt reuse completed for v0.31.0; host coverage identity completed for v0.32.0; runtime domain boundaries completed for v0.33.0; completion receipts completed for v0.34.0; Evidence/Guarded dual authority completed for v0.35.0; authority-preserving migration and Hook-rendered approval projection completed for v0.36.0**
+Status: **Living inventory; v0.30 policy migrations complete; dependency-aware receipt reuse completed for v0.31.0; host coverage identity completed for v0.32.0; runtime domain boundaries completed for v0.33.0; completion receipts completed for v0.34.0; Evidence/Guarded dual authority completed for v0.35.0; authority-preserving migration and Hook-rendered approval projection completed for v0.36.0; non-authoritative Shadow Intelligence Phase 2, plain-language-first Guarded presentation, and Evidence Shards staged for v0.52**
 
 Baseline: **v0.24.6 plus the canonical product-boundary change at `73072a9`**
 
@@ -22,6 +22,7 @@ not claim that every hard gate has already been moved to its target layer.
 | Browser source admission, serial-call interlock, stable host-call/result mapping, current revision and finalization replay | `hooks/click_browser.py`; host routing in `hooks/click_gate.py` | Prevents an unassigned, parallel, mismatched, stale or replayed Browser result from completing evidence without judging the model's interaction strategy |
 | Protected Git-tree, environment and executable fingerprints for argv verification; verification-time mutation detection | receipt helpers and runners in `hooks/click_verification.py` | Preserves the identity of the code and environment actually checked by Click's argv runner |
 | Opt-in dependency provider, relevant-entry and resolved-path receipts, plus approved mutation pre/post binding | `hooks/click_dependency_cache.py`; mutation-boundary and receipt transitions in `hooks/click_mutation.py` | Allows cross-revision reuse without treating a model's post-approval assertion, unrelated manifest content, or later workspace drift as proof |
+| Committed broad-suite decomposition, exact inventory partition, child identity, pre-execution revalidation, and complete shard aggregation | `hooks/click_evidence_shards.py`; registry transitions in `hooks/click_evidence.py`; verification integration in `hooks/click_verification.py`; receipt v3 in `hooks/click_receipt.py` | Retains honest partial successes without letting an edited map, missing child, command substitution, or shard declaration manufacture completion or cross-revision reuse |
 | Direct-argv capability safety, executable/path/environment checks, process-control rejection and read-only side-effect defenses | shared protocol validation in `hooks/click_capability.py`; inspection policy and hardened execution in `hooks/click_inspection.py`; mutation admission in `hooks/click_mutation.py` | Prevents an admitted inspect, verify or service request from gaining unapproved effects |
 | Mutation, observation, verification and managed-service interlocks around active runner claims | mutation reservation and claim state in `hooks/click_mutation.py`; observation reservations and claims in `hooks/click_observation.py`; verification state in `hooks/click_verification.py`; managed-service state in `hooks/click_service.py` | Prevents an authorized side effect or receipt from racing into a different state without treating distinct observation concurrency as authority |
 | Host coverage identity, event normalization and state/receipt-preserving result mapping | `hooks/click_host_coverage.py`, `hooks/click_hook.py`, `hooks/antigravity_gate.py`, `hooks/platform_protocol.py` | Keeps the known pre/post surface symmetric and prevents verification receipts from crossing a host or coverage-registry revision while making the limited assurance explicit |
@@ -46,6 +47,10 @@ not claim that every hard gate has already been moved to its target layer.
 | Legacy verification class-unit values | `hooks/click_verification_policy.py` and `hooks/click_verification_meter.py` | Compatibility data only — they do not produce runtime advice, prove cost or sufficiency, or participate in receipt authority |
 | Requiring a mutation after a fixed number of otherwise legitimate failed retries | argv handling in `hooks/click_verification.py` and Browser retry handling | Advisory only in v0.30.0; fresh authorization remains distinct from replay of an active or consumed runner |
 | Browser repeat/retry guidance, preferred timing thresholds and interaction-history depth | `hooks/click_browser_advisory.py`; bounded history compaction in Browser preparation | Advisory only — normalized repeats and long timed interactions remain receipt-bound and allowed; old per-input guidance is compacted instead of blocking a new call |
+| Linux Shadow Observer collection and status | schema in `hooks/click_dependency_cache.py`, collection in `hooks/click_dependency_trace.py`, and isolated storage in `hooks/click_verification.py` | Telemetry only — every record is non-authoritative, never permits reuse, never changes check execution or result, and is excluded from completion receipts |
+| Shadow input fingerprints, pre-run predictions and post-run evaluations | `hooks/click_shadow_intelligence.py`; preparation and result wiring in `hooks/click_verification.py` | Telemetry only — every real check still runs exactly once; prediction agreement is measured after the run and never becomes evidence, reuse, approval, completion, or receipt authority |
+| Local Evidence Map and Shadow ROI dashboard | sanitized projection in `hooks/click_shadow_intelligence.py`, read-only loopback server in `hooks/click_shadow_dashboard.py`, and lifecycle routing in `hooks/click_lifecycle.py` | Explanatory view only — it exposes no raw state or state-changing endpoint, and start/stop cannot change revision, evidence, or completion |
+| Plain-language-first Guarded contract presentation and optional original disclosure | `hooks/click_contract.py`, Skills, documentation, and semantic grader | User-facing explanation policy — the easy body must preserve the canonical meaning, while digest, ID, later-turn approval, and mutation authority remain Core |
 | Contract compactness, planning prose and workflow-shape preferences beyond parser or transport safety | `hooks/click_contract.py` schema policy | Keep only identity-bearing protocol fields in Core |
 | Main Skill authoring compactness | reference split, plugin validation and review | Heuristic documentation quality — no word-count permission gate; required links and protocol structure remain testable without optimizing prose to an arbitrary number |
 
@@ -97,6 +102,19 @@ not claim that every hard gate has already been moved to its target layer.
   emitted an event for every capability it may expose.
 - Current state and receipts are inspectable, but Click does not keep an
   append-only durable history of every authorization and evidence transition.
+- The Linux Shadow Observer is syscall-derived best-effort telemetry. Partial,
+  unknown, truncated, or externally resolved inputs are counted rather than
+  guessed, and the data is not proof that every semantic dependency was seen.
+- A Shadow candidate agreeing with one real rerun is not proof that future reuse
+  is safe. Outside-repository inputs remain unmodeled, tracing slowdown is not
+  measured, and Shadow mode's actual saved time is always zero.
+- A repository owner asserts that shard argv groups together are semantically
+  equivalent to their broad parent. Click proves exact mapping and complete
+  file partitioning, but does not parse framework output or prove that a child
+  command actually executes every file named by its `covers` patterns.
+- Loopback binding, a random bearer token, strict Host checks, no CORS, and a
+  restrictive CSP reduce accidental dashboard exposure. They are not a sandbox
+  against another process or compromised browser running as the same user.
 
 ## Operational limits requiring disposition
 
@@ -113,6 +131,15 @@ an eight-command cap because one request is one atomic read-runner claim with
 bounded output exposure. Decoded transport, actual Windows command-line, argv,
 output and retained-state bounds remain implementation safeguards to review
 against the same rule rather than workflow-quality judgments.
+
+Shadow Observer's 4 MiB transient trace cap, 4,096-input record cap, and active-
+lifecycle retention bound protect availability and privacy. Reaching a bound
+only downgrades or drops telemetry; it does not block or fail verification.
+
+Shadow Intelligence additionally retains at most 64 sources, fingerprints at
+most 1,024 inputs per baseline, projects at most 512 input nodes, limits its
+state to 2 MiB and each dashboard projection to 512 KiB, and stops a dashboard
+after two hours. Reaching a telemetry bound cannot block or fail verification.
 
 These gaps must remain explicit. Marketing and documentation must not claim a
 stronger guarantee than the runtime can observe.
@@ -149,7 +176,21 @@ stronger guarantee than the runtime can observe.
 14. **Complete in v0.36.0:** Preserve legacy stored authority choices by
     translating `on` to Guarded and `manual` to Off; deliver the exact human
     approval projection through the stage Hook response; and cover same-ID
-    follow-up mutation through stale-evidence transition.
+   follow-up mutation through stale-evidence transition.
+15. **Staged for v0.52:** Collect bounded Linux `strace` aggregates beside
+    compatible argv checks while keeping all Shadow Observer data outside
+    evidence, reuse, approval, completion, and receipt authority.
+16. **Staged for v0.52:** Freeze non-authoritative predictions before real
+    checks, evaluate them only after those checks, and expose the bounded
+    current-lifecycle Evidence Map and honest Shadow ROI through an explicit
+    read-only loopback dashboard.
+17. **Staged for v0.52:** Render the exact digest-bound easy contract once by
+    default, disclose the canonical original only on request under the same id,
+    and keep disclosure distinct from approval or restaging.
+18. **Staged for v0.52:** Decompose an exact repository-declared broad suite
+    into independently retained evidence shards, retain existing per-child
+    reuse authority, fall back to the original parent on ambiguity, and export
+    complete shard provenance without adding Phase 3B UI or cache authority.
 
 Each migration is a separate behavior-preserving-for-Core change. It must retain
 approval, side-effect authority, one-use runner, revision, receipt, cancellation,

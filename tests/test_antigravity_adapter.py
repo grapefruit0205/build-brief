@@ -261,6 +261,90 @@ class AntigravityAdapterTests(unittest.TestCase):
         sources = state["evidence_state"]["sources"]
         self.assertEqual(next(iter(sources.values()))["status"], "passed")
 
+    def test_evidence_shards_use_the_same_runtime_on_antigravity(self) -> None:
+        (self.workspace / ".gitignore").write_text(
+            "__pycache__/\n", encoding="utf-8"
+        )
+        for name, class_name in (("a_shard.py", "Alpha"), ("b_shard.py", "Beta")):
+            (self.workspace / name).write_text(
+                "import unittest\n\n"
+                f"class {class_name}(unittest.TestCase):\n"
+                "    def test_pass(self):\n"
+                "        self.assertTrue(True)\n",
+                encoding="utf-8",
+            )
+        parent = [
+            sys.executable,
+            "-m",
+            "unittest",
+            "discover",
+            "-s",
+            ".",
+            "-p",
+            "*_shard.py",
+            "-q",
+        ]
+        alpha = [sys.executable, "-m", "unittest", "a_shard.Alpha.test_pass"]
+        beta = [sys.executable, "-m", "unittest", "b_shard.Beta.test_pass"]
+        shard_map = self.workspace / ".click" / "evidence-shards.json"
+        shard_map.parent.mkdir()
+        shard_map.write_text(
+            json.dumps(
+                {
+                    "version": 1,
+                    "entries": [
+                        {
+                            "checks": [parent],
+                            "inventory": ["*_shard.py"],
+                            "shards": [
+                                {
+                                    "id": "alpha",
+                                    "checks": [alpha],
+                                    "covers": ["a_shard.py"],
+                                },
+                                {
+                                    "id": "beta",
+                                    "checks": [beta],
+                                    "covers": ["b_shard.py"],
+                                },
+                            ],
+                        }
+                    ],
+                },
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        self.initialize_git(
+            ".gitignore",
+            "a_shard.py",
+            "b_shard.py",
+            ".click/evidence-shards.json",
+        )
+        self.approve()
+
+        request = {
+            "version": 2,
+            "checks": [
+                {"evidence_id": "E1", "argv": parent, "class": "broad"}
+            ],
+        }
+        verified = self.control("verify", json.dumps(request))
+
+        self.assertEqual(verified.returncode, 0, verified.stderr)
+        state_path = next(
+            (self.plugin_data / "gate-state").glob("session-contract-*.json")
+        )
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        sources = state["evidence_state"]["sources"]
+        self.assertEqual(len(sources), 2)
+        self.assertEqual(
+            sorted(source["shard"]["shard_id"] for source in sources.values()),
+            ["alpha", "beta"],
+        )
+        self.assertTrue(all(source["status"] == "passed" for source in sources.values()))
+
     def test_evidence_mode_allows_host_mutation_without_a_contract(self) -> None:
         (self.config_home / "preferences.json").write_text(
             json.dumps(
@@ -302,8 +386,11 @@ class AntigravityAdapterTests(unittest.TestCase):
         )
         first_message = first["injectSteps"][0]["ephemeralMessage"]
         self.assertIn(contract_id, first_message)
-        self.assertIn("projection exactly once", first_message)
-        self.assertIn("ask for approval once", first_message)
+        self.assertIn("easy contract exactly once", first_message)
+        self.assertIn("original contract hidden unless requested", first_message)
+        self.assertIn(
+            "approval, changes, cancellation, or original-view", first_message
+        )
         self.assertNotIn("compile the compact Click contract", first_message)
 
         repeated = self.pre_invocation(
@@ -313,7 +400,7 @@ class AntigravityAdapterTests(unittest.TestCase):
         self.assertIn(contract_id, repeated_message)
         self.assertIn("was already returned for presentation", repeated_message)
         self.assertIn("Do not compile, stage, present, or request", repeated_message)
-        self.assertNotIn("projection exactly once", repeated_message)
+        self.assertNotIn("easy contract exactly once", repeated_message)
         self.assertNotIn("compile the compact Click contract", repeated_message)
 
     def test_approval_execution_does_not_request_another_contract(self) -> None:

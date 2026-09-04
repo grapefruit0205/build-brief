@@ -31,13 +31,16 @@ if __package__:
         click_claims,
         click_contract_state,
         click_dependency_cache,
+        click_dependency_trace,
         click_evidence,
+        click_evidence_shards,
         click_host_coverage,
         click_inspection,
         click_mutation,
         click_observation,
         click_process,
         click_runtime_state,
+        click_shadow_intelligence,
         click_state,
         click_verification_meter,
         click_verification_policy,
@@ -48,13 +51,16 @@ else:  # Executed directly from the bundled hooks directory.
     import click_claims
     import click_contract_state
     import click_dependency_cache
+    import click_dependency_trace
     import click_evidence
+    import click_evidence_shards
     import click_host_coverage
     import click_inspection
     import click_mutation
     import click_observation
     import click_process
     import click_runtime_state
+    import click_shadow_intelligence
     import click_state
     import click_verification_meter
     import click_verification_policy
@@ -62,7 +68,7 @@ else:  # Executed directly from the bundled hooks directory.
 
 PROTOCOL_VERSION = 2
 CONTRACT_STATE_SCHEMA_VERSION = 2
-BATCH_FIELDS = {"version", "checks"}
+BATCH_FIELDS = {"version", "checks", "workdir"}
 CHECK_FIELDS = {"evidence_id", "argv", "class"}
 VERIFICATION_CLASSES = click_verification_meter.VERIFICATION_CLASSES
 RUNNING_TTL_SECONDS = 60 * 60
@@ -153,6 +159,12 @@ def _fresh_verification_state(contract: dict[str, Any]) -> dict[str, Any]:
         "workspace_changed": False,
         "mutation_boundary": _fresh_mutation_boundary(),
         "started_at": 0,
+        click_dependency_trace.SHADOW_STATE_FIELD: (
+            click_dependency_trace.fresh_state()
+        ),
+        click_shadow_intelligence.SHADOW_INTELLIGENCE_FIELD: (
+            click_shadow_intelligence.fresh_state()
+        ),
     }
 
 
@@ -180,6 +192,18 @@ def _validate_verification_batch(
     if unknown:
         rendered = ", ".join(f"`{field}`" for field in unknown)
         return None, 0, f"Verification batch contains unsupported field(s): {rendered}."
+    workdir = value.get("workdir")
+    if workdir is not None and (
+        not isinstance(workdir, str)
+        or not workdir
+        or "\x00" in workdir
+        or not Path(workdir).is_absolute()
+    ):
+        return (
+            None,
+            0,
+            "Verification batch `workdir` must be a non-empty absolute path when supplied.",
+        )
     checks = value.get("checks")
     if not isinstance(checks, list) or not checks:
         return None, 0, "Verification batch `checks` must be a non-empty list."
@@ -255,10 +279,13 @@ def _validate_verification_batch(
         if isinstance(evidence_id, str):
             normalized_check["evidence_id"] = evidence_id
         normalized.append(normalized_check)
-    return {
+    normalized_batch = {
         "version": VERIFICATION_PROTOCOL_VERSION,
         "checks": normalized,
-    }, units, ""
+    }
+    if isinstance(workdir, str):
+        normalized_batch["workdir"] = workdir
+    return normalized_batch, units, ""
 
 
 def _verification_groups(
@@ -267,8 +294,16 @@ def _verification_groups(
     grouped: dict[str, list[dict[str, Any]]] = {}
     completed_groups: set[str] = set()
     active_group = ""
-    for check in batch["checks"]:
-        source_key = _evidence_key(str(check["evidence_id"]))
+    for index, check in enumerate(batch["checks"], start=1):
+        evidence_id = check.get("evidence_id")
+        if not isinstance(evidence_id, str) or not EVIDENCE_ID_PATTERN.fullmatch(
+            evidence_id
+        ):
+            return {}, (
+                f"Verification check {index} `evidence_id` must name one declared "
+                "argv evidence source."
+            )
+        source_key = _evidence_key(evidence_id)
         if source_key != active_group:
             if source_key in completed_groups:
                 return {}, (
@@ -1362,6 +1397,195 @@ def _evidence_sources(state: dict[str, Any]) -> dict[str, Any] | None:
     )
 
 
+def _validated_shard_checks(
+    plan: dict[str, Any], *, scale: str
+) -> tuple[list[dict[str, Any]] | None, str]:
+    candidate = {
+        "version": VERIFICATION_PROTOCOL_VERSION,
+        "checks": [
+            {
+                "evidence_id": str(child["evidence_id"]),
+                "argv": list(argv),
+                "class": "broad",
+            }
+            for child in plan.get("children", [])
+            if isinstance(child, dict)
+            for argv in child.get("checks", [])
+            if isinstance(argv, list)
+        ],
+    }
+    normalized, _, error = _validate_verification_batch(
+        json.dumps(candidate, separators=(",", ":")), scale, None
+    )
+    if error or normalized is None:
+        return None, error or "Evidence Shards child checks are invalid."
+    grouped, grouping_error = _verification_groups(normalized)
+    if grouping_error:
+        return None, grouping_error
+    expected = {
+        str(child["source_key"]): str(child["check_digest"])
+        for child in plan.get("children", [])
+        if isinstance(child, dict)
+    }
+    if set(grouped) != set(expected) or any(
+        _verification_group_digest(checks) != expected[source_key]
+        for source_key, checks in grouped.items()
+    ):
+        return None, "Evidence Shards child check identity is inconsistent."
+    return list(normalized["checks"]), ""
+
+
+def _expand_evidence_shards(
+    state: dict[str, Any],
+    batch: dict[str, Any],
+    *,
+    scale: str,
+    workspace: Path,
+    git_capture: Callable[[Path, list[str]], bytes | None],
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None, list[str], str]:
+    """Expand submitted broad parents while retaining their approval identity."""
+    evidence_state = state.get("evidence_state")
+    sources = evidence_state.get("sources") if isinstance(evidence_state, dict) else None
+    if not isinstance(evidence_state, dict) or not isinstance(sources, dict):
+        return None, None, [], "Click Evidence Shards registry is unavailable."
+    grouped, grouping_error = _verification_groups(batch)
+    if grouping_error:
+        return None, None, [], grouping_error
+
+    expanded: list[dict[str, Any]] = []
+    advisories: list[str] = []
+    for parent_source_key, parent_checks in grouped.items():
+        evidence_id = str(parent_checks[0].get("evidence_id", "argv"))
+        parent_check_digest = _verification_group_digest(parent_checks)
+        submitted_source = sources.get(parent_source_key)
+        if click_evidence_shards.is_child_source(submitted_source):
+            return (
+                None,
+                None,
+                advisories,
+                "Evidence shard children are internal. Submit the declared broad "
+                "parent evidence id so Click can revalidate the complete plan.",
+            )
+        active = click_evidence_shards.active_set(
+            evidence_state, parent_source_key
+        )
+        if active is not None and active.get("parent_check_digest") != parent_check_digest:
+            return (
+                None,
+                None,
+                advisories,
+                "A sharded argv evidence source is locked to a different broad "
+                "parent check set. Reuse that set or stage a new contract.",
+            )
+        if active is None and isinstance(submitted_source, dict):
+            incompatible_bindings = (
+                (
+                    "reserved_check_digest",
+                    "An argv evidence source is already reserved to a different exact "
+                    "check set for this contract. Reuse that set or stage a new contract.",
+                ),
+                (
+                    "locked_check_digest",
+                    "A previously successful argv evidence source is locked to its exact "
+                    "check set. Re-run that set after the relevant mutation.",
+                ),
+                (
+                    "last_check_digest",
+                    "An argv evidence source changed its check set without an intervening "
+                    "mutation. Fix the implementation or reuse the original check set.",
+                ),
+            )
+            for field, message in incompatible_bindings:
+                bound = str(submitted_source.get(field, ""))
+                if bound and bound != parent_check_digest:
+                    return None, None, advisories, message
+        eligible = any(
+            check.get("class") in {"broad", "deep"} for check in parent_checks
+        )
+        if not eligible and active is None:
+            expanded.extend(parent_checks)
+            continue
+
+        decision = click_evidence_shards.resolve_plan(
+            workspace,
+            parent_checks,
+            parent_source_key=parent_source_key,
+            git_capture=git_capture,
+        )
+        plan_current = bool(
+            decision.get("status") == "sharded"
+            and (
+                active is None
+                or click_evidence_shards.plan_matches_shard_set(decision, active)
+            )
+        )
+        shard_checks: list[dict[str, Any]] | None = None
+        validation_error = ""
+        if plan_current:
+            shard_checks, validation_error = _validated_shard_checks(
+                decision, scale=scale
+            )
+            plan_current = shard_checks is not None and not validation_error
+
+        if active is not None and not plan_current:
+            sources, collapse_error = click_evidence.collapse_shard_plan(
+                state, parent_source_key
+            )
+            if collapse_error or sources is None:
+                return None, None, advisories, collapse_error
+            evidence_state = state["evidence_state"]
+            reason = validation_error or str(
+                decision.get("reason", "plan-unavailable")
+            )
+            advisories.append(
+                f"Click Evidence Shards [{evidence_id}]: {reason}; running the "
+                "original broad suite."
+            )
+            expanded.extend(parent_checks)
+            continue
+
+        if active is None and plan_current:
+            sources, activation_error = click_evidence.activate_shard_plan(
+                state, parent_source_key, decision
+            )
+            if activation_error or sources is None:
+                return None, None, advisories, activation_error
+            evidence_state = state["evidence_state"]
+        if plan_current:
+            assert shard_checks is not None
+            expanded.extend(shard_checks)
+            advisories.append(
+                f"Click Evidence Shards [{evidence_id}]: expanded the broad suite "
+                f"into {len(decision['children'])} independent shard(s)."
+            )
+            continue
+
+        reason = validation_error or str(
+            decision.get("reason", "plan-unavailable")
+        )
+        if (
+            decision.get("status") == "fallback" or validation_error
+        ) and reason not in {"manifest-not-committed", "git-root-unavailable"}:
+            advisories.append(
+                f"Click Evidence Shards [{evidence_id}]: {reason}; running the "
+                "original broad suite."
+            )
+        expanded.extend(parent_checks)
+
+    expanded_batch: dict[str, Any] = {
+        "version": VERIFICATION_PROTOCOL_VERSION,
+        "checks": expanded,
+    }
+    if isinstance(batch.get("workdir"), str):
+        expanded_batch["workdir"] = str(batch["workdir"])
+    return (
+        expanded_batch,
+        sources,
+        advisories,
+        "",
+    )
+
+
 def runner_command(
     event: dict[str, Any],
     batch: dict[str, Any],
@@ -1400,6 +1624,22 @@ _git_metadata_present = click_inspection.git_metadata_present
 
 def _managed_contract_path(path: Path) -> bool:
     return click_state.managed_state_path(path, ("session-contract-",))
+
+
+def _tool_working_directory(
+    event: dict[str, Any], batch: dict[str, Any] | None = None
+) -> Path:
+    event_cwd = Path(str(event.get("cwd", "")))
+    requested = batch.get("workdir") if isinstance(batch, dict) else None
+    tool_input = event.get("tool_input")
+    if not isinstance(requested, str) or not requested:
+        requested = tool_input.get("workdir") if isinstance(tool_input, dict) else None
+    if not isinstance(requested, str) or not requested:
+        return event_cwd.resolve()
+    workdir = Path(requested)
+    if not workdir.is_absolute():
+        workdir = event_cwd / workdir
+    return workdir.resolve()
 
 
 def _prepare_verification(
@@ -1479,14 +1719,19 @@ def _prepare_verification(
                         "",
                     )
 
+    provisional, _, error = _validate_verification_batch(raw, scale, None)
+    if error:
+        return "", error, ""
+    assert provisional is not None
+    provisional_groups, grouping_error = _verification_groups(provisional)
+    if grouping_error:
+        return "", grouping_error, ""
     if runtime.evidence:
-        provisional, _, error = _validate_verification_batch(raw, scale, None)
-        if error:
-            return "", error, ""
-        assert provisional is not None
+        evidence_state = state.get("evidence_state")
         dynamic_ids = [
-            str(check.get("evidence_id", ""))
-            for check in provisional["checks"]
+            str(checks[0].get("evidence_id", ""))
+            for source_key, checks in provisional_groups.items()
+            if click_evidence_shards.active_set(evidence_state, source_key) is None
         ]
         sources, error = click_evidence.register_runtime_sources(
             state, dynamic_ids, kind="argv"
@@ -1494,7 +1739,25 @@ def _prepare_verification(
         if error:
             return "", error, ""
         assert sources is not None
-    batch, units, error = _validate_verification_batch(raw, scale, sources)
+    workspace = _tool_working_directory(event, provisional)
+    if not workspace.is_dir():
+        return "", "Click verification workdir is not an existing directory.", ""
+    provisional["workdir"] = str(workspace)
+    expanded, sources, shard_advisories, error = _expand_evidence_shards(
+        state,
+        provisional,
+        scale=scale,
+        workspace=workspace,
+        git_capture=git_capture,
+    )
+    if error:
+        return "", error, ""
+    assert expanded is not None and sources is not None
+    verification_advisories.extend(shard_advisories)
+    encoded_expanded = json.dumps(expanded, separators=(",", ":"))
+    batch, units, error = _validate_verification_batch(
+        encoded_expanded, scale, sources
+    )
     if error:
         return "", error, ""
     assert batch is not None
@@ -1617,7 +1880,6 @@ def _prepare_verification(
     dependency_reused_keys: set[str] = set()
     safe_change_reused_keys: set[str] = set()
     if current_requested or dependency_candidates or safe_change_candidates:
-        workspace = Path(str(event.get("cwd", ""))).resolve()
         snapshot = git_workspace_snapshot(workspace)
         if snapshot is None:
             for source_key in current_requested:
@@ -1869,6 +2131,7 @@ def _prepare_verification(
 
     batch = {
         "version": VERIFICATION_PROTOCOL_VERSION,
+        "workdir": str(batch["workdir"]),
         "checks": [
             check
             for check in batch["checks"]
@@ -1908,7 +2171,6 @@ def _prepare_verification(
 
     canonical = json.dumps(batch, sort_keys=True, separators=(",", ":"))
     batch_digest = hashlib.sha256(canonical.encode()).hexdigest()
-    workspace = Path(str(event.get("cwd", ""))).resolve()
     prepared_environment = _verification_environment(cwd=workspace)
     runner_token = secrets.token_urlsafe(24)
     running_host_coverage_digest = (
@@ -1951,6 +2213,56 @@ def _prepare_verification(
                 )
             }
         )
+    shadow_contexts = {
+        source_key: {
+            "check_digest": group_digests[source_key],
+            "environment_digest": running_environment_digests[source_key],
+            "executable_digest": running_executable_digests[source_key],
+            "host_coverage_digest": str(host_coverage.get("digest", "")),
+        }
+        for source_key in requested_keys
+    }
+    shadow_workspace = workspace
+    try:
+        shadow_snapshot = git_workspace_snapshot(workspace)
+        shadow_root = (
+            shadow_snapshot.get("root")
+            if isinstance(shadow_snapshot, dict)
+            else None
+        )
+        if isinstance(shadow_root, str) and shadow_root:
+            shadow_workspace = Path(shadow_root).resolve(strict=True)
+    except (OSError, RuntimeError, TypeError, ValueError):
+        # A Shadow-only root lookup cannot change verification admission.
+        shadow_workspace = workspace
+    try:
+        click_shadow_intelligence.prepare_predictions(
+            verification,
+            workspace=shadow_workspace,
+            source_contexts=shadow_contexts,
+            mutation_revision=revision,
+        )
+        intelligence = verification.get(
+            click_shadow_intelligence.SHADOW_INTELLIGENCE_FIELD, {}
+        )
+        intelligence_sources = (
+            intelligence.get("sources", {})
+            if isinstance(intelligence, dict)
+            else {}
+        )
+        for source_key in sorted(requested_keys):
+            entry = intelligence_sources.get(source_key)
+            prediction = entry.get("prediction") if isinstance(entry, dict) else None
+            if (
+                click_shadow_intelligence.prediction_is_valid(prediction)
+                and prediction["decision"] != "not-evaluable"
+            ):
+                verification_advisories.append(
+                    click_shadow_intelligence.advisory(prediction)
+                )
+    except Exception:
+        # Shadow prediction must never affect verification admission.
+        pass
     for source_key in requested_keys:
         group_digest = group_digests[source_key]
         source = sources[source_key]
@@ -2005,6 +2317,10 @@ def _record_verification_result(
     workspace_digest: str = "",
     environment_digests: dict[str, str] | None = None,
     dependency_observations: dict[str, dict[str, Any]] | None = None,
+    shadow_observer_records: dict[str, dict[str, Any]] | None = None,
+    shadow_intelligence_baselines: dict[str, dict[str, Any]] | None = None,
+    shadow_source_exit_codes: dict[str, int] | None = None,
+    shadow_execution_contexts: dict[str, dict[str, Any]] | None = None,
     *,
     git_capture: Callable[[Path, list[str]], bytes | None] = _git_capture,
 ) -> bool:
@@ -2269,6 +2585,27 @@ def _record_verification_result(
             verification["status"] = "failed" if exit_code != 0 else "ready"
             verification["verified_revision"] = -1
             verification["failed_revision"] = revision if exit_code != 0 else -1
+    if shadow_observer_records:
+        try:
+            click_dependency_trace.store_records(
+                verification, shadow_observer_records
+            )
+        except Exception:
+            # Shadow telemetry must never change verification authority or its
+            # result, including when a future collector returns malformed data.
+            pass
+        try:
+            click_shadow_intelligence.record_run(
+                verification,
+                observer_records=shadow_observer_records,
+                baselines=shadow_intelligence_baselines or {},
+                source_exit_codes=shadow_source_exit_codes or {},
+                source_contexts=shadow_execution_contexts or {},
+                workspace_changed=workspace_changed,
+            )
+        except Exception:
+            # Analysis is telemetry only and cannot change an evidence result.
+            pass
     if not click_claims.complete_claim(
         state,
         capability="verification",
@@ -2291,6 +2628,7 @@ def _claim_verification_run(
     runner_token: str,
     *,
     file_content_digest: Callable[[Path], str] = _file_content_digest,
+    git_capture: Callable[[Path, list[str]], bytes | None] = _git_capture,
 ) -> tuple[dict[str, Any] | None, str]:
     """Atomically bind one runner invocation before any check can execute."""
     if not _managed_contract_path(state_path):
@@ -2345,6 +2683,21 @@ def _claim_verification_run(
     assert batch is not None
     if _capability_digest(batch) != batch_digest:
         return None, "Click verification runner batch digest did not match."
+    expected_workdir = batch.get("workdir")
+    if not isinstance(expected_workdir, str) or not expected_workdir:
+        return None, "Click verification runner workdir binding was missing."
+    try:
+        actual_workdir = Path.cwd().resolve(strict=True)
+        prepared_workdir = Path(expected_workdir).resolve(strict=True)
+    except (OSError, RuntimeError):
+        return None, "Click verification runner could not resolve its working directory."
+    if os.path.normcase(str(actual_workdir)) != os.path.normcase(
+        str(prepared_workdir)
+    ):
+        return (
+            None,
+            "Click verification runner workdir did not match the prepared capability.",
+        )
     running_keys = {
         key
         for key in verification.get("running_evidence_keys", [])
@@ -2359,6 +2712,14 @@ def _claim_verification_run(
     grouped_checks, grouping_error = _verification_groups(batch)
     if grouping_error:
         return None, grouping_error
+    shard_error = click_evidence_shards.running_plan_error(
+        Path.cwd(),
+        state.get("evidence_state"),
+        grouped_checks,
+        git_capture=git_capture,
+    )
+    if shard_error:
+        return None, shard_error
     prepared_environment_digests = verification.get("running_environment_digests")
     prepared_executable_digests = verification.get("running_executable_digests")
     for prepared in (prepared_environment_digests, prepared_executable_digests):
@@ -2389,11 +2750,13 @@ def _claim_verification_run(
     if binding_error:
         return None, binding_error
     assert verification_environment is not None
+    shadow_bindings: dict[str, str] = {}
     for source_key, checks in grouped_checks.items():
         source = sources.get(source_key)
         if not isinstance(source, dict):
             return None, "Click verification runner source reservation is unavailable."
         expected_digest = _verification_group_digest(checks)
+        shadow_bindings[source_key] = expected_digest
         if source.get("reserved_check_digest") != expected_digest:
             return None, "Click verification runner source reservation did not match."
         executable_records = _verification_executable_records(
@@ -2457,6 +2820,18 @@ def _claim_verification_run(
     _write_json(state_path, state)
     batch["_click_verification_environment"] = verification_environment
     batch["_click_verification_environment_rebound"] = environment_rebound
+    batch["_click_shadow_bindings"] = shadow_bindings
+    batch["_click_shadow_contexts"] = {
+        source_key: {
+            "environment_digest": str(prepared_environment_digests[source_key]),
+            "executable_digest": str(prepared_executable_digests[source_key]),
+            "host_coverage_digest": str(running_host_coverage.get("digest", "")),
+        }
+        for source_key in sorted(running_keys)
+    }
+    batch["_click_mutation_revision"] = int(
+        verification.get("mutation_revision", 0)
+    )
     return batch, ""
 
 
@@ -2536,6 +2911,8 @@ def _run_verification(
     git_metadata_present: Callable[[Path | None], bool] = _git_metadata_present,
     execute_commands: Callable[..., int] = _execute_argv_commands,
     git_capture: Callable[[Path, list[str]], bytes | None] = _git_capture,
+    shadow_execute: Callable[..., click_dependency_trace.ShadowExecution]
+    | None = None,
 ) -> int:
     if len(arguments) != 4:
         sys.stderr.write(
@@ -2555,6 +2932,7 @@ def _run_verification(
             batch_digest,
             runner_token,
             file_content_digest=file_content_digest,
+            git_capture=git_capture,
         )
         if error:
             _release_unclaimed_verification_reservation(
@@ -2578,6 +2956,14 @@ def _run_verification(
     environment_rebound = batch.pop(
         "_click_verification_environment_rebound", False
     )
+    shadow_bindings = batch.pop("_click_shadow_bindings", {})
+    shadow_contexts = batch.pop("_click_shadow_contexts", {})
+    shadow_revision = batch.pop("_click_mutation_revision", -1)
+    shadow_enabled = bool(
+        shadow_execute is not None
+        or execute_commands is _execute_argv_commands
+    )
+    active_shadow_execute = shadow_execute or click_dependency_trace.run_command
     if environment_rebound:
         print(
             "[Click] Verification runner environment changed after preparation; "
@@ -2585,6 +2971,14 @@ def _run_verification(
             flush=True,
         )
     before = git_workspace_snapshot(Path.cwd())
+    shadow_workspace = Path.cwd()
+    if isinstance(before, dict):
+        before_root = before.get("root")
+        if isinstance(before_root, str) and before_root:
+            try:
+                shadow_workspace = Path(before_root).resolve(strict=True)
+            except (OSError, RuntimeError):
+                shadow_workspace = Path.cwd()
     snapshot_failed = before is None and git_metadata_present(Path.cwd())
     if snapshot_failed:
         sys.stderr.write(
@@ -2594,23 +2988,87 @@ def _run_verification(
 
     exit_code = 2 if snapshot_failed else 0
     succeeded_count = 0
+    per_source_shadow_records: dict[str, list[dict[str, Any]]] = {}
     if not snapshot_failed:
-        for index, check in enumerate(checks, start=1):
-            argv = check["argv"]
-            rendered = (
-                subprocess.list2cmdline(argv) if os.name == "nt" else shlex.join(argv)
+        try:
+            for index, check in enumerate(checks, start=1):
+                argv = check["argv"]
+                rendered = (
+                    subprocess.list2cmdline(argv)
+                    if os.name == "nt"
+                    else shlex.join(argv)
+                )
+                print(
+                    f"[Click verification {index}/{len(checks)}:"
+                    f"{check['evidence_id']}:{check['class']}] {rendered}",
+                    flush=True,
+                )
+                source_key = _evidence_key(str(check["evidence_id"]))
+                check_digest = (
+                    shadow_bindings.get(source_key)
+                    if isinstance(shadow_bindings, dict)
+                    else None
+                )
+                can_record_shadow = bool(
+                    shadow_enabled
+                    and isinstance(check_digest, str)
+                    and re.fullmatch(r"[0-9a-f]{64}", check_digest)
+                    and isinstance(shadow_revision, int)
+                    and not isinstance(shadow_revision, bool)
+                    and shadow_revision >= 0
+                )
+                if can_record_shadow:
+                    execute_unobserved = lambda current=argv: execute_commands(
+                        [current], environment=verification_environment
+                    )
+                    observer_compatible = bool(
+                        click_inspection.execution_argv(argv) == argv
+                        and not click_inspection.is_git_remote_output_request(argv)
+                    )
+                    if observer_compatible:
+                        shadow_result = active_shadow_execute(
+                            argv,
+                            workspace=Path.cwd(),
+                            observation_root=shadow_workspace,
+                            environment=verification_environment,
+                            evidence_key=source_key,
+                            check_digest=check_digest,
+                            mutation_revision=shadow_revision,
+                            execute_unobserved=execute_unobserved,
+                            resolve_backend=_resolve_read_only_executable,
+                            digest_file=file_content_digest,
+                        )
+                    else:
+                        shadow_result = click_dependency_trace.run_unobserved(
+                            execute_unobserved,
+                            evidence_key=source_key,
+                            check_digest=check_digest,
+                            mutation_revision=shadow_revision,
+                        )
+                    exit_code = shadow_result.exit_code
+                    if click_dependency_cache.shadow_observer_record_is_valid(
+                        shadow_result.record
+                    ):
+                        per_source_shadow_records.setdefault(source_key, []).append(
+                            shadow_result.record
+                        )
+                    print(
+                        click_dependency_trace.advisory(shadow_result.record),
+                        flush=True,
+                    )
+                else:
+                    exit_code = execute_commands(
+                        [argv], environment=verification_environment
+                    )
+                if exit_code != 0:
+                    break
+                succeeded_count += 1
+        except KeyboardInterrupt:
+            exit_code = 130
+            sys.stderr.write(
+                "[Click] Verification was interrupted. The active check was stopped "
+                "and recorded as non-passing.\n"
             )
-            print(
-                f"[Click verification {index}/{len(checks)}:{check['evidence_id']}:"
-                f"{check['class']}] {rendered}",
-                flush=True,
-            )
-            exit_code = execute_commands(
-                [argv], environment=verification_environment
-            )
-            if exit_code != 0:
-                break
-            succeeded_count += 1
 
     for check in checks:
         approved_argv = check.pop("_click_approved_argv", None)
@@ -2662,6 +3120,62 @@ def _run_verification(
             if exit_code == 0:
                 exit_code = 3
 
+    combined_shadow_records: dict[str, dict[str, Any]] = {}
+    if shadow_enabled and isinstance(shadow_bindings, dict):
+        for source_key, records in per_source_shadow_records.items():
+            checks_for_source = grouped_checks.get(source_key, [])
+            try:
+                combined = click_dependency_trace.combine_records(
+                    records,
+                    evidence_key=source_key,
+                    check_digest=str(shadow_bindings.get(source_key, "")),
+                    mutation_revision=shadow_revision,
+                    unexecuted_checks=max(0, len(checks_for_source) - len(records)),
+                )
+            except Exception:
+                combined = None
+            if combined is not None:
+                combined_shadow_records[source_key] = combined
+
+    shadow_intelligence_baselines: dict[str, dict[str, Any]] = {}
+    if (
+        not workspace_changed
+        and workspace_root
+        and isinstance(shadow_contexts, dict)
+    ):
+        for source_key, record in combined_shadow_records.items():
+            context = shadow_contexts.get(source_key)
+            if not isinstance(context, dict):
+                continue
+            try:
+                baseline = click_shadow_intelligence.build_baseline(
+                    record,
+                    workspace=shadow_workspace,
+                    environment_digest=str(context.get("environment_digest", "")),
+                    executable_digest=str(context.get("executable_digest", "")),
+                    host_coverage_digest=str(context.get("host_coverage_digest", "")),
+                )
+            except Exception:
+                baseline = None
+            if baseline is not None:
+                shadow_intelligence_baselines[source_key] = baseline
+
+    shadow_source_exit_codes: dict[str, int] = {}
+    for source_key, check_positions in (
+        {
+            key: [
+                index
+                for index, check in enumerate(checks)
+                if click_evidence.evidence_key(str(check["evidence_id"])) == key
+            ]
+            for key in combined_shadow_records
+        }.items()
+    ):
+        if check_positions and all(position < succeeded_count for position in check_positions):
+            shadow_source_exit_codes[source_key] = 0
+        elif check_positions and succeeded_count in check_positions and exit_code != 0:
+            shadow_source_exit_codes[source_key] = exit_code
+
     with _state_lock():
         recorded = _record_verification_result(
             state_path,
@@ -2673,6 +3187,12 @@ def _run_verification(
             workspace_changed=workspace_changed,
             workspace_root=workspace_root if not workspace_changed else "",
             workspace_digest=workspace_digest if not workspace_changed else "",
+            shadow_observer_records=combined_shadow_records,
+            shadow_intelligence_baselines=shadow_intelligence_baselines,
+            shadow_source_exit_codes=shadow_source_exit_codes,
+            shadow_execution_contexts=(
+                shadow_contexts if isinstance(shadow_contexts, dict) else {}
+            ),
             git_capture=git_capture,
         )
     if not recorded:

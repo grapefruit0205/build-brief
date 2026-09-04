@@ -26,6 +26,18 @@ from click_gate_test_support import (
 CLICK_RUNNER_TRANSPORT = CLICK_GATE.click_runner_transport
 
 
+def spawned_child(
+    *,
+    returncode: int = 0,
+    stdout: bytes | None = None,
+    stderr: bytes | None = None,
+) -> mock.Mock:
+    child = mock.Mock(spec=subprocess.Popen)
+    child.returncode = returncode
+    child.communicate.return_value = (stdout, stderr)
+    return child
+
+
 class ClickGateInspectionTests(ClickGateTestCase):
     def test_hook_config_loads_mode_for_each_prompt(self) -> None:
         config = json.loads(HOOK_CONFIG.read_text(encoding="utf-8"))
@@ -392,13 +404,12 @@ class ClickGateInspectionTests(ClickGateTestCase):
         self.assertIn("bounded payload", error)
 
     def test_inspection_never_executes_a_path_qualified_read_only_name(self) -> None:
-        with mock.patch.object(CLICK_GATE.subprocess, "run") as run:
-            run.return_value.returncode = 0
+        with mock.patch.object(CLICK_PROCESS, "spawn_argv") as spawn:
             exit_code = CLICK_INSPECTION.execute_commands(
                 [["./cat", "README.md"]], workspace=self.workspace
             )
         self.assertEqual(exit_code, 2)
-        run.assert_not_called()
+        spawn.assert_not_called()
 
     def test_inspection_rejects_a_workspace_path_shadow(self) -> None:
         mark_git_boundary(self.workspace)
@@ -406,14 +417,13 @@ class ClickGateInspectionTests(ClickGateTestCase):
         fake.write_text("not a real reader\n", encoding="utf-8")
         with (
             mock.patch("shutil.which", return_value=str(fake)),
-            mock.patch.object(CLICK_GATE.subprocess, "run") as run,
+            mock.patch.object(CLICK_PROCESS, "spawn_argv") as spawn,
         ):
-            run.return_value.returncode = 0
             exit_code = CLICK_INSPECTION.execute_commands(
                 [["cat", "README.md"]], workspace=self.workspace
             )
         self.assertEqual(exit_code, 2)
-        run.assert_not_called()
+        spawn.assert_not_called()
 
     def test_inspection_rewrites_a_trusted_bare_executable(self) -> None:
         mark_git_boundary(self.workspace)
@@ -421,6 +431,7 @@ class ClickGateInspectionTests(ClickGateTestCase):
         trusted_root.mkdir()
         trusted = trusted_root / ("cat.exe" if os.name == "nt" else "cat")
         trusted.write_text("trusted fixture\n", encoding="utf-8")
+        child = spawned_child()
         with (
             mock.patch.dict(
                 CLICK_GATE.os.environ,
@@ -432,25 +443,26 @@ class ClickGateInspectionTests(ClickGateTestCase):
                 },
             ),
             mock.patch("shutil.which", return_value=str(trusted)) as which,
-            mock.patch.object(CLICK_GATE.subprocess, "run") as run,
+            mock.patch.object(
+                CLICK_PROCESS, "spawn_argv", return_value=child
+            ) as spawn,
         ):
-            run.return_value.returncode = 0
             exit_code = CLICK_INSPECTION.execute_commands(
                 [["cat", "README.md"]], workspace=self.workspace
             )
         self.assertEqual(exit_code, 0)
-        self.assertEqual(run.call_args.args[0][0], str(trusted.resolve()))
+        self.assertEqual(spawn.call_args.args[0][0], str(trusted.resolve()))
         self.assertEqual(which.call_count, 2)
         sanitized_path = which.call_args_list[1].kwargs["path"]
         self.assertNotIn(str(self.workspace), sanitized_path)
-        self.assertEqual(run.call_args.kwargs["env"]["PATH"], sanitized_path)
+        self.assertEqual(spawn.call_args.kwargs["env"]["PATH"], sanitized_path)
         for key in (
             "LD_PRELOAD",
             "DYLD_INSERT_LIBRARIES",
             "GCONV_PATH",
             "LOCPATH",
         ):
-            self.assertNotIn(key, run.call_args.kwargs["env"])
+            self.assertNotIn(key, spawn.call_args.kwargs["env"])
 
     def test_inspection_rejects_a_symlink_into_the_workspace(self) -> None:
         mark_git_boundary(self.workspace)
@@ -465,14 +477,13 @@ class ClickGateInspectionTests(ClickGateTestCase):
             self.skipTest(f"symlinks unavailable: {exc}")
         with (
             mock.patch("shutil.which", return_value=str(link)),
-            mock.patch.object(CLICK_GATE.subprocess, "run") as run,
+            mock.patch.object(CLICK_PROCESS, "spawn_argv") as spawn,
         ):
-            run.return_value.returncode = 0
             exit_code = CLICK_INSPECTION.execute_commands(
                 [["cat", "README.md"]], workspace=self.workspace
             )
         self.assertEqual(exit_code, 2)
-        run.assert_not_called()
+        spawn.assert_not_called()
 
     def test_inspection_rejects_a_workspace_symlink_to_a_trusted_binary(self) -> None:
         mark_git_boundary(self.workspace)
@@ -487,14 +498,13 @@ class ClickGateInspectionTests(ClickGateTestCase):
             self.skipTest(f"symlinks unavailable: {exc}")
         with (
             mock.patch("shutil.which", return_value=str(link)),
-            mock.patch.object(CLICK_GATE.subprocess, "run") as run,
+            mock.patch.object(CLICK_PROCESS, "spawn_argv") as spawn,
         ):
-            run.return_value.returncode = 0
             exit_code = CLICK_INSPECTION.execute_commands(
                 [["cat", "README.md"]], workspace=self.workspace
             )
         self.assertEqual(exit_code, 2)
-        run.assert_not_called()
+        spawn.assert_not_called()
 
     def test_sanitized_path_drops_relative_and_workspace_entries(self) -> None:
         mark_git_boundary(self.workspace)
@@ -610,11 +620,13 @@ class ClickGateInspectionTests(ClickGateTestCase):
         def resolved(name: str, path: str | None = None) -> str | None:
             return str(names[name.lower().removesuffix(".exe")])
 
+        child = spawned_child()
         with (
             mock.patch("shutil.which", side_effect=resolved),
-            mock.patch.object(CLICK_GATE.subprocess, "run") as run,
+            mock.patch.object(
+                CLICK_PROCESS, "spawn_argv", return_value=child
+            ) as spawn,
         ):
-            run.return_value.returncode = 0
             self.assertEqual(
                 CLICK_INSPECTION.execute_commands(
                     [["git", "status", "--short"]], workspace=self.workspace
@@ -628,8 +640,12 @@ class ClickGateInspectionTests(ClickGateTestCase):
                 ),
                 0,
             )
-        self.assertEqual(run.call_args_list[0].args[0][0], str(names["git"].resolve()))
-        self.assertEqual(run.call_args_list[1].args[0][0], str(names["ssh"].resolve()))
+        self.assertEqual(
+            spawn.call_args_list[0].args[0][0], str(names["git"].resolve())
+        )
+        self.assertEqual(
+            spawn.call_args_list[1].args[0][0], str(names["ssh"].resolve())
+        )
 
     def test_structured_ssh_inspection_reuses_bounded_git_policy(self) -> None:
         allowed = (
@@ -730,11 +746,13 @@ class ClickGateInspectionTests(ClickGateTestCase):
         self.assertEqual(prepared[-2], "example-host")
         self.assertEqual(shlex.split(prepared[-1], posix=True), safe_git_argv)
 
-        with mock.patch.object(CLICK_GATE.subprocess, "run") as run:
-            run.return_value.returncode = 0
+        child = spawned_child()
+        with mock.patch.object(
+            CLICK_PROCESS, "spawn_argv", return_value=child
+        ) as spawn:
             self.assertEqual(CLICK_INSPECTION.execute_argv_commands([argv]), 0)
-        self.assertEqual(run.call_args.args[0], prepared)
-        self.assertFalse(run.call_args.kwargs["check"])
+        self.assertEqual(spawn.call_args.args[0], prepared)
+        child.communicate.assert_called_once_with(timeout=None)
 
         pinned_ssh = (
             r"C:\trusted\ssh.exe" if os.name == "nt" else "/trusted/bin/ssh"
@@ -803,12 +821,13 @@ class ClickGateInspectionTests(ClickGateTestCase):
                     tempfile.TemporaryFile() as stdout_file,
                     tempfile.TemporaryFile() as stderr_file,
                 ):
-                    with mock.patch.object(CLICK_GATE.subprocess, "run") as run:
-                        run.return_value.returncode = 0
-                        run.return_value.stdout = (
-                            b"https://user:secret@example.com/repo.git\n"
-                        )
-                        run.return_value.stderr = b""
+                    child = spawned_child(
+                        stdout=b"https://user:secret@example.com/repo.git\n",
+                        stderr=b"",
+                    )
+                    with mock.patch.object(
+                        CLICK_PROCESS, "spawn_argv", return_value=child
+                    ):
                         self.assertEqual(
                             CLICK_INSPECTION.execute_argv_commands(
                                 [argv], stdout_file, stderr_file
@@ -909,16 +928,17 @@ class ClickGateInspectionTests(ClickGateTestCase):
 
     def test_all_click_subprocesses_use_isolated_process_groups(self) -> None:
         isolated = {"start_new_session": True}
+        child = spawned_child(stdout=b"captured\n")
         with (
             mock.patch.object(
                 CLICK_PROCESS,
                 "isolated_subprocess_kwargs",
                 return_value=isolated,
             ) as isolation,
-            mock.patch.object(CLICK_PROCESS.subprocess, "run") as run,
+            mock.patch.object(
+                CLICK_PROCESS.subprocess, "Popen", return_value=child
+            ) as popen,
         ):
-            run.return_value.returncode = 0
-            run.return_value.stdout = b"captured\n"
             self.assertEqual(
                 CLICK_INSPECTION.execute_argv_commands([["echo", "ok"]]), 0
             )
@@ -934,10 +954,11 @@ class ClickGateInspectionTests(ClickGateTestCase):
             )
 
         self.assertEqual(isolation.call_count, 3)
-        self.assertEqual(len(run.call_args_list), 3)
-        for call in run.call_args_list:
+        self.assertEqual(len(popen.call_args_list), 3)
+        for call in popen.call_args_list:
             with self.subTest(argv=call.args[0]):
                 self.assertTrue(call.kwargs["start_new_session"])
+                self.assertFalse(call.kwargs["shell"])
 
     def test_direct_read_sequence_is_rewritten_as_shell_free_inspection(self) -> None:
         self.approve_contract()

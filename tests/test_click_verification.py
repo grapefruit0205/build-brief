@@ -7,6 +7,7 @@ import unittest
 
 from hooks import (
     click_dependency_cache,
+    click_dependency_trace,
     click_gate,
     click_host_coverage,
     click_verification,
@@ -14,6 +15,38 @@ from hooks import (
 
 
 class ClickVerificationTests(unittest.TestCase):
+    def test_tool_working_directory_prefers_explicit_absolute_or_relative_path(
+        self,
+    ) -> None:
+        event_cwd = (Path.cwd() / "outer-workspace").resolve()
+        absolute = (Path.cwd() / "nested-repository").resolve()
+        batch_absolute = (Path.cwd() / "batch-repository").resolve()
+
+        self.assertEqual(
+            click_verification._tool_working_directory(
+                {"cwd": str(event_cwd), "tool_input": {"workdir": str(absolute)}},
+                {"workdir": str(batch_absolute)},
+            ),
+            batch_absolute,
+        )
+
+        self.assertEqual(
+            click_verification._tool_working_directory(
+                {"cwd": str(event_cwd), "tool_input": {"workdir": str(absolute)}}
+            ),
+            absolute,
+        )
+        self.assertEqual(
+            click_verification._tool_working_directory(
+                {"cwd": str(event_cwd), "tool_input": {"workdir": "repository"}}
+            ),
+            (event_cwd / "repository").resolve(),
+        )
+        self.assertEqual(
+            click_verification._tool_working_directory({"cwd": str(event_cwd)}),
+            event_cwd,
+        )
+
     def _dependency_receipt(
         self, observation: dict[str, object]
     ) -> dict[str, object]:
@@ -77,7 +110,9 @@ class ClickVerificationTests(unittest.TestCase):
             "click_claims",
             "click_contract_state",
             "click_dependency_cache",
+            "click_dependency_trace",
             "click_evidence",
+            "click_evidence_shards",
             "click_host_coverage",
             "click_inspection",
             "click_mutation",
@@ -149,6 +184,43 @@ class ClickVerificationTests(unittest.TestCase):
         self.assertEqual(error, "")
         self.assertEqual(units, 1)
         self.assertEqual(batch["checks"][0]["class"], "targeted")
+
+        absolute_workdir = str((Path.cwd() / "repository").resolve())
+        batch, _, error = click_verification.validate_batch(
+            json.dumps(
+                {
+                    "version": 2,
+                    "workdir": absolute_workdir,
+                    "checks": [
+                        {
+                            "argv": ["python3", "-m", "unittest", "tests.test_one"],
+                            "class": "targeted",
+                        }
+                    ],
+                }
+            ),
+            "focused",
+        )
+        self.assertEqual(error, "")
+        self.assertEqual(batch["workdir"], absolute_workdir)
+
+        rejected, _, error = click_verification.validate_batch(
+            json.dumps(
+                {
+                    "version": 2,
+                    "workdir": "relative/repository",
+                    "checks": [
+                        {
+                            "argv": ["python3", "-m", "unittest", "tests.test_one"],
+                            "class": "targeted",
+                        }
+                    ],
+                }
+            ),
+            "focused",
+        )
+        self.assertIsNone(rejected)
+        self.assertIn("non-empty absolute path", error)
 
         rejected, _, error = click_verification.validate_batch(
             json.dumps({"version": 2, "commands": ["pytest"]}),

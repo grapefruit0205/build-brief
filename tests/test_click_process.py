@@ -63,19 +63,14 @@ class ClickProcessTests(unittest.TestCase):
             )
 
     def test_run_argv_is_shell_free_and_uses_an_isolated_group(self) -> None:
-        completed = mock.Mock(spec=subprocess.CompletedProcess)
-        with (
-            mock.patch.object(
-                click_process,
-                "isolated_subprocess_kwargs",
-                return_value={"start_new_session": True},
-            ),
-            mock.patch.object(
-                click_process.subprocess,
-                "run",
-                return_value=completed,
-            ) as run,
-        ):
+        child = mock.Mock(spec=subprocess.Popen)
+        child.communicate.return_value = (b"captured", None)
+        child.returncode = 0
+        with mock.patch.object(
+            click_process,
+            "spawn_argv",
+            return_value=child,
+        ) as spawn:
             result = click_process.run_argv(
                 ("tool", "--flag"),
                 cwd=Path("workspace"),
@@ -83,18 +78,31 @@ class ClickProcessTests(unittest.TestCase):
                 stdout=subprocess.PIPE,
             )
 
-        self.assertIs(result, completed)
-        run.assert_called_once_with(
+        self.assertEqual(result.args, ["tool", "--flag"])
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, b"captured")
+        self.assertIsNone(result.stderr)
+        spawn.assert_called_once_with(
             ["tool", "--flag"],
             cwd=Path("workspace"),
             env={"SAFE": "1"},
             stdin=None,
             stdout=subprocess.PIPE,
             stderr=None,
-            check=False,
-            shell=False,
-            start_new_session=True,
         )
+        child.communicate.assert_called_once_with(timeout=None)
+
+    def test_run_argv_terminates_process_group_on_keyboard_interrupt(self) -> None:
+        child = mock.Mock(spec=subprocess.Popen)
+        child.communicate.side_effect = KeyboardInterrupt
+        with (
+            mock.patch.object(click_process, "spawn_argv", return_value=child),
+            mock.patch.object(click_process, "terminate_process_group") as terminate,
+        ):
+            with self.assertRaises(KeyboardInterrupt):
+                click_process.run_argv(["tool", "--flag"])
+
+        terminate.assert_called_once_with(child)
 
     def test_spawn_argv_is_shell_free_and_uses_an_isolated_group(self) -> None:
         child = mock.Mock(spec=subprocess.Popen)

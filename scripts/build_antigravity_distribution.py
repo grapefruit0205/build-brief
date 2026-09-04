@@ -23,7 +23,9 @@ HOOK_FILES = (
     "click_contract_state.py",
     "click_change_policy.py",
     "click_dependency_cache.py",
+    "click_dependency_trace.py",
     "click_evidence.py",
+    "click_evidence_shards.py",
     "click_receipt.py",
     "click_receipt_runtime.py",
     "click_host_coverage.py",
@@ -40,6 +42,8 @@ HOOK_FILES = (
     "click_runner_transport.py",
     "click_runtime_state.py",
     "click_service.py",
+    "click_shadow_dashboard.py",
+    "click_shadow_intelligence.py",
     "click_state.py",
     "click_verification.py",
     "click_gate.py",
@@ -53,6 +57,9 @@ CLICK_REFERENCE_FILES = (
     "anti-loop-policy.md",
     "verification-profiles.md",
     "capability-protocol.md",
+    "observer-v1.md",
+    "shadow-intelligence-v1.md",
+    "evidence-shards-v1.md",
     "antigravity.md",
 )
 

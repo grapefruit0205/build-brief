@@ -1,4 +1,4 @@
-version: 23
+version: 24
 skill: click
 evaluation_conditions:
   - no-plugin
@@ -82,10 +82,11 @@ global_invariants:
   - "Treats equivalent build, design, implement, and do-it wording in any language as the same full workflow whenever Click is active"
   - "Routes code-review-only work in Evidence or Guarded mode into a read-only anti-loop guard without a build contract or approval"
   - "Leaves questions, explanations, and simple read-only lookups outside both the build contract and review observation ledger"
-  - "Presents Guarded approval as Goal, Changes, Unchanged, and Completion checks, with canonical JSON available only as optional Technical contract details"
+  - "Presents the exact digest-bound plain_language once as Guarded's default easy contract with its contract_id, while keeping canonical JSON hidden until the user requests the original contract"
   - "Includes outcome, scoped boundary, must_hold, build.approach, verification scale, structured evidence registry and referenced done_when conditions, and plain_language without parallel plan, phase, step, task, minimality, or proof sections"
   - "Adds build.semantics, build.order, or an intermediate gate only when the work materially requires them"
-  - "Stages Guarded JSON once with plain_language digest-bound, exposes an opaque contract_id beside the four-section human view, records its UserPromptSubmit turn, and cannot pass that id until a later user turn"
+  - "Stages Guarded JSON once with plain_language digest-bound, exposes an opaque contract_id beside the easy contract, offers approve, change, cancel, and original-view responses, records its UserPromptSubmit turn, and cannot pass that id until a later approving user turn"
+  - "Treats a request to view the original contract as disclosure only: shows the exact staged canonical object under the same id without passing, changing, restaging, or mutating"
   - "Rejects a second stage in the same user turn and rejects stage or pass when the Hook cannot match the tool call to a UserPromptSubmit turn"
   - "Passes only the exact contract_id emitted for the staged digest, never resends the JSON, and keeps that semantic contract fixed during one-shot implementation"
   - "Allows a fresh contract only after every declared evidence source passes for the current mutation revision and managed services stop; ready, observed, running, failed, or stale sources still block replacement"
@@ -102,6 +103,7 @@ global_invariants:
   - "Keeps broad-inventory count non-blocking and non-authoritative: a distinct-digest broad inventory receives narrowing guidance and may run despite prior broad running or success, while an active exact-digest reservation, mutation and verification interlocks, and runner safety remain hard"
   - "Keeps fresh logical repetition non-blocking and model-neutral: a completed identical observation or ordinary repeatedly failing argv check may receive a new one-use authorization with advisory context, while consumed-token replay, active same-request reservations, and verification-time repository mutation remain hard"
   - "Skips exact same-revision evidence only when intent or contract, check group, protected tree, environment, executable, and host coverage match; Evidence cross-revision promotion requires a committed dependency mapping while Guarded may also use approval-bound dependencies"
+  - "Treats a committed Evidence Shards map only as exact broad-suite decomposition authority: retains passing siblings, retries unresolved children, requires complete non-overlapping inventory coverage, falls back to the parent on ambiguity, and applies existing dependency or safe-change authority separately to every cross-revision child reuse"
   - "Keeps Browser source admission, serial calls, stable tool_use_id/result mapping, current revision and completion replay hard while normalized repetition, retry count, 30-second timeout and five-second wait guidance remains non-blocking and model-neutral"
   - "Uses browser, manual, hosted, broad-suite, or timed end-to-end evidence only when cheaper evidence cannot prove the condition, then stops when all conditions have current evidence"
   - "Does not create parallel verification ceremonies or include an intermediate gate without an irreversible boundary"
@@ -692,3 +694,20 @@ cases:
         - "A natural ten-wave victory playthrough followed by a separate full defeat playthrough"
         - "Repeated desktop and mobile checks of rules already proven by automated tests"
         - "A model-specific Browser workflow matrix, a hard duplicate/retry/timing gate, an unbounded attempt ledger, or treating the 256-record compaction boundary as a verification target"
+
+  - id: broad-suite-evidence-shards
+    prompt: "@Click 전체 테스트 중 앞부분은 통과하고 뒤에서 실패하면 통과한 부분은 보존하고, 수정 뒤에는 영향받은 부분만 안전할 때 재실행하도록 만들어줘."
+    default_mode: guarded
+    expected_activation: true
+    expected_mode: build
+    expected_mutation_gate: none-before-approval
+    directive_semantics:
+      - "Uses one committed exact parent-to-child shard map with complete non-overlapping test inventory coverage"
+      - "Retains a passed child when a later sibling fails and retries only failed or unexecuted children at the same revision"
+      - "Treats the shard map as decomposition authority only and requires existing dependency observation or committed safe-change authority for each cross-revision reuse"
+      - "Falls back to the original broad parent for an absent, edited, malformed, incomplete, unsupported, or drifting map and revalidates it before child execution"
+      - "Exports complete per-child provenance without adding Phase 3B UI, parallel execution, remote cache, or framework-output parsing"
+    minimality_expectations:
+      reuse: "The existing evidence source ledger, mutation invalidation, dependency and safe-change receipts, one-use runner, and completion receipt"
+      reject_without_evidence:
+        - "A second cache, database, daemon, distributed runner, framework parser, or shard-generated skip authority"

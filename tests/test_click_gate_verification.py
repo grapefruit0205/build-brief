@@ -1322,6 +1322,272 @@ class ClickGateVerificationTests(ClickGateTestCase):
             self.assertEqual(CLICK_GATE._run_verification(tokens[5:]), 2)
         self.assertEqual(execute.call_count, 1)
 
+    def test_verification_runner_rejects_prepared_workdir_mismatch(self) -> None:
+        self.approve_contract()
+        payload = self.verify_gate([self.verification_argv()])
+        tokens = split_runner_command(
+            payload["hookSpecificOutput"]["updatedInput"]["command"]
+        )
+        environment = {
+            "PLUGIN_DATA": str(self.plugin_data),
+            "CLICK_CONFIG_HOME": str(self.plugin_data),
+        }
+        with (
+            mock.patch.dict(os.environ, environment),
+            mock.patch.object(
+                CLICK_GATE.Path, "cwd", return_value=self.workspace.parent
+            ),
+            mock.patch.object(
+                CLICK_INSPECTION, "execute_argv_commands", return_value=0
+            ) as execute,
+        ):
+            self.assertEqual(CLICK_GATE._run_verification(tokens[5:]), 2)
+        execute.assert_not_called()
+
+        state_path = Path(tokens[5])
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        verification = state["verification"]
+        self.assertEqual(verification["status"], "ready")
+        self.assertEqual(verification["runner_claimed_at"], 0)
+        self.assertEqual(verification["runner_token_digest"], "")
+
+    def test_keyboard_interrupt_records_failure_and_releases_runner(self) -> None:
+        self.approve_contract()
+        payload = self.verify_gate([self.verification_argv()])
+        tokens = split_runner_command(
+            payload["hookSpecificOutput"]["updatedInput"]["command"]
+        )
+
+        def interrupt(*_args: object, **_kwargs: object) -> object:
+            raise KeyboardInterrupt
+
+        environment = {
+            "PLUGIN_DATA": str(self.plugin_data),
+            "CLICK_CONFIG_HOME": str(self.plugin_data),
+        }
+        with (
+            mock.patch.dict(os.environ, environment),
+            mock.patch.object(
+                CLICK_VERIFICATION.Path, "cwd", return_value=self.workspace
+            ),
+        ):
+            self.assertEqual(
+                CLICK_VERIFICATION._run_verification(
+                    tokens[5:],
+                    git_workspace_snapshot=lambda *_args, **_kwargs: None,
+                    git_metadata_present=lambda _path: False,
+                    shadow_execute=interrupt,
+                ),
+                130,
+            )
+
+        state_path = Path(tokens[5])
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        verification = state["verification"]
+        self.assertEqual(verification["status"], "failed")
+        self.assertEqual(verification["last_exit_code"], 130)
+        self.assertEqual(verification["runner_claimed_at"], 0)
+        self.assertEqual(verification["runner_token_digest"], "")
+
+    def test_shadow_observer_records_without_affecting_evidence_or_receipt(self) -> None:
+        (self.workspace / ".gitignore").write_text(
+            "__pycache__/\n", encoding="utf-8"
+        )
+        self.initialize_git(".gitignore", "verification_fixture.py")
+        self.approve_contract()
+        payload = self.verify_gate([self.verification_argv()])
+        tokens = split_runner_command(
+            payload["hookSpecificOutput"]["updatedInput"]["command"]
+        )
+        source_key = CLICK_EVIDENCE.evidence_key("E1")
+        execute = mock.Mock(return_value=0)
+
+        def shadow(argv: list[str], **kwargs: object) -> object:
+            self.assertEqual(argv[1:3], ["-m", "unittest"])
+            execute_unobserved = kwargs["execute_unobserved"]
+            assert callable(execute_unobserved)
+            exit_code = execute_unobserved()
+            record = CLICK_VERIFICATION.click_dependency_cache.shadow_observer_record(
+                evidence_key=str(kwargs["evidence_key"]),
+                check_digest=str(kwargs["check_digest"]),
+                mutation_revision=int(kwargs["mutation_revision"]),
+                backend_name="strace",
+                backend_version="6.1",
+                backend_digest="c" * 64,
+                inputs=[
+                    {
+                        "path": "shadow-only-input.py",
+                        "kind": "file",
+                        "operations": ["read"],
+                    }
+                ],
+                command_duration_ms=3,
+                observer_overhead_ms=1,
+            )
+            return CLICK_VERIFICATION.click_dependency_trace.ShadowExecution(
+                exit_code=exit_code,
+                record=record,
+            )
+
+        environment = {
+            "PLUGIN_DATA": str(self.plugin_data),
+            "CLICK_CONFIG_HOME": str(self.plugin_data),
+        }
+        with (
+            mock.patch.dict(os.environ, environment),
+            mock.patch.object(
+                CLICK_VERIFICATION.Path, "cwd", return_value=self.workspace
+            ),
+        ):
+            result = CLICK_VERIFICATION.run(
+                tokens[5:],
+                file_content_digest=CLICK_VERIFICATION.file_content_digest,
+                git_workspace_snapshot=CLICK_VERIFICATION.git_workspace_snapshot,
+                git_metadata_present=CLICK_INSPECTION.git_metadata_present,
+                execute_commands=execute,
+                git_capture=CLICK_VERIFICATION.git_capture,
+                shadow_execute=shadow,
+            )
+
+        self.assertEqual(result, 0)
+        execute.assert_called_once()
+        state_path = Path(tokens[5])
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        source = state["evidence_state"]["sources"][source_key]
+        self.assertEqual(source["status"], "passed")
+        shadow_state = state["verification"]["shadow_observer"]
+        self.assertEqual(shadow_state["version"], 1)
+        record = shadow_state["records"][source_key]
+        self.assertEqual(
+            record["binding"]["check_digest"], source["locked_check_digest"]
+        )
+        self.assertFalse(record["authoritative"])
+        self.assertFalse(record["reuse_authorized"])
+
+        receipt_payload = self.pre_tool(
+            "Bash", "click-gate receipt export", "turn-2", submit_prompt=False
+        )
+        assert receipt_payload is not None
+        exported = self.run_rewritten(receipt_payload)
+        self.assertEqual(exported.returncode, 0, exported.stderr)
+        self.assertNotIn("shadow_observer", exported.stdout)
+        self.assertNotIn("shadow-only-input.py", exported.stdout)
+
+    def test_shadow_prediction_is_fixed_before_rerun_and_evaluated_afterward(self) -> None:
+        (self.workspace / ".gitignore").write_text(
+            "__pycache__/\n", encoding="utf-8"
+        )
+        (self.workspace / "notes.md").write_text("before\n", encoding="utf-8")
+        self.initialize_git(".gitignore", "verification_fixture.py", "notes.md")
+        self.approve_contract()
+        source_key = CLICK_EVIDENCE.evidence_key("E1")
+        execute = mock.Mock(return_value=0)
+
+        def run_once(expected_decision: str) -> tuple[Path, dict[str, object]]:
+            payload = self.verify_gate([self.verification_argv()])
+            tokens = split_runner_command(
+                payload["hookSpecificOutput"]["updatedInput"]["command"]
+            )
+            action_index = tokens.index("run-verification")
+            arguments = tokens[action_index + 1 :]
+            state_path = Path(arguments[0])
+
+            def shadow(argv: list[str], **kwargs: object) -> object:
+                prepared = json.loads(state_path.read_text(encoding="utf-8"))
+                entry = prepared["verification"]["shadow_intelligence"]["sources"][
+                    source_key
+                ]
+                self.assertEqual(entry["prediction"]["decision"], expected_decision)
+                self.assertEqual(entry["evaluation"], {})
+                execute_unobserved = kwargs["execute_unobserved"]
+                assert callable(execute_unobserved)
+                exit_code = execute_unobserved()
+                record = CLICK_VERIFICATION.click_dependency_cache.shadow_observer_record(
+                    evidence_key=str(kwargs["evidence_key"]),
+                    check_digest=str(kwargs["check_digest"]),
+                    mutation_revision=int(kwargs["mutation_revision"]),
+                    backend_name="strace",
+                    backend_version="6.1",
+                    backend_digest="c" * 64,
+                    inputs=[
+                        {
+                            "path": "verification_fixture.py",
+                            "kind": "file",
+                            "operations": ["read"],
+                        }
+                    ],
+                    command_duration_ms=25,
+                    observer_overhead_ms=2,
+                )
+                return CLICK_VERIFICATION.click_dependency_trace.ShadowExecution(
+                    exit_code=exit_code,
+                    record=record,
+                )
+
+            environment = {
+                "PLUGIN_DATA": str(self.plugin_data),
+                "CLICK_CONFIG_HOME": str(self.plugin_data),
+            }
+            with (
+                mock.patch.dict(os.environ, environment),
+                mock.patch.object(
+                    CLICK_VERIFICATION.Path, "cwd", return_value=self.workspace
+                ),
+            ):
+                result = CLICK_VERIFICATION.run(
+                    arguments,
+                    file_content_digest=CLICK_VERIFICATION.file_content_digest,
+                    git_workspace_snapshot=CLICK_VERIFICATION.git_workspace_snapshot,
+                    git_metadata_present=CLICK_INSPECTION.git_metadata_present,
+                    execute_commands=execute,
+                    git_capture=CLICK_VERIFICATION.git_capture,
+                    shadow_execute=shadow,
+                )
+            self.assertEqual(result, 0)
+            state = json.loads(state_path.read_text(encoding="utf-8"))
+            return state_path, state
+
+        state_path, first_state = run_once("not-evaluable")
+        first_entry = first_state["verification"]["shadow_intelligence"]["sources"][
+            source_key
+        ]
+        self.assertTrue(
+            CLICK_VERIFICATION.click_shadow_intelligence.baseline_is_valid(
+                first_entry["baseline"]
+            )
+        )
+        self.assertEqual(first_entry["evaluation"]["outcome"], "not-evaluable")
+
+        self.assertIsNone(
+            self.pre_tool("apply_patch", "*** Begin Patch\n*** End Patch", "turn-2")
+        )
+        (self.workspace / "notes.md").write_text("after\n", encoding="utf-8")
+        self.tool_hook(
+            "post-tool",
+            "apply_patch",
+            {"patch": "notes"},
+            tool_use_id="tool-1",
+        )
+
+        _, second_state = run_once("reuse-candidate")
+        second_entry = second_state["verification"]["shadow_intelligence"]["sources"][
+            source_key
+        ]
+        self.assertEqual(second_entry["evaluation"]["outcome"], "confirmed-candidate")
+        self.assertEqual(second_entry["evaluation"]["actual_saved_ms"], 0)
+        self.assertEqual(second_entry["evaluation"]["gross_potential_ms"], 25)
+        self.assertEqual(execute.call_count, 2)
+
+        receipt_payload = self.pre_tool(
+            "Bash", "click-gate receipt export", "turn-2", submit_prompt=False
+        )
+        assert receipt_payload is not None
+        exported = self.run_rewritten(receipt_payload)
+        self.assertEqual(exported.returncode, 0, exported.stderr)
+        self.assertNotIn("shadow_intelligence", exported.stdout)
+        self.assertNotIn("shadow_dashboard", exported.stdout)
+        self.assertNotIn("verification_fixture.py", exported.stdout)
+
     def test_record_result_persists_supplied_dependency_observation(self) -> None:
         (self.workspace / ".gitignore").write_text(
             "__pycache__/\n", encoding="utf-8"
@@ -2362,3 +2628,288 @@ class ClickGateVerificationTests(ClickGateTestCase):
         self.assertEqual(
             released["verification"]["running_host_coverage_digest"], ""
         )
+
+    def install_evidence_shard_fixture(
+        self, *, transient_failure: bool = False, safe_readme_reuse: bool = False
+    ) -> list[str]:
+        (self.workspace / ".gitignore").write_text(
+            "__pycache__/\n.shard-attempt\n", encoding="utf-8"
+        )
+        (self.workspace / "README.md").write_text("before\n", encoding="utf-8")
+        (self.workspace / "a_shard.py").write_text(
+            "import unittest\n\n"
+            "class AlphaShard(unittest.TestCase):\n"
+            "    def test_pass(self):\n"
+            "        self.assertTrue(True)\n",
+            encoding="utf-8",
+        )
+        beta_body = (
+            "from pathlib import Path\n"
+            "import unittest\n\n"
+            "class BetaShard(unittest.TestCase):\n"
+            "    def test_pass(self):\n"
+            "        marker = Path('.shard-attempt')\n"
+            "        if not marker.exists():\n"
+            "            marker.write_text('seen\\n', encoding='utf-8')\n"
+            "            self.fail('transient shard failure')\n"
+            if transient_failure
+            else
+            "import unittest\n\n"
+            "class BetaShard(unittest.TestCase):\n"
+            "    def test_pass(self):\n"
+            "        self.assertTrue(True)\n"
+        )
+        (self.workspace / "b_shard.py").write_text(beta_body, encoding="utf-8")
+        parent = [
+            sys.executable,
+            "-m",
+            "unittest",
+            "discover",
+            "-s",
+            ".",
+            "-p",
+            "*_shard.py",
+            "-q",
+        ]
+        alpha = [
+            sys.executable,
+            "-m",
+            "unittest",
+            "a_shard.AlphaShard.test_pass",
+        ]
+        beta = [
+            sys.executable,
+            "-m",
+            "unittest",
+            "b_shard.BetaShard.test_pass",
+        ]
+        shard_map = self.workspace / ".click" / "evidence-shards.json"
+        shard_map.parent.mkdir()
+        shard_map.write_text(
+            json.dumps(
+                {
+                    "version": 1,
+                    "entries": [
+                        {
+                            "checks": [parent],
+                            "inventory": ["*_shard.py"],
+                            "shards": [
+                                {
+                                    "id": "alpha",
+                                    "checks": [alpha],
+                                    "covers": ["a_shard.py"],
+                                },
+                                {
+                                    "id": "beta",
+                                    "checks": [beta],
+                                    "covers": ["b_shard.py"],
+                                },
+                            ],
+                        }
+                    ],
+                },
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        tracked = [
+            ".gitignore",
+            "README.md",
+            "a_shard.py",
+            "b_shard.py",
+            ".click/evidence-shards.json",
+        ]
+        if safe_readme_reuse:
+            policy = self.workspace / ".click" / "evidence-reuse.json"
+            policy.write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "entries": [
+                            {
+                                "checks": [alpha],
+                                "reuse_if_only_changed": ["README.md"],
+                            },
+                            {
+                                "checks": [beta],
+                                "reuse_if_only_changed": ["README.md"],
+                            },
+                        ],
+                    },
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            tracked.append(".click/evidence-reuse.json")
+        self.initialize_git(*tracked)
+        return parent
+
+    def decoded_verification_batch(self, payload: dict) -> dict:
+        tokens = split_runner_command(
+            payload["hookSpecificOutput"]["updatedInput"]["command"]
+        )
+        raw, error = CLICK_CAPABILITY.decode_encoded_request(
+            tokens[8], "verification"
+        )
+        self.assertEqual(error, "")
+        assert raw is not None
+        return json.loads(raw)
+
+    def test_explicit_batch_workdir_expands_shards_from_nested_repository(
+        self,
+    ) -> None:
+        parent = self.install_evidence_shard_fixture()
+        self.base_event["cwd"] = str(self.workspace.parent)
+        self.approve_contract()
+        batch = {
+            "version": 2,
+            "workdir": str(self.workspace),
+            "checks": [
+                {"evidence_id": "E1", "argv": parent, "class": "broad"}
+            ],
+        }
+        command = f"click-gate verify {shlex.quote(json.dumps(batch))}"
+
+        prepared = self.tool_hook(
+            "pre-tool",
+            "Bash",
+            {"command": command},
+            turn_id="turn-2",
+        )
+
+        self.assertIsNotNone(prepared)
+        assert prepared is not None
+        expanded = self.decoded_verification_batch(prepared)
+        self.assertEqual(expanded["workdir"], str(self.workspace.resolve()))
+        self.assertEqual(len(expanded["checks"]), 2)
+        self.assertTrue(
+            all(
+                check["evidence_id"].startswith("S")
+                for check in expanded["checks"]
+            )
+        )
+        self.assertIn(
+            "expanded the broad suite into 2 independent shard(s)",
+            prepared["hookSpecificOutput"]["additionalContext"],
+        )
+        completed = self.run_rewritten(prepared)
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+
+    def test_evidence_shards_retain_passed_sibling_and_retry_only_unresolved(self) -> None:
+        parent = self.install_evidence_shard_fixture(transient_failure=True)
+        self.approve_contract()
+
+        prepared = self.verify_gate([parent])
+        first_batch = self.decoded_verification_batch(prepared)
+        self.assertEqual(len(first_batch["checks"]), 2)
+        self.assertTrue(
+            all(check["evidence_id"].startswith("S") for check in first_batch["checks"])
+        )
+        first = self.run_rewritten(prepared)
+        self.assertEqual(first.returncode, 1, first.stderr)
+        state_path = next(
+            (self.plugin_data / "gate-state").glob("session-contract-*.json")
+        )
+        partial = json.loads(state_path.read_text(encoding="utf-8"))
+        statuses = sorted(
+            source["status"]
+            for source in partial["evidence_state"]["sources"].values()
+        )
+        self.assertEqual(statuses, ["failed", "passed"])
+
+        retry = self.verify_gate([parent])
+        retry_batch = self.decoded_verification_batch(retry)
+        self.assertEqual(len(retry_batch["checks"]), 1)
+        second = self.run_rewritten(retry)
+        self.assertEqual(second.returncode, 0, second.stderr)
+        completed = json.loads(state_path.read_text(encoding="utf-8"))
+        self.assertEqual(completed["verification"]["status"], "passed")
+        self.assertTrue(
+            all(
+                source["status"] == "passed"
+                for source in completed["evidence_state"]["sources"].values()
+            )
+        )
+
+        receipt_payload = self.pre_tool(
+            "Bash", "click-gate receipt export", "turn-2", submit_prompt=False
+        )
+        assert receipt_payload is not None
+        exported = self.run_rewritten(receipt_payload)
+        self.assertEqual(exported.returncode, 0, exported.stderr)
+        receipt = json.loads(exported.stdout)["receipt"]
+        self.assertEqual(receipt["version"], 3)
+        self.assertEqual(
+            sorted(source["shard"]["shard_id"] for source in receipt["evidence"]),
+            ["alpha", "beta"],
+        )
+        self.assertTrue(
+            all(source["shard"]["shard_count"] == 2 for source in receipt["evidence"])
+        )
+
+    def test_shard_map_alone_never_authorizes_cross_revision_skip(self) -> None:
+        parent = self.install_evidence_shard_fixture()
+        self.approve_contract()
+        first = self.verify_gate([parent])
+        self.assertEqual(self.run_rewritten(first).returncode, 0)
+
+        self.assertIsNone(
+            self.pre_tool("apply_patch", "*** Begin Patch\n*** End Patch", "turn-2")
+        )
+        (self.workspace / "README.md").write_text("after\n", encoding="utf-8")
+        self.tool_hook(
+            "post-tool", "apply_patch", {"patch": "readme"}, tool_use_id="tool-1"
+        )
+
+        rerun = self.verify_gate([parent])
+        self.assertEqual(len(self.decoded_verification_batch(rerun)["checks"]), 2)
+
+    def test_each_shard_can_use_existing_committed_safe_change_authority(self) -> None:
+        parent = self.install_evidence_shard_fixture(safe_readme_reuse=True)
+        self.approve_contract()
+        first = self.verify_gate([parent])
+        self.assertEqual(self.run_rewritten(first).returncode, 0)
+
+        self.assertIsNone(
+            self.pre_tool("apply_patch", "*** Begin Patch\n*** End Patch", "turn-2")
+        )
+        (self.workspace / "README.md").write_text("after\n", encoding="utf-8")
+        self.tool_hook(
+            "post-tool", "apply_patch", {"patch": "readme"}, tool_use_id="tool-1"
+        )
+
+        reused = self.verify_gate([parent])
+        command = reused["hookSpecificOutput"]["updatedInput"]["command"]
+        self.assertIn("repository-declared safe-change cross-revision", command)
+        self.assertNotIn("run-verification", command)
+        state_path = next(
+            (self.plugin_data / "gate-state").glob("session-contract-*.json")
+        )
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        self.assertTrue(
+            all(
+                source["safe_change_reuse_count"] == 1
+                for source in state["evidence_state"]["sources"].values()
+            )
+        )
+
+    def test_edited_shard_map_runs_original_parent_suite(self) -> None:
+        parent = self.install_evidence_shard_fixture()
+        shard_map = self.workspace / ".click" / "evidence-shards.json"
+        shard_map.write_text(
+            shard_map.read_text(encoding="utf-8") + "\n", encoding="utf-8"
+        )
+        self.approve_contract()
+
+        prepared = self.verify_gate([parent])
+        batch = self.decoded_verification_batch(prepared)
+        self.assertEqual(len(batch["checks"]), 1)
+        self.assertEqual(batch["checks"][0]["evidence_id"], "E1")
+        self.assertEqual(batch["checks"][0]["argv"], parent)
+        self.assertIn(
+            "manifest-working-copy-mismatch",
+            prepared["hookSpecificOutput"]["additionalContext"],
+        )
+        self.assertEqual(self.run_rewritten(prepared).returncode, 0)

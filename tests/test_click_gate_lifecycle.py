@@ -185,7 +185,8 @@ class ClickGateLifecycleTests(ClickGateTestCase):
         self.set_default("on")
         guarded = self.prompt_submit()["hookSpecificOutput"]["additionalContext"]
         self.assertIn("Guarded mode is enabled", guarded)
-        self.assertIn("four human sections", guarded)
+        self.assertIn("exact digest-bound easy contract once", guarded)
+        self.assertIn("view-original choices", guarded)
 
         self.set_default("manual")
         off = self.prompt_submit()["hookSpecificOutput"]["additionalContext"]
@@ -1024,9 +1025,15 @@ class ClickGateLifecycleTests(ClickGateTestCase):
         )
         projection = staged["hookSpecificOutput"]["additionalContext"]
         self.assertIn(f"CLICK_CONTRACT_ID={contract_id}", projection)
-        self.assertIn("Goal\n" + self.contract()["outcome"], projection)
-        self.assertIn(self.contract()["build"]["approach"][0], projection)
-        self.assertIn("Completion checks\n  Scale: focused", projection)
+        self.assertIn(
+            "Plain-language contract\n" + self.contract()["plain_language"],
+            projection,
+        )
+        self.assertEqual(projection.count(self.contract()["plain_language"]), 1)
+        self.assertNotIn(self.contract()["outcome"], projection)
+        self.assertNotIn(self.contract()["build"]["approach"][0], projection)
+        self.assertNotIn("Scale: focused", projection)
+        self.assertIn("unless the user asks to see the original contract", projection)
         self.assertNotIn("inventory", contract_id)
         self.arm_gate("turn-2")
         payload = self.pass_gate(turn_id="turn-2")
