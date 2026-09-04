@@ -223,6 +223,12 @@ class ClickObserverMacOSTests(unittest.TestCase):
         )
         self.assertEqual(parsed.unresolved_event_count, 0)
         self.assertTrue(parsed.process_tree_complete)
+        self.assertEqual(
+            click_observer_macos._candidate_path(
+                "F=3 (R_____) [ -2]/D:/workspace/input.txt"
+            ),
+            "D:/workspace/input.txt",
+        )
 
     def test_parser_does_not_guess_relative_openat_path(self) -> None:
         parsed = click_observer_macos.parse_fs_usage(
@@ -274,7 +280,11 @@ class ClickObserverMacOSTests(unittest.TestCase):
 
     def test_parser_normalizes_macos_data_volume_and_private_aliases(self) -> None:
         logical_root = self.workspace.as_posix()
-        physical_root = "/System/Volumes/Data" + logical_root
+        physical_root = (
+            "/System/Volumes/Data" + logical_root
+            if logical_root.startswith("/")
+            else logical_root
+        )
         parsed = click_observer_macos.parse_fs_usage(
             self.trace_text(
                 "12:00:00.000001 execve /usr/bin/python3 "
