@@ -204,6 +204,32 @@ class ClickObserverMacOSTests(unittest.TestCase):
         self.assertEqual(parsed.unresolved_event_count, 1)
         self.assertFalse(parsed.process_tree_complete)
 
+    def test_parser_normalizes_macos_data_volume_and_private_aliases(self) -> None:
+        logical_root = self.workspace.as_posix()
+        physical_root = "/System/Volumes/Data" + logical_root
+        parsed = click_observer_macos.parse_fs_usage(
+            self.trace_text(
+                "12:00:00.000001 execve /usr/bin/python3 "
+                "0.000010 Python.20",
+                f"12:00:00.000002 open F=3 (R_____) "
+                f"{physical_root}/input.txt 0.000011 Python.20",
+            ),
+            workspace=self.workspace,
+        )
+
+        self.assertEqual(
+            parsed.inputs,
+            (
+                {
+                    "path": "input.txt",
+                    "kind": "file",
+                    "operations": ["read"],
+                },
+            ),
+        )
+        self.assertEqual(parsed.external_input_count, 1)
+        self.assertEqual(parsed.unresolved_event_count, 0)
+
     def test_parser_bounds_aggregate_inputs(self) -> None:
         root = self.workspace.as_posix()
         with mock.patch.object(
@@ -607,6 +633,9 @@ class MacOSNativeSmokeTests(unittest.TestCase):
                 ),
                 "workspace_mention_count": sum(
                     workspace.as_posix() in line for line in timestamp_lines
+                ),
+                "input_name_mention_count": sum(
+                    "input.txt" in line for line in timestamp_lines
                 ),
                 "trace_truncated": trace.truncated,
                 "collector_failed": trace.failed,

@@ -69,6 +69,8 @@ MAX_RAW_TRACE_BYTES = 4 * 1024 * 1024
 COLLECTOR_STARTUP_SECONDS = 0.2
 LAUNCH_RELEASE_SECONDS = 1.0
 NATIVE_FS_USAGE_PATHS = frozenset({"/usr/bin/fs_usage", "/usr/sbin/fs_usage"})
+MACOS_DATA_VOLUME_PREFIX = "/System/Volumes/Data"
+MACOS_PRIVATE_ALIASES = ("/etc", "/tmp", "/var")
 
 _DIGEST = re.compile(r"^[0-9a-f]{64}$")
 _VERSION = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$")
@@ -244,6 +246,21 @@ def _candidate_path(details: str) -> str:
     return value
 
 
+def _canonical_macos_path(path_text: str) -> str:
+    """Normalize stable logical/physical aliases emitted by macOS ktrace."""
+
+    normalized = posixpath.normpath(path_text)
+    if normalized == MACOS_DATA_VOLUME_PREFIX:
+        normalized = "/"
+    elif normalized.startswith(MACOS_DATA_VOLUME_PREFIX + "/"):
+        normalized = normalized[len(MACOS_DATA_VOLUME_PREFIX) :]
+    for alias in MACOS_PRIVATE_ALIASES:
+        if normalized == alias or normalized.startswith(alias + "/"):
+            normalized = "/private" + normalized
+            break
+    return normalized
+
+
 def parse_fs_usage(
     raw: bytes,
     *,
@@ -256,7 +273,7 @@ def parse_fs_usage(
         root_text = workspace.resolve(strict=True).as_posix()
     except (OSError, RuntimeError):
         root_text = Path(os.path.abspath(workspace)).as_posix()
-    root_text = posixpath.normpath(root_text)
+    root_text = _canonical_macos_path(root_text)
     root = PurePosixPath(root_text)
     inputs: dict[str, dict[str, Any]] = {}
     conflicts: set[str] = set()
@@ -268,7 +285,7 @@ def parse_fs_usage(
     def add_path(path_text: str, *, kind: str, operation: str) -> None:
         nonlocal unresolved
         try:
-            normalized = posixpath.normpath(path_text)
+            normalized = _canonical_macos_path(path_text)
             if not normalized.startswith("/") and _POSIX_DRIVE_PATH.match(
                 normalized
             ) is None:
