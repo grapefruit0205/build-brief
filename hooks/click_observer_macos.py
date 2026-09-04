@@ -37,7 +37,10 @@ else:  # Executed directly from the bundled hooks directory.
 
 
 MAX_RAW_TRACE_BYTES = 4 * 1024 * 1024
-COLLECTOR_STARTUP_SECONDS = 0.2
+# fs_usage publishes no readiness signal. Its startup performs disk-name cache
+# discovery and ktrace callback registration before ktrace_start(), so keep the
+# suspended target stopped long enough for that bounded initialization.
+COLLECTOR_STARTUP_SECONDS = 1.0
 NATIVE_FS_USAGE_PATHS = frozenset({"/usr/bin/fs_usage", "/usr/sbin/fs_usage"})
 MACOS_DATA_VOLUME_PREFIX = "/System/Volumes/Data"
 MACOS_PRIVATE_ALIASES = ("/etc", "/tmp", "/var")
