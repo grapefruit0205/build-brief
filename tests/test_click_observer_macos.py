@@ -35,8 +35,10 @@ class _FakeProcess:
         stdout: bytes = b"",
         stderr: bytes = b"",
         interrupt: bool = False,
+        command_name: str = "tool",
     ) -> None:
         self.pid = pid
+        self.command_name = command_name
         self.returncode = None if running else returncode
         self._final_returncode = returncode
         self._running = running
@@ -143,6 +145,17 @@ class ClickObserverMacOSTests(unittest.TestCase):
         self.assertTrue(parsed.root_exec_observed)
         self.assertTrue(parsed.process_tree_complete)
         self.assertEqual(parsed.unresolved_event_count, 0)
+
+        name_filtered = click_observer_macos.parse_fs_usage(
+            self.trace_text(
+                f"12:00:00.000002 open F=3 (R_____) "
+                f"{self.workspace.as_posix()}/input.txt 0.000011 Python.20"
+            ),
+            workspace=self.workspace,
+            root_execution_bound=True,
+            process_scope_complete=False,
+        )
+        self.assertFalse(name_filtered.process_tree_complete)
 
     def test_native_suspended_spawn_rejects_invalid_inputs_before_launch(self) -> None:
         with self.assertRaises(ValueError):
@@ -433,7 +446,9 @@ class ClickObserverMacOSTests(unittest.TestCase):
     def test_collector_suspends_actual_target_before_pid_filter(self) -> None:
         collector_launches: list[list[str]] = []
         target_spawns: list[list[str]] = []
-        target = _FakeProcess(pid=4321, returncode=4, running=True)
+        target = _FakeProcess(
+            pid=4321, returncode=4, running=True, command_name="Python"
+        )
         collector = _FakeProcess(
             pid=4322,
             returncode=0,
@@ -473,13 +488,14 @@ class ClickObserverMacOSTests(unittest.TestCase):
         self.assertEqual(result.raw, b"trace-output")
         self.assertEqual(target_spawns, [["tool", "--flag"]])
         self.assertEqual(resumed, [4321])
-        self.assertEqual(collector_launches[0][-1], "4321")
+        self.assertEqual(collector_launches[0][-2:], ["4321", "Python"])
         self.assertEqual(
-            collector_launches[0][1:-1],
+            collector_launches[0][1:-2],
             ["-w", "-f", "pathname", "-f", "exec"],
         )
         self.assertNotIn("sudo", collector_launches[0])
         self.assertEqual(terminated, [4322])
+        self.assertFalse(result.process_scope_complete)
 
     def test_collector_interrupt_stops_both_retained_groups(self) -> None:
         target = _FakeProcess(pid=5321, returncode=0, running=True, interrupt=True)

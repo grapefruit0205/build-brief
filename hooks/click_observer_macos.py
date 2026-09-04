@@ -47,6 +47,7 @@ POSIX_SPAWN_CLOEXEC_DEFAULT = 0x4000
 
 _DIGEST = re.compile(r"^[0-9a-f]{64}$")
 _VERSION = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$")
+_PROCESS_NAME = re.compile(r"^[A-Za-z][A-Za-z0-9._+-]{0,63}$")
 _EVENT = re.compile(
     r"^\s*\d{2}:\d{2}:\d{2}(?:\.\d+)?\s+"
     r"(?P<operation>\S+)\s+(?P<details>.*?)\s+"
@@ -123,6 +124,7 @@ class CollectedExecution:
     target_started: bool
     command_duration_ms: int
     collector_overhead_ms: int
+    process_scope_complete: bool = True
 
 
 @dataclass(slots=True)
@@ -130,6 +132,7 @@ class _SuspendedProcess:
     """Small Popen-compatible owner for a suspended posix_spawn child."""
 
     pid: int
+    command_name: str
     returncode: int | None = None
 
     def poll(self) -> int | None:
@@ -240,6 +243,26 @@ def _encoded_c_string(value: str) -> bytes:
     if not isinstance(value, str) or "\x00" in value:
         raise ValueError("invalid native process string")
     return os.fsencode(value)
+
+
+def _macos_process_name(pid: int) -> str:
+    """Read the kernel-owned short process name without invoking a shell."""
+
+    libproc = ctypes.CDLL("/usr/lib/libproc.dylib", use_errno=True)
+    libproc.proc_name.argtypes = [ctypes.c_int, ctypes.c_void_p, ctypes.c_uint32]
+    libproc.proc_name.restype = ctypes.c_int
+    buffer = ctypes.create_string_buffer(1_024)
+    length = int(libproc.proc_name(int(pid), buffer, len(buffer)))
+    if length <= 0:
+        error = ctypes.get_errno()
+        raise OSError(error or 1, os.strerror(error or 1))
+    try:
+        name = os.fsdecode(buffer.value)
+    except (TypeError, UnicodeError):
+        name = ""
+    if _PROCESS_NAME.fullmatch(name) is None:
+        raise ValueError("unsupported native process name")
+    return name
 
 
 def _spawn_suspended_macos(
@@ -362,7 +385,13 @@ def _spawn_suspended_macos(
             raise OSError(error, os.strerror(error), argv[0])
         if child_pid.value <= 0:
             raise OSError("posix_spawnp returned an invalid pid")
-        return _SuspendedProcess(pid=int(child_pid.value))
+        target = _SuspendedProcess(pid=int(child_pid.value), command_name="")
+        try:
+            target.command_name = _macos_process_name(target.pid)
+        except Exception:
+            _discard_suspended_target(target)
+            raise
+        return target
     finally:
         if actions_ready:
             libc.posix_spawn_file_actions_destroy(ctypes.byref(actions))
@@ -431,6 +460,7 @@ def parse_fs_usage(
     workspace: Path,
     truncated: bool = False,
     root_execution_bound: bool = False,
+    process_scope_complete: bool = True,
 ) -> ParsedTrace:
     """Parse bounded fs_usage text into content-free repository inputs."""
 
@@ -592,6 +622,7 @@ def parse_fs_usage(
         and child_processes == 0
         and unresolved == 0
         and not truncated
+        and process_scope_complete
     )
     return ParsedTrace(
         inputs=normalized_inputs,
@@ -686,6 +717,7 @@ def collect_command(
                 "-f",
                 "exec",
                 str(target.pid),
+                str(target.command_name),
             ],
             cwd=workspace,
             env=dict(environment),
@@ -765,6 +797,7 @@ def collect_command(
             _bounded_add(collector_preparation_ms, collector_cleanup_ms),
             duration_ms,
         ),
+        process_scope_complete=False,
     )
 
 
@@ -883,6 +916,7 @@ def run_command(
             workspace=observation_root or workspace,
             truncated=collected.truncated or collected.failed,
             root_execution_bound=collected.target_started,
+            process_scope_complete=collected.process_scope_complete,
         )
     except Exception:
         parsed = ParsedTrace((), 0, 1, 0, False, False)
