@@ -59,6 +59,9 @@ _ABSOLUTE_PATH = re.compile(
 _DIRFD_ABSOLUTE_PATH = re.compile(
     r"(?:^|\s)\[\s*-?\d+\s*\]/(?P<path>/[^\x00\r\n]*?)\s*$"
 )
+_AT_FDCWD_RELATIVE_PATH = re.compile(
+    r"(?:^|\s)\[\s*-2\s*\]/(?P<path>[^/\x00\r\n][^\x00\r\n]*?)\s*$"
+)
 _POSIX_DRIVE_PATH = re.compile(r"^[A-Za-z]:/")
 _OPEN_FLAGS = re.compile(r"\((?P<flags>[A-Z_]{2,32})\)")
 _MISSING_ERRNO = re.compile(r"\[\s*2\s*\]")
@@ -439,6 +442,28 @@ def _candidate_path(details: str) -> str:
     return value
 
 
+def _bound_relative_candidate(operation_name: str, details: str) -> str:
+    """Return a cwd-relative open path only when its shape is unambiguous."""
+
+    if operation_name == "openat":
+        match = _AT_FDCWD_RELATIVE_PATH.search(details)
+        value = match.group("path").strip() if match is not None else ""
+    elif operation_name == "open":
+        flags = _OPEN_FLAGS.search(details)
+        value = details[flags.end() :].strip() if flags is not None else ""
+    else:
+        return ""
+    if (
+        not value
+        or value.startswith(("/", "\\"))
+        or _POSIX_DRIVE_PATH.match(value) is not None
+        or " -> " in value
+        or "\x00" in value
+    ):
+        return ""
+    return value
+
+
 def _canonical_macos_path(path_text: str) -> str:
     """Normalize stable logical/physical aliases emitted by macOS ktrace."""
 
@@ -591,8 +616,21 @@ def parse_fs_usage(
                 observed_operation = "read"
 
         path_text = _candidate_path(details)
+        projected_relative_path = False
+        if not path_text and root_execution_bound:
+            relative_path = _bound_relative_candidate(operation_name, details)
+            if relative_path:
+                path_text = posixpath.join(root_text, relative_path)
+                projected_relative_path = True
         if observed_operation and path_text:
             add_path(path_text, kind=kind, operation=observed_operation)
+            if projected_relative_path:
+                # fs_usage may report the first VFS lookup as relative.  The
+                # suspended launch binds the initial cwd, so retain the useful
+                # repository candidate, but keep the observation partial: the
+                # target may chdir and the process-name fallback can include
+                # unrelated same-name processes.
+                unresolved = _bounded_add(unresolved, 1)
         elif observed_operation:
             unresolved = _bounded_add(unresolved, 1)
         elif path_text and operation_name not in {
