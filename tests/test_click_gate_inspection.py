@@ -39,6 +39,15 @@ def spawned_child(
 
 
 class ClickGateInspectionTests(ClickGateTestCase):
+    def test_hook_payload_writer_is_safe_for_legacy_windows_code_pages(self) -> None:
+        stdout = mock.Mock()
+        with mock.patch.object(CLICK_GATE.sys, "stdout", stdout):
+            CLICK_GATE._write_stdout_payload({"contract": "쉬운 계약문"})
+
+        rendered = stdout.write.call_args.args[0]
+        self.assertTrue(rendered.isascii())
+        self.assertEqual(json.loads(rendered), {"contract": "쉬운 계약문"})
+
     def test_hook_config_loads_mode_for_each_prompt(self) -> None:
         config = json.loads(HOOK_CONFIG.read_text(encoding="utf-8"))
         hooks = config["hooks"]

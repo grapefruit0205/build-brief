@@ -166,7 +166,9 @@ _OUTPUT_ADAPTER: platform_protocol.HookOutputAdapter = (
 
 
 def _write_stdout_payload(payload: dict[str, Any]) -> None:
-    sys.stdout.write(json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
+    # Hook stdout may use a legacy Windows code page. JSON escapes preserve the
+    # exact Unicode value after parsing without requiring a UTF-8 console.
+    sys.stdout.write(json.dumps(payload, ensure_ascii=True, separators=(",", ":")))
 
 
 _OUTPUT_SINK: click_host_router.OutputSink = _write_stdout_payload

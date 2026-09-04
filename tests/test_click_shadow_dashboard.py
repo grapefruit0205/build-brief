@@ -201,7 +201,7 @@ class ClickShadowDashboardTests(ClickGateTestCase):
         thread = threading.Thread(target=serve, daemon=True)
         thread.start()
         port = 0
-        for _ in range(100):
+        for _ in range(500):
             with CLICK_STATE.state_lock():
                 state = json.loads(state_path.read_text(encoding="utf-8"))
                 dashboard = state[CLICK_SHADOW_DASHBOARD.DASHBOARD_FIELD]
