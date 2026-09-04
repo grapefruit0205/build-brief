@@ -57,7 +57,8 @@ _ABSOLUTE_PATH = re.compile(
     r"(?<!\S)((?:/|[A-Za-z]:/)(?:[^\x00\r\n])*?)\s*$"
 )
 _DIRFD_ABSOLUTE_PATH = re.compile(
-    r"(?:^|\s)\[\s*-?\d+\s*\]/(?P<path>/[^\x00\r\n]*?)\s*$"
+    r"(?:^|\s)\[\s*-?\d+\s*\]/"
+    r"(?P<path>(?:/|[A-Za-z]:/)[^\x00\r\n]*?)\s*$"
 )
 _AT_FDCWD_RELATIVE_PATH = re.compile(
     r"(?:^|\s)\[\s*-2\s*\]/(?P<path>[^/\x00\r\n][^\x00\r\n]*?)\s*$"
