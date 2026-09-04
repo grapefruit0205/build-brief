@@ -1,11 +1,11 @@
 # Shadow Observer v1 contract
 
 Shadow Observer v1 is a versioned, content-free record emitted beside real argv
-verification. Native collection remains Linux-only through `strace`, while the
-Phase 3B.0 backend boundary selects collectors consistently on Linux, macOS and
-Windows. Collection is automatic when a trusted system `strace` is available,
-but its output remains separate from evidence authority, cache, approval,
-reuse, and completion paths.
+verification. Native collection uses trusted Linux `strace` or, when the
+current process is already privileged, macOS `fs_usage`; Windows remains an
+honest unavailable backend. Collection never elevates privilege, and its output
+remains separate from evidence authority, cache, approval, reuse, and completion
+paths.
 
 Every v1 record is heuristic telemetry. The following values are mandatory and
 immutable:
@@ -108,6 +108,29 @@ retained. `observer_overhead_ms` covers
 Click-side backend preparation and normalization; it is not an estimate of the
 runtime slowdown caused by tracing.
 
+## macOS Phase 3B.1 collector
+
+The macOS adapter uses the native `/usr/bin/fs_usage` collector only when the
+current Click process already has the root privilege required by the kernel
+trace facility. Click never invokes `sudo`, prompts for a password, changes Full
+Disk Access, or installs a helper. Without existing permission, verification
+uses its established execution path once and the Shadow record is unavailable.
+
+For an eligible run, Click starts a small isolated launcher that waits on a
+private FIFO outside the repository. It starts `fs_usage` with that launcher's
+PID, confirms that the collector remains alive, then releases the launcher to
+replace itself with the original argv without a shell. A failure before release
+may use the established path once; after release, telemetry failure never reruns
+the target. Both retained process groups are stopped on interruption and the
+FIFO is removed on every path.
+
+Collector output is drained through bounded private pipes, capped at 4 MiB,
+normalized into repository-relative aggregates, and discarded. The parser
+counts but never retains absolute external paths. A child-process event,
+truncation, malformed line, missing root execution event, or ambiguous path
+prevents complete process-tree coverage. The native executable digest is checked
+again after collection; drift discards the trace as unavailable.
+
 ## Event-to-record semantics
 
 The collector observes file reads, metadata lookups, missing-path lookups,
@@ -161,24 +184,26 @@ The existing `runtime-dependency-observation-v1` receipt remains unchanged and
 continues to be the only runtime observation shape understood by the current
 cross-revision reuse logic. Shadow Observer v1 deliberately has no conversion
 or automatic bridge into that receipt. It never feeds Click's authority-bearing
-dependency observation. Linux collection, failure, absence, and record storage
-therefore cannot change whether a check runs, passes, satisfies evidence, or is
-reused. macOS and Windows retain their prior verification behavior and may keep
-an `unavailable` record.
+dependency observation. Linux or macOS collection, failure, absence, and record
+storage therefore cannot change whether a check runs, passes, satisfies
+evidence, or is reused. macOS without existing privilege and Windows retain the
+established verification behavior and may keep an `unavailable` record.
 
-## Phase 3B.0 backend boundary
+## Phase 3B backend boundary
 
 `click_dependency_trace.py` remains the compatibility facade used by the
 verification runtime. Operating-system-neutral record combination, lifecycle
 storage and advisory rendering live in `click_observer_common.py`; bounded
 backend selection and capability states live in `click_observer_backend.py`;
 Linux probing, raw-event parsing and command collection live in
-`click_observer_linux.py`.
+`click_observer_linux.py`; native macOS permission checks, synchronized launch,
+parsing and collection live in `click_observer_macos.py`.
 
 Backend capability state is internal selection provenance rather than a new
 Observer v1 field. An implemented adapter may report `available`, `degraded`,
 `permission-required`, or `unavailable`, but the persisted record still uses
 only the strict v1 statuses above. Linux selection remains subject to its
-trusted executable and runtime capability probe. The macOS and Windows entries
-are explicit unavailable placeholders until separate native backend contracts
-are implemented; they never manufacture events or imply collection coverage.
+trusted executable and runtime capability probe. macOS reports
+`permission-required` unless the process is already privileged, then still
+requires the trusted native executable; Windows remains an unavailable
+placeholder. No backend manufactures events or implies collection coverage.

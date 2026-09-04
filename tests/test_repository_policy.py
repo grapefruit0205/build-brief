@@ -226,7 +226,8 @@ class RepositoryPolicyTests(core.RepositoryPolicyTests):
             "raw environment variables",
             "absolute external paths",
             "never feeds Click's authority-bearing dependency observation",
-            "Linux-only",
+            "macOS Phase 3B.1 collector",
+            "never invokes `sudo`",
             "Unknown schema versions fail closed",
         ):
             self.assertIn(marker.lower(), observer_words)

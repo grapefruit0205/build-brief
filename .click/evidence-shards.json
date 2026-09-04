@@ -150,6 +150,7 @@
               "tests.test_click_host_coverage",
               "tests.test_click_host_router",
               "tests.test_click_observer_backend",
+              "tests.test_click_observer_macos",
               "tests.test_click_shadow_dashboard",
               "tests.test_click_shadow_intelligence",
               "tests.test_runner_state_recovery",
@@ -163,6 +164,7 @@
             "tests/test_click_host_coverage.py",
             "tests/test_click_host_router.py",
             "tests/test_click_observer_backend.py",
+            "tests/test_click_observer_macos.py",
             "tests/test_click_shadow_dashboard.py",
             "tests/test_click_shadow_intelligence.py",
             "tests/test_runner_state_recovery.py"

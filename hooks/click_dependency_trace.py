@@ -20,11 +20,13 @@ if __package__:
         click_observer_backend,
         click_observer_common,
         click_observer_linux,
+        click_observer_macos,
     )
 else:  # Executed directly from the bundled hooks directory.
     import click_observer_backend
     import click_observer_common
     import click_observer_linux
+    import click_observer_macos
 
 
 SHADOW_STATE_VERSION = click_observer_common.SHADOW_STATE_VERSION
@@ -45,6 +47,7 @@ BackendResolver = click_observer_linux.BackendResolver
 FileDigester = click_observer_linux.FileDigester
 BackendProbe = click_observer_linux.BackendProbe
 SpawnArgv = click_observer_linux.SpawnArgv
+MacOSCollector = click_observer_macos.Collector
 
 select_backend = click_observer_backend.select_backend
 run_unobserved = click_observer_common.run_unobserved
@@ -60,6 +63,9 @@ probe_strace_version = click_observer_linux.probe_strace_version
 parse_strace = click_observer_linux.parse_strace
 _already_traced = click_observer_linux._already_traced
 _file_digest = click_observer_linux._file_digest
+parse_fs_usage = click_observer_macos.parse_fs_usage
+probe_macos_version = click_observer_macos.probe_macos_version
+macos_has_privilege = click_observer_macos.has_privilege
 click_process = click_observer_linux.click_process
 
 
@@ -82,13 +88,20 @@ def run_command(
     ),
     system_name: str | None = None,
     already_traced: Callable[[], bool] = _already_traced,
+    macos_privilege_probe: Callable[[], bool] = macos_has_privilege,
+    macos_collector: MacOSCollector = click_observer_macos.collect_command,
     capture_limit: int = MAX_RAW_TRACE_BYTES,
 ) -> ShadowExecution:
     """Select one backend and execute the target exactly once."""
 
     try:
         system = platform.system() if system_name is None else system_name
-        capability = select_backend(system)
+        macos_privileged = (
+            bool(macos_privilege_probe()) if system == "Darwin" else None
+        )
+        capability = select_backend(
+            system, macos_privileged=macos_privileged
+        )
     except Exception:
         capability = BackendCapability(
             system="",
@@ -96,28 +109,54 @@ def run_command(
             status="unavailable",
             reason="capability-detection-failed",
         )
-    if capability.status != "available" or capability.backend_name != "strace":
+    if capability.status != "available":
         return run_unobserved(
             execute_unobserved,
             evidence_key=evidence_key,
             check_digest=check_digest,
             mutation_revision=mutation_revision,
         )
-    return click_observer_linux.run_command(
-        argv,
-        workspace=workspace,
-        observation_root=observation_root,
-        environment=environment,
+    if capability.backend_name == "strace":
+        return click_observer_linux.run_command(
+            argv,
+            workspace=workspace,
+            observation_root=observation_root,
+            environment=environment,
+            evidence_key=evidence_key,
+            check_digest=check_digest,
+            mutation_revision=mutation_revision,
+            execute_unobserved=execute_unobserved,
+            resolve_backend=resolve_backend,
+            digest_file=digest_file,
+            probe_version=probe_version,
+            spawn_argv=spawn_argv,
+            terminate_group=terminate_group,
+            system_name=system,
+            already_traced=already_traced,
+            capture_limit=capture_limit,
+        )
+    if capability.backend_name == "fs_usage":
+        return click_observer_macos.run_command(
+            argv,
+            workspace=workspace,
+            observation_root=observation_root,
+            environment=environment,
+            evidence_key=evidence_key,
+            check_digest=check_digest,
+            mutation_revision=mutation_revision,
+            execute_unobserved=execute_unobserved,
+            resolve_backend=resolve_backend,
+            digest_file=digest_file,
+            privilege_probe=macos_privilege_probe,
+            collector=macos_collector,
+            spawn_argv=spawn_argv,
+            terminate_group=terminate_group,
+            system_name=system,
+            capture_limit=capture_limit,
+        )
+    return run_unobserved(
+        execute_unobserved,
         evidence_key=evidence_key,
         check_digest=check_digest,
         mutation_revision=mutation_revision,
-        execute_unobserved=execute_unobserved,
-        resolve_backend=resolve_backend,
-        digest_file=digest_file,
-        probe_version=probe_version,
-        spawn_argv=spawn_argv,
-        terminate_group=terminate_group,
-        system_name=system,
-        already_traced=already_traced,
-        capture_limit=capture_limit,
     )
