@@ -148,6 +148,7 @@
               "unittest",
               "tests.test_antigravity_adapter",
               "tests.test_click_dependency_trace",
+              "tests.test_click_dashboard_projection",
               "tests.test_click_hook",
               "tests.test_click_host_coverage",
               "tests.test_click_host_router",
@@ -164,6 +165,7 @@
           "covers": [
             "tests/test_antigravity_adapter.py",
             "tests/test_click_dependency_trace.py",
+            "tests/test_click_dashboard_projection.py",
             "tests/test_click_hook.py",
             "tests/test_click_host_coverage.py",
             "tests/test_click_host_router.py",

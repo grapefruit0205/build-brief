@@ -215,7 +215,8 @@ class ClickShadowDashboardTests(ClickGateTestCase):
         with urllib.request.urlopen(base + "/", timeout=2) as response:
             html = response.read().decode()
             self.assertEqual(response.status, 200)
-            self.assertIn("Evidence you can see", html)
+            self.assertIn("무엇만 다시 검사했나요?", html)
+            self.assertIn("Authoritative reuse", html)
             self.assertIn("default-src 'none'", response.headers["Content-Security-Policy"])
             self.assertEqual(response.headers["Cache-Control"], "no-store")
             self.assertIsNone(response.headers.get("Access-Control-Allow-Origin"))
@@ -232,7 +233,9 @@ class ClickShadowDashboardTests(ClickGateTestCase):
             body = response.read().decode()
             payload = json.loads(body)
             self.assertEqual(response.status, 200)
-            self.assertEqual(payload["summary"]["actual_saved_ms"], 0)
+            self.assertEqual(payload["summary"]["incremental"]["total_source_count"], 0)
+            self.assertEqual(payload["summary"]["shadow"]["candidate_count"], 0)
+            self.assertNotIn("actual_saved_ms", body)
             self.assertNotIn(str(self.workspace), body)
             self.assertNotIn("contract_id", body)
 
