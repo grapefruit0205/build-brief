@@ -189,6 +189,7 @@
               "tests.test_click_import_bootstrap",
               "tests.test_click_runner_transport",
               "tests.test_distribution_validation",
+              "tests.test_incremental_benchmark",
               "tests.test_repository_policy",
               "tests.test_semantic_grader",
               "tests.test_windows_hook_commands",
@@ -200,6 +201,7 @@
             "tests/test_click_import_bootstrap.py",
             "tests/test_click_runner_transport.py",
             "tests/test_distribution_validation.py",
+            "tests/test_incremental_benchmark.py",
             "tests/test_repository_policy.py",
             "tests/test_semantic_grader.py",
             "tests/test_windows_hook_commands.py"

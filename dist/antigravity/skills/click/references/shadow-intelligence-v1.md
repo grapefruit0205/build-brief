@@ -92,19 +92,22 @@ Click lifecycle.
 ## Evidence Map and ROI projection
 
 The dashboard receives a separate, strict, bounded projection instead of the
-raw Click state. It contains generic source labels, source status, canonical
-repository-relative input paths, observed operations, changed markers,
-prediction reasons, outcomes, and aggregate counters. At most 512 unique input
-nodes are projected; additional nodes are counted but not rendered.
+raw Click state. Its first summary is the authoritative incremental plan:
+total sources, sources actually executed, exact/dependency/safe-change reuse,
+measured execution duration, and `estimated_avoided_ms` based on recent real
+runs. That estimate is not labeled as an exact counterfactual saving.
 
-Shadow ROI is intentionally literal:
+Shadow telemetry is nested separately. It reports candidate, confirmation and
+contradiction counts, `potential_ms`, measured collector overhead, and that
+tracing slowdown remains unmeasured. A Shadow candidate is never counted as
+authoritative reuse or actual avoided work. The older Shadow evaluation record
+may retain its zero-valued compatibility sentinel, but the dashboard exposes no
+`actual_saved_ms` claim.
 
-- `actual_saved_ms` is always `0` because every check ran;
-- `gross_potential_ms` includes only a candidate confirmed by its real rerun;
-- `observer_overhead_ms` is measured observer setup and normalization work;
-- Shadow fingerprint and dashboard rendering cost are not included;
-- tracing slowdown is explicitly marked unmeasured;
-- no net saving or safety proof is claimed.
+The Evidence Map centers one selected source and includes its source node even
+when input slicing reaches the 512-input cap. Repository-relative inputs are
+marked `current-observed`, `changed`, `newly-observed`, or `baseline-only`, so
+inputs that disappeared since the prior successful baseline remain visible.
 
 Malformed fields, unknown versions, invalid paths, unsupported enums, digest
 tampering, and payloads beyond the state or projection limits are rejected
@@ -134,4 +137,6 @@ method, arbitrary path reader, file-content endpoint, or raw-state endpoint.
 The dashboard starts only on an explicit command, polls the current sanitized
 projection, stops explicitly or at session end, and enforces a two-hour maximum
 lifetime. Its start and stop do not change the mutation revision or evidence
-status because the viewer is read-only.
+status because the viewer is read-only. Dashboard activation does not enable
+collection: `click-gate observer shadow` is a separate, explicit lifecycle
+choice, and new lifecycles default the Observer to `off`.

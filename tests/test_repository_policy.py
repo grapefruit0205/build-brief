@@ -46,7 +46,7 @@ class RepositoryPolicyTests(core.RepositoryPolicyTests):
             (ROOT / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8")
         )
         self.assertEqual(manifest["name"], "click")
-        self.assertEqual(manifest["version"], "0.60.0")
+        self.assertEqual(manifest["version"], "0.70.0")
         self.assertEqual(manifest["license"], "MIT")
         combined_copy = " ".join(
             (
@@ -72,13 +72,14 @@ class RepositoryPolicyTests(core.RepositoryPolicyTests):
         self.assertEqual(marketplace["name"], "click")
         self.assertEqual(marketplace["plugins"][0]["name"], "click")
         self.assertEqual(
-            marketplace["plugins"][0]["source"]["ref"], "v0.60.0"
+            marketplace["plugins"][0]["source"]["ref"], "v0.70.0"
         )
 
-    def test_readmes_lead_with_evidence_first_positioning(self) -> None:
+    def test_readmes_lead_with_incremental_verification_positioning(self) -> None:
         for name, readme in _readmes().items():
             with self.subTest(readme=name):
                 opening = "\n".join(readme.splitlines()[:45]).lower()
+                self.assertIn("incremental verification", opening)
                 self.assertIn("revision-aware evidence", opening)
                 self.assertIn("evidence", readme)
                 self.assertIn("guarded", readme.lower())
@@ -96,6 +97,23 @@ class RepositoryPolicyTests(core.RepositoryPolicyTests):
                     '"evidence_id":',
                 ):
                     self.assertNotIn(internal_copy, readme)
+        english = _readmes()["README.md"]
+        self.assertIn(
+            "Incremental verification for coding agents.", english
+        )
+        self.assertIn(
+            "Click keeps passing checks reusable until the code they depend on "
+            "actually changes.",
+            english,
+        )
+        self.assertIn(
+            "Click does not prove that the code is correct or that the selected "
+            "tests are sufficient.",
+            english,
+        )
+        for readme in _readmes().values():
+            self.assertIn("click-gate observer off", readme)
+            self.assertIn("benchmarks/incremental_verification.py", readme)
 
     def test_readmes_document_qualitative_profiles_and_exact_receipts(self) -> None:
         for readme in _readmes().values():
@@ -263,7 +281,9 @@ class RepositoryPolicyTests(core.RepositoryPolicyTests):
             '"authoritative": false',
             '"reuse_authorized": false',
             "every compatible argv check still runs exactly once",
-            "actual_saved_ms` is always `0",
+            "dashboard exposes no `actual_saved_ms` claim",
+            "estimated_avoided_ms",
+            "shadow telemetry is nested separately",
             "127.0.0.1",
             "no state-changing method",
             "click-gate dashboard start",
@@ -333,7 +353,7 @@ class RepositoryPolicyTests(core.RepositoryPolicyTests):
 
     def test_release_documents_identify_current_and_preserve_release_history(self) -> None:
         for readme in _readmes().values():
-            self.assertIn("v0.60.0", readme)
+            self.assertIn("v0.70.0", readme)
             self.assertIn("codex plugin marketplace upgrade click", readme)
             self.assertIn("codex plugin add click@click", readme)
             self.assertIn("RELEASE_NOTES.md", readme)

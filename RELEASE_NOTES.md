@@ -1,5 +1,46 @@
 # Release notes
 
+## v0.70.0 — 2026-09-05
+
+- Click now presents its primary product as **incremental verification for
+  coding agents**: the runtime builds one canonical per-source plan before a
+  verification batch and executes only sources that are stale or cannot be
+  evaluated safely.
+- The plan preserves a strict authority order: current exact receipts first,
+  complete runtime dependency observation second, unchanged committed
+  safe-change policy third, and a real rerun for every ambiguous case. Stable
+  reason codes and receipt lineage explain every run or reuse decision.
+- Broad suites with a valid Evidence Shards map are planned per child. Python
+  `unittest discover` start directories and default or explicit patterns are
+  checked against the complete discoverable inventory; a narrower manifest
+  runs the original parent suite instead of omitting a test.
+- Incremental planning history is content-free and pruned at the first of
+  1,000 events, seven days, or 4 MiB. Actual execution counts and durations are
+  stored separately from recent-run-based `estimated_avoided_ms` values.
+- Observer control is explicit with `click-gate observer off`, `shadow`, and
+  `status`; new lifecycles default to off, and dashboard activation is
+  independent. Shadow records remain permanently non-authoritative and cannot
+  authorize reuse or enter completion receipts.
+- Native Shadow collection now has bounded backends for trusted Linux
+  `strace`, already-privileged macOS `fs_usage`, and Windows inbox ETW through
+  `logman.exe` plus `tracerpt.exe`. Collector failure after target launch never
+  reruns the check, and incomplete trees, unresolved events, and external
+  inputs stay visible as fail-closed telemetry.
+- The local read-only dashboard opens on the product question: which checks did
+  this change actually rerun? It separates authoritative execution and reuse
+  from Shadow candidates, reports estimated rather than asserted avoided time,
+  and renders an Evidence Map around one selected source with current,
+  changed, newly observed, and baseline-only inputs.
+- A dependency-free benchmark fixture emits JSON with measured full and
+  incremental wall-clock durations, executed and reused source counts,
+  observer overhead, Shadow contradictions, and a separately labeled estimate
+  based on the most recent successful full run. Its output is not hard-coded as
+  a product performance claim.
+- README and plugin metadata now state the direct value and the nearby limit:
+  Click tracks whether existing verification evidence still applies; it does
+  not prove code correctness or test sufficiency. Guarded remains an optional
+  approval boundary for higher-risk work rather than the main product value.
+
 ## v0.60.0 — 2026-09-04
 
 - Guarded staging now presents the exact digest-bound plain-language contract

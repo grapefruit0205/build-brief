@@ -1,5 +1,5 @@
 {
-  "description": "Use approval-free Evidence mode by default to record prompt lineage, mutation revisions, reusable verification evidence, and honest host-authorized receipts; offer opt-in Guarded contracts for approval-bound execution and Off for no ordinary Click governance, while preserving active contracts, replay and tamper protection, and managed local services.",
+  "description": "Use approval-free Evidence mode by default for incremental verification and honest host-authorized receipts; rerun affected checks, retain authoritative passing evidence, offer opt-in Guarded approval boundaries, and keep Shadow observation non-authoritative and off by default.",
   "hooks": {
     "UserPromptSubmit": [
       {

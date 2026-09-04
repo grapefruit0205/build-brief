@@ -1,15 +1,15 @@
-# Click — 为编码代理提供 revision-aware evidence
+# Click — 面向编码代理的增量验证
 
 [English](README.md) | [한국어](README.ko.md) | 简体中文
 
 [![CI](https://github.com/grapefruit0205/click/actions/workflows/ci.yml/badge.svg)](https://github.com/grapefruit0205/click/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-> 让验证结果始终和当前代码对应。
+> 代码只改一点时，不再重复全部验证，只重新运行真正受影响的检查。
 
-Click 的核心是 **revision-aware evidence**。
+Click 的核心是 **Incremental verification for coding agents**。只要某项已通过检查所依赖的代码没有变化，它的结果就可以继续复用；判断依据记录为 **revision-aware evidence**。
 
-它记录的不是“测试以前通过过”，而是 **哪一版代码执行了哪项检查，以及结果现在是否仍然有效**。
+Click 不会证明代码正确，也不会证明所选测试足够充分。它只跟踪已有验证结果是否仍适用于当前代码。
 
 你可以照常让 AI 工作。Click 会记住：
 
@@ -108,7 +108,7 @@ Evidence 模式下直接提出普通请求即可：
 
 ## 更新
 
-当前版本：**v0.60.0**
+当前版本：**v0.70.0**
 
 ~~~bash
 codex plugin marketplace upgrade click
@@ -167,11 +167,15 @@ Git 和插件自带的 Python，因此 Linux、macOS 与 Windows 都无需另装
 此列表是仓库所有者的明确策略，并不表示 Click 自动发现了全部依赖。
 已提交的 [Evidence Shards 映射](skills/click/references/evidence-shards-v1.md)可把一个精确 broad suite 拆成独立子项，并在后续 shard 失败时保留先前通过结果。该映射本身不能授权 mutation 后复用；上述规则仍逐项生效，映射无效时会执行原始 suite。
 
-在 Linux 上，Click 可用可信的系统 `strace` 旁路观察真实 argv 检查。Phase 2 会在
-下一次真实重跑前固定非权威预测，执行后再评估，并把当前 lifecycle 显示为本地
-Evidence Map 和诚实的 ROI 视图。所有检查仍会执行，实际节省时间恒为零。使用
-`click-gate dashboard start`、`status`、`stop` 打开、查看或关闭；观察失败不会
-改变原有验证行为。
+Observer 默认关闭，并且与 Dashboard 独立。使用 `click-gate observer off`、
+`shadow`、`status` 控制；只有明确开启 `shadow` 后，兼容的真实检查才会附加原生
+收集器。Linux 使用 `strace`，已有权限的 macOS 使用 `fs_usage`，Windows 使用系统
+自带的 ETW 工具 `logman.exe` 与 `tracerpt.exe`。Click 不安装工具，也不提升权限。
+Shadow 预测本身绝不会授权跳过检查。Dashboard 分开显示真实执行、获得权威授权的
+exact/dependency/policy 复用、根据最近运行估算的避免时间，以及 Shadow 潜在值。
+使用 `click-gate dashboard start`、`status`、`stop` 打开、查看或关闭。
+
+运行 `python3 benchmarks/incremental_verification.py` 可执行一个小型本地 fixture。输出会区分实测运行时间与依据最近一次成功完整运行得出的估算避免时间，不能直接当作产品性能宣传。
 
 ## 完成 receipt
 
