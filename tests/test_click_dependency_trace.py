@@ -108,6 +108,7 @@ class ClickDependencyTraceTests(unittest.TestCase):
         )
         return result, spawned, fallback_calls
 
+    @unittest.skipUnless(platform.system() == "Linux", "strace parser is Linux-only")
     def test_parser_normalizes_repository_inputs_and_counts_external_paths(self) -> None:
         root = self.workspace.as_posix()
         parsed = click_dependency_trace.parse_strace(
@@ -176,6 +177,7 @@ class ClickDependencyTraceTests(unittest.TestCase):
         self.assertFalse(result.record["authoritative"])
         self.assertFalse(result.record["reuse_authorized"])
 
+    @unittest.skipUnless(platform.system() == "Linux", "strace collector is Linux-only")
     def test_collector_start_failure_falls_back_exactly_once(self) -> None:
         calls: list[int] = []
         trace_paths: list[Path] = []
@@ -233,6 +235,7 @@ class ClickDependencyTraceTests(unittest.TestCase):
         self.assertEqual(result.record["status"], "unavailable")
         self.assertIsNone(result.record["backend"])
 
+    @unittest.skipUnless(platform.system() == "Linux", "strace collector is Linux-only")
     def test_keyboard_interrupt_terminates_traced_process_group(self) -> None:
         child = mock.Mock(spec=subprocess.Popen)
         child.wait.side_effect = KeyboardInterrupt
@@ -270,6 +273,7 @@ class ClickDependencyTraceTests(unittest.TestCase):
         self.assertFalse(result.record["reuse_authorized"])
         self.assertEqual(terminated, [child])
 
+    @unittest.skipUnless(platform.system() == "Linux", "strace collector is Linux-only")
     def test_started_collector_never_reruns_when_trace_is_incomplete(self) -> None:
         root = self.workspace.as_posix()
         result, spawned, fallback_calls = self.fake_trace(
@@ -284,6 +288,7 @@ class ClickDependencyTraceTests(unittest.TestCase):
         self.assertEqual(fallback_calls, [])
         self.assertEqual(result.record["status"], "failed")
 
+    @unittest.skipUnless(platform.system() == "Linux", "strace collector is Linux-only")
     def test_trace_preserves_target_failure_and_drops_external_path_values(self) -> None:
         root = self.workspace.as_posix()
         result, spawned, fallback_calls = self.fake_trace(
@@ -314,6 +319,7 @@ class ClickDependencyTraceTests(unittest.TestCase):
         self.assertNotIn("0x0", encoded)
         self.assertNotIn("python3\"],", encoded)
 
+    @unittest.skipUnless(platform.system() == "Linux", "strace collector is Linux-only")
     def test_bounded_capture_marks_an_otherwise_complete_trace_partial(self) -> None:
         root_exec = (
             '100 execve("/usr/bin/python3", ["python3"], 0x0) = 0\n'
@@ -328,6 +334,7 @@ class ClickDependencyTraceTests(unittest.TestCase):
         self.assertGreaterEqual(result.record["unresolved_event_count"], 1)
         self.assertFalse(result.record["process_tree_complete"])
 
+    @unittest.skipUnless(platform.system() == "Linux", "strace collector is Linux-only")
     def test_backend_digest_drift_discards_trace_without_rerunning_target(self) -> None:
         result, spawned, fallback_calls = self.fake_trace(
             self.trace_text(
