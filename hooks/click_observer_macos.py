@@ -80,6 +80,9 @@ _EVENT = re.compile(
 _ABSOLUTE_PATH = re.compile(
     r"(?<!\S)((?:/|[A-Za-z]:/)(?:[^\x00\r\n])*?)\s*$"
 )
+_DIRFD_ABSOLUTE_PATH = re.compile(
+    r"(?:^|\s)\[\s*-?\d+\s*\]/(?P<path>/[^\x00\r\n]*?)\s*$"
+)
 _POSIX_DRIVE_PATH = re.compile(r"^[A-Za-z]:/")
 _OPEN_FLAGS = re.compile(r"\((?P<flags>[A-Z_]{2,32})\)")
 _MISSING_ERRNO = re.compile(r"\[\s*2\s*\]")
@@ -224,10 +227,18 @@ def _outside_workspace(workspace: Path, candidate: Path) -> bool:
 
 
 def _candidate_path(details: str) -> str:
-    match = _ABSOLUTE_PATH.search(details)
-    if match is None:
-        return ""
-    value = match.group(1).strip()
+    # Wide fs_usage output prefixes openat-family paths with ``[dirfd]/``.
+    # If the reported pathname is absolute, that renders as
+    # ``[-2]//private/...``. Strip only the numeric prefix; genuinely relative
+    # paths stay unresolved instead of being guessed against the workspace.
+    match = _DIRFD_ABSOLUTE_PATH.search(details)
+    if match is not None:
+        value = match.group("path").strip()
+    else:
+        match = _ABSOLUTE_PATH.search(details)
+        if match is None:
+            return ""
+        value = match.group(1).strip()
     if " -> " in value or "\x00" in value:
         return ""
     return value
@@ -564,8 +575,6 @@ def collect_command(
             [
                 executable,
                 "-w",
-                "-f",
-                "filesys",
                 "-f",
                 "pathname",
                 "-f",

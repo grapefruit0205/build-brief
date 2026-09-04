@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import platform
+import re
 import subprocess
 import sys
 import tempfile
@@ -160,6 +161,46 @@ class ClickObserverMacOSTests(unittest.TestCase):
                 },
             ),
         )
+        self.assertEqual(parsed.unresolved_event_count, 1)
+        self.assertFalse(parsed.process_tree_complete)
+
+    def test_parser_accepts_absolute_openat_path_after_dirfd_prefix(self) -> None:
+        root = self.workspace.as_posix()
+        parsed = click_observer_macos.parse_fs_usage(
+            self.trace_text(
+                "12:00:00.000001 execve /usr/bin/python3 "
+                "0.000010 Python.20",
+                f"12:00:00.000002 openat F=3 (R_____) [ -2]/{root}/input.txt "
+                "0.000011 Python.20",
+            ),
+            workspace=self.workspace,
+        )
+
+        self.assertEqual(
+            parsed.inputs,
+            (
+                {
+                    "path": "input.txt",
+                    "kind": "file",
+                    "operations": ["read"],
+                },
+            ),
+        )
+        self.assertEqual(parsed.unresolved_event_count, 0)
+        self.assertTrue(parsed.process_tree_complete)
+
+    def test_parser_does_not_guess_relative_openat_path(self) -> None:
+        parsed = click_observer_macos.parse_fs_usage(
+            self.trace_text(
+                "12:00:00.000001 execve /usr/bin/python3 "
+                "0.000010 Python.20",
+                "12:00:00.000002 openat F=3 (R_____) [ -2]/input.txt "
+                "0.000011 Python.20",
+            ),
+            workspace=self.workspace,
+        )
+
+        self.assertEqual(parsed.inputs, ())
         self.assertEqual(parsed.unresolved_event_count, 1)
         self.assertFalse(parsed.process_tree_complete)
 
@@ -387,6 +428,9 @@ class ClickObserverMacOSTests(unittest.TestCase):
         self.assertIn("--launch", launches[0])
         self.assertEqual(launches[0][-2:], ["tool", "--flag"])
         self.assertEqual(launches[1][-1], "4321")
+        self.assertEqual(
+            launches[1][1:-1], ["-w", "-f", "pathname", "-f", "exec"]
+        )
         self.assertNotIn("sudo", launches[1])
         fifo = Path(launches[0][launches[0].index("--launch") + 1])
         self.assertFalse(fifo.exists())
@@ -496,6 +540,7 @@ class MacOSNativeSmokeTests(unittest.TestCase):
             self.assertFalse(error)
             self.assertIsNotNone(executable)
             fallback_calls: list[int] = []
+            collected: list[click_observer_macos.CollectedExecution] = []
 
             def fallback() -> int:
                 fallback_calls.append(1)
@@ -515,6 +560,11 @@ class MacOSNativeSmokeTests(unittest.TestCase):
                     ).returncode
                 )
 
+            def collect(*args: object, **kwargs: object):
+                execution = click_observer_macos.collect_command(*args, **kwargs)
+                collected.append(execution)
+                return execution
+
             result = click_observer_macos.run_command(
                 [
                     sys.executable,
@@ -532,15 +582,38 @@ class MacOSNativeSmokeTests(unittest.TestCase):
                 mutation_revision=0,
                 execute_unobserved=fallback,
                 resolve_backend=click_inspection.resolve_read_only_executable,
+                collector=collect,
                 system_name="Darwin",
             )
 
             self.assertEqual(result.exit_code, 0)
             self.assertEqual(fallback_calls, [])
             self.assertIn(result.record["status"], {"complete", "partial"})
+            self.assertEqual(len(collected), 1)
+            trace = collected[0]
+            trace_text = trace.raw.decode("utf-8", errors="replace")
+            timestamp_lines = [
+                line
+                for line in trace_text.splitlines()
+                if re.match(r"^\s*\d{2}:\d{2}:\d{2}", line)
+            ]
+            diagnostic = {
+                "record": result.record,
+                "raw_byte_count": len(trace.raw),
+                "timestamp_line_count": len(timestamp_lines),
+                "event_match_count": sum(
+                    click_observer_macos._EVENT.match(line) is not None
+                    for line in timestamp_lines
+                ),
+                "workspace_mention_count": sum(
+                    workspace.as_posix() in line for line in timestamp_lines
+                ),
+                "trace_truncated": trace.truncated,
+                "collector_failed": trace.failed,
+            }
             self.assertTrue(
                 any(item["path"] == "input.txt" for item in result.record["inputs"]),
-                result.record,
+                diagnostic,
             )
             self.assertTrue(
                 click_dependency_cache.shadow_observer_record_is_valid(result.record)
