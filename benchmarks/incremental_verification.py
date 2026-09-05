@@ -321,7 +321,10 @@ def main(argv: list[str] | None = None) -> int:
     try:
         result = run_benchmark(iterations=args.iterations, warmups=args.warmups,
                                workload_rounds=args.workload_rounds, scenarios=tuple(args.scenario or SCENARIOS), mode=args.mode)
-        encoded = json.dumps(result, ensure_ascii=False, sort_keys=True, allow_nan=False)
+        # JSON escapes preserve Unicode values on legacy Windows stdout,
+        # while explicitly UTF-8 output files remain human-readable.
+        encoded = json.dumps(result, ensure_ascii=args.output is None,
+                             sort_keys=True, allow_nan=False)
         if args.output:
             with args.output.open("x", encoding="utf-8") as handle:
                 handle.write(encoded + "\n")

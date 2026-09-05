@@ -463,7 +463,7 @@ class ClickGateVerificationTests(ClickGateTestCase):
         completed = self.run_rewritten(first)
         self.assertEqual(completed.returncode, 0, completed.stderr)
         state_text = "\n".join(
-            path.read_text()
+            path.read_text(encoding="utf-8")
             for path in (self.plugin_data / "gate-state").glob("*.json")
         )
         self.assertNotIn("raise SystemExit", state_text)

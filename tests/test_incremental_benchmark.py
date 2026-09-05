@@ -1,13 +1,15 @@
 from __future__ import annotations
 
+import io
 import json
 from pathlib import Path
 import subprocess
 import sys
 import unittest
 import tempfile
+from unittest import mock
 
-from benchmarks.incremental_verification import Fixture, comparison_delta, distribution
+from benchmarks.incremental_verification import Fixture, comparison_delta, distribution, main
 from hooks import click_incremental
 
 
@@ -16,6 +18,18 @@ BENCHMARK = ROOT / "benchmarks" / "incremental_verification.py"
 
 
 class IncrementalVerificationBenchmarkTests(unittest.TestCase):
+    def test_stdout_json_round_trips_with_a_legacy_windows_encoding(self) -> None:
+        payload = {"label": "검증 묶음"}
+        raw = io.BytesIO()
+        with (
+            io.TextIOWrapper(raw, encoding="cp1252") as output,
+            mock.patch("benchmarks.incremental_verification.run_benchmark", return_value=payload),
+            mock.patch("benchmarks.incremental_verification.sys.stdout", output),
+        ):
+            self.assertEqual(main(["--iterations", "1", "--warmups", "0"]), 0)
+            output.flush()
+            self.assertEqual(json.loads(raw.getvalue().decode("ascii")), payload)
+
     def test_fixture_emits_measured_and_estimated_values_separately(self) -> None:
         result = subprocess.run(
             [
