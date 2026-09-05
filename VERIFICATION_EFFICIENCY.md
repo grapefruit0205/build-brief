@@ -10,9 +10,20 @@ Click을 사용하는 현재 작업에서 `click-gate dashboard start`로 열고
 Observer는 별개이며 `click-gate observer off` 상태에서도 계측·receipt·기존 재사용이 동작합니다.
 새 코드가 설치되지 않은 환경의 기존 viewer에는 새 화면이 나타나지 않습니다.
 
+대시보드는 개별 계약이나 Evidence 배치가 아니라 **검증 가능한 host 세션 + 작업 공간**에
+속합니다. 한 번 열면 같은 범위에서 `수정 → 검증 → 다음 Evidence 작업 → 수정 → 검증`을
+반복해도 같은 URL과 접근 토큰으로 현재 배치와 이전 배치를 계속 읽습니다. 새 Evidence
+작업이 이전 Guarded 승인, runner token, 미완료 명령, 완료 상태를 상속한다는 뜻은 아닙니다.
+`click-gate cancel`은 실행 권한을 폐기하지만 이미 열린 읽기 전용 화면은 최근 결과를
+history-only 상태로 보여줍니다. `dashboard stop`, SessionEnd, 기존 최대 수명 정리는 계속
+viewer를 종료합니다. 다른 host 세션이나 작업 공간은 별도 바인딩이므로 연결되지 않습니다.
+
 상단은 선택한 배치의 **검증 묶음** 수입니다. 개별 테스트 케이스 수나 시간 절감률이 아닙니다.
 최근 배치를 선택하면 계획, 실제 시작·완료·통과·실패·중단·미실행, 재사용 적용,
 영어 reason code와 한국어 설명, 이전 성공 실행 표본을 확인할 수 있습니다.
+각 묶음이 끝나는 즉시 다음 묶음이 시작되기 전에 완료 상태와 실행 구간을 저장하므로,
+`A 통과 → B 실행 중`인 순간에도 A는 통과로 보입니다. 이후 취소하더라도 A의 실행 사실은
+유지되고, B는 확인한 범위에 따라 중단/결과 미확정, 뒤 묶음은 미실행으로 남습니다.
 첫 묶음 실패로 다음 묶음이 시작되지 않았다면 실제 실행 1개 / 미실행 1개입니다.
 종료를 확인하지 못한 실행은 미확정으로 남습니다. 재사용 예정은 적용 실적이 아닙니다.
 Evidence Map은 최신 배치의 상세 분석이며 과거 배치의 입력 그래프를 추측해 복원하지 않습니다.
@@ -59,7 +70,8 @@ python3 benchmarks/incremental_verification.py --mode guarded --iterations 3 --w
 Windows에서는 쓰기 가능한 출력 경로와 현재 Python 명령을 사용하세요. 기존 출력 파일을 덮어쓰지 않습니다.
 비교 driver, Hook 준비, 실제 runner는 같은 Python으로 고정합니다. Windows의 `py -3`가 다른 버전을
 선택해 비교 환경이 달라지는 것을 막되, 발급된 capability와 실제 재사용 권한 검사는 그대로 유지합니다.
-`--scenario`는 first-run, unchanged, docs, code, environment, first-failure 중 여러 번 지정할 수 있습니다.
+`--scenario`는 first-run, unchanged, docs, partial-reuse, code, environment,
+first-failure 중 여러 번 지정할 수 있습니다.
 `--workload-rounds`는 PBKDF2 계산량이며 sleep은 사용하지 않습니다.
 
 각 비교 쌍은 별도 임시 Git 저장소에 같은 코드·두 test 파일·정확한 shard inventory·안전 변경 정책을
@@ -69,9 +81,11 @@ ledger·passing receipt·dependency observation·skip 결정은 주입하지 않
 Guarded fixture는 **임시 테스트 사용자**가 실제 stage와 다음 turn의 pass를 통과하고,
 비교 종료 조건을 가진 계약을 유지합니다. 사용자 저장소의 실제 승인으로 간주하지 않습니다.
 
-기본 Evidence는 완료 후 mutation에서 새 세션을 시작할 수 있어 문서 변경도 재실행될 수 있습니다.
-Guarded fixture의 계속 열린 계약에서는 커밋된 문서 변경 정책 재사용 경로를 측정합니다.
-이 lifecycle 차이를 벤치마크 결과를 좋게 만들려고 바꾸지 않았습니다.
+`partial-reuse`는 기본 Evidence에서 baseline 완료 후 실제 다음 Evidence lifecycle로 넘어간
+다음 README를 변경합니다. 커밋된 서로 다른 정책 때문에 alpha는 이전 실제 성공을 후보로
+가져와 현재 상태에서 safe-change 규칙을 다시 통과해 재사용하고, beta는 정책 범위 밖이라
+실제로 실행합니다. 정책 기반 결과이며 자동 의존성 발견이라고 표현하지 않습니다.
+Guarded fixture는 기존 계약 안에서 같은 권한 규칙을 사용하며 계약 간 승인을 상속하지 않습니다.
 현재 native Shadow는 authoritative dependency observation이 아니므로 코드 변경의 부분 재사용을
 미리 지정하지 않습니다. 실행 권한이 없으면 보수적 재실행 결과를 그대로 보고합니다.
 
@@ -104,3 +118,16 @@ canonical plan v2는 계획만 저장하고, 실제 결과는 `verification-batc
 취소된 실행의 실제 자식 종료가 확인되지 않으면 미확정 중단으로 표시하며 재사용 후보는 적용하지 않습니다.
 파일 시스템 오류가 나면 기록이 없을 수 있지만 계측 실패가 승인 경계·검사 결과·취소를 변경하지 않습니다.
 정상 저장은 기존 atomic replace 방식을 사용하므로 저장 도중 종료에도 반쪽 JSON을 노출하지 않습니다.
+
+완료된 Evidence lifecycle은 같은 host 세션·작업 공간의 다음 Evidence 작업에 이전 성공을
+**재판정 후보**로만 전달할 수 있습니다. 후보는 원래 evidence session, batch, source 사실과
+무결성 digest를 보존합니다. 새 요청의 source/check 범위, 현재 Git tree, mutation boundary,
+환경, 실행 파일, host coverage를 다시 비교하고, 변경된 tree에서는 기존 complete dependency
+observation 또는 현재 커밋된 safe-change policy까지 다시 통과해야 실제 재사용됩니다. revision
+숫자가 우연히 같거나 과거 실행시간이 있다는 이유만으로는 재사용하지 않습니다. Dashboard
+history, 공유 리포트와 Shadow record를 authoritative evidence로 역변환하지 않습니다.
+현재 조합을 안전하게 입증할 수 없으면 reason code를 남기고 실제 검사를 실행합니다.
+
+후속 Evidence 재사용이 있는 completion receipt는 v4 `successor-reused` lineage로 원래 batch와
+Evidence session, 원래 revision, 재판정 방식(exact/dependency/safe-change), 후보 digest를
+기록합니다. 이것은 여전히 `unsigned-integrity-only`이며 발행자 신원 인증은 아닙니다.

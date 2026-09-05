@@ -171,7 +171,28 @@ def _evidence_receipts(
             if source.get("verified_host_coverage") != host_coverage:
                 return None, "The host coverage identity changed after argv evidence completed."
 
-        if kind == "argv" and int(source.get("safe_change_reuse_count", 0)) > 0:
+        if kind == "argv" and int(source.get("successor_reuse_count", 0)) > 0:
+            lineage = {
+                "mode": "successor-reused",
+                "from_revision": int(
+                    source.get("last_successor_origin_revision", -1)
+                ),
+                # This digest binds the carried candidate, including its
+                # authoritative source facts and origin mapping.
+                "dependency_digest": str(
+                    source.get("last_successor_candidate_digest", "")
+                ),
+                "origin_batch_id": str(
+                    source.get("last_successor_origin_batch_id", "")
+                ),
+                "origin_evidence_session_id": str(
+                    source.get("last_successor_origin_evidence_session_id", "")
+                ),
+                "requalification_mode": str(
+                    source.get("last_successor_mode", "")
+                ),
+            }
+        elif kind == "argv" and int(source.get("safe_change_reuse_count", 0)) > 0:
             lineage = {
                 "mode": "dependency-reused",
                 "from_revision": int(
@@ -220,7 +241,10 @@ def _evidence_receipts(
                 },
                 "lineage": lineage,
             }
-        if receipt_version == click_receipt.SHARD_RECEIPT_VERSION:
+        if receipt_version in {
+            click_receipt.SHARD_RECEIPT_VERSION,
+            click_receipt.SUCCESSOR_RECEIPT_VERSION,
+        }:
             metadata = source.get("shard")
             receipt_source["shard"] = (
                 {
@@ -271,8 +295,15 @@ def build_envelope(
     workspace, normalized_root, error = _workspace_receipt(workspace_snapshot)
     if error:
         return None, error
+    has_successor = any(
+        isinstance(source, dict)
+        and int(source.get("successor_reuse_count", 0)) > 0
+        for source in sources.values()
+    )
     receipt_version = (
-        click_receipt.SHARD_RECEIPT_VERSION
+        click_receipt.SUCCESSOR_RECEIPT_VERSION
+        if has_successor
+        else click_receipt.SHARD_RECEIPT_VERSION
         if any(
             click_evidence_shards.source_metadata_is_valid(source.get("shard"))
             for source in sources.values()

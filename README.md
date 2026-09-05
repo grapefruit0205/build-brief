@@ -106,7 +106,7 @@ Or explicitly choose Guarded:
 
 ## Update
 
-Current release: **v0.80.0**
+Current release: **v0.81.0**
 
 ~~~bash
 codex plugin marketplace upgrade click
@@ -135,8 +135,7 @@ Cross-revision reuse is intentionally conservative. Evidence mode uses a committ
 .click/evidence-dependencies.json
 ~~~
 
-The committed map authorizes reuse for a specific check. Concrete paths remain
-hard dependencies. When the baseline observation is complete, expanding map
+The committed map authorizes reuse for a specific check, and concrete paths remain hard dependencies. When the baseline observation is complete, expanding map
 patterns such as `*`, `**`, and directory prefixes are refined to the inputs
 the check actually consumed; observed inputs are then hashed into the receipt.
 Working-tree edits cannot narrow the committed policy. If observation is
@@ -175,6 +174,8 @@ Observer collection is off by default and independent from the dashboard. Use `c
 
 Use `click-gate dashboard start`, `status`, or `stop` for actual **verification-group** outcomes, batch history and JSON/standalone HTML exports. Planned, started, reused and unstarted groups are distinct; partial processing measurements, full request wait (unknown when unmeasured), baseline-cost estimates and Shadow remain separate. Run `python3 benchmarks/incremental_verification.py --iterations 3 --warmups 1 --output /tmp/click-comparison.json`, then select that JSON in the viewer for a real hook/runner comparison. Short checks can be slower with runtime overhead. See [measurement scope, mode boundaries and exports](VERIFICATION_EFFICIENCY.md).
 
+An opened dashboard remains attached to the same host session and workspace across successive Evidence tasks. Each verification group is persisted as soon as it finishes, so an already-passed group remains visible while the next group runs and after cancellation. Viewer connectivity does not carry Guarded approval, runner tokens, unfinished commands, or completion authority into the next task. A completed Evidence task may pass real successful results forward as **candidates only**; Click rechecks the exact source and check, workspace and mutation boundary, environment, executable, host coverage, and existing dependency or committed safe-change rules. Equal revision numbers, dashboard history, exports, timing, and Shadow predictions never authorize reuse.
+
 ## Completion receipt
 
 Click can export a receipt after current evidence is complete:
@@ -184,7 +185,7 @@ click-gate receipt export
 click-gate receipt verify ./completion-receipt.json
 ~~~
 
-The receipt binds the request lineage, mutation revision, final workspace, checks, environment, executable identity, host coverage, and reuse lineage.
+The receipt binds request lineage, mutation revision, final workspace, checks, environment, executable identity, host coverage, and reuse lineage. When a later Evidence task requalifies and applies an earlier success, receipt v4 records `successor-reused` lineage with the origin Evidence session and batch, origin revision, requalification mode, and candidate digest.
 
 Receipt verification currently reports **unsigned-integrity-only**. It detects accidental or uncoordinated changes to the receipt, but it does not yet prove the publisher's identity.
 

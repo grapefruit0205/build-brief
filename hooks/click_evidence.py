@@ -13,6 +13,7 @@ import hashlib
 import json
 import re
 import secrets
+import time
 from typing import Any
 
 if __package__:
@@ -32,6 +33,16 @@ else:  # Executed directly from the bundled hooks directory.
 EVIDENCE_KINDS = ("argv", "browser", "hosted", "manual", "existing")
 EVIDENCE_STATUSES = {"ready", "running", "observed", "passed", "failed", "stale"}
 EVIDENCE_STATE_VERSION = 1
+SUCCESSOR_EVIDENCE_FIELD = "successor_evidence"
+SUCCESSOR_EVIDENCE_VERSION = 1
+MAX_SUCCESSOR_EVIDENCE_BYTES = 2 * 1024 * 1024
+MAX_SUCCESSOR_SOURCES = 256
+_SUCCESSOR_FIELDS = frozenset({
+    "version", "scope_digest", "origin_evidence_session_id",
+    "origin_intent_digest", "origin_revision", "origin_registry_digest",
+    "captured_at", "evidence_state", "origins", "digest",
+})
+_SUCCESSOR_ORIGIN_FIELDS = frozenset({"batch_id", "execution_status"})
 
 
 def evidence_key(evidence_id: str) -> str:
@@ -95,6 +106,13 @@ def _fresh_source(kind: str, dependency_patterns: tuple[str, ...] = ()) -> dict[
         "last_safe_change_paths": [],
         "last_safe_change_path_count": 0,
         "last_safe_change_decision_digest": "",
+        "successor_reuse_count": 0,
+        "last_successor_reused_at": 0,
+        "last_successor_origin_batch_id": "",
+        "last_successor_origin_evidence_session_id": "",
+        "last_successor_candidate_digest": "",
+        "last_successor_origin_revision": -1,
+        "last_successor_mode": "",
     }
 
 
@@ -129,6 +147,188 @@ def fresh_state(contract: dict[str, Any]) -> dict[str, Any]:
         "sources": sources,
         "shard_sets": {},
     }
+
+
+def fresh_successor_evidence() -> dict[str, Any]:
+    return {}
+
+
+def successor_scope_digest(identity: str) -> str:
+    return hashlib.sha256(identity.encode()).hexdigest()
+
+
+def _successor_digest(value: dict[str, Any]) -> str:
+    payload = {key: item for key, item in value.items() if key != "digest"}
+    encoded = json.dumps(
+        payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True
+    ).encode()
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def successor_evidence_is_valid(
+    value: Any,
+    *,
+    expected_contract_schema_version: int,
+    scope_digest: str,
+) -> bool:
+    if (
+        not isinstance(value, dict)
+        or set(value) != _SUCCESSOR_FIELDS
+        or value.get("version") != SUCCESSOR_EVIDENCE_VERSION
+        or value.get("scope_digest") != scope_digest
+        or not isinstance(scope_digest, str)
+        or re.fullmatch(r"[0-9a-f]{64}", scope_digest) is None
+        or not isinstance(value.get("origin_evidence_session_id"), str)
+        or re.fullmatch(r"evs_[0-9a-f]{32}", value["origin_evidence_session_id"])
+        is None
+        or not isinstance(value.get("origin_intent_digest"), str)
+        or re.fullmatch(r"[0-9a-f]{64}", value["origin_intent_digest"]) is None
+        or not isinstance(value.get("origin_revision"), int)
+        or isinstance(value.get("origin_revision"), bool)
+        or value["origin_revision"] < 0
+        or not isinstance(value.get("origin_registry_digest"), str)
+        or re.fullmatch(r"[0-9a-f]{64}", value["origin_registry_digest"]) is None
+        or not isinstance(value.get("captured_at"), int)
+        or isinstance(value.get("captured_at"), bool)
+        or value["captured_at"] <= 0
+        or not isinstance(value.get("origins"), dict)
+        or not isinstance(value.get("evidence_state"), dict)
+        or not isinstance(value.get("digest"), str)
+        or re.fullmatch(r"[0-9a-f]{64}", value["digest"]) is None
+        or not secrets.compare_digest(value["digest"], _successor_digest(value))
+        or len(json.dumps(value, sort_keys=True, separators=(",", ":")).encode())
+        > MAX_SUCCESSOR_EVIDENCE_BYTES
+    ):
+        return False
+    synthetic = {
+        "state_schema_version": expected_contract_schema_version,
+        "evidence_state": value["evidence_state"],
+    }
+    sources = sources_from_state(
+        synthetic,
+        expected_contract_schema_version=expected_contract_schema_version,
+    )
+    if (
+        sources is None
+        or not sources
+        or len(sources) > MAX_SUCCESSOR_SOURCES
+        or registry_digest(sources) != value["origin_registry_digest"]
+        or len(value["origins"]) > len(sources)
+    ):
+        return False
+    for key, origin in value["origins"].items():
+        source = sources.get(key) if isinstance(key, str) else None
+        if (
+            not isinstance(origin, dict)
+            or set(origin) != _SUCCESSOR_ORIGIN_FIELDS
+            or not isinstance(origin.get("batch_id"), str)
+            or re.fullmatch(r"[0-9a-f]{32}", origin["batch_id"]) is None
+            or origin.get("execution_status") not in {"passed", "reused"}
+            or not is_current(source, value["origin_revision"])
+            or source.get("kind") != "argv"
+            or source.get("verified_contract_digest")
+            != value["origin_intent_digest"]
+        ):
+            return False
+    return bool(value["origins"])
+
+
+def carry_successor_evidence(
+    previous: dict[str, Any],
+    current: dict[str, Any],
+    *,
+    origins: dict[str, dict[str, str]],
+    scope_digest: str,
+    expected_contract_schema_version: int,
+    now: int | None = None,
+) -> bool:
+    """Carry one completed Evidence ledger as re-evaluation candidates only."""
+    sources = sources_from_state(
+        previous,
+        expected_contract_schema_version=expected_contract_schema_version,
+    )
+    evidence_state = previous.get("evidence_state")
+    verification = previous.get("verification")
+    revision = (
+        verification.get("mutation_revision")
+        if isinstance(verification, dict)
+        else None
+    )
+    session_id = previous.get("evidence_session_id")
+    intent_digest = previous.get("intent_digest")
+    if (
+        not sources
+        or len(sources) > MAX_SUCCESSOR_SOURCES
+        or not isinstance(evidence_state, dict)
+        or not isinstance(revision, int)
+        or isinstance(revision, bool)
+        or revision < 0
+        or not isinstance(session_id, str)
+        or re.fullmatch(r"evs_[0-9a-f]{32}", session_id) is None
+        or not isinstance(intent_digest, str)
+        or re.fullmatch(r"[0-9a-f]{64}", intent_digest) is None
+    ):
+        return False
+    eligible = {
+        key: dict(origin)
+        for key, origin in origins.items()
+        if key in sources
+        and isinstance(origin, dict)
+        and set(origin) == _SUCCESSOR_ORIGIN_FIELDS
+        and is_current(sources[key], revision)
+    }
+    if not eligible:
+        return False
+    value = {
+        "version": SUCCESSOR_EVIDENCE_VERSION,
+        "scope_digest": scope_digest,
+        "origin_evidence_session_id": session_id,
+        "origin_intent_digest": intent_digest,
+        "origin_revision": revision,
+        "origin_registry_digest": registry_digest(sources),
+        "captured_at": int(time.time()) if now is None else now,
+        "evidence_state": json.loads(json.dumps(evidence_state)),
+        "origins": eligible,
+        "digest": "",
+    }
+    value["digest"] = _successor_digest(value)
+    if not successor_evidence_is_valid(
+        value,
+        expected_contract_schema_version=expected_contract_schema_version,
+        scope_digest=scope_digest,
+    ):
+        return False
+    current[SUCCESSOR_EVIDENCE_FIELD] = value
+    return True
+
+
+def successor_candidate(
+    state: dict[str, Any],
+    source_key: str,
+    *,
+    expected_contract_schema_version: int,
+    scope_digest: str,
+) -> tuple[dict[str, Any], dict[str, Any]] | None:
+    value = state.get(SUCCESSOR_EVIDENCE_FIELD)
+    if not successor_evidence_is_valid(
+        value,
+        expected_contract_schema_version=expected_contract_schema_version,
+        scope_digest=scope_digest,
+    ):
+        return None
+    assert isinstance(value, dict)
+    origin = value["origins"].get(source_key)
+    source = value["evidence_state"]["sources"].get(source_key)
+    if not isinstance(origin, dict) or not isinstance(source, dict):
+        return None
+    metadata = {
+        "kind": "successor-evidence",
+        "batch_id": origin["batch_id"],
+        "evidence_session_id": value["origin_evidence_session_id"],
+        "candidate_digest": value["digest"],
+        "origin_revision": value["origin_revision"],
+    }
+    return json.loads(json.dumps(source)), metadata
 
 
 def _refresh_registry(evidence_state: dict[str, Any], sources: dict[str, Any]) -> None:
@@ -410,6 +610,40 @@ def _safe_change_fields_are_valid(source: dict[str, Any]) -> bool:
     )
 
 
+def _successor_fields_are_valid(source: dict[str, Any]) -> bool:
+    count = source.get("successor_reuse_count", 0)
+    reused_at = source.get("last_successor_reused_at", 0)
+    origin_revision = source.get("last_successor_origin_revision", -1)
+    batch_id = source.get("last_successor_origin_batch_id", "")
+    session_id = source.get("last_successor_origin_evidence_session_id", "")
+    candidate_digest = source.get("last_successor_candidate_digest", "")
+    mode = source.get("last_successor_mode", "")
+    if any(
+        not isinstance(value, int) or isinstance(value, bool)
+        for value in (count, reused_at, origin_revision)
+    ):
+        return False
+    if count < 0 or reused_at < 0 or origin_revision < -1:
+        return False
+    if not all(isinstance(value, str) for value in (
+        batch_id, session_id, candidate_digest, mode
+    )):
+        return False
+    if count == 0:
+        return bool(
+            reused_at == 0 and origin_revision == -1 and not batch_id
+            and not session_id and not candidate_digest and not mode
+        )
+    return bool(
+        reused_at > 0
+        and origin_revision >= 0
+        and re.fullmatch(r"[0-9a-f]{32}", batch_id)
+        and re.fullmatch(r"evs_[0-9a-f]{32}", session_id)
+        and re.fullmatch(r"[0-9a-f]{64}", candidate_digest)
+        and mode in {"exact", "dependency", "safe-change"}
+    )
+
+
 def sources_from_state(
     state: dict[str, Any],
     *,
@@ -474,6 +708,7 @@ def sources_from_state(
             is None
             or not _dependency_fields_are_valid(source)
             or not _safe_change_fields_are_valid(source)
+            or not _successor_fields_are_valid(source)
             or not _host_coverage_field_is_valid(source)
             or (
                 "reserved_units" in source

@@ -27,7 +27,15 @@ if str(ROOT) not in sys.path:
 from hooks import click_dashboard_projection, click_incremental  # noqa: E402
 
 GATE = ROOT / "hooks" / "click_gate.py"
-SCENARIOS = ("first-run", "unchanged", "docs", "code", "environment", "first-failure")
+SCENARIOS = (
+    "first-run",
+    "unchanged",
+    "docs",
+    "partial-reuse",
+    "code",
+    "environment",
+    "first-failure",
+)
 COMPARISONS = ("same-shards", "parent-suite")
 DEFAULT_ITERATIONS = 3
 DEFAULT_WORKLOAD_ROUNDS = 40_000
@@ -77,7 +85,14 @@ def _fixture_runner_argv(command: str) -> list[str]:
 class Fixture:
     """One independent checkout and lifecycle; no shared receipt across roots."""
 
-    def __init__(self, directory: Path, rounds: int, mode: str = "evidence"):
+    def __init__(
+        self,
+        directory: Path,
+        rounds: int,
+        mode: str = "evidence",
+        *,
+        partial_policy: bool = False,
+    ):
         self.root = directory / "repository"
         self.data = directory / "runtime"
         self.root.mkdir(parents=True)
@@ -97,6 +112,7 @@ class Fixture:
                          for name in ("alpha", "beta")]
         self._write(".gitignore", "__pycache__/\n*.pyc\n")
         self._write("README.md", "Benchmark fixture\n")
+        self._write("docs-beta.md", "Beta-owned documentation\n")
         self._write("implementation.py", f"ROUNDS = {rounds}\nVALUE = 1\n")
         self._write("tests/__init__.py", "")
         for name in ("alpha", "beta"):
@@ -110,8 +126,20 @@ class Fixture:
             "checks": [self.parent], "inventory": ["tests/test*.py"],
             "shards": [{"id": name, "checks": [argv], "covers": [f"tests/test_{name}.py"]}
                        for name, argv in zip(("alpha", "beta"), self.children)]}]}
-        policy = {"version": 1, "entries": [
-            {"checks": [argv], "reuse_if_only_changed": ["README.md"]} for argv in self.children]}
+        policy = {
+            "version": 1,
+            "entries": [
+                {
+                    "checks": [argv],
+                    "reuse_if_only_changed": [
+                        "README.md"
+                        if not partial_policy or name == "alpha"
+                        else "docs-beta.md"
+                    ],
+                }
+                for name, argv in zip(("alpha", "beta"), self.children)
+            ],
+        }
         self._write(".click/evidence-shards.json", json.dumps(shards))
         self._write(".click/evidence-reuse.json", json.dumps(policy))
         for args in (["git", "init", "-q"], ["git", "add", "."],
@@ -182,13 +210,24 @@ class Fixture:
         if scenario == "environment":
             self.environment["CLICK_BENCHMARK_VARIANT"] = "changed"
             return
+        if scenario == "partial-reuse" and self.state().get("runtime_mode") == "evidence":
+            # Exercise the real completed-Evidence -> next-Evidence lifecycle.
+            # No receipt, source status, or plan decision is manufactured here.
+            self.event["turn_id"] = f"measurement-successor-{self.sequence + 1}"
+            self._hook(
+                "prompt-submit",
+                {
+                    "hook_event_name": "UserPromptSubmit",
+                    "prompt": "Measure a follow-up Evidence task after the baseline.",
+                },
+            )
         self.sequence += 1
         event = {"tool_name": "apply_patch", "tool_use_id": f"change-{self.sequence}",
                  "tool_input": {"patch": "*** benchmark fixture mutation ***"}}
         admission = self._hook("pre-tool", {**event, "hook_event_name": "PreToolUse"})
         if admission.get("hookSpecificOutput", {}).get("permissionDecision") == "deny":
             raise RuntimeError("fixture-mutation-rejected")
-        if scenario == "docs":
+        if scenario in {"docs", "partial-reuse"}:
             self._write("README.md", "Documentation changed by the fixture.\n")
         elif scenario == "code":
             with (self.root / "implementation.py").open("a", encoding="utf-8") as handle:
@@ -267,7 +306,12 @@ def run_benchmark(*, iterations: int = DEFAULT_ITERATIONS, warmups: int = 1,
         for comparison in COMPARISONS:
             for index in range(warmups + iterations):
                 with tempfile.TemporaryDirectory(prefix="click-efficiency-") as directory:
-                    arms = {name: Fixture(Path(directory) / name, workload_rounds, mode)
+                    arms = {name: Fixture(
+                                Path(directory) / name,
+                                workload_rounds,
+                                mode,
+                                partial_policy=scenario == "partial-reuse",
+                            )
                             for name in ("baseline", "incremental")}
                     for arm in arms.values():
                         if scenario != "first-run":

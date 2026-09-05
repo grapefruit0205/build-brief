@@ -113,6 +113,12 @@ parent check digests, shard id and complete shard count, plan, relevant entry,
 and inventory digests. Offline verification accepts legacy v1, unsharded v2,
 and sharded v3, and rejects a missing or inconsistent v3 shard member.
 
+If a later Evidence task actually reuses a requalified result, its completion
+receipt uses v4. A v4 receipt that contains shards preserves every complete
+per-source shard provenance field required by v3 and additionally binds the
+origin Evidence task and requalification lineage. Candidate retention alone is
+not reuse and does not change the receipt version.
+
 ## Deliberate exclusions
 
 Evidence Shards v1 does not provide zero-configuration framework discovery,

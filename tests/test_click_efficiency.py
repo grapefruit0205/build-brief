@@ -65,10 +65,13 @@ assert.equal(doc.getElementById('mapMeta').textContent,'입력 48개 표시 · 1
 // Explicitly synthetic sensitive-field fixture, not a usable credential.
 const snapshot={generated_at:1000,summary:{shadow:{candidate_count:9}},private_token:'<example-private-value>'};
 const batch=JSON.parse(JSON.stringify(input.batch));batch.sources[0].label='</td><script>alert(1)</script>';
+batch.sources[0].reuse_origin={kind:'successor-evidence',batch_id:'a'.repeat(32),evidence_session_id:'evs_'+'b'.repeat(32),candidate_digest:'c'.repeat(64),origin_revision:7};
 api.setState(snapshot,batch,input.summary,safe);
 const report=api.shareReport();assert(!JSON.stringify(report).includes('<example-private-value>'));
 assert.equal(report.summary.authoritative_reuse_count,input.summary.authoritative_reuse_count);
+assert.equal(report.batch.sources[0].reuse_origin.origin_revision,7);
 const html=api.standaloneReport(report);assert(!html.includes('<script>'));assert(html.includes('&lt;script&gt;'));
+assert(html.includes('이전 배치 aaaaaaaaaaaa에서 재판정'));
 assert(!html.includes('src="http'));assert(!html.includes('href="http'));
 console.log('dashboard calculation, map limit, comparison validation and safe standalone export passed');
 """
@@ -208,6 +211,46 @@ class VerificationEfficiencyTests(unittest.TestCase):
         metrics.merge_history(state, copied)
         self.assertEqual(len(metrics.batch_history(copied)), 1)
         self.assertEqual(metrics.history_totals(copied)["executed_source_count"], 1)
+
+    def test_each_source_completion_is_visible_and_cancel_preserves_it(self):
+        state = self.verification(self.decision(1), self.decision(2))
+        self.assertTrue(metrics.mark_started(state, "1" * 64))
+        self.assertTrue(metrics.mark_completed(
+            state,
+            "1" * 64,
+            status="passed",
+            reason="command-passed",
+            duration_ms=17.5,
+        ))
+        self.assertTrue(metrics.mark_started(state, "2" * 64))
+
+        running = metrics.current_batch(state)
+        first, second = running["sources"]
+        self.assertEqual((first["status"], first["completed"]), ("passed", True))
+        self.assertEqual(first["duration_ms"], 17.5)
+        self.assertEqual((second["status"], second["completed"]), ("running", False))
+
+        self.assertTrue(metrics.interrupt_batch(state))
+        cancelled = metrics.current_batch(state)
+        first, second = cancelled["sources"]
+        self.assertEqual((first["status"], first["completed"]), ("passed", True))
+        self.assertEqual(first["duration_ms"], 17.5)
+        self.assertEqual((second["status"], second["completed"]), ("interrupted", False))
+        self.assertEqual(metrics.summary(state)["passed_source_count"], 1)
+
+    def test_duplicate_source_completion_is_idempotent_and_conflicts_are_rejected(self):
+        state = self.verification(self.decision(1))
+        metrics.mark_started(state, "1" * 64)
+        arguments = {
+            "status": "passed", "reason": "command-passed", "duration_ms": 8.25,
+        }
+        self.assertTrue(metrics.mark_completed(state, "1" * 64, **arguments))
+        original = json.dumps(state, sort_keys=True)
+        self.assertTrue(metrics.mark_completed(state, "1" * 64, **arguments))
+        self.assertEqual(json.dumps(state, sort_keys=True), original)
+        self.assertFalse(metrics.mark_completed(
+            state, "1" * 64, status="failed", reason="command-failed", duration_ms=8.25,
+        ))
 
     def test_storage_does_not_keep_mutable_aliases_or_expired_batches(self):
         state = self.verification(self.decision(1))

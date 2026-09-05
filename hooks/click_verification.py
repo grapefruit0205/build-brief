@@ -1001,6 +1001,123 @@ def _reuse_binding_reason(
     return "receipt-invalid"
 
 
+def _successor_binding_reason(
+    previous: dict[str, Any],
+    current: dict[str, Any],
+    *,
+    group_digest: str,
+    git_root: str,
+    environment_digest: str,
+    executable_digest: str,
+    host_coverage: dict[str, Any],
+) -> str:
+    """Validate a prior Evidence fact without pretending it is this lifecycle."""
+    if previous.get("verified_check_digest") != group_digest:
+        return "check-binding-changed"
+    if previous.get("verified_root") != git_root:
+        return "workspace-ambiguous"
+    if previous.get("verified_executable_digest") != executable_digest:
+        return "executable-binding-changed"
+    if previous.get("verified_environment_digest") != environment_digest:
+        return "environment-binding-changed"
+    if (
+        not click_host_coverage.receipt_is_current(host_coverage)
+        or previous.get("verified_host_coverage") != host_coverage
+    ):
+        return "host-coverage-binding-changed"
+    if previous.get("shard") != current.get("shard"):
+        return "check-binding-changed"
+    verified_at = previous.get("verified_at")
+    if (
+        previous.get("status") != "passed"
+        or previous.get("last_exit_code") != 0
+        or not isinstance(verified_at, int)
+        or isinstance(verified_at, bool)
+        or verified_at <= 0
+        or not isinstance(previous.get("verified_tree_digest"), str)
+        or re.fullmatch(r"[0-9a-f]{64}", previous["verified_tree_digest"])
+        is None
+    ):
+        return "successor-evidence-integrity-invalid"
+    return ""
+
+
+def _requalify_successor_baseline(
+    current: dict[str, Any],
+    previous: dict[str, Any],
+    *,
+    contract_digest: str,
+    revision: int,
+    group_digest: str,
+    units: int,
+    tree_digest: str,
+    environment_digest: str,
+    executable_digest: str,
+    host_coverage: dict[str, Any],
+    exact_tree: bool,
+) -> None:
+    """Create a new-lifecycle baseline only after explicit binding checks."""
+    current_shard = current.get("shard")
+    preserved = json.loads(json.dumps(previous))
+    current.clear()
+    current.update(preserved)
+    if current_shard is None:
+        current.pop("shard", None)
+    else:
+        current["shard"] = current_shard
+    current.update(
+        status="passed" if exact_tree else "stale",
+        verified_revision=revision if exact_tree else max(0, revision - 1),
+        attempts=0,
+        unchanged_failure_retries=0,
+        last_exit_code=0,
+        last_check_digest=group_digest,
+        locked_check_digest=group_digest,
+        reserved_units=units,
+        reserved_check_digest=group_digest,
+        verified_contract_digest=contract_digest,
+        verified_check_digest=group_digest,
+        verified_units=units,
+        verified_tree_digest=tree_digest if exact_tree else previous["verified_tree_digest"],
+        verified_environment_digest=environment_digest,
+        verified_executable_digest=executable_digest,
+        verified_host_coverage=dict(host_coverage),
+        dependency_reuse_count=0,
+        last_dependency_reused_at=0,
+        last_dependency_reused_from_revision=-1,
+        safe_change_reuse_count=0,
+        last_safe_change_reused_at=0,
+        last_safe_change_reused_from_revision=-1,
+        last_safe_change_paths=[],
+        last_safe_change_path_count=0,
+        last_safe_change_decision_digest="",
+        successor_reuse_count=0,
+        last_successor_reused_at=0,
+        last_successor_origin_batch_id="",
+        last_successor_origin_evidence_session_id="",
+        last_successor_candidate_digest="",
+        last_successor_origin_revision=-1,
+        last_successor_mode="",
+    )
+
+
+def _mark_successor_reuse(
+    source: dict[str, Any], metadata: dict[str, Any], *, mode: str
+) -> None:
+    source["successor_reuse_count"] = int(
+        source.get("successor_reuse_count", 0)
+    ) + 1
+    source["last_successor_reused_at"] = int(time.time()) or 1
+    source["last_successor_origin_batch_id"] = metadata["batch_id"]
+    source["last_successor_origin_evidence_session_id"] = metadata[
+        "evidence_session_id"
+    ]
+    source["last_successor_candidate_digest"] = metadata["candidate_digest"]
+    source["last_successor_origin_revision"] = metadata["origin_revision"]
+    source["last_successor_mode"] = mode
+    source["verified_at"] = int(time.time()) or 1
+
+
 def _observation_nonreuse_reason(observation: Any) -> str:
     if not click_dependency_cache.dependency_observation_is_valid(observation):
         return "observer-incomplete"
@@ -1798,6 +1915,7 @@ def _prepare_verification(
             trace.get("plan"), batch_id=request_id,
             revision=int(verification.get("mutation_revision", 0)), prepared_ms=elapsed,
             requested=trace.get("requested"), labels=trace.get("labels"),
+            reuse_origins=trace.get("reuse_origins"),
         )
         if click_incremental.store_batch(verification, batch):
             if result[1]:
@@ -2021,6 +2139,21 @@ def _prepare_verification_impl(
         if not str(source.get("reserved_check_digest", "")):
             source["reserved_check_digest"] = group_digests[source_key]
 
+    successor_candidates: dict[str, tuple[dict[str, Any], dict[str, Any]]] = {}
+    if runtime.evidence:
+        scope_digest = click_evidence.successor_scope_digest(
+            str(click_state.contract_path(event).resolve())
+        )
+        for source_key in requested_keys:
+            candidate = click_evidence.successor_candidate(
+                state,
+                source_key,
+                expected_contract_schema_version=CONTRACT_STATE_SCHEMA_VERSION,
+                scope_digest=scope_digest,
+            )
+            if candidate is not None:
+                successor_candidates[source_key] = candidate
+
     previous_revisions: dict[str, int] = {}
     reason_codes: dict[str, str] = {}
     not_evaluable_keys: set[str] = set()
@@ -2100,11 +2233,21 @@ def _prepare_verification_impl(
     reused_keys: set[str] = set()
     dependency_reused_keys: set[str] = set()
     safe_change_reused_keys: set[str] = set()
-    if current_requested or dependency_candidates or safe_change_candidates:
+    successor_origins: dict[str, dict[str, Any]] = {}
+    successor_imported: dict[str, dict[str, Any]] = {}
+    if (
+        current_requested
+        or dependency_candidates
+        or safe_change_candidates
+        or successor_candidates
+    ):
         snapshot = git_workspace_snapshot(workspace)
         if snapshot is None:
             for source_key in (
-                current_requested | dependency_candidates | safe_change_candidates
+                current_requested
+                | dependency_candidates
+                | safe_change_candidates
+                | set(successor_candidates)
             ):
                 reason_codes[source_key] = "workspace-ambiguous"
                 not_evaluable_keys.add(source_key)
@@ -2116,6 +2259,60 @@ def _prepare_verification_impl(
             contract_digest = str(state.get("contract_digest", ""))
             git_root = os.path.normcase(str(snapshot.get("root", "")))
             tree_digest = str(snapshot.get("digest", ""))
+            for source_key, (previous, metadata) in successor_candidates.items():
+                source = sources[source_key]
+                binding_reason = _successor_binding_reason(
+                    previous,
+                    source,
+                    group_digest=group_digests[source_key],
+                    git_root=git_root,
+                    environment_digest=current_environment_digests[source_key],
+                    executable_digest=current_executable_digests[source_key],
+                    host_coverage=host_coverage,
+                )
+                if binding_reason:
+                    reason_codes[source_key] = binding_reason
+                    if binding_reason in {
+                        "workspace-ambiguous",
+                        "successor-evidence-integrity-invalid",
+                    }:
+                        not_evaluable_keys.add(source_key)
+                    continue
+                exact_tree = previous.get("verified_tree_digest") == tree_digest
+                successor_imported[source_key] = json.loads(json.dumps(source))
+                _requalify_successor_baseline(
+                    source,
+                    previous,
+                    contract_digest=contract_digest,
+                    revision=revision,
+                    group_digest=group_digests[source_key],
+                    units=group_units[source_key],
+                    tree_digest=tree_digest,
+                    environment_digest=current_environment_digests[source_key],
+                    executable_digest=current_executable_digests[source_key],
+                    host_coverage=host_coverage,
+                    exact_tree=exact_tree,
+                )
+                previous_revisions[source_key] = metadata["origin_revision"]
+                successor_origins[source_key] = metadata
+                if exact_tree:
+                    current_requested.add(source_key)
+                elif source.get("verified_dependency_provider") in (
+                    click_dependency_cache.PROVIDER_NAMES
+                ):
+                    dependency_candidates.add(source_key)
+                elif (
+                    click_change_policy.receipt_is_valid(
+                        source.get("verified_safe_change_receipt")
+                    )
+                    and not source.get("verified_dependency_observation")
+                ):
+                    safe_change_candidates.add(source_key)
+                else:
+                    reason, not_evaluable = _default_incremental_reason(source)
+                    reason_codes[source_key] = reason
+                    if not_evaluable:
+                        not_evaluable_keys.add(source_key)
             mutation_boundary = verification.get("mutation_boundary")
             if (dependency_candidates or safe_change_candidates) and not (
                 isinstance(mutation_boundary, dict)
@@ -2195,9 +2392,15 @@ def _prepare_verification_impl(
                         host_coverage=host_coverage,
                     ):
                         reused_keys.add(source_key)
-                        reason_codes[source_key] = (
-                            "same-revision-receipt-current"
-                        )
+                        if source_key in successor_origins:
+                            _mark_successor_reuse(
+                                source, successor_origins[source_key], mode="exact"
+                            )
+                            reason_codes[source_key] = "successor-evidence-current"
+                        else:
+                            reason_codes[source_key] = (
+                                "same-revision-receipt-current"
+                            )
                     else:
                         reason_codes[source_key] = _reuse_binding_reason(
                             source,
@@ -2256,9 +2459,17 @@ def _prepare_verification_impl(
                         )
                         reused_keys.add(source_key)
                         dependency_reused_keys.add(source_key)
+                        if source_key in successor_origins:
+                            _mark_successor_reuse(
+                                source,
+                                successor_origins[source_key],
+                                mode="dependency",
+                            )
                         not_evaluable_keys.discard(source_key)
                         reason_codes[source_key] = (
-                            "observed-dependencies-unchanged"
+                            "successor-evidence-dependencies-unchanged"
+                            if source_key in successor_origins
+                            else "observed-dependencies-unchanged"
                         )
                     else:
                         binding_reason = _reuse_binding_reason(
@@ -2354,8 +2565,18 @@ def _prepare_verification_impl(
                         )
                         reused_keys.add(source_key)
                         safe_change_reused_keys.add(source_key)
+                        if source_key in successor_origins:
+                            _mark_successor_reuse(
+                                source,
+                                successor_origins[source_key],
+                                mode="safe-change",
+                            )
                         not_evaluable_keys.discard(source_key)
-                        reason_codes[source_key] = "safe-change-policy-covered"
+                        reason_codes[source_key] = (
+                            "successor-evidence-safe-change-covered"
+                            if source_key in successor_origins
+                            else "safe-change-policy-covered"
+                        )
                     else:
                         verification_advisories.append(preflight_advisory)
                         binding_reason = _reuse_binding_reason(
@@ -2378,6 +2599,11 @@ def _prepare_verification_impl(
                             reason_codes[source_key] = (
                                 "safe-change-policy-not-covered"
                             )
+
+    for source_key, original in successor_imported.items():
+        if source_key not in reused_keys:
+            sources[source_key].clear()
+            sources[source_key].update(original)
 
     unresolved_keys = {
         key for key in argv_keys if not _evidence_is_current(sources.get(key), revision)
@@ -2414,6 +2640,11 @@ def _prepare_verification_impl(
             for key, source in sources.items()
             if isinstance(source, dict)
             and click_evidence_shards.source_metadata_is_valid(source.get("shard"))
+        }
+        measurement["reuse_origins"] = {
+            key: successor_origins[key]
+            for key in reused_keys
+            if key in successor_origins
         }
 
     if not pending_keys:
@@ -3305,6 +3536,49 @@ def _record_incremental_start(path: Path, digest: str, token: str, source_key: s
         pass  # An unavailable telemetry write cannot execute a second command.
 
 
+def _record_incremental_completion(
+    path: Path,
+    digest: str,
+    token: str,
+    source_key: str,
+    *,
+    status: str,
+    reason: str,
+    duration_ms: int | float | None,
+    completed: bool = True,
+) -> None:
+    """Persist one source result while the claimed batch is still active."""
+    try:
+        with _state_lock():
+            if not _managed_contract_path(path):
+                return
+            state = json.loads(path.read_text(encoding="utf-8"))
+            verification = state.get("verification", {})
+            if (
+                verification.get("status") != "running"
+                or verification.get("last_batch_digest") != digest
+                or not verification.get("runner_claimed_at")
+                or not secrets.compare_digest(
+                    str(verification.get("runner_token_digest", "")),
+                    hashlib.sha256(token.encode()).hexdigest(),
+                )
+            ):
+                return
+            if click_incremental.mark_completed(
+                verification,
+                source_key,
+                status=status,
+                reason=reason,
+                duration_ms=duration_ms,
+                completed=completed,
+            ):
+                state["updated_at"] = int(time.time())
+                _write_json(path, state)
+    except Exception:
+        # Telemetry cannot repeat a check or change evidence authority.
+        pass
+
+
 def _run_verification(
     arguments: list[str],
     *,
@@ -3493,6 +3767,16 @@ def _run_verification(
                         status="interrupted" if exit_code == 130 else "failed" if exit_code != 0 else "passed" if group_completed else "running",
                         reason_code="command-interrupted" if exit_code == 130 else "command-failed" if exit_code != 0 else "command-passed",
                     )
+                    if source_results[source_key]["completed"]:
+                        _record_incremental_completion(
+                            state_path,
+                            batch_digest,
+                            runner_token,
+                            source_key,
+                            status=str(source_results[source_key]["status"]),
+                            reason=str(source_results[source_key]["reason_code"]),
+                            duration_ms=source_durations_ms.get(source_key),
+                        )
                 if exit_code != 0:
                     break
                 succeeded_count += 1
@@ -3502,6 +3786,15 @@ def _run_verification(
                 source_results[source_key].update(
                     status="interrupted", completed=True, reason_code="command-interrupted"
                 )
+                _record_incremental_completion(
+                    state_path,
+                    batch_digest,
+                    runner_token,
+                    source_key,
+                    status="interrupted",
+                    reason="command-interrupted",
+                    duration_ms=source_durations_ms.get(source_key),
+                )
             sys.stderr.write(
                 "[Click] Verification was interrupted. The active check was stopped "
                 "and recorded as non-passing.\n"
@@ -3510,7 +3803,17 @@ def _run_verification(
             exit_code = 2
             if source_key in source_results:
                 source_results[source_key].update(
-                    status="interrupted", completed=False, reason_code="command-error"
+                    status="unknown", completed=False, reason_code="command-error"
+                )
+                _record_incremental_completion(
+                    state_path,
+                    batch_digest,
+                    runner_token,
+                    source_key,
+                    status="unknown",
+                    reason="command-error",
+                    duration_ms=source_durations_ms.get(source_key),
+                    completed=False,
                 )
             sys.stderr.write("[Click] The command boundary failed; no check was repeated.\n")
 

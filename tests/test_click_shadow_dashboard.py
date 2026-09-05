@@ -50,7 +50,8 @@ class ClickShadowDashboardTests(ClickGateTestCase):
         instance_id, runner_token, access_token = tokens[action_index + 2 :]
         self.assertEqual(Path(tokens[action_index + 1]), state_path)
         state = json.loads(state_path.read_text(encoding="utf-8"))
-        dashboard = state[CLICK_SHADOW_DASHBOARD.DASHBOARD_FIELD]
+        dashboard_path = CLICK_SHADOW_DASHBOARD._dashboard_path(state_path)
+        dashboard = json.loads(dashboard_path.read_text(encoding="utf-8"))
 
         self.assertEqual(dashboard["instance_id"], instance_id)
         self.assertEqual(
@@ -89,8 +90,13 @@ class ClickShadowDashboardTests(ClickGateTestCase):
 
         self.assertEqual(result.returncode, 0, result.stderr)
         after = json.loads(state_path.read_text(encoding="utf-8"))
-        self.assertEqual(after["shadow_dashboard"]["status"], "stopping")
-        self.assertTrue(after["shadow_dashboard"]["stop_requested"])
+        dashboard = json.loads(
+            CLICK_SHADOW_DASHBOARD._dashboard_path(state_path).read_text(
+                encoding="utf-8"
+            )
+        )
+        self.assertEqual(dashboard["status"], "stopping")
+        self.assertTrue(dashboard["stop_requested"])
         self.assertEqual(
             after["verification"]["mutation_revision"],
             before["verification"]["mutation_revision"],
@@ -166,8 +172,9 @@ class ClickShadowDashboardTests(ClickGateTestCase):
         instance_id = "dashboard-instance-12345"
         access_token = hashlib.sha256(instance_id.encode()).hexdigest()
         with CLICK_STATE.state_lock():
-            state = json.loads(state_path.read_text(encoding="utf-8"))
-            state[CLICK_SHADOW_DASHBOARD.DASHBOARD_FIELD] = {
+            CLICK_STATE.write_json(
+                CLICK_SHADOW_DASHBOARD._dashboard_path(state_path),
+                {
                 "version": 1,
                 "status": "starting",
                 "instance_id": instance_id,
@@ -181,8 +188,8 @@ class ClickShadowDashboardTests(ClickGateTestCase):
                 "started_at": int(time.time()),
                 "stop_requested": False,
                 "last_error": "",
-            }
-            CLICK_STATE.write_json(state_path, state)
+                },
+            )
 
         results: list[int] = []
         environment = {
@@ -203,8 +210,11 @@ class ClickShadowDashboardTests(ClickGateTestCase):
         port = 0
         for _ in range(500):
             with CLICK_STATE.state_lock():
-                state = json.loads(state_path.read_text(encoding="utf-8"))
-                dashboard = state[CLICK_SHADOW_DASHBOARD.DASHBOARD_FIELD]
+                dashboard = json.loads(
+                    CLICK_SHADOW_DASHBOARD._dashboard_path(state_path).read_text(
+                        encoding="utf-8"
+                    )
+                )
             if dashboard["status"] == "running":
                 port = int(dashboard["port"])
                 break
@@ -254,13 +264,99 @@ class ClickShadowDashboardTests(ClickGateTestCase):
         self.assertEqual(method.exception.code, 405)
 
         with CLICK_STATE.state_lock():
-            state = json.loads(state_path.read_text(encoding="utf-8"))
-            state[CLICK_SHADOW_DASHBOARD.DASHBOARD_FIELD]["status"] = "stopping"
-            state[CLICK_SHADOW_DASHBOARD.DASHBOARD_FIELD]["stop_requested"] = True
-            CLICK_STATE.write_json(state_path, state)
+            dashboard_path = CLICK_SHADOW_DASHBOARD._dashboard_path(state_path)
+            dashboard = json.loads(dashboard_path.read_text(encoding="utf-8"))
+            dashboard["status"] = "stopping"
+            dashboard["stop_requested"] = True
+            CLICK_STATE.write_json(dashboard_path, dashboard)
         thread.join(timeout=3)
         self.assertFalse(thread.is_alive())
         self.assertEqual(results, [0])
+
+    def test_viewer_survives_next_evidence_task_and_cancel_as_history_only(self) -> None:
+        (self.workspace / ".gitignore").write_text(
+            "__pycache__/\n", encoding="utf-8"
+        )
+        self.initialize_git(".gitignore", "verification_fixture.py")
+        self.prompt_submit("첫 Evidence 작업", "turn-1")
+        start = self.pre_tool(
+            "Bash", "click-gate dashboard start", "turn-1", submit_prompt=False
+        )
+        assert start is not None
+        state_path = next(
+            (self.plugin_data / "gate-state").glob("session-contract-*.json")
+        ).resolve()
+        dashboard_path = CLICK_SHADOW_DASHBOARD._dashboard_path(state_path)
+        dashboard = json.loads(dashboard_path.read_text(encoding="utf-8"))
+        instance_id = dashboard["instance_id"]
+        dashboard.update(
+            status="running", runner_token_digest="", runner_claimed_at=1,
+            port=43219, pid=123,
+        )
+        CLICK_STATE.write_json(dashboard_path, dashboard)
+
+        first = self.verify_gate([self.verification_argv()], "turn-1")
+        self.assertEqual(self.run_rewritten(first).returncode, 0)
+        previous = json.loads(state_path.read_text(encoding="utf-8"))
+        previous_session = previous["evidence_session_id"]
+        previous_batch = previous["verification"]["incremental_batch_id"]
+
+        self.prompt_submit("다음 Evidence 작업", "turn-2")
+        current = json.loads(state_path.read_text(encoding="utf-8"))
+        self.assertNotEqual(current["evidence_session_id"], previous_session)
+        self.assertEqual(
+            json.loads(dashboard_path.read_text(encoding="utf-8"))["instance_id"],
+            instance_id,
+        )
+        projected_state, active = CLICK_SHADOW_DASHBOARD._snapshot(
+            state_path, instance_id
+        )
+        assert projected_state is not None
+        self.assertEqual(active["status"], "running")
+        self.assertEqual(
+            projected_state["verification"]["incremental_batch_id"],
+            previous_batch,
+        )
+
+        environment = {
+            "PLUGIN_DATA": str(self.plugin_data),
+            "CLICK_CONFIG_HOME": str(self.plugin_data),
+        }
+        with mock.patch.dict(os.environ, environment):
+            CLICK_GATE.click_contract_state.clear_contract_state(
+                {**self.base_event, "turn_id": "turn-2"}
+            )
+        history_only, still_active = CLICK_SHADOW_DASHBOARD._snapshot(
+            state_path, instance_id
+        )
+        assert history_only is not None
+        self.assertEqual(history_only["status"], "none")
+        self.assertEqual(still_active["status"], "running")
+        projection = (
+            CLICK_SHADOW_DASHBOARD.click_dashboard_projection.dashboard_projection(
+                history_only
+            )
+        )
+        self.assertTrue(
+            CLICK_SHADOW_DASHBOARD.click_dashboard_projection.projection_is_valid(
+                projection
+            )
+        )
+        self.assertEqual(projection["task"]["runtime_mode"], "unknown")
+        self.assertGreaterEqual(projection["history"]["retained_batch_count"], 1)
+
+        other_event = {
+            **self.base_event,
+            "session_id": "session-2",
+            "turn_id": "turn-1",
+        }
+        with mock.patch.dict(os.environ, environment):
+            other_path = CLICK_STATE.contract_path(other_event).resolve()
+        foreign_state, foreign_dashboard = CLICK_SHADOW_DASHBOARD._snapshot(
+            other_path, instance_id
+        )
+        self.assertIsNone(foreign_state)
+        self.assertEqual(foreign_dashboard, CLICK_SHADOW_DASHBOARD.fresh_state())
 
 
 if __name__ == "__main__":

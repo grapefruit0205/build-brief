@@ -45,6 +45,11 @@ AUTHORITY_SOURCES = frozenset(
 REASON_CODES = frozenset(
     {
         "same-revision-receipt-current",
+        "successor-evidence-current",
+        "successor-evidence-dependencies-unchanged",
+        "successor-evidence-safe-change-covered",
+        "successor-evidence-scope-mismatch",
+        "successor-evidence-integrity-invalid",
         "observed-dependencies-unchanged",
         "safe-change-policy-covered",
         "no-passing-evidence",
@@ -176,6 +181,7 @@ def decision(
 # share the existing age/count/byte budget with legacy planning events.
 BATCH_STATUSES = frozenset({"planned", "running", "passed", "failed", "interrupted", "rejected", "incomplete"})
 SOURCE_STATUSES = frozenset({"planned", "reuse-pending", "running", "passed", "failed", "interrupted", "not-run", "reused", "unknown"})
+REUSE_ORIGIN_KINDS = frozenset({"successor-evidence"})
 EXECUTION_REASONS = frozenset({
     "", "batch-finished", "request-rejected", "runner-admission-rejected",
     "plan-not-created", "reuse-applied", "command-started", "command-passed",
@@ -189,10 +195,15 @@ _BATCH_FIELDS = frozenset({
     "status", "reason_code", "requested_source_count", "sources",
     "prepare_duration_ms", "runner_duration_ms", "request_wall_ms", "measurement_scope",
 })
-_SOURCE_FIELDS = _DECISION_FIELDS | {
+_SOURCE_FIELDS_V1 = _DECISION_FIELDS | {
     "duration_baseline", "label", "status", "started", "completed",
     "duration_ms", "execution_reason_code",
 }
+_SOURCE_FIELDS = _SOURCE_FIELDS_V1 | {"reuse_origin"}
+_REUSE_ORIGIN_FIELDS = frozenset({
+    "kind", "batch_id", "evidence_session_id", "candidate_digest",
+    "origin_revision",
+})
 SUMMARY_FIELDS = (
     "total_source_count", "planned_execution_source_count", "planned_reuse_source_count",
     "executed_source_count", "completed_source_count", "passed_source_count",
@@ -214,14 +225,32 @@ def safe_label(value: Any, fallback: str) -> str:
     ) else fallback
 
 
+def reuse_origin_is_valid(value: Any) -> bool:
+    return bool(
+        isinstance(value, dict)
+        and set(value) == _REUSE_ORIGIN_FIELDS
+        and value.get("kind") in REUSE_ORIGIN_KINDS
+        and isinstance(value.get("batch_id"), str)
+        and re.fullmatch(r"[0-9a-f]{32}", value["batch_id"])
+        and isinstance(value.get("evidence_session_id"), str)
+        and re.fullmatch(r"evs_[0-9a-f]{32}", value["evidence_session_id"])
+        and isinstance(value.get("candidate_digest"), str)
+        and _DIGEST.fullmatch(value["candidate_digest"])
+        and _is_integer(value.get("origin_revision"))
+    )
+
+
 def source_result_is_valid(value: Any) -> bool:
-    if not isinstance(value, dict) or set(value) != _SOURCE_FIELDS:
+    if not isinstance(value, dict) or set(value) not in {
+        _SOURCE_FIELDS_V1, _SOURCE_FIELDS
+    }:
         return False
     planned = {key: value[key] for key in _DECISION_FIELDS | {"duration_baseline"}}
     if planned["decision"] is None:
         planned.update(decision="not-evaluable", reason_code="receipt-invalid")
     if not decision_is_valid(planned):
         return False
+    reuse_origin = value.get("reuse_origin")
     return bool(
         value["label"] == safe_label(value["label"], "")
         and value["label"]
@@ -235,6 +264,8 @@ def source_result_is_valid(value: Any) -> bool:
         and (value["status"] not in {"passed", "failed"} or (value["started"] and value["completed"]))
         and (value["status"] != "running" or (value["started"] and not value["completed"]))
         and (value["started"] or value["duration_ms"] is None)
+        and (reuse_origin is None or reuse_origin_is_valid(reuse_origin))
+        and (reuse_origin is None or value["decision"] in REUSE_DECISIONS)
     )
 
 
@@ -243,7 +274,7 @@ def batch_is_valid(value: Any) -> bool:
         return False
     items = value.get("sources")
     return bool(
-        value.get("event") == BATCH_EVENT and value.get("version") == 1
+        value.get("event") == BATCH_EVENT and value.get("version") in {1, 2}
         and isinstance(value.get("batch_id"), str)
         and re.fullmatch(r"[0-9a-f]{32}", value["batch_id"])
         and _is_integer(value.get("timestamp"), minimum=1)
@@ -254,6 +285,11 @@ def batch_is_valid(value: Any) -> bool:
         and (value.get("requested_source_count") is None or _is_integer(value["requested_source_count"]))
         and isinstance(items, list)
         and all(source_result_is_valid(item) for item in items)
+        and all(
+            (value["version"] == 1 and "reuse_origin" not in item)
+            or (value["version"] == 2 and "reuse_origin" in item)
+            for item in items
+        )
         and len({item["source_key"] for item in items}) == len(items)
         and (value["requested_source_count"] is None or len(items) <= value["requested_source_count"])
         and all(value.get(key) is None or is_duration(value[key]) for key in (
@@ -269,7 +305,9 @@ def batch_is_valid(value: Any) -> bool:
 def new_batch(
     plan: dict[str, Any] | None, *, batch_id: str, revision: int,
     prepared_ms: float | None, requested: list[dict[str, str]] | None = None,
-    labels: dict[str, str] | None = None, now: int | None = None,
+    labels: dict[str, str] | None = None,
+    reuse_origins: dict[str, dict[str, Any]] | None = None,
+    now: int | None = None,
 ) -> dict[str, Any]:
     timestamp = int(time.time()) if now is None else now
     items = plan["decisions"] if plan_is_valid(plan) else [
@@ -282,7 +320,7 @@ def new_batch(
         for item in requested or []
     ]
     batch = {
-        "event": BATCH_EVENT, "version": 1, "batch_id": batch_id,
+        "event": BATCH_EVENT, "version": 2, "batch_id": batch_id,
         "timestamp": timestamp, "finished_at": None, "current_revision": revision,
         "status": "planned", "reason_code": "", "requested_source_count": len(items) if plan or requested is not None else None,
         "sources": [],
@@ -297,6 +335,9 @@ def new_batch(
             label=safe_label((labels or {}).get(item["source_key"]), f"검증 묶음 {index}"),
             status="reuse-pending" if item["decision"] in REUSE_DECISIONS else "planned",
             started=False, completed=False, duration_ms=None, execution_reason_code="",
+            reuse_origin=json.loads(json.dumps((reuse_origins or {}).get(item["source_key"])))
+            if reuse_origin_is_valid((reuse_origins or {}).get(item["source_key"]))
+            else None,
         )
         batch["sources"].append(source)
     if not batch_is_valid(batch):
@@ -392,6 +433,41 @@ def mark_started(verification: dict[str, Any], source_key: str) -> bool:
     return False
 
 
+def mark_completed(
+    verification: dict[str, Any], source_key: str, *, status: str,
+    reason: str, duration_ms: int | float | None, completed: bool = True,
+) -> bool:
+    """Persist one witnessed source outcome before the next source starts."""
+    if status not in {"passed", "failed", "interrupted", "unknown"}:
+        return False
+    if reason not in EXECUTION_REASONS or reason == "":
+        return False
+    if duration_ms is not None and not is_duration(duration_ms):
+        return False
+    batch = current_batch(verification)
+    if batch is None or batch["status"] not in {"planned", "running"}:
+        return False
+    for item in batch["sources"]:
+        if item["source_key"] != source_key or not item["started"]:
+            continue
+        if item["completed"]:
+            return bool(
+                item["status"] == status
+                and item["execution_reason_code"] == reason
+                and item["duration_ms"] == duration_ms
+                and completed
+            )
+        item.update(
+            status=status,
+            completed=completed,
+            duration_ms=duration_ms,
+            execution_reason_code=reason,
+        )
+        batch["status"] = "running"
+        return store_batch(verification, batch)
+    return False
+
+
 def interrupt_batch(verification: dict[str, Any]) -> bool:
     """Cancellation is witnessed; an active child's termination is not assumed."""
     batch = current_batch(verification)
@@ -399,6 +475,10 @@ def interrupt_batch(verification: dict[str, Any]) -> bool:
         return False
     batch.update(status="interrupted", reason_code="user-cancelled", finished_at=int(time.time()))
     for item in batch["sources"]:
+        if item["completed"]:
+            # Cancellation revokes current authority, not the already witnessed
+            # fact that this source finished before the cancellation boundary.
+            continue
         item.update(
             status="interrupted" if item["started"] else "not-run",
             execution_reason_code="user-cancelled", completed=False,
@@ -660,6 +740,10 @@ def record_execution(
     for source in batch["sources"]:
         key = source["source_key"]
         result = source_results.get(key)
+        if source["completed"]:
+            # A source-level completion was already persisted under the claimed
+            # runner. The final batch fold must not roll that fact backward.
+            continue
         if result is not None:
             source.update({
                 "status": result["status"], "started": result["started"],

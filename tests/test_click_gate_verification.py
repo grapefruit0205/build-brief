@@ -109,6 +109,150 @@ class ClickGateVerificationTests(ClickGateTestCase):
             envelope["receipt"]["authority"]["approval_bound"]
         )
 
+    def test_follow_up_evidence_requalifies_exact_success_and_records_origin(self) -> None:
+        (self.workspace / ".gitignore").write_text(
+            "__pycache__/\n", encoding="utf-8"
+        )
+        self.initialize_git(".gitignore", "verification_fixture.py")
+        command = self.verification_argv()
+        self.prompt_submit("첫 Evidence 작업", "turn-1")
+        first = self.verify_gate([command], "turn-1")
+        self.assertEqual(self.run_rewritten(first).returncode, 0)
+        state_path = next(
+            (self.plugin_data / "gate-state").glob("session-contract-*.json")
+        )
+        previous = json.loads(state_path.read_text(encoding="utf-8"))
+        previous_session = previous["evidence_session_id"]
+        previous_batch = previous["verification"]["incremental_batch_id"]
+
+        self.prompt_submit("후속 Evidence 작업", "turn-2")
+        successor = json.loads(state_path.read_text(encoding="utf-8"))
+        self.assertNotEqual(successor["evidence_session_id"], previous_session)
+        self.assertNotEqual(successor["intent_digest"], previous["intent_digest"])
+        self.assertNotIn("runner_token", successor["verification"])
+
+        reused = self.verify_gate([command], "turn-2")
+        rewritten = split_runner_command(
+            reused["hookSpecificOutput"]["updatedInput"]["command"]
+        )
+        self.assertNotIn("run-verification", rewritten)
+        current = json.loads(state_path.read_text(encoding="utf-8"))
+        plan = current["verification"]["incremental_plan"]
+        self.assertEqual(plan["decisions"][0]["decision"], "reuse-exact")
+        self.assertEqual(
+            plan["decisions"][0]["reason_code"], "successor-evidence-current"
+        )
+        batch = CLICK_VERIFICATION.click_incremental.current_batch(
+            current["verification"]
+        )
+        assert batch is not None
+        self.assertEqual(batch["sources"][0]["status"], "reused")
+        self.assertEqual(
+            batch["sources"][0]["reuse_origin"]["batch_id"], previous_batch
+        )
+        self.assertEqual(
+            batch["sources"][0]["reuse_origin"]["evidence_session_id"],
+            previous_session,
+        )
+
+        receipt = self.pre_tool(
+            "Bash", "click-gate receipt export", "turn-2", submit_prompt=False
+        )
+        assert receipt is not None
+        exported = self.run_rewritten(receipt)
+        self.assertEqual(exported.returncode, 0, exported.stderr)
+        body = json.loads(exported.stdout)["receipt"]
+        self.assertEqual(body["version"], 4)
+        lineage = body["evidence"][0]["lineage"]
+        self.assertEqual(lineage["mode"], "successor-reused")
+        self.assertEqual(lineage["origin_batch_id"], previous_batch)
+        self.assertEqual(lineage["origin_evidence_session_id"], previous_session)
+        self.assertEqual(lineage["requalification_mode"], "exact")
+
+    def test_follow_up_evidence_does_not_reuse_same_revision_for_changed_tree(self) -> None:
+        (self.workspace / ".gitignore").write_text(
+            "__pycache__/\n", encoding="utf-8"
+        )
+        self.initialize_git(".gitignore", "verification_fixture.py")
+        command = self.verification_argv()
+        self.prompt_submit("첫 Evidence 작업", "turn-1")
+        first = self.verify_gate([command], "turn-1")
+        self.assertEqual(self.run_rewritten(first).returncode, 0)
+
+        self.prompt_submit("후속 Evidence 작업", "turn-2")
+        with (self.workspace / "verification_fixture.py").open(
+            "a", encoding="utf-8"
+        ) as handle:
+            handle.write("\n# unobserved workspace drift\n")
+        repeated = self.verify_gate([command], "turn-2")
+        rewritten = split_runner_command(
+            repeated["hookSpecificOutput"]["updatedInput"]["command"]
+        )
+        self.assertIn("run-verification", rewritten)
+        state_path = next(
+            (self.plugin_data / "gate-state").glob("session-contract-*.json")
+        )
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        decision = state["verification"]["incremental_plan"]["decisions"][0]
+        self.assertIn(decision["decision"], {"run", "not-evaluable"})
+        batch = CLICK_VERIFICATION.click_incremental.current_batch(
+            state["verification"]
+        )
+        assert batch is not None
+        self.assertIsNone(batch["sources"][0]["reuse_origin"])
+
+    def test_follow_up_evidence_rechecks_command_binding(self) -> None:
+        (self.workspace / ".gitignore").write_text(
+            "__pycache__/\n", encoding="utf-8"
+        )
+        self.initialize_git(".gitignore", "verification_fixture.py")
+        command = self.verification_argv()
+        self.prompt_submit("첫 Evidence 작업", "turn-1")
+        first = self.verify_gate([command], "turn-1")
+        self.assertEqual(self.run_rewritten(first).returncode, 0)
+        self.prompt_submit("다른 검사 요구", "turn-2")
+
+        changed = [*command, "-v"]
+        repeated = self.verify_gate([changed], "turn-2")
+        self.assertIn(
+            "run-verification",
+            split_runner_command(
+                repeated["hookSpecificOutput"]["updatedInput"]["command"]
+            ),
+        )
+        state_path = next(
+            (self.plugin_data / "gate-state").glob("session-contract-*.json")
+        )
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        decision = state["verification"]["incremental_plan"]["decisions"][0]
+        self.assertEqual(decision["reason_code"], "check-binding-changed")
+
+    def test_follow_up_evidence_rechecks_environment_binding(self) -> None:
+        (self.workspace / ".gitignore").write_text(
+            "__pycache__/\n", encoding="utf-8"
+        )
+        self.initialize_git(".gitignore", "verification_fixture.py")
+        command = self.verification_argv()
+        self.prompt_submit("첫 Evidence 작업", "turn-1")
+        first = self.verify_gate([command], "turn-1")
+        self.assertEqual(self.run_rewritten(first).returncode, 0)
+        self.prompt_submit("환경이 달라진 후속 작업", "turn-2")
+
+        with mock.patch.dict(os.environ, {"CLICK_SUCCESSOR_VARIANT": "changed"}):
+            repeated = self.verify_gate([command], "turn-2")
+        self.assertIn(
+            "run-verification",
+            split_runner_command(
+                repeated["hookSpecificOutput"]["updatedInput"]["command"]
+            ),
+        )
+        state_path = next(
+            (self.plugin_data / "gate-state").glob("session-contract-*.json")
+        )
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        decision = state["verification"]["incremental_plan"]["decisions"][0]
+        self.assertEqual(decision["reason_code"], "environment-binding-changed")
+
     def test_verification_batch_has_no_fixed_check_count_cap(self) -> None:
         checks = [
             {
@@ -1461,6 +1605,144 @@ class ClickGateVerificationTests(ClickGateTestCase):
             self.assertEqual(CLICK_GATE._run_verification(tokens[5:]), 0)
             self.assertEqual(CLICK_GATE._run_verification(tokens[5:]), 2)
         self.assertEqual(execute.call_count, 1)
+
+    def test_runner_persists_each_group_before_starting_the_next_group(self) -> None:
+        (self.workspace / ".gitignore").write_text(
+            "__pycache__/\n", encoding="utf-8"
+        )
+        self.initialize_git(".gitignore", "verification_fixture.py")
+        self.prompt_submit("두 검증 묶음 실행", "turn-1")
+        command = self.verification_argv()
+        payload = self.verify_checks(
+            [
+                {"evidence_id": "E_ALPHA", "argv": command, "class": "targeted"},
+                {"evidence_id": "E_BETA", "argv": command, "class": "targeted"},
+            ],
+            turn_id="turn-1",
+            bind_default=False,
+        )
+        tokens = split_runner_command(
+            payload["hookSpecificOutput"]["updatedInput"]["command"]
+        )
+        state_path = Path(tokens[5])
+        alpha_key = CLICK_EVIDENCE.evidence_key("E_ALPHA")
+        beta_key = CLICK_EVIDENCE.evidence_key("E_BETA")
+        calls = 0
+
+        def execute(
+            _commands: list[list[str]], **_kwargs: object
+        ) -> int:
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                live = json.loads(state_path.read_text(encoding="utf-8"))
+                batch = CLICK_VERIFICATION.click_incremental.current_batch(
+                    live["verification"]
+                )
+                assert batch is not None
+                by_key = {item["source_key"]: item for item in batch["sources"]}
+                self.assertEqual(by_key[alpha_key]["status"], "passed")
+                self.assertTrue(by_key[alpha_key]["completed"])
+                self.assertIsNotNone(by_key[alpha_key]["duration_ms"])
+                self.assertEqual(by_key[beta_key]["status"], "planned")
+            return 0
+
+        environment = {
+            "PLUGIN_DATA": str(self.plugin_data),
+            "CLICK_CONFIG_HOME": str(self.plugin_data),
+        }
+        with (
+            mock.patch.dict(os.environ, environment),
+            mock.patch.object(
+                CLICK_VERIFICATION.Path, "cwd", return_value=self.workspace
+            ),
+        ):
+            result = CLICK_VERIFICATION.run(
+                tokens[5:],
+                file_content_digest=CLICK_VERIFICATION.file_content_digest,
+                git_workspace_snapshot=CLICK_VERIFICATION.git_workspace_snapshot,
+                git_metadata_present=CLICK_INSPECTION.git_metadata_present,
+                execute_commands=execute,
+                git_capture=CLICK_VERIFICATION.git_capture,
+            )
+        self.assertEqual(result, 0)
+        self.assertEqual(calls, 2)
+        completed = json.loads(state_path.read_text(encoding="utf-8"))
+        batch = CLICK_VERIFICATION.click_incremental.current_batch(
+            completed["verification"]
+        )
+        assert batch is not None
+        self.assertEqual(
+            {item["status"] for item in batch["sources"]}, {"passed"}
+        )
+
+    def test_late_completion_from_cancelled_batch_cannot_overwrite_successor_batch(self) -> None:
+        (self.workspace / ".gitignore").write_text(
+            "__pycache__/\n", encoding="utf-8"
+        )
+        self.initialize_git(".gitignore", "verification_fixture.py")
+        command = self.verification_argv()
+        self.prompt_submit("취소될 첫 작업", "turn-1")
+        first = self.verify_gate([command], "turn-1")
+        old_tokens = split_runner_command(
+            first["hookSpecificOutput"]["updatedInput"]["command"]
+        )
+        state_path = Path(old_tokens[5])
+        raw, error = CLICK_CAPABILITY.decode_encoded_request(
+            old_tokens[8], "verification"
+        )
+        self.assertEqual(error, "")
+        source_key = CLICK_EVIDENCE.evidence_key("E1")
+        environment = {
+            "PLUGIN_DATA": str(self.plugin_data),
+            "CLICK_CONFIG_HOME": str(self.plugin_data),
+        }
+        with (
+            mock.patch.dict(os.environ, environment),
+            mock.patch.object(CLICK_GATE.Path, "cwd", return_value=self.workspace),
+        ):
+            with CLICK_STATE.state_lock():
+                batch, claim_error = CLICK_GATE._claim_verification_run(
+                    state_path, raw, old_tokens[6], old_tokens[7]
+                )
+            self.assertEqual(claim_error, "")
+            self.assertIsNotNone(batch)
+            CLICK_VERIFICATION._record_incremental_start(
+                state_path, old_tokens[6], old_tokens[7], source_key
+            )
+            CLICK_GATE.click_contract_state.clear_contract_state(
+                {**self.base_event, "turn_id": "turn-1"}
+            )
+
+        self.prompt_submit("취소 뒤 새 작업", "turn-2")
+        second = self.verify_gate([command], "turn-2")
+        new_tokens = split_runner_command(
+            second["hookSpecificOutput"]["updatedInput"]["command"]
+        )
+        self.assertEqual(Path(new_tokens[5]), state_path)
+        before = state_path.read_bytes()
+
+        with mock.patch.dict(os.environ, environment):
+            CLICK_VERIFICATION._record_incremental_completion(
+                state_path,
+                old_tokens[6],
+                old_tokens[7],
+                source_key,
+                status="passed",
+                reason="command-passed",
+                duration_ms=9.5,
+            )
+
+        self.assertEqual(state_path.read_bytes(), before)
+        current = json.loads(before)
+        self.assertEqual(
+            current["verification"]["last_batch_digest"], new_tokens[6]
+        )
+        current_batch = CLICK_VERIFICATION.click_incremental.current_batch(
+            current["verification"]
+        )
+        assert current_batch is not None
+        self.assertEqual(current_batch["sources"][0]["status"], "planned")
 
     def test_verification_runner_rejects_prepared_workdir_mismatch(self) -> None:
         self.approve_contract()

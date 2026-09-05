@@ -143,6 +143,15 @@ uses strict receipt v3 with the parent, complete child count, plan, relevant
 entry, inventory, and per-child lineage digests. Offline verification continues
 to accept legacy v1 and unsharded v2, and rejects incomplete v3 shard sets.
 
+A completion that actually reuses evidence requalified from an earlier Evidence
+task in the same host session and workspace uses receipt v4. It records the
+origin batch, origin Evidence session, candidate digest, origin revision, and
+the authoritative requalification mode (`exact`, `dependency`, or
+`safe-change`). If that completion also contains shards, v4 retains the same
+complete shard provenance required by v3. Merely retaining a successor
+candidate never selects v4 and never creates reuse authority. Offline
+verification accepts and validates v4 while retaining legacy v1-v3 support.
+
 If a host omits the working directory selected by a nested execution tool,
 export may recover it only from the sole canonical Git root shared by every
 current argv evidence source. A stale, missing, non-canonical, or conflicting
