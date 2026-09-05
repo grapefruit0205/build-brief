@@ -62,10 +62,11 @@ for(let n=0;n<60;n++){map.nodes.push({id:'input:'+n,type:'input',label:'test-'+n
 api.renderMap({map},source);
 assert.equal(doc.getElementById('map').children.filter(n=>n.tag==='g').length,49);
 assert.equal(doc.getElementById('mapMeta').textContent,'입력 48개 표시 · 12개 생략');
-const snapshot={generated_at:1000,summary:{shadow:{candidate_count:9}},private_token:'never-export-me'};
+// Explicitly synthetic sensitive-field fixture, not a usable credential.
+const snapshot={generated_at:1000,summary:{shadow:{candidate_count:9}},private_token:'<example-private-value>'};
 const batch=JSON.parse(JSON.stringify(input.batch));batch.sources[0].label='</td><script>alert(1)</script>';
 api.setState(snapshot,batch,input.summary,safe);
-const report=api.shareReport();assert(!JSON.stringify(report).includes('never-export-me'));
+const report=api.shareReport();assert(!JSON.stringify(report).includes('<example-private-value>'));
 assert.equal(report.summary.authoritative_reuse_count,input.summary.authoritative_reuse_count);
 const html=api.standaloneReport(report);assert(!html.includes('<script>'));assert(html.includes('&lt;script&gt;'));
 assert(!html.includes('src="http'));assert(!html.includes('href="http'));
