@@ -57,6 +57,8 @@ python3 benchmarks/incremental_verification.py --mode guarded --iterations 3 --w
 ```
 
 Windows에서는 쓰기 가능한 출력 경로와 현재 Python 명령을 사용하세요. 기존 출력 파일을 덮어쓰지 않습니다.
+비교 driver, Hook 준비, 실제 runner는 같은 Python으로 고정합니다. Windows의 `py -3`가 다른 버전을
+선택해 비교 환경이 달라지는 것을 막되, 발급된 capability와 실제 재사용 권한 검사는 그대로 유지합니다.
 `--scenario`는 first-run, unchanged, docs, code, environment, first-failure 중 여러 번 지정할 수 있습니다.
 `--workload-rounds`는 PBKDF2 계산량이며 sleep은 사용하지 않습니다.
 

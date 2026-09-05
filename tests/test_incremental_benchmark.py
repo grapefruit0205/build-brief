@@ -9,7 +9,7 @@ import unittest
 import tempfile
 from unittest import mock
 
-from benchmarks.incremental_verification import Fixture, comparison_delta, distribution, main
+from benchmarks.incremental_verification import Fixture, _fixture_runner_argv, comparison_delta, distribution, main
 from hooks import click_incremental
 
 
@@ -18,6 +18,15 @@ BENCHMARK = ROOT / "benchmarks" / "incremental_verification.py"
 
 
 class IncrementalVerificationBenchmarkTests(unittest.TestCase):
+    def test_windows_fixture_runner_keeps_the_preflight_interpreter_and_capability(self) -> None:
+        argv = ["py", "-3", str(BENCHMARK), "--encoded-runner", "transport-fixture"]
+        with mock.patch("benchmarks.incremental_verification._split", return_value=argv):
+            self.assertEqual(_fixture_runner_argv("rendered runner"), [sys.executable, *argv[2:]])
+        self.assertEqual(argv[:2], ["py", "-3"])
+        direct = [sys.executable, str(BENCHMARK), "run-verification", "transport-fixture"]
+        with mock.patch("benchmarks.incremental_verification._split", return_value=direct):
+            self.assertEqual(_fixture_runner_argv("direct runner"), direct)
+
     def test_stdout_json_round_trips_with_a_legacy_windows_encoding(self) -> None:
         payload = {"label": "검증 묶음"}
         raw = io.BytesIO()
