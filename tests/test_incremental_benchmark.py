@@ -101,6 +101,52 @@ class IncrementalVerificationBenchmarkTests(unittest.TestCase):
             self.assertEqual(failed["reused_source_count"], 0)
             self.assertEqual(failed["estimated_avoided_ms"], 0)
 
+    def test_partial_reuse_uses_real_successor_evidence_and_runs_the_other_shard(self):
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = Fixture(
+                Path(directory), 20, mode="evidence", partial_policy=True
+            )
+            baseline = fixture.verify()
+            self.assertEqual(baseline["status"], "passed")
+            origin_session = fixture.state()["evidence_session_id"]
+
+            fixture.change("partial-reuse")
+            current_session = fixture.state()["evidence_session_id"]
+            self.assertNotEqual(current_session, origin_session)
+            result = fixture.verify()
+
+            self.assertEqual(result["status"], "passed")
+            self.assertEqual(result["executed_source_count"], 1)
+            self.assertEqual(result["reused_source_count"], 1)
+            self.assertEqual(result["not_run_source_count"], 0)
+            decisions = {
+                item["label"]: (
+                    item["decision"], item["status"], item["reason_code"]
+                )
+                for item in result["batch"]["sources"]
+            }
+            self.assertEqual(
+                decisions["alpha"],
+                (
+                    "reuse-safe-change",
+                    "reused",
+                    "successor-evidence-safe-change-covered",
+                ),
+            )
+            self.assertEqual(decisions["beta"][0:2], ("run", "passed"))
+            alpha = next(
+                item for item in result["batch"]["sources"]
+                if item["label"] == "alpha"
+            )
+            self.assertEqual(
+                alpha["reuse_origin"]["evidence_session_id"], origin_session
+            )
+            beta = next(
+                item for item in result["batch"]["sources"]
+                if item["label"] == "beta"
+            )
+            self.assertIsNone(beta["reuse_origin"])
+
     def test_negative_delta_zero_baseline_and_variation(self):
         self.assertEqual(comparison_delta(10, 15), {"delta_ms": -5, "delta_percent": -50})
         self.assertEqual(comparison_delta(0, 2), {"delta_ms": -2, "delta_percent": None})

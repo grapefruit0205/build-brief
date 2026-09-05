@@ -18,10 +18,12 @@ from typing import Any
 LEGACY_RECEIPT_VERSION = 1
 RECEIPT_VERSION = 2
 SHARD_RECEIPT_VERSION = 3
+SUCCESSOR_RECEIPT_VERSION = 4
 SUPPORTED_RECEIPT_VERSIONS = {
     LEGACY_RECEIPT_VERSION,
     RECEIPT_VERSION,
     SHARD_RECEIPT_VERSION,
+    SUCCESSOR_RECEIPT_VERSION,
 }
 ENVELOPE_VERSION = 1
 UNSIGNED_ASSURANCE = "unsigned-integrity-only"
@@ -110,6 +112,11 @@ SHARD_PROVIDER = "repository-evidence-shards-v1"
 SHARD_ID_PATTERN = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
 EVIDENCE_RESULT_FIELDS = {"status", "exit_code", "completed_at"}
 LINEAGE_FIELDS = {"mode", "from_revision", "dependency_digest"}
+SUCCESSOR_LINEAGE_FIELDS = LINEAGE_FIELDS | {
+    "origin_batch_id",
+    "origin_evidence_session_id",
+    "requalification_mode",
+}
 COVERAGE_FIELDS = {
     "host_assurance",
     "host_coverage_digest",
@@ -338,9 +345,11 @@ def _normalize_capability(
 
 
 def _normalize_lineage(
-    value: Any, *, kind: str, revision: int
+    value: Any, *, kind: str, revision: int, receipt_version: int
 ) -> tuple[dict[str, Any] | None, str]:
-    error = _exact_fields(value, LINEAGE_FIELDS, "evidence.lineage")
+    successor = isinstance(value, dict) and value.get("mode") == "successor-reused"
+    fields = SUCCESSOR_LINEAGE_FIELDS if successor else LINEAGE_FIELDS
+    error = _exact_fields(value, fields, "evidence.lineage")
     if error:
         return None, error
     assert isinstance(value, dict)
@@ -351,7 +360,7 @@ def _normalize_lineage(
         return None, "Completion receipt evidence lineage revision is invalid."
 
     expected_modes = {
-        "argv": {"executed", "dependency-reused"},
+        "argv": {"executed", "dependency-reused", "successor-reused"},
         "browser": {"browser-observed"},
         "hosted": {"attested"},
         "manual": {"attested"},
@@ -359,6 +368,29 @@ def _normalize_lineage(
     }
     if mode not in expected_modes[kind]:
         return None, f"Completion receipt lineage mode is invalid for `{kind}` evidence."
+    if mode == "successor-reused":
+        origin_batch_id = value.get("origin_batch_id")
+        origin_session_id = value.get("origin_evidence_session_id")
+        requalification_mode = value.get("requalification_mode")
+        if (
+            receipt_version != SUCCESSOR_RECEIPT_VERSION
+            or kind != "argv"
+            or not _is_digest(dependency_digest)
+            or not isinstance(origin_batch_id, str)
+            or re.fullmatch(r"[0-9a-f]{32}", origin_batch_id) is None
+            or not isinstance(origin_session_id, str)
+            or re.fullmatch(r"evs_[0-9a-f]{32}", origin_session_id) is None
+            or requalification_mode not in {"exact", "dependency", "safe-change"}
+        ):
+            return None, "Successor-reused evidence lineage is invalid."
+        return {
+            "mode": mode,
+            "from_revision": from_revision,
+            "dependency_digest": dependency_digest,
+            "origin_batch_id": origin_batch_id,
+            "origin_evidence_session_id": origin_session_id,
+            "requalification_mode": requalification_mode,
+        }, ""
     if mode == "dependency-reused":
         if from_revision >= revision or not _is_digest(dependency_digest):
             return (
@@ -425,7 +457,7 @@ def _normalize_evidence(
 ) -> tuple[dict[str, Any] | None, str]:
     fields = (
         SHARDED_EVIDENCE_FIELDS
-        if receipt_version == SHARD_RECEIPT_VERSION
+        if receipt_version in {SHARD_RECEIPT_VERSION, SUCCESSOR_RECEIPT_VERSION}
         else EVIDENCE_FIELDS
     )
     error = _exact_fields(value, fields, "evidence source")
@@ -473,7 +505,8 @@ def _normalize_evidence(
         return None, "Completion receipt evidence result must be a timestamped pass."
 
     lineage, error = _normalize_lineage(
-        value.get("lineage"), kind=str(kind), revision=revision
+        value.get("lineage"), kind=str(kind), revision=revision,
+        receipt_version=receipt_version,
     )
     if error:
         return None, error
@@ -492,7 +525,7 @@ def _normalize_evidence(
         },
         "lineage": lineage,
     }
-    if receipt_version == SHARD_RECEIPT_VERSION:
+    if receipt_version in {SHARD_RECEIPT_VERSION, SUCCESSOR_RECEIPT_VERSION}:
         if kind != "argv" and value.get("shard") is not None:
             return None, "Only argv evidence may carry shard provenance."
         shard, error = _normalize_shard(value.get("shard"), source_key=source_key)
@@ -547,7 +580,11 @@ def validate_receipt(value: Any) -> tuple[dict[str, Any] | None, str]:
     if version not in SUPPORTED_RECEIPT_VERSIONS or isinstance(version, bool):
         return None, "Completion receipt `version` is unsupported."
     authority: dict[str, Any] | None = None
-    if version in {RECEIPT_VERSION, SHARD_RECEIPT_VERSION}:
+    if version in {
+        RECEIPT_VERSION,
+        SHARD_RECEIPT_VERSION,
+        SUCCESSOR_RECEIPT_VERSION,
+    }:
         authority, error = _normalize_authority(value.get("authority"))
         if error:
             return None, error
@@ -614,11 +651,11 @@ def validate_receipt(value: Any) -> tuple[dict[str, Any] | None, str]:
         seen.add(source_key)
         normalized_evidence.append(normalized)
     normalized_evidence.sort(key=lambda source: str(source["source_key"]))
-    if version == SHARD_RECEIPT_VERSION:
+    if version in {SHARD_RECEIPT_VERSION, SUCCESSOR_RECEIPT_VERSION}:
         sharded = [
             source for source in normalized_evidence if source.get("shard") is not None
         ]
-        if not sharded:
+        if version == SHARD_RECEIPT_VERSION and not sharded:
             return None, "Receipt v3 requires at least one sharded evidence source."
         groups: dict[str, list[dict[str, Any]]] = {}
         for source in sharded:
@@ -644,6 +681,11 @@ def validate_receipt(value: Any) -> tuple[dict[str, Any] | None, str]:
                 )
             ):
                 return None, "Completion receipt evidence shard set is incomplete."
+    if version == SUCCESSOR_RECEIPT_VERSION and not any(
+        source["lineage"]["mode"] == "successor-reused"
+        for source in normalized_evidence
+    ):
+        return None, "Receipt v4 requires successor-reused evidence lineage."
 
     workspace = execution["workspace"]
     assert isinstance(workspace, dict)

@@ -162,6 +162,68 @@ class ClickContractStateTests(unittest.TestCase):
         self.assertIsNone(batch["sources"][0]["duration_ms"])
         self.assertFalse(click_state.contract_path(self.event).exists())
 
+    def test_cancel_keeps_completed_source_and_marks_only_active_and_future_sources(self) -> None:
+        decisions = [
+            click_incremental.decision(
+                source_key=str(index) * 64,
+                check_digest=str(index + 2) * 64,
+                decision="run",
+                reason_code="no-passing-evidence",
+                current_revision=1,
+                previous_revision=-1,
+                authority_source="runner",
+            )
+            for index in (1, 2, 3)
+        ]
+        verification: dict[str, object] = {}
+        click_incremental.store_batch(
+            verification,
+            click_incremental.new_batch(
+                click_incremental.build_plan(decisions, current_revision=1),
+                batch_id="a" * 32,
+                revision=1,
+                prepared_ms=1.5,
+            ),
+        )
+        click_incremental.mark_started(verification, "1" * 64)
+        click_incremental.mark_completed(
+            verification,
+            "1" * 64,
+            status="passed",
+            reason="command-passed",
+            duration_ms=11.25,
+        )
+        click_incremental.mark_started(verification, "2" * 64)
+        state = {
+            "status": "evidence",
+            "contract_digest": "4" * 64,
+            "runner_token": "must-not-survive",
+            "verification": verification,
+        }
+        click_contract_state.save_contract_state(self.event, state)
+
+        click_contract_state.clear_contract_state(self.event)
+
+        self.assertFalse(click_state.contract_path(self.event).exists())
+        archived = click_contract_state.read_contract_state(self.event)
+        self.assertEqual(archived["status"], "none")
+        self.assertNotIn("must-not-survive", json.dumps(archived))
+        batch = click_incremental.current_batch(archived["verification"])
+        assert batch is not None
+        first, second, third = batch["sources"]
+        self.assertEqual(
+            (first["status"], first["completed"], first["duration_ms"]),
+            ("passed", True, 11.25),
+        )
+        self.assertEqual(
+            (second["status"], second["completed"]),
+            ("interrupted", False),
+        )
+        self.assertEqual(
+            (third["status"], third["completed"]),
+            ("not-run", False),
+        )
+
     def test_runtime_domains_share_the_leaf_symbols(self) -> None:
         for module in (
             click_browser,

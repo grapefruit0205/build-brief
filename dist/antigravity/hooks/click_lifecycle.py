@@ -24,6 +24,7 @@ if __package__:
         click_contract,
         click_contract_state,
         click_evidence,
+        click_incremental,
         click_mode,
         click_mutation,
         click_observation,
@@ -41,6 +42,7 @@ else:  # Executed directly from the bundled hooks directory.
     import click_contract
     import click_contract_state
     import click_evidence
+    import click_incremental
     import click_mode
     import click_mutation
     import click_observation
@@ -168,6 +170,9 @@ def _fresh_evidence_state(
         "capability_ledger": click_claims.fresh_state(),
         "verification": click_verification.fresh_state(virtual_contract),
         "evidence_state": click_evidence.fresh_state(virtual_contract),
+        click_evidence.SUCCESSOR_EVIDENCE_FIELD: (
+            click_evidence.fresh_successor_evidence()
+        ),
         "external_evidence": click_evidence.fresh_external_state(),
         "observations": click_observation.fresh_state(),
         "mutation": click_mutation.fresh_state(),
@@ -199,8 +204,34 @@ def _ensure_evidence_state(event: dict[str, Any]) -> tuple[dict[str, Any], bool]
     ):
         return state, False
     recovered = runtime.evidence and not _evidence_state_is_usable(state)
-    if not _evidence_state_is_usable(state) or _contract_is_completed(state):
+    completed_evidence = bool(
+        runtime.evidence
+        and _evidence_state_is_usable(state)
+        and _contract_is_completed(state)
+    )
+    if not _evidence_state_is_usable(state) or completed_evidence:
+        previous = state
         state = _fresh_evidence_state(event, history_complete=not recovered)
+        if completed_evidence:
+            origins: dict[str, dict[str, str]] = {}
+            for batch in click_incremental.batch_history(
+                previous.get("verification")
+            ):
+                for source in batch["sources"]:
+                    if source["status"] in {"passed", "reused"}:
+                        origins[source["source_key"]] = {
+                            "batch_id": batch["batch_id"],
+                            "execution_status": source["status"],
+                        }
+            click_evidence.carry_successor_evidence(
+                previous,
+                state,
+                origins=origins,
+                scope_digest=click_evidence.successor_scope_digest(
+                    str(click_state.contract_path(event).resolve())
+                ),
+                expected_contract_schema_version=CONTRACT_STATE_SCHEMA_VERSION,
+            )
         _save_contract_state(event, state)
         return state, recovered
     if _append_follow_up(event, state):

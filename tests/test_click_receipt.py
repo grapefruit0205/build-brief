@@ -206,6 +206,43 @@ class ClickReceiptTests(unittest.TestCase):
         self.assertIsNone(rejected)
         self.assertIn("unsupported field", error)
 
+    def test_v4_binds_successor_origin_and_rejects_downgraded_lineage(self) -> None:
+        receipt = _valid_sharded_receipt()
+        receipt["version"] = 4
+        source = receipt["evidence"][0]  # type: ignore[index]
+        source["lineage"] = {
+            "mode": "successor-reused",
+            "from_revision": 9,
+            "dependency_digest": _digest("e"),
+            "origin_batch_id": "a" * 32,
+            "origin_evidence_session_id": "evs_" + "b" * 32,
+            "requalification_mode": "safe-change",
+        }
+
+        normalized, error = click_receipt.validate_receipt(receipt)
+
+        self.assertEqual(error, "")
+        assert normalized is not None
+        lineage = next(
+            item["lineage"]
+            for item in normalized["evidence"]
+            if item["lineage"]["mode"] == "successor-reused"
+        )
+        self.assertEqual(lineage["mode"], "successor-reused")
+        self.assertEqual(lineage["from_revision"], 9)
+
+        missing_origin = copy.deepcopy(receipt)
+        del missing_origin["evidence"][0]["lineage"]["origin_batch_id"]  # type: ignore[index]
+        rejected, error = click_receipt.validate_receipt(missing_origin)
+        self.assertIsNone(rejected)
+        self.assertIn("missing field", error)
+
+        downgraded = copy.deepcopy(receipt)
+        downgraded["version"] = 3
+        rejected, error = click_receipt.validate_receipt(downgraded)
+        self.assertIsNone(rejected)
+        self.assertIn("Successor-reused", error)
+
     def test_unknown_sensitive_or_self_referential_fields_fail_closed(self) -> None:
         for path, field in (
             ((), "runner_token"),

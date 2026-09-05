@@ -134,7 +134,7 @@ JS = r"""(() => {
     planned: '실행 예정', 'reuse-pending': '재사용 예정 · 미적용', running: '실행 중',
     passed: '통과', failed: '실패', interrupted: '중단 · 일부 결과 미확정',
     'not-run': '미실행', reused: '재사용 적용', unknown: '측정 정보 없음',
-    rejected: '실행 전 거부', incomplete: '미확정', evidence: 'Evidence', approved: 'Guarded'
+    rejected: '실행 전 거부', incomplete: '미확정', evidence: 'Evidence', approved: 'Guarded', none: '활성 작업 없음'
   };
   const outcomeText = {
     'request-rejected': '요청이 거부되어 시작하지 않았습니다.',
@@ -158,6 +158,11 @@ JS = r"""(() => {
   };
   const reasonText = {
     'same-revision-receipt-current': '같은 revision의 검사 결과가 현재 작업트리와 정확히 일치해 재사용했습니다.',
+    'successor-evidence-current': '이전 Evidence 작업의 실제 통과 결과를 현재 명령·작업트리·환경·실행 파일·호스트 범위에 다시 결합해 재사용했습니다.',
+    'successor-evidence-dependencies-unchanged': '이전 Evidence 작업의 실제 통과 결과를 가져와, 현재 변경 뒤에도 관찰된 입력이 바뀌지 않았음을 다시 확인해 재사용했습니다.',
+    'successor-evidence-safe-change-covered': '이전 Evidence 작업의 실제 통과 결과를 가져와, 현재 커밋된 안전 변경 정책이 이번 변경을 허용하는지 다시 확인해 재사용했습니다.',
+    'successor-evidence-scope-mismatch': '이전 결과가 현재 호스트 세션과 작업 공간의 후속 작업 범위에 속하지 않아 실제 검사를 실행했습니다.',
+    'successor-evidence-integrity-invalid': '이전 실행 사실의 무결성이나 출처를 확인할 수 없어 실제 검사를 실행했습니다.',
     'observed-dependencies-unchanged': '이 검사가 실제로 읽었던 입력이 바뀌지 않아 이전 통과 결과를 재사용했습니다.',
     'safe-change-policy-covered': '저장소 소유자가 미리 허용한 안전 변경 범위 안이라 이전 결과를 재사용했습니다.',
     'no-passing-evidence': '재사용할 수 있는 이전 통과 결과가 없어 실제 검사를 실행했습니다.',
@@ -204,6 +209,7 @@ JS = r"""(() => {
       `계획 ${executionLabels[source.execution_decision]?.[0] || '없음'} · 실제 ${label}`,
       `실행 구간 ${fmt(source.duration_ms)}`,
       source.duration_baseline ? `과거 표본 ${source.duration_baseline.sample_count}개 · revision ${source.duration_baseline.revision} · ${fmt(source.duration_baseline.duration_ms)}` : '과거 시간 표본 없음',
+      source.reuse_origin ? `이전 Evidence 배치 ${source.reuse_origin.batch_id.slice(0,12)} · 출처 revision ${source.reuse_origin.origin_revision}` : '현재 작업 안의 근거',
       `판정 식별자 ${source.reason_code || '없음'}`,
       ...source.shadow_limitations.map(item => `Shadow: ${item}`)
     ];
@@ -362,7 +368,7 @@ JS = r"""(() => {
         execution_decision:item.decision || 'not-planned', reason_code:item.reason_code,
         execution_reason_code:item.execution_reason_code, current_revision:item.current_revision,
         previous_revision:item.previous_revision, duration_ms:item.duration_ms, duration_baseline:item.duration_baseline,
-        authority_source:item.authority_source};
+        authority_source:item.authority_source, reuse_origin:item.reuse_origin};
     }), map: current ? data.map : {nodes:[],edges:[]}};
   }
 
@@ -387,7 +393,7 @@ JS = r"""(() => {
     return batchView(data, activeBatch);
   }
 
-  const scenarios = {'first-run':'첫 실행','unchanged':'변경 없음','docs':'문서 변경','code':'코드 변경','environment':'환경 변경','first-failure':'첫 검사 실패'};
+  const scenarios = {'first-run':'첫 실행','unchanged':'변경 없음','docs':'문서 변경','partial-reuse':'일부 실행 + 일부 재사용','code':'코드 변경','environment':'환경 변경','first-failure':'첫 검사 실패'};
   const criteria = {'same-shards':'같은 샤드 전체 실행','parent-suite':'기존 전체 검증 명령'};
   function readComparison(value) {
     if (value?.version !== 2 || value.kind !== 'click-paired-verification-benchmark' || !Array.isArray(value.samples) || value.samples.length > 240) throw Error('지원하지 않는 비교 형식');
@@ -472,7 +478,8 @@ JS = r"""(() => {
           decision:item.decision,status:item.status,started:item.started,completed:item.completed,reason_code:item.reason_code,
           execution_reason_code:item.execution_reason_code,authority_source:item.authority_source,
           current_revision:item.current_revision,previous_revision:item.previous_revision,duration_ms:item.duration_ms,
-          duration_baseline:item.duration_baseline,estimated_avoided_ms:item.status === 'reused' ? item.duration_baseline?.duration_ms ?? null : 0}))} : null,
+          duration_baseline:item.duration_baseline,reuse_origin:item.reuse_origin,
+          estimated_avoided_ms:item.status === 'reused' ? item.duration_baseline?.duration_ms ?? null : 0}))} : null,
       comparison,shadow:snapshot.summary.shadow,
       notes:['전체 대기시간은 별도 측정값이 없으면 알 수 없음','준비와 runner 구간만 부분 계측 · 호스트 전달·대기·최종 저장·반환 제외',
         '생략 비용은 실제 적용된 재사용의 이전 성공 실행 표본에 기반한 추정','Shadow는 실제 재사용·실측 절약 아님',
@@ -494,7 +501,7 @@ JS = r"""(() => {
     add('p',`생략한 실행 비용 추정: ${fmt(s.estimated_avoided_ms)} · 표본이 있는 ${count(s.estimated_source_count)} / 재사용 ${count(s.authoritative_reuse_count)}개 묶음`);
     add('h2','검증 묶음별 실제 결과');const table=add('table','');
     const heading=add('tr','',table);['이름','계획','실제 결과','시간 / 과거 표본','이유'].forEach(text=>add('th',text,heading));
-    report.batch?.sources.forEach(item=>{const tr=add('tr','',table);[item.label,executionLabels[item.decision]?.[0]||'없음',statusText[item.status],item.status==='reused'?fmt(item.duration_baseline?.duration_ms)+' (과거 표본)':fmt(item.duration_ms),outcomeText[item.execution_reason_code]||reasonText[item.reason_code]||'정보 없음'].forEach(text=>add('td',text,tr));});
+    report.batch?.sources.forEach(item=>{const tr=add('tr','',table);const origin=item.reuse_origin?` · 이전 배치 ${item.reuse_origin.batch_id.slice(0,12)}에서 재판정`:'';[item.label,executionLabels[item.decision]?.[0]||'없음',statusText[item.status],item.status==='reused'?fmt(item.duration_baseline?.duration_ms)+' (과거 표본)':fmt(item.duration_ms),(outcomeText[item.execution_reason_code]||reasonText[item.reason_code]||'정보 없음')+origin].forEach(text=>add('td',text,tr));});
     add('h2','별도 실측 비교');
     if (!report.comparison) add('p','비교 측정 없음. 일상 추정 비용을 실측한 전체 재실행 시간으로 환산하지 않습니다.');
     else {
@@ -522,7 +529,9 @@ JS = r"""(() => {
     snapshot = data;
     $('connection').textContent = '연결됨';
     document.querySelector('.live').classList.add('ok');
-    $('taskline').textContent = `${data.task.runtime_mode === 'guarded' ? 'Guarded' : 'Evidence'} 모드 · 변경 ${data.task.mutation_revision} · ${statusText[data.task.status] || '상태 확인 중'}`;
+    $('taskline').textContent = data.task.runtime_mode === 'unknown'
+      ? '현재 실행 중인 검증이 없습니다. 아래에서 최근 검증 결과를 볼 수 있습니다.'
+      : `${data.task.runtime_mode === 'guarded' ? 'Guarded' : 'Evidence'} 모드 · 변경 ${data.task.mutation_revision} · ${statusText[data.task.status] || '상태 확인 중'}`;
     const view = renderBatch(data);
     const incremental = activeBatch ? summarize(activeBatch) : data.summary.incremental;
     activeSummary = incremental;
@@ -630,6 +639,27 @@ def _dashboard_state(state: Any) -> dict[str, Any]:
     return dict(value) if state_is_valid(value) else fresh_state()
 
 
+def _dashboard_path(state_path: Path) -> Path:
+    return state_path.with_name(
+        "dashboard-" + state_path.name.removeprefix("session-contract-")
+    )
+
+
+def _dashboard_state_for_path(state_path: Path) -> dict[str, Any]:
+    sidecar = _read_state(_dashboard_path(state_path))
+    if state_is_valid(sidecar):
+        return dict(sidecar)
+    # Compatibility for a viewer prepared by v0.80 before the sidecar split.
+    return _dashboard_state(_read_state(state_path))
+
+
+def _write_dashboard_state(state_path: Path, dashboard: dict[str, Any]) -> bool:
+    if not state_is_valid(dashboard):
+        return False
+    click_state.write_json(_dashboard_path(state_path), dashboard)
+    return True
+
+
 def _managed_state_path(path: Path) -> bool:
     return click_state.managed_state_path(path, ("session-contract-",))
 
@@ -674,8 +704,9 @@ def prepare(
     runtime = click_runtime_state.view(state)
     if not runtime.execution_authorized:
         return "", "Start Guarded or Evidence runtime state before opening its dashboard."
-    dashboard = _dashboard_state(state)
-    state_path = str(click_state.contract_path(event).resolve())
+    contract_path = click_state.contract_path(event).resolve()
+    dashboard = _dashboard_state_for_path(contract_path)
+    state_path = str(contract_path)
     if action == "status":
         return runner_command(
             event,
@@ -695,8 +726,7 @@ def prepare(
             ), ""
         dashboard["status"] = "stopping"
         dashboard["stop_requested"] = True
-        state[DASHBOARD_FIELD] = dashboard
-        click_contract_state.save_contract_state(event, state)
+        _write_dashboard_state(contract_path, dashboard)
         return runner_command(
             event,
             "run-dashboard-stop",
@@ -723,8 +753,7 @@ def prepare(
         "stop_requested": False,
         "last_error": "",
     }
-    state[DASHBOARD_FIELD] = dashboard
-    click_contract_state.save_contract_state(event, state)
+    _write_dashboard_state(contract_path, dashboard)
     return runner_command(
         event,
         "run-dashboard-start",
@@ -735,15 +764,13 @@ def prepare(
 
 
 def request_stop(event: dict[str, Any]) -> bool:
-    state = click_contract_state.read_contract_state(event)
-    dashboard = _dashboard_state(state)
+    state_path = click_state.contract_path(event).resolve()
+    dashboard = _dashboard_state_for_path(state_path)
     if dashboard["status"] not in {"starting", "running", "stopping"}:
         return False
     dashboard["status"] = "stopping"
     dashboard["stop_requested"] = True
-    state[DASHBOARD_FIELD] = dashboard
-    click_contract_state.save_contract_state(event, state)
-    return True
+    return _write_dashboard_state(state_path, dashboard)
 
 
 def _read_state(path: Path) -> dict[str, Any] | None:
@@ -757,28 +784,20 @@ def _read_state(path: Path) -> dict[str, Any] | None:
 def _write_dashboard_fields(
     path: Path, instance_id: str, **fields: Any
 ) -> bool:
-    state = _read_state(path)
-    if state is None:
-        return False
-    dashboard = _dashboard_state(state)
+    dashboard = _dashboard_state_for_path(path)
     if dashboard.get("instance_id") != instance_id:
         return False
     dashboard.update(fields)
     if not state_is_valid(dashboard):
         return False
-    state[DASHBOARD_FIELD] = dashboard
-    click_state.write_json(path, state)
-    return True
+    return _write_dashboard_state(path, dashboard)
 
 
 def _snapshot(path: Path, instance_id: str) -> tuple[dict[str, Any] | None, dict[str, Any]]:
-    state = _read_state(path)
-    if state is None:
-        return None, fresh_state()
-    dashboard = _dashboard_state(state)
+    dashboard = _dashboard_state_for_path(path)
     if dashboard.get("instance_id") != instance_id:
         return None, dashboard
-    return state, dashboard
+    return click_contract_state.read_projection_state_path(path), dashboard
 
 
 def run_start(
@@ -893,8 +912,7 @@ def run_status(arguments: list[str]) -> int:
     if not _managed_state_path(state_path):
         return 2
     with click_state.state_lock():
-        state = _read_state(state_path)
-        dashboard = _dashboard_state(state)
+        dashboard = _dashboard_state_for_path(state_path)
     sys.stdout.write(
         json.dumps(
             {
@@ -1061,8 +1079,7 @@ def run_server(arguments: list[str]) -> int:
             with click_state.state_lock():
                 state, dashboard = _snapshot(state_path, instance_id)
             if (
-                state is None
-                or dashboard.get("stop_requested") is True
+                dashboard.get("stop_requested") is True
                 or dashboard.get("status") != "running"
                 or not hmac.compare_digest(
                     str(dashboard.get("access_token_digest", "")), access_digest

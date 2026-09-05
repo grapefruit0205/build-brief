@@ -1,5 +1,28 @@
 # Release notes
 
+## v0.81.0 — 2026-09-05
+
+- Verification runners now persist each verification-group completion and duration
+  before starting the next group. Cancellation preserves already-witnessed passes,
+  distinguishes an active unconfirmed interruption from later not-run groups, and
+  cannot let a late runner restore revoked authority or overwrite another batch.
+- Dashboard viewer state is now bound to the host session and workspace in a
+  separate sidecar rather than an individual Evidence lifecycle. One explicitly
+  opened viewer survives successive Evidence tasks and cancellation as a read-only
+  recent-results view; explicit stop, SessionEnd, access-token/origin checks, and
+  bounded lifetime remain in force.
+- A completed Evidence task can retain real successful source facts as candidates
+  for the next Evidence task in the same scope. The new task requalifies check,
+  tree, mutation, environment, executable, host coverage, dependency, and committed
+  safe-change bindings. History, timing, Shadow data, equal revision numbers, and
+  prior approval never grant reuse.
+- Successor reuse records its origin batch and Evidence session in dashboard and
+  sanitized exports. Completion receipt v4 adds strict `successor-reused` lineage.
+- The real benchmark adds a `partial-reuse` Evidence lifecycle scenario in which
+  one shard is policy-reused and one shard actually runs; no receipt or decision is
+  injected. Lifecycle state-machine tests use an in-process hook harness while
+  dedicated transport suites retain executable-boundary coverage.
+
 ## v0.80.0 — 2026-09-05
 
 - The verification-efficiency dashboard now projects actual batch results,

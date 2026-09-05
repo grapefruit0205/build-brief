@@ -24,6 +24,11 @@ from click_gate_test_support import (
 
 
 class ClickGateLifecycleTests(ClickGateTestCase):
+    # These tests exercise the lifecycle state machine.  The executable and
+    # encoded-runner boundaries remain covered by the dedicated gate/transport
+    # suites, so avoid paying for a fresh Python import on every hook event.
+    hook_in_process = True
+
     def test_manual_default_persists_and_keeps_uninvoked_mutations_fail_open(self) -> None:
         setting = self.set_default("manual")
         self.assertEqual(

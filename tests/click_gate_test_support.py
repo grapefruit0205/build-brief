@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import io
 import json
 import os
 from pathlib import Path
@@ -97,6 +98,11 @@ def split_runner_command(command: str) -> list[str]:
 
 
 class ClickGateTestCase(unittest.TestCase):
+    # Most suites retain the executable boundary.  Large state-machine suites
+    # may opt into the equivalent in-process entry point and leave dedicated
+    # transport tests to cover stdin/stdout and interpreter startup.
+    hook_in_process = False
+
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
@@ -124,6 +130,31 @@ class ClickGateTestCase(unittest.TestCase):
     def run_hook(
         self, mode: str, event: dict
     ) -> tuple[subprocess.CompletedProcess[str], dict | None]:
+        if self.hook_in_process:
+            standard_input = io.StringIO(json.dumps(event))
+            standard_output = io.StringIO()
+            standard_error = io.StringIO()
+            environment = {
+                "PLUGIN_DATA": str(self.plugin_data),
+                "CLICK_CONFIG_HOME": str(self.plugin_data),
+            }
+            with (
+                mock.patch.dict(os.environ, environment, clear=False),
+                mock.patch.object(sys, "argv", [str(SCRIPT), mode]),
+                mock.patch.object(sys, "stdin", standard_input),
+                mock.patch.object(sys, "stdout", standard_output),
+                mock.patch.object(sys, "stderr", standard_error),
+            ):
+                returncode = CLICK_GATE.main()
+            stdout = standard_output.getvalue()
+            result = subprocess.CompletedProcess(
+                [sys.executable, str(SCRIPT), mode],
+                returncode,
+                stdout,
+                standard_error.getvalue(),
+            )
+            payload = json.loads(stdout) if stdout else None
+            return result, payload
         environment = os.environ.copy()
         environment["PLUGIN_DATA"] = str(self.plugin_data)
         environment["CLICK_CONFIG_HOME"] = str(self.plugin_data)

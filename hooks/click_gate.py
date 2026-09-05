@@ -512,8 +512,7 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
                     _deny(authorization_error)
                     return
                 click_service.request_stop(event)
-                click_shadow_dashboard.request_stop(event)
-                click_contract_state.clear_contract_state(event)
+                click_contract_state.clear_contract_state(event, lock_already_held=True)
                 click_observation.clear_review_state(event)
                 click_lifecycle.write_state(event, "idle")
                 _allow_rewritten("echo Click active contract cancelled")
@@ -546,7 +545,9 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
                     normalized != "evidence"
                     and runtime_state.get("status") == "evidence"
                 ):
-                    click_contract_state.clear_contract_state(event)
+                    click_contract_state.clear_contract_state(
+                        event, lock_already_held=True
+                    )
                     click_lifecycle.write_state(event, "idle")
                 label = {
                     "evidence": "Evidence",

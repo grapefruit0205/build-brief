@@ -99,6 +99,7 @@ _SOURCE_FIELDS = frozenset(
         "shadow_limitations",
         "shadow_outcome",
         "execution_status", "execution_reason_code", "duration_ms", "duration_baseline",
+        "reuse_origin",
     }
 )
 _MAP_FIELDS = frozenset(
@@ -359,6 +360,7 @@ def dashboard_projection(
                 "execution_reason_code": result.get("execution_reason_code", "outcome-unconfirmed"),
                 "duration_ms": result.get("duration_ms"),
                 "duration_baseline": duration_baseline,
+                "reuse_origin": result.get("reuse_origin"),
                 "observer_status": observer_status,
                 "input_count": len(input_keys),
                 "visible_input_count": source_visible,
@@ -561,6 +563,12 @@ def projection_is_valid(value: Any) -> bool:
             or source.get("execution_reason_code") not in click_incremental.EXECUTION_REASONS
             or (source.get("duration_ms") is not None and not click_incremental.is_duration(source["duration_ms"]))
             or (source.get("duration_baseline") is not None and not click_incremental.baseline_is_valid(source["duration_baseline"]))
+            or (
+                source.get("reuse_origin") is not None
+                and not click_incremental.reuse_origin_is_valid(
+                    source["reuse_origin"]
+                )
+            )
             or source.get("observer_status")
             not in click_dependency_cache.SHADOW_OBSERVER_STATUSES
             or any(
