@@ -58,7 +58,13 @@ class IncrementalVerificationBenchmarkTests(unittest.TestCase):
         self.assertEqual({sample["comparison"] for sample in payload["samples"]}, {"same-shards", "parent-suite"})
         for sample in payload["samples"]:
             measured = sample["incremental"]
-            self.assertEqual(measured["executed_source_count"], 0)
+            diagnostic = json.dumps({
+                "scenario": sample["scenario"], "comparison": sample["comparison"],
+                "sources": [{key: item.get(key) for key in
+                             ("decision", "reason_code", "status", "execution_reason_code")}
+                            for item in measured["batch"]["sources"]],
+            }, ensure_ascii=True, sort_keys=True)
+            self.assertEqual(measured["executed_source_count"], 0, diagnostic)
             self.assertEqual(measured["reused_source_count"], 2)
             self.assertGreater(measured["wall_ms"], 0)
             self.assertGreater(measured["estimated_avoided_ms"], 0)
