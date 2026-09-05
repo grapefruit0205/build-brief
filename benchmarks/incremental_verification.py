@@ -64,6 +64,16 @@ def _split(command: str) -> list[str]:
         kernel.LocalFree(ctypes.cast(args, ctypes.c_void_p))
 
 
+def _fixture_runner_argv(command: str) -> list[str]:
+    argv = _split(command)
+    if len(argv) == 5 and argv[:2] == ["py", "-3"] and argv[3] == "--encoded-runner":
+        # Windows py -3 can select a different Python from the benchmark driver.
+        # Keep driver, preflight, and runner on one interpreter; preserve the
+        # exact encoded capability for the real runner to authenticate.
+        return [sys.executable, *argv[2:]]
+    return argv
+
+
 class Fixture:
     """One independent checkout and lifecycle; no shared receipt across roots."""
 
@@ -205,7 +215,7 @@ class Fixture:
             command = response.get("updatedInput", {}).get("command")
             if not isinstance(command, str):
                 raise RuntimeError("fixture-runner-not-issued")
-            argv = _split(command)
+            argv = _fixture_runner_argv(command)
             if argv and argv[0] == "echo":
                 code = 0  # Actual preflight has applied reuse; no runner to dispatch.
             else:
