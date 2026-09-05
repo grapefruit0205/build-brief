@@ -53,6 +53,11 @@ MAX_ETL_MIB = 8
 MAX_RAW_TRACE_BYTES = 16 * 1024 * 1024
 MAX_XML_EVENTS = 200_000
 CONTROL_TIMEOUT_SECONDS = 30.0
+# ``logman start -ets`` returns after admitting the session, but the kernel
+# providers may still need a short interval before their first events are
+# observable.  Without this barrier, a fast target can start and read its
+# inputs before the process and file providers are ready.
+SESSION_READY_DELAY_SECONDS = 0.25
 
 _DIGEST = re.compile(r"^[0-9a-f]{64}$")
 _VERSION = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$")
@@ -87,6 +92,7 @@ SpawnArgv = Callable[..., subprocess.Popen[Any]]
 TerminateGroup = Callable[[subprocess.Popen[Any]], int]
 ControlRunner = Callable[..., subprocess.CompletedProcess[Any]]
 DeviceMapProvider = Callable[[], Mapping[str, str]]
+SessionWait = Callable[[float], None]
 ShadowExecution = click_observer_common.ShadowExecution
 
 
@@ -565,6 +571,7 @@ def collect_command(
     run_control: ControlRunner = click_process.run_argv,
     spawn_argv: SpawnArgv = click_process.spawn_argv,
     terminate_group: TerminateGroup = click_process.terminate_process_group,
+    wait_for_sessions: SessionWait = time.sleep,
     capture_limit: int = MAX_RAW_TRACE_BYTES,
 ) -> CollectedExecution:
     """Collect process and file ETW while executing the target at most once."""
@@ -632,6 +639,10 @@ def collect_command(
                     0, int((time.monotonic() - preparation_started) * 1000)
                 )
                 if not failed:
+                    wait_for_sessions(SESSION_READY_DELAY_SECONDS)
+                    preparation_ms = max(
+                        0, int((time.monotonic() - preparation_started) * 1000)
+                    )
                     target = spawn_argv(
                         list(argv), cwd=workspace, env=dict(environment)
                     )
@@ -650,10 +661,14 @@ def collect_command(
             ):
                 failed = True
             finally:
-                preparation_ms = max(
-                    preparation_ms,
-                    max(0, int((time.monotonic() - preparation_started) * 1000)),
-                )
+                if not target_started:
+                    preparation_ms = max(
+                        preparation_ms,
+                        max(
+                            0,
+                            int((time.monotonic() - preparation_started) * 1000),
+                        ),
+                    )
                 cleanup_started = time.monotonic()
                 if target is not None and target.poll() is None:
                     try:

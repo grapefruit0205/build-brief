@@ -249,6 +249,7 @@ class ClickObserverWindowsTests(unittest.TestCase):
     def test_collection_starts_both_sessions_then_runs_target_once(self) -> None:
         target = _FakeTarget()
         calls: list[list[str]] = []
+        lifecycle: list[str] = []
         temporary_roots: list[Path] = []
 
         process_xml = _document(
@@ -273,6 +274,7 @@ class ClickObserverWindowsTests(unittest.TestCase):
             cwd = Path(kwargs["cwd"])
             temporary_roots.append(cwd)
             if argv[1] == "start":
+                lifecycle.append("start")
                 output = Path(argv[argv.index("-o") + 1])
                 output.with_name(output.stem + "_000001.etl").write_bytes(b"etl")
             elif Path(argv[0]).name.lower().startswith("tracerpt"):
@@ -289,8 +291,9 @@ class ClickObserverWindowsTests(unittest.TestCase):
             tracerpt_executable="tracerpt.exe",
             run_control=control,
             spawn_argv=lambda argv, **_kwargs: (
-                spawned.append(list(argv)) or target
+                lifecycle.append("spawn") or spawned.append(list(argv)) or target
             ),
+            wait_for_sessions=lambda seconds: lifecycle.append(f"wait:{seconds}"),
         )
 
         self.assertTrue(result.target_started)
@@ -300,6 +303,15 @@ class ClickObserverWindowsTests(unittest.TestCase):
         self.assertTrue(result.process_scope_complete)
         self.assertEqual(spawned, [["tool", "--flag"]])
         self.assertEqual(target.wait_calls, 1)
+        self.assertEqual(
+            lifecycle,
+            [
+                "start",
+                "start",
+                f"wait:{click_observer_windows.SESSION_READY_DELAY_SECONDS}",
+                "spawn",
+            ],
+        )
         self.assertEqual(sum(call[1] == "start" for call in calls), 2)
         self.assertEqual(sum(call[1] == "stop" for call in calls), 2)
         self.assertEqual(
