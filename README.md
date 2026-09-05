@@ -106,7 +106,7 @@ Or explicitly choose Guarded:
 
 ## Update
 
-Current release: **v0.70.0**
+Current release: **v0.80.0**
 
 ~~~bash
 codex plugin marketplace upgrade click

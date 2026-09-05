@@ -1,5 +1,42 @@
 # Release notes
 
+## v0.80.0 — 2026-09-05
+
+- The verification-efficiency dashboard now projects actual batch results,
+  separately from the canonical plan. Started, completed, passed, failed,
+  interrupted, not-run, and applied-reuse states cannot be confused with
+  planned work. A first-check failure leaves later checks unexecuted.
+- Bounded, content-free batch history links plans and outcomes by batch id,
+  avoids double counting redelivered events, and preserves honest incomplete
+  and legacy-unknown states across lifecycle changes and cancellation.
+- Measured processing segments and command-invocation durations are separate
+  from estimated avoided execution cost. Estimates carry the original
+  successful-run baseline and coverage count. Unobserved full host request
+  time remains unknown; Observer costs are not counted twice.
+- The read-only dashboard presents verification bundles, real execution and
+  reuse, recent batch details, Korean explanations, and a selected-source
+  Evidence Map with accurate displayed and omitted input counts. Shadow
+  observations stay separate from authoritative results and estimates.
+- Local comparison benchmarks now create temporary Git repositories, commit
+  policies before baseline runs, and exercise real Hook, reuse-authority,
+  runner, and receipt paths in Evidence or Guarded mode. They compare both
+  full shard execution and an equivalent original parent command, retain
+  negative results, and separate warmups and failed performance samples.
+- Imported comparison measurements can be viewed alongside a batch and
+  exported as sanitized JSON or standalone HTML without external scripts,
+  remote telemetry, raw commands, environment values, tokens, or input paths.
+  Viewing and exporting reports never execute a verification command.
+- Added regression coverage for actual-versus-planned counts, time and
+  baseline provenance, bounded deduplication, cancellation, legacy data,
+  comparison calculations, display limits, and safe report exports.
+- Existing reuse authority, approval boundaries, one-use runners, workspace
+  and environment bindings, and non-authoritative native Shadow collectors
+  remain unchanged. Small checks may be slower when management overhead
+  outweighs avoided execution; fixture results are not product speed claims.
+
+See [Verification efficiency](VERIFICATION_EFFICIENCY.md) for dashboard,
+benchmark, export, measurement-scope, and compatibility details.
+
 ## v0.70.0 — 2026-09-05
 
 - Click now presents its primary product as **incremental verification for
