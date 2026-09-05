@@ -1059,9 +1059,11 @@ def _canonical_incremental_plan(
         else:
             selected = "run"
             authority = "runner"
-        avoided = source.get("last_success_duration_ms", 0)
-        if not isinstance(avoided, int) or isinstance(avoided, bool) or avoided < 0:
-            avoided = 0
+        baseline = source.get("last_success_duration_baseline")
+        if (not click_incremental.baseline_is_valid(baseline)
+            or baseline["check_digest"] != group_digests[source_key]):
+            baseline = None
+        avoided = baseline["duration_ms"] if baseline is not None else None
         decisions.append(
             click_incremental.decision(
                 source_key=source_key,
@@ -1072,6 +1074,7 @@ def _canonical_incremental_plan(
                 check_digest=group_digests[source_key],
                 authority_source=authority,
                 estimated_avoided_ms=avoided if source_key in reused_keys else 0,
+                duration_baseline=baseline,
             )
         )
     return click_incremental.build_plan(decisions, current_revision=revision)
@@ -1761,6 +1764,56 @@ def _tool_working_directory(
 
 
 def _prepare_verification(
+    event: dict[str, Any], raw: str, *, runner_script: Path,
+    render_command: Callable[[list[str]], str],
+    git_workspace_snapshot: Callable[..., dict[str, Any] | None] = _git_workspace_snapshot,
+    git_capture: Callable[[Path, list[str]], bytes | None] = _git_capture,
+) -> tuple[str, str, str]:
+    # A preparation hook and its runner are different processes. Measure their
+    # local elapsed segments, not a subtraction of cross-process clock origins.
+    started = time.perf_counter_ns()
+    trace: dict[str, Any] = {}
+    result = _prepare_verification_impl(
+        event, raw, runner_script=runner_script, render_command=render_command,
+        git_workspace_snapshot=git_workspace_snapshot, git_capture=git_capture,
+        measurement=trace,
+    )
+    elapsed = (time.perf_counter_ns() - started) / 1_000_000
+    try:
+        state = _read_contract_state(event)
+        verification = state.get("verification")
+        if not click_runtime_state.view(state).execution_authorized or not isinstance(verification, dict):
+            return result
+        tool_id = event.get("tool_use_id")
+        request_id = (
+            hashlib.sha256(json.dumps([
+                event.get("session_id"), event.get("turn_id"), tool_id,
+                hashlib.sha256(raw.encode()).hexdigest(),
+            ], sort_keys=True).encode()).hexdigest()[:32]
+            if isinstance(tool_id, str) and tool_id else secrets.token_hex(16)
+        )
+        previous_id = verification.get(click_incremental.CURRENT_BATCH_FIELD)
+        previous_batch = click_incremental.current_batch(verification)
+        batch = click_incremental.new_batch(
+            trace.get("plan"), batch_id=request_id,
+            revision=int(verification.get("mutation_revision", 0)), prepared_ms=elapsed,
+            requested=trace.get("requested"), labels=trace.get("labels"),
+        )
+        if click_incremental.store_batch(verification, batch):
+            if result[1]:
+                click_incremental.reject_batch(verification)
+                if previous_batch and previous_batch["status"] in {"planned", "running"}:
+                    verification[click_incremental.CURRENT_BATCH_FIELD] = previous_id
+            elif trace.get("all_reused"):
+                click_incremental.finish_reuse(verification)
+            _save_contract_state(event, state)
+    except Exception:
+        # Measurements cannot admit/reject a command or grant reuse authority.
+        pass
+    return result
+
+
+def _prepare_verification_impl(
     event: dict[str, Any],
     raw: str,
     *,
@@ -1770,6 +1823,7 @@ def _prepare_verification(
         _git_workspace_snapshot
     ),
     git_capture: Callable[[Path, list[str]], bytes | None] = _git_capture,
+    measurement: dict[str, Any] | None = None,
 ) -> tuple[str, str, str]:
     state = _read_contract_state(event)
     runtime = click_runtime_state.view(state)
@@ -1844,6 +1898,11 @@ def _prepare_verification(
     provisional_groups, grouping_error = _verification_groups(provisional)
     if grouping_error:
         return "", grouping_error, ""
+    if measurement is not None:
+        measurement["requested"] = [
+            {"source_key": key, "check_digest": _verification_group_digest(checks)}
+            for key, checks in provisional_groups.items()
+        ]
     if runtime.evidence:
         evidence_state = state.get("evidence_state")
         dynamic_ids = [
@@ -1890,6 +1949,7 @@ def _prepare_verification(
         if started_at and time.time() - started_at <= VERIFY_RUNNING_TTL_SECONDS:
             return "", "The approved Click verification batch is already running.", ""
         status = "failed"
+        click_incremental.reject_batch(verification, reason="reservation-expired")
         verification["status"] = status
         verification["last_exit_code"] = 124
         for source_key in verification.get("running_evidence_keys", []):
@@ -2347,9 +2407,18 @@ def _prepare_verification(
             "",
         )
     click_incremental.store_plan(verification, incremental_plan)
-    click_incremental.append_plan_history(verification, incremental_plan)
+    if measurement is not None:
+        measurement["plan"] = incremental_plan
+        measurement["labels"] = {
+            key: str(source["shard"]["shard_id"])
+            for key, source in sources.items()
+            if isinstance(source, dict)
+            and click_evidence_shards.source_metadata_is_valid(source.get("shard"))
+        }
 
     if not pending_keys:
+        if measurement is not None:
+            measurement["all_reused"] = True
         all_argv_current = bool(argv_keys) and all(
             _evidence_is_current(sources.get(source_key), revision)
             for source_key in argv_keys
@@ -2572,13 +2641,15 @@ def _record_verification_result(
     workspace_root: str = "",
     workspace_digest: str = "",
     environment_digests: dict[str, str] | None = None,
-    source_durations_ms: dict[str, int] | None = None,
+    source_durations_ms: dict[str, int | float] | None = None,
     dependency_observations: dict[str, dict[str, Any]] | None = None,
     shadow_observer_records: dict[str, dict[str, Any]] | None = None,
     shadow_intelligence_baselines: dict[str, dict[str, Any]] | None = None,
     shadow_source_exit_codes: dict[str, int] | None = None,
     shadow_execution_contexts: dict[str, dict[str, Any]] | None = None,
     *,
+    source_results: dict[str, dict[str, Any]] | None = None,
+    runner_started_ns: int | None = None,
     git_capture: Callable[[Path, list[str]], bytes | None] = _git_capture,
 ) -> bool:
     try:
@@ -2633,9 +2704,7 @@ def _record_verification_result(
         or any(
             not isinstance(source_key, str)
             or source_key not in running_keys
-            or not isinstance(duration, int)
-            or isinstance(duration, bool)
-            or duration < 0
+            or not click_incremental.is_duration(duration)
             for source_key, duration in measured_durations.items()
         )
     ):
@@ -2740,6 +2809,8 @@ def _record_verification_result(
                     or (exit_code != 0 and min(check_positions) == succeeded_count)
                 )
             )
+            if source_results is not None:
+                source_ran = source_results.get(source_key, {}).get("started") is True
             was_current = _evidence_is_current(source, previous_revision)
             if check_positions and source_ran:
                 source["status"] = "failed"
@@ -2778,6 +2849,8 @@ def _record_verification_result(
             source_ran = first_position < succeeded_count or (
                 exit_code != 0 and first_position == succeeded_count
             )
+            if source_results is not None:
+                source_ran = source_results.get(source_key, {}).get("started") is True
             if source_ran:
                 source["attempts"] = int(source.get("attempts", 0)) + 1
             if all(position < succeeded_count for position in check_positions):
@@ -2788,8 +2861,17 @@ def _record_verification_result(
                 source["locked_check_digest"] = str(
                     source.get("last_check_digest", "")
                 )
-                source["last_success_duration_ms"] = int(
-                    measured_durations.get(source_key, 0)
+                # Keep the legacy ledger's integer field compatible. Consumers
+                # of precise/unknown timing use the separate, validated baseline.
+                source["last_success_duration_ms"] = int(measured_durations.get(source_key) or 0)
+                batch_id = verification.get(click_incremental.CURRENT_BATCH_FIELD)
+                duration_baseline = {
+                    "duration_ms": measured_durations.get(source_key),
+                    "revision": revision, "check_digest": source.get("last_check_digest"),
+                    "observed_at": int(time.time()), "batch_id": batch_id, "sample_count": 1,
+                }
+                source["last_success_duration_baseline"] = (
+                    duration_baseline if click_incremental.baseline_is_valid(duration_baseline) else None
                 )
                 environment_digest = str(
                     environment_digests.get(source_key, "")
@@ -2880,7 +2962,21 @@ def _record_verification_result(
             # Analysis is telemetry only and cannot change an evidence result.
             pass
     try:
-        click_incremental.record_execution(verification, measured_durations)
+        measured_batch = click_incremental.current_batch(verification)
+        reused_keys = {
+            item["source_key"] for item in (measured_batch or {}).get("sources", [])
+            if item["decision"] in click_incremental.REUSE_DECISIONS
+            and _evidence_is_current(sources.get(item["source_key"]), revision)
+        }
+        click_incremental.record_execution(
+            verification, measured_durations, source_results=source_results,
+            reused_keys=reused_keys, exit_code=exit_code,
+            workspace_changed=workspace_changed,
+            runner_duration_ms=(
+                (time.perf_counter_ns() - runner_started_ns) / 1_000_000
+                if runner_started_ns is not None else None
+            ),
+        )
     except Exception:
         # Measurement cannot alter evidence authority or the recorded result.
         pass
@@ -3115,7 +3211,8 @@ def _claim_verification_run(
 
 
 def _release_unclaimed_verification_reservation(
-    state_path: Path, batch_digest: str, runner_token: str
+    state_path: Path, batch_digest: str, runner_token: str, *,
+    runner_duration_ms: float | None = None,
 ) -> bool:
     """Release one authenticated reservation when admission failed pre-check."""
     if not _managed_contract_path(state_path):
@@ -3158,6 +3255,10 @@ def _release_unclaimed_verification_reservation(
         source = sources[source_key]
         source["status"] = "ready"
         source["last_exit_code"] = None
+    click_incremental.reject_batch(
+        verification, reason="runner-admission-rejected",
+        runner_duration_ms=runner_duration_ms,
+    )
     verification.update(
         {
             "status": "ready",
@@ -3180,6 +3281,30 @@ def _release_unclaimed_verification_reservation(
     return True
 
 
+def _record_incremental_start(path: Path, digest: str, token: str, source_key: str) -> None:
+    """Best-effort live telemetry, authenticated by the already claimed runner."""
+    try:
+        with _state_lock():
+            if not _managed_contract_path(path):
+                return
+            state = json.loads(path.read_text(encoding="utf-8"))
+            verification = state.get("verification", {})
+            if (
+                verification.get("status") != "running"
+                or verification.get("last_batch_digest") != digest
+                or not verification.get("runner_claimed_at")
+                or not secrets.compare_digest(
+                    str(verification.get("runner_token_digest", "")),
+                    hashlib.sha256(token.encode()).hexdigest(),
+                )
+            ):
+                return
+            if click_incremental.mark_started(verification, source_key):
+                _write_json(path, state)
+    except Exception:
+        pass  # An unavailable telemetry write cannot execute a second command.
+
+
 def _run_verification(
     arguments: list[str],
     *,
@@ -3198,6 +3323,7 @@ def _run_verification(
             "usage: click_gate.py run-verification <state> <digest> <token> <batch>\n"
         )
         return 2
+    runner_started_ns = time.perf_counter_ns()
     state_path = Path(arguments[0])
     batch_digest, runner_token, encoded = arguments[1:]
     raw, error = _decode_encoded_request(encoded, "verification")
@@ -3215,7 +3341,8 @@ def _run_verification(
         )
         if error:
             _release_unclaimed_verification_reservation(
-                state_path, batch_digest, runner_token
+                state_path, batch_digest, runner_token,
+                runner_duration_ms=(time.perf_counter_ns() - runner_started_ns) / 1_000_000,
             )
     if error:
         sys.stderr.write(f"{error}\n")
@@ -3265,8 +3392,11 @@ def _run_verification(
 
     exit_code = 2 if snapshot_failed else 0
     succeeded_count = 0
-    source_durations_ms: dict[str, int] = {}
+    source_durations_ms: dict[str, float] = {}
+    source_results: dict[str, dict[str, Any]] = {}
+    source_completed_commands: dict[str, int] = {}
     per_source_shadow_records: dict[str, list[dict[str, Any]]] = {}
+    source_key = ""
     if not snapshot_failed:
         try:
             for index, check in enumerate(checks, start=1):
@@ -3282,6 +3412,13 @@ def _run_verification(
                     flush=True,
                 )
                 source_key = _evidence_key(str(check["evidence_id"]))
+                def on_target_start() -> None:
+                    if source_key not in source_results:
+                        source_results[source_key] = {
+                            "started": True, "completed": False, "status": "running",
+                            "reason_code": "command-started",
+                        }
+                        _record_incremental_start(state_path, batch_digest, runner_token, source_key)
                 check_digest = (
                     shadow_bindings.get(source_key)
                     if isinstance(shadow_bindings, dict)
@@ -3295,8 +3432,8 @@ def _run_verification(
                     and not isinstance(shadow_revision, bool)
                     and shadow_revision >= 0
                 )
-                command_started = time.monotonic_ns()
-                try:
+                command_started = time.perf_counter_ns()
+                def execute_current() -> int:
                     if can_record_shadow:
                         execute_unobserved = lambda current=argv: execute_commands(
                             [current], environment=verification_environment
@@ -3325,7 +3462,6 @@ def _run_verification(
                                 check_digest=check_digest,
                                 mutation_revision=shadow_revision,
                             )
-                        exit_code = shadow_result.exit_code
                         if click_dependency_cache.shadow_observer_record_is_valid(
                             shadow_result.record
                         ):
@@ -3336,26 +3472,47 @@ def _run_verification(
                             click_dependency_trace.advisory(shadow_result.record),
                             flush=True,
                         )
-                    else:
-                        exit_code = execute_commands(
-                            [argv], environment=verification_environment
-                        )
+                        return shadow_result.exit_code
+                    return execute_commands([argv], environment=verification_environment)
+                try:
+                    with click_process.observe_target_start(on_target_start):
+                        exit_code = execute_current()
+                    # Injected test executors own their admission boundary; the
+                    # production executor reports after successful Popen/resume.
+                    if execute_commands is not _execute_argv_commands and source_key not in source_results:
+                        on_target_start()
                 finally:
-                    elapsed_ms = max(
-                        1, (time.monotonic_ns() - command_started) // 1_000_000
-                    )
-                    source_durations_ms[source_key] = (
-                        source_durations_ms.get(source_key, 0) + elapsed_ms
+                    elapsed_ms = (time.perf_counter_ns() - command_started) / 1_000_000
+                    if source_key in source_results:
+                        source_durations_ms[source_key] = source_durations_ms.get(source_key, 0) + elapsed_ms
+                source_completed_commands[source_key] = source_completed_commands.get(source_key, 0) + 1
+                group_completed = source_completed_commands[source_key] == len(grouped_checks[source_key])
+                if source_key in source_results:
+                    source_results[source_key].update(
+                        completed=exit_code != 0 or group_completed,
+                        status="interrupted" if exit_code == 130 else "failed" if exit_code != 0 else "passed" if group_completed else "running",
+                        reason_code="command-interrupted" if exit_code == 130 else "command-failed" if exit_code != 0 else "command-passed",
                     )
                 if exit_code != 0:
                     break
                 succeeded_count += 1
         except KeyboardInterrupt:
             exit_code = 130
+            if source_key in source_results:
+                source_results[source_key].update(
+                    status="interrupted", completed=True, reason_code="command-interrupted"
+                )
             sys.stderr.write(
                 "[Click] Verification was interrupted. The active check was stopped "
                 "and recorded as non-passing.\n"
             )
+        except Exception:
+            exit_code = 2
+            if source_key in source_results:
+                source_results[source_key].update(
+                    status="interrupted", completed=False, reason_code="command-error"
+                )
+            sys.stderr.write("[Click] The command boundary failed; no check was repeated.\n")
 
     for check in checks:
         approved_argv = check.pop("_click_approved_argv", None)
@@ -3475,6 +3632,8 @@ def _run_verification(
             workspace_root=workspace_root if not workspace_changed else "",
             workspace_digest=workspace_digest if not workspace_changed else "",
             source_durations_ms=source_durations_ms,
+            source_results=source_results,
+            runner_started_ns=runner_started_ns,
             shadow_observer_records=combined_shadow_records,
             shadow_intelligence_baselines=shadow_intelligence_baselines,
             shadow_source_exit_codes=shadow_source_exit_codes,

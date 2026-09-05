@@ -13,6 +13,21 @@ from hooks import click_gate, click_process
 
 
 class ClickProcessTests(unittest.TestCase):
+    def test_target_start_is_after_spawn_and_not_reported_for_probe_or_spawn_failure(self):
+        child = mock.Mock(returncode=0)
+        child.communicate.return_value = (b"", b"")
+        called = []
+        with click_process.observe_target_start(lambda: called.append("started")):
+            with mock.patch.object(click_process, "spawn_argv", return_value=child):
+                click_process.run_argv(["probe"])
+                self.assertEqual(called, [])
+                click_process.run_argv(["check"], target=True)
+                self.assertEqual(called, ["started"])
+            with mock.patch.object(click_process, "spawn_argv", side_effect=OSError("unavailable")):
+                with self.assertRaises(OSError):
+                    click_process.run_argv(["check"], target=True)
+        self.assertEqual(called, ["started"])
+
     def test_process_module_does_not_depend_on_gate_state_or_evidence(self) -> None:
         source = Path(click_process.__file__).read_text(encoding="utf-8")
         imported: set[str] = set()

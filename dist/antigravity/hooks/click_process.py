@@ -9,10 +9,34 @@ those decisions before passing an argv sequence here.
 from __future__ import annotations
 
 import os
+from contextlib import contextmanager
+from contextvars import ContextVar
 from pathlib import Path
 import signal
 import subprocess
 from typing import Any, Mapping, Sequence
+
+
+_target_start = ContextVar("click_target_start", default=None)
+
+
+@contextmanager
+def observe_target_start(callback):
+    """Observe target admission only, never collector/probe subprocesses."""
+    token = _target_start.set(callback)
+    try:
+        yield
+    finally:
+        _target_start.reset(token)
+
+
+def target_started() -> None:
+    callback = _target_start.get()
+    if callback is not None:
+        try:
+            callback()
+        except Exception:
+            pass  # Measurement cannot fail or repeat an authorized command.
 
 
 def isolated_subprocess_kwargs() -> dict[str, Any]:
@@ -30,6 +54,7 @@ def run_argv(
     stdout: Any | None = None,
     stderr: Any | None = None,
     timeout: float | None = None,
+    target: bool = False,
 ) -> subprocess.CompletedProcess[Any]:
     """Run one already-authorized argv without a shell in an isolated group."""
     command = list(argv)
@@ -41,6 +66,8 @@ def run_argv(
         stdout=stdout,
         stderr=stderr,
     )
+    if target:
+        target_started()
     try:
         captured_stdout, captured_stderr = child.communicate(timeout=timeout)
     except BaseException:

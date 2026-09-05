@@ -173,7 +173,7 @@ A committed [Evidence Shards map](skills/click/references/evidence-shards-v1.md)
 
 Observer collection is off by default and independent from the dashboard. Use `click-gate observer off`, `shadow`, or `status`; only explicit `shadow` mode attaches a trusted native collector to compatible real checks. Linux uses `strace`, privileged macOS uses `fs_usage`, and Windows uses the inbox `logman.exe` and `tracerpt.exe` ETW tools. Click installs nothing or elevates no privilege. Shadow predictions never authorize a skipped check.
 
-The dashboard separately shows checks actually executed, authoritative exact/dependency/policy reuse, estimated avoided time based on recent runs, and Shadow potential. Use `click-gate dashboard start`, `status`, or `stop`. Run `python3 benchmarks/incremental_verification.py` for a small local fixture; wall-clock durations are measured, while avoided verification time is explicitly an estimate based on the most recent successful full run, not a product claim.
+Use `click-gate dashboard start`, `status`, or `stop` for actual **verification-group** outcomes, batch history and JSON/standalone HTML exports. Planned, started, reused and unstarted groups are distinct; partial processing measurements, full request wait (unknown when unmeasured), baseline-cost estimates and Shadow remain separate. Run `python3 benchmarks/incremental_verification.py --iterations 3 --warmups 1 --output /tmp/click-comparison.json`, then select that JSON in the viewer for a real hook/runner comparison. Short checks can be slower with runtime overhead. See [measurement scope, mode boundaries and exports](VERIFICATION_EFFICIENCY.md).
 
 ## Completion receipt
 

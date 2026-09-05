@@ -11,6 +11,7 @@ from unittest import mock
 from hooks import (
     click_browser,
     click_contract_state,
+    click_incremental,
     click_lifecycle,
     click_mutation,
     click_observation,
@@ -37,7 +38,7 @@ class ClickContractStateTests(unittest.TestCase):
             "cwd": str(Path(self.temporary.name) / "workspace"),
         }
 
-    def test_leaf_depends_only_on_the_state_boundary(self) -> None:
+    def test_leaf_depends_only_on_state_and_content_free_measurements(self) -> None:
         source = Path(click_contract_state.__file__).read_text(encoding="utf-8")
         imported: set[str] = set()
         for node in ast.walk(ast.parse(source)):
@@ -70,7 +71,7 @@ class ClickContractStateTests(unittest.TestCase):
                     imported,
                 )
         self.assertIn(
-            'click_import_bootstrap.load_siblings(__package__, "click_state")',
+            '__package__, "click_state", "click_incremental"',
             source,
         )
         self.assertIn(
@@ -135,6 +136,31 @@ class ClickContractStateTests(unittest.TestCase):
         ):
             click_contract_state.clear_contract_state(self.event)
         path.unlink.assert_called_once_with()
+
+    def test_cancel_archives_only_measurements_without_execution_authority(self) -> None:
+        plan = click_incremental.build_plan([click_incremental.decision(
+            source_key="1" * 64, check_digest="2" * 64, decision="run",
+            reason_code="no-passing-evidence", current_revision=1, previous_revision=-1,
+            authority_source="runner",
+        )], current_revision=1)
+        verification = {}
+        click_incremental.store_batch(verification, click_incremental.new_batch(
+            plan, batch_id="a" * 32, revision=1, prepared_ms=1.5,
+        ))
+        click_incremental.mark_started(verification, "1" * 64)
+        state = {"status": "approved", "contract_digest": "3" * 64,
+                 "runner_token": "private-token", "verification": verification}
+        click_contract_state.save_contract_state(self.event, state)
+        click_contract_state.clear_contract_state(self.event)
+        restored = click_contract_state.read_contract_state(self.event)
+        self.assertEqual(restored["status"], "none")
+        self.assertEqual(restored["contract_digest"], "")
+        self.assertNotIn("private-token", json.dumps(restored))
+        batch = click_incremental.current_batch(restored["verification"])
+        self.assertEqual(batch["status"], "interrupted")
+        self.assertFalse(batch["sources"][0]["completed"])
+        self.assertIsNone(batch["sources"][0]["duration_ms"])
+        self.assertFalse(click_state.contract_path(self.event).exists())
 
     def test_runtime_domains_share_the_leaf_symbols(self) -> None:
         for module in (

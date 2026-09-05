@@ -145,6 +145,7 @@ class ClickGateTestCase(unittest.TestCase):
         turn_id: str = "turn-1",
         *,
         submit_prompt: bool = True,
+        tool_use_id: str = "tool-1",
     ) -> dict | None:
         if submit_prompt and turn_id not in self.submitted_turns:
             self.prompt_submit("test user request", turn_id)
@@ -153,7 +154,7 @@ class ClickGateTestCase(unittest.TestCase):
             "turn_id": turn_id,
             "hook_event_name": "PreToolUse",
             "tool_name": tool_name,
-            "tool_use_id": "tool-1",
+            "tool_use_id": tool_use_id,
             "tool_input": {"command": command},
         }
         result, payload = self.run_hook("pre-tool", event)
@@ -477,7 +478,8 @@ class ClickGateTestCase(unittest.TestCase):
             )
         batch = {"version": 2, "checks": checks}
         command = f"click-gate verify {shlex.quote(json.dumps(batch))}"
-        payload = self.pre_tool("Bash", command, turn_id)
+        self.verification_request_sequence = getattr(self, "verification_request_sequence", 0) + 1
+        payload = self.pre_tool("Bash", command, turn_id, tool_use_id=f"verification-{self.verification_request_sequence}")
         self.assertIsNotNone(payload)
         return payload
 
@@ -494,7 +496,8 @@ class ClickGateTestCase(unittest.TestCase):
         ]
         batch = {"version": 2, "checks": normalized}
         command = f"click-gate verify {shlex.quote(json.dumps(batch))}"
-        payload = self.pre_tool("Bash", command, turn_id)
+        self.verification_request_sequence = getattr(self, "verification_request_sequence", 0) + 1
+        payload = self.pre_tool("Bash", command, turn_id, tool_use_id=f"verification-{self.verification_request_sequence}")
         self.assertIsNotNone(payload)
         return payload
 

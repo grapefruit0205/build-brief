@@ -5,6 +5,10 @@ from pathlib import Path
 import subprocess
 import sys
 import unittest
+import tempfile
+
+from benchmarks.incremental_verification import Fixture, comparison_delta, distribution
+from hooks import click_incremental
 
 
 ROOT = Path(__file__).parents[1]
@@ -20,6 +24,10 @@ class IncrementalVerificationBenchmarkTests(unittest.TestCase):
                 str(BENCHMARK),
                 "--iterations",
                 "1",
+                "--warmups", "0",
+                "--mode", "guarded",
+                "--scenario", "unchanged",
+                "--scenario", "docs",
                 "--workload-rounds",
                 "2000",
             ],
@@ -31,21 +39,44 @@ class IncrementalVerificationBenchmarkTests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stderr)
         payload = json.loads(result.stdout)
-        self.assertEqual(payload["version"], 1)
-        self.assertEqual(payload["total_source_count"], 4)
-        self.assertEqual(payload["executed_source_count"], 1)
-        self.assertEqual(payload["reused_source_count"], 3)
-        self.assertGreater(payload["full_verification_duration_ms"], 0)
-        self.assertGreater(payload["incremental_verification_duration_ms"], 0)
-        self.assertGreater(payload["estimated_avoided_duration_ms"], 0)
+        self.assertEqual(payload["version"], 2)
+        self.assertEqual(payload["conditions"]["authority"], "real-hooks-and-one-use-runner")
+        self.assertEqual({sample["comparison"] for sample in payload["samples"]}, {"same-shards", "parent-suite"})
+        for sample in payload["samples"]:
+            measured = sample["incremental"]
+            self.assertEqual(measured["executed_source_count"], 0)
+            self.assertEqual(measured["reused_source_count"], 2)
+            self.assertGreater(measured["wall_ms"], 0)
+            self.assertGreater(measured["estimated_avoided_ms"], 0)
+            self.assertTrue(click_incremental.batch_is_valid(measured["batch"]))
+            expected = "reuse-exact" if sample["scenario"] == "unchanged" else "reuse-safe-change"
+            self.assertEqual({item["decision"] for item in measured["batch"]["sources"]}, {expected})
+            self.assertAlmostEqual(sample["delta_ms"], sample["baseline"]["wall_ms"] - measured["wall_ms"])
         self.assertEqual(payload["observer_overhead_ms"], 0)
         self.assertEqual(payload["shadow_contradiction_count"], 0)
-        self.assertEqual(payload["duration_measurement"], "wall-clock-measured")
-        self.assertEqual(
-            payload["estimated_avoided_duration_basis"],
-            "most-recent-successful-full-run",
-        )
         self.assertNotIn("actual_saved", result.stdout)
+        self.assertNotIn("runner_token", result.stdout)
+        self.assertNotIn("raw_argv", result.stdout)
+
+    def test_first_run_failure_and_evidence_session_boundary_are_honest(self):
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = Fixture(Path(directory), 20)
+            first = fixture.verify()
+            self.assertEqual(first["executed_source_count"], 2)
+            self.assertEqual(first["reused_source_count"], 0)
+            fixture.change("first-failure")
+            failed = fixture.verify()
+            self.assertEqual(failed["status"], "failed")
+            self.assertEqual(failed["executed_source_count"], 1)
+            self.assertEqual(failed["not_run_source_count"], 1)
+            self.assertEqual(failed["reused_source_count"], 0)
+            self.assertEqual(failed["estimated_avoided_ms"], 0)
+
+    def test_negative_delta_zero_baseline_and_variation(self):
+        self.assertEqual(comparison_delta(10, 15), {"delta_ms": -5, "delta_percent": -50})
+        self.assertEqual(comparison_delta(0, 2), {"delta_ms": -2, "delta_percent": None})
+        self.assertEqual(distribution([-10, 0, 5]), {"median": 0, "min": -10, "max": 5})
+        self.assertIsNone(distribution([])["median"])
 
 
 if __name__ == "__main__":

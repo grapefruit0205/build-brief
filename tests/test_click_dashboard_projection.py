@@ -198,6 +198,7 @@ class ClickDashboardProjectionTests(unittest.TestCase):
                 check_digest=CHECK_DEPENDENCY,
                 authority_source="runtime-dependency-observation",
                 estimated_avoided_ms=900,
+                duration_baseline={"duration_ms": 900, "revision": 1, "check_digest": CHECK_DEPENDENCY, "observed_at": 1, "batch_id": "b" * 32, "sample_count": 1},
             ),
             click_incremental.decision(
                 source_key=KEY_POLICY,
@@ -208,12 +209,20 @@ class ClickDashboardProjectionTests(unittest.TestCase):
                 check_digest=CHECK_POLICY,
                 authority_source="repository-safe-change-policy",
                 estimated_avoided_ms=1800,
+                duration_baseline={"duration_ms": 1800, "revision": 1, "check_digest": CHECK_POLICY, "observed_at": 1, "batch_id": "b" * 32, "sample_count": 1},
             ),
         ]
         verification: dict[str, object] = {"mutation_revision": 2}
         plan = click_incremental.build_plan(decisions, current_revision=2, planned_at=10)
         click_incremental.store_plan(verification, plan)
-        self.assertTrue(click_incremental.record_execution(verification, {KEY_RUN: 650}))
+        click_incremental.store_batch(verification, click_incremental.new_batch(
+            plan, batch_id="a" * 32, revision=2, prepared_ms=12,
+        ))
+        self.assertTrue(click_incremental.record_execution(
+            verification, {KEY_RUN: 650}, source_results={KEY_RUN: {
+                "status": "passed", "started": True, "completed": True, "reason_code": "command-passed",
+            }}, reused_keys={KEY_DEPENDENCY, KEY_POLICY}, exit_code=0, runner_duration_ms=670,
+        ))
         click_dependency_trace.store_records(
             verification,
             {KEY_RUN: changed_current, KEY_DEPENDENCY: stable_current},

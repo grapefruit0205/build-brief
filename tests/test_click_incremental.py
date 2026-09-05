@@ -25,6 +25,11 @@ class ClickIncrementalPlanTests(unittest.TestCase):
             check_digest=("f" if suffix != "f" else "e") * 64,
             authority_source=authority,
             estimated_avoided_ms=avoided,
+            duration_baseline={
+                "duration_ms": avoided, "revision": 11,
+                "check_digest": ("f" if suffix != "f" else "e") * 64,
+                "observed_at": 1, "batch_id": "b" * 32, "sample_count": 1,
+            } if selected in click_incremental.REUSE_DECISIONS else None,
         )
 
     def test_canonical_plan_drives_only_non_reused_sources_into_runner(self) -> None:
@@ -70,13 +75,10 @@ class ClickIncrementalPlanTests(unittest.TestCase):
 
         self.assertTrue(click_incremental.plan_is_valid(plan))
         self.assertEqual(plan["total_source_count"], 5)
-        self.assertEqual(plan["executed_source_count"], 2)
-        self.assertEqual(plan["authoritative_reuse_count"], 3)
-        self.assertEqual(plan["exact_reuse_count"], 1)
-        self.assertEqual(plan["dependency_reuse_count"], 1)
-        self.assertEqual(plan["safe_change_reuse_count"], 1)
-        self.assertEqual(plan["estimated_avoided_ms"], 2_400)
-        self.assertEqual(plan["executed_duration_ms"], 0)
+        self.assertEqual(plan["planned_execution_source_count"], 2)
+        self.assertEqual(plan["planned_reuse_source_count"], 3)
+        self.assertNotIn("executed_source_count", plan)
+        self.assertNotIn("executed_duration_ms", plan)
         self.assertEqual(click_incremental.keys_to_execute(plan), {"a" * 64, "e" * 64})
 
     def test_measured_execution_updates_time_without_changing_decisions(self) -> None:
@@ -96,15 +98,21 @@ class ClickIncrementalPlanTests(unittest.TestCase):
         )
         verification: dict[str, object] = {}
         click_incremental.store_plan(verification, plan)
+        click_incremental.store_batch(verification, click_incremental.new_batch(
+            plan, batch_id="a" * 32, revision=12, prepared_ms=3,
+        ))
 
         recorded = click_incremental.record_execution(
-            verification, {"a" * 64: 125}
+            verification, {"a" * 64: 125},
+            source_results={"a" * 64: {
+                "status": "passed", "started": True, "completed": True, "reason_code": "command-passed",
+            }}, reused_keys={"b" * 64}, exit_code=0, runner_duration_ms=150,
         )
 
         self.assertTrue(recorded)
         stored = click_incremental.current_plan(verification)
         assert stored is not None
-        self.assertEqual(stored["executed_duration_ms"], 125)
+        self.assertEqual(stored, plan)
         self.assertEqual(
             [item["decision"] for item in stored["decisions"]],
             ["run", "reuse-exact"],

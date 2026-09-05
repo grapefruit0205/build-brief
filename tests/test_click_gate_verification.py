@@ -480,10 +480,13 @@ class ClickGateVerificationTests(ClickGateTestCase):
         )
         state = json.loads(state_path.read_text(encoding="utf-8"))
         plan = state["verification"]["incremental_plan"]
-        self.assertEqual(plan["executed_source_count"], 0)
-        self.assertEqual(plan["exact_reuse_count"], 1)
-        self.assertGreater(plan["estimated_avoided_ms"], 0)
-        self.assertEqual(plan["executed_duration_ms"], 0)
+        self.assertEqual(plan["planned_execution_source_count"], 0)
+        actual = CLICK_VERIFICATION.click_incremental.summary(state["verification"])
+        self.assertEqual(actual["executed_source_count"], 0)
+        self.assertEqual(actual["exact_reuse_count"], 1)
+        self.assertGreater(actual["estimated_avoided_ms"], 0)
+        self.assertGreater(actual["measured_processing_ms"], 0)
+        self.assertEqual(actual["executed_duration_ms"], 0)
         self.assertEqual(plan["decisions"][0]["decision"], "reuse-exact")
         self.assertEqual(
             plan["decisions"][0]["reason_code"],
@@ -491,7 +494,8 @@ class ClickGateVerificationTests(ClickGateTestCase):
         )
         history = state["verification"]["incremental_history"]
         self.assertEqual(len(history), 2)
-        self.assertEqual(history[-1]["decision"], "reuse-exact")
+        self.assertEqual(history[-1]["sources"][0]["decision"], "reuse-exact")
+        self.assertEqual(history[-1]["sources"][0]["status"], "reused")
         source = state["evidence_state"]["sources"][
             CLICK_EVIDENCE.evidence_key("E1")
         ]
@@ -564,7 +568,7 @@ class ClickGateVerificationTests(ClickGateTestCase):
             source["verified_dependency_paths"], ["verification_fixture.py"]
         )
         plan = state["verification"]["incremental_plan"]
-        self.assertEqual(plan["dependency_reuse_count"], 1)
+        self.assertEqual(CLICK_VERIFICATION.click_incremental.summary(state["verification"])["dependency_reuse_count"], 1)
         self.assertEqual(plan["decisions"][0]["decision"], "reuse-dependency")
         self.assertEqual(
             plan["decisions"][0]["reason_code"],
@@ -645,7 +649,7 @@ class ClickGateVerificationTests(ClickGateTestCase):
         self.assertEqual(source["last_safe_change_reused_from_revision"], 0)
         self.assertEqual(source["last_safe_change_paths"], ["README.md"])
         plan = state["verification"]["incremental_plan"]
-        self.assertEqual(plan["safe_change_reuse_count"], 1)
+        self.assertEqual(CLICK_VERIFICATION.click_incremental.summary(state["verification"])["safe_change_reuse_count"], 1)
         self.assertEqual(plan["decisions"][0]["decision"], "reuse-safe-change")
         self.assertEqual(
             plan["decisions"][0]["reason_code"], "safe-change-policy-covered"
@@ -3128,8 +3132,9 @@ class ClickGateVerificationTests(ClickGateTestCase):
         )
         self.assertIn("a_shard", " ".join(batch["checks"][0]["argv"]))
         plan = planned["verification"]["incremental_plan"]
-        self.assertEqual(plan["executed_source_count"], 1)
-        self.assertEqual(plan["dependency_reuse_count"], 1)
+        self.assertEqual(plan["planned_execution_source_count"], 1)
+        self.assertEqual(plan["planned_reuse_source_count"], 1)
+        self.assertEqual(CLICK_VERIFICATION.click_incremental.summary(planned["verification"])["executed_source_count"], 0)
         self.assertEqual(
             sorted(item["decision"] for item in plan["decisions"]),
             ["reuse-dependency", "run"],

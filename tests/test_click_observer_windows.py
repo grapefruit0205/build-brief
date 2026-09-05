@@ -313,6 +313,15 @@ class ClickObserverWindowsTests(unittest.TestCase):
             ],
         )
         self.assertEqual(sum(call[1] == "start" for call in calls), 2)
+        self.assertEqual(
+            lifecycle[:4],
+            [
+                "start",
+                "start",
+                f"wait:{click_observer_windows.SESSION_READY_DELAY_SECONDS}",
+                "spawn",
+            ],
+        )
         self.assertEqual(sum(call[1] == "stop" for call in calls), 2)
         self.assertEqual(
             sum(Path(call[0]).name.lower().startswith("tracerpt") for call in calls),

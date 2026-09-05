@@ -790,6 +790,7 @@ def collect_command(
             failed = True
         if not failed:
             target_started = True
+            click_process.target_started()
             exit_code = int(target.wait())
             if collector.poll() is not None:
                 failed = True

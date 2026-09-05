@@ -178,7 +178,7 @@ Windows는 기본 ETW 도구인 `logman.exe`와 `tracerpt.exe`를 사용합니�
 실행 기준 추정 회피 시간, Shadow 잠재값을 분리합니다. `click-gate dashboard start`,
 `status`, `stop`으로 열고 확인하고 닫습니다.
 
-`python3 benchmarks/incremental_verification.py`를 실행하면 작은 로컬 fixture를 측정합니다. 실제 실행 시간과 최근 성공한 전체 실행을 기준으로 한 추정 회피 시간을 분리하며, 결과를 제품 성능 주장으로 사용하지 않습니다.
+검증 효율 화면은 **검증 묶음**별 계획과 실제 실행·재사용·미실행을 구분합니다. 부분 계측과 전체 대기시간, 과거 실행 기반 추정을 섞지 않으며 배치 타임라인과 JSON·독립형 HTML 공유본을 제공합니다. `python3 benchmarks/incremental_verification.py --iterations 3 --warmups 1 --output /tmp/click-comparison.json`으로 실제 Hook·runner 비교를 실행한 뒤 화면에서 JSON을 선택하세요. 짧은 검사는 관리 비용 때문에 느려질 수도 있습니다. [계측 범위·모드별 차이·내보내기](VERIFICATION_EFFICIENCY.md)를 확인하세요.
 
 ## 완료 영수증
 
