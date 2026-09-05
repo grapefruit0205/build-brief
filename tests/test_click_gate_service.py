@@ -387,13 +387,30 @@ class ClickGateServiceTests(ClickGateTestCase):
         end_result, end_payload = self.run_hook("session-end", end_event)
         self.assertEqual(end_result.returncode, 0, end_result.stderr)
         self.assertIsNone(end_payload)
+
+        def supervisor_claims_finished(snapshot: dict) -> bool:
+            claims = [
+                entry
+                for entry in snapshot["capability_ledger"]["entries"]
+                if entry["capability"] == "managed-service-supervisor"
+            ]
+            return bool(claims) and all(
+                entry["result"]["status"] != "running" for entry in claims
+            )
+
         deadline = time.monotonic() + 5
         while time.monotonic() < deadline:
             state = json.loads(state_path.read_text(encoding="utf-8"))
-            if state["service"]["status"] == "stopped":
+            # The stopped status is persisted before the final claim result.
+            # Do not remove the fixture while its supervisor still writes.
+            if (
+                state["service"]["status"] == "stopped"
+                and supervisor_claims_finished(state)
+            ):
                 break
             time.sleep(0.05)
         self.assertEqual(state["service"]["status"], "stopped")
+        self.assertTrue(supervisor_claims_finished(state))
 
     def test_service_snapshot_retries_windows_sharing_collision(self) -> None:
         self.approve_contract()
