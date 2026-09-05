@@ -43,6 +43,7 @@ else:  # Executed directly from the bundled hooks directory.
     click_process,
     click_prompt,
     click_receipt_runtime,
+    click_reuse_diagnostics,
     click_runner_transport,
     click_service,
     click_shadow_dashboard,
@@ -69,6 +70,7 @@ else:  # Executed directly from the bundled hooks directory.
     "click_process",
     "click_prompt",
     "click_receipt_runtime",
+    "click_reuse_diagnostics",
     "click_runner_transport",
     "click_service",
     "click_shadow_dashboard",
@@ -604,6 +606,49 @@ def _handle_pre_tool(event: dict[str, Any]) -> None:
                 _allow_rewritten(
                     f"echo Click observer mode set to {value} - "
                     "non-authoritative, reuse disabled"
+                )
+                return
+            if action == "diagnostics":
+                runtime_state = click_contract_state.read_contract_state(event)
+                verification = runtime_state.get("verification")
+                if value == "status":
+                    selected = click_reuse_diagnostics.mode(verification)
+                    _allow_rewritten(
+                        f"echo Click reuse diagnostics: {selected} - "
+                        "read-only, execution decisions unchanged"
+                    )
+                    return
+                current_status = click_lifecycle.read_state(event).get("status")
+                evidence_active = runtime_state.get("status") == "evidence"
+                approved_active = click_lifecycle.approved_contract_is_active(
+                    runtime_state
+                )
+                if (
+                    current_status != "passed"
+                    and click_lifecycle.read_mode(event) != "strict"
+                    and not evidence_active
+                    and not approved_active
+                ):
+                    _deny(
+                        "Start Guarded or Evidence runtime state before changing "
+                        "Reuse Diagnostics."
+                    )
+                    return
+                if not isinstance(verification, dict):
+                    _deny("Click verification state is unavailable.")
+                    return
+                if verification.get("status") == "running":
+                    _deny(
+                        "Wait for the active verification batch before changing "
+                        "Reuse Diagnostics."
+                    )
+                    return
+                click_reuse_diagnostics.set_mode(verification, value)
+                runtime_state["verification"] = verification
+                click_contract_state.save_contract_state(event, runtime_state)
+                _allow_rewritten(
+                    f"echo Click reuse diagnostics set to {value} - "
+                    "read-only, execution decisions unchanged"
                 )
                 return
             if action == "receipt-export":

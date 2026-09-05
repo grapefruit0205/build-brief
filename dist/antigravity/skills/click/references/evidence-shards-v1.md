@@ -1,24 +1,47 @@
-# Evidence Shards v1
+# Named Verifications v1 and Evidence Shards v1
 
 Evidence Shards lets one repository-declared broad argv suite run as stable,
 independently recorded child groups. It is an optimization and provenance
 layer, not a new source of test-skip authority.
 
+Manifest schema v2 also lets callers select a committed verification definition
+by a stable lowercase id. The id resolves to direct argv and then enters the
+same canonical plan, receipt checks, and one-use runner as a raw argv request.
+It is a command-selection convenience, not evidence, approval, or reuse
+authority.
+
 ## Repository manifest
 
 The optional manifest is `.click/evidence-shards.json`. Only the blob committed
-at `HEAD` is authority, and the working copy must be byte-equivalent after line
-ending normalization. Each entry binds one exact parent argv group to at least
-two child groups and a complete current test-file inventory:
+at `HEAD` is accepted, and the working copy must be byte-equivalent after line
+ending normalization. Schema v2 keeps each exact argv definition in
+`verifications`; a sharded entry refers to that definition instead of repeating
+the parent command:
 
 ```json
 {
-  "version": 1,
-  "entries": [
+  "version": 2,
+  "verifications": [
     {
+      "id": "full-suite",
+      "label": "Full test suite",
+      "class": "broad",
       "checks": [
         ["python3", "-m", "unittest", "discover", "-s", "tests", "-q"]
-      ],
+      ]
+    },
+    {
+      "id": "auth-unit",
+      "label": "Authentication unit tests",
+      "class": "targeted",
+      "checks": [
+        ["python3", "-m", "unittest", "tests.test_auth", "-q"]
+      ]
+    }
+  ],
+  "entries": [
+    {
+      "verification_id": "full-suite",
       "inventory": ["tests/test_*.py"],
       "shards": [
         {
@@ -41,6 +64,24 @@ two child groups and a complete current test-file inventory:
 }
 ```
 
+Select one or more definitions without rewriting their argv:
+
+```text
+click-gate verify '{"version":2,"workdir":"/absolute/repository","names":["auth-unit"]}'
+```
+
+Names are exact, unique, lowercase ids. Definitions remain direct argv arrays;
+Click never evaluates a shell string or guesses that `python` and `python3`,
+relative and absolute paths, reordered options, verbosity flags, or test target
+order are equivalent. Raw `checks` requests remain supported with their existing
+exact-comparison rules. Schema v1 shard manifests remain readable, but they do
+not provide named selection.
+
+`label` is display-only and is excluded from the executable definition digest.
+The id, class, and exact `checks` form the committed definition identity. Any
+manifest working-copy edit still disables name resolution, including a label
+edit, because Click will not use a partly edited policy file.
+
 `checks` values are direct argv arrays, never shell strings. `inventory` and
 `covers` use the same deterministic pattern grammar as the dependency manifest:
 `*` stays in one segment, `**` as a complete segment crosses directories, and
@@ -55,10 +96,17 @@ or prove that an argv command really executes every file named by `covers`.
 
 ## Runtime behavior
 
-The caller continues to submit the declared parent evidence id and original
-broad argv group. When a valid exact entry is available, Click derives stable
-internal child evidence ids, validates every child with the normal verification
-command policy, and runs the children serially.
+The caller may submit a v2 parent name or continue submitting a parent evidence
+id and the original broad argv group. When a valid exact entry is available,
+Click derives stable internal child evidence ids, validates every child with the
+normal verification command policy, and runs the children serially.
+
+A named request is expanded before evidence registration. Guarded still rejects
+a name whose id was not declared in the approved contract. The one-use runner
+rechecks the same committed manifest, HEAD, and byte-identical working copy
+before any named command starts; a race or edit executes no check. Workdir,
+environment, executable content, host coverage, workspace, and exact check
+bindings retain their existing validation.
 
 - Each child owns its own check, environment, executable, host-coverage,
   workspace, result, and reuse lineage.

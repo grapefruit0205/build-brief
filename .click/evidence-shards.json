@@ -1,7 +1,10 @@
 {
-  "version": 1,
-  "entries": [
+  "version": 2,
+  "verifications": [
     {
+      "id": "full-suite",
+      "label": "전체 테스트",
+      "class": "broad",
       "checks": [
         [
           "python3",
@@ -12,7 +15,12 @@
           "tests",
           "-q"
         ]
-      ],
+      ]
+    }
+  ],
+  "entries": [
+    {
+      "verification_id": "full-suite",
       "inventory": [
         "tests/test*.py"
       ],
@@ -125,6 +133,8 @@
               "tests.test_click_incremental",
               "tests.test_click_receipt",
               "tests.test_click_receipt_runtime",
+              "tests.test_click_reuse_diagnostics",
+              "tests.test_click_verification_names",
               "tests.test_click_verification",
               "-q"
             ]
@@ -138,6 +148,8 @@
             "tests/test_click_incremental.py",
             "tests/test_click_receipt.py",
             "tests/test_click_receipt_runtime.py",
+            "tests/test_click_reuse_diagnostics.py",
+            "tests/test_click_verification_names.py",
             "tests/test_click_verification.py"
           ]
         },

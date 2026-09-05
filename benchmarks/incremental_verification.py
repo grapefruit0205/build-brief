@@ -24,7 +24,11 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
-from hooks import click_dashboard_projection, click_incremental  # noqa: E402
+from hooks import (  # noqa: E402
+    click_dashboard_projection,
+    click_incremental,
+    click_reuse_diagnostics,
+)
 
 GATE = ROOT / "hooks" / "click_gate.py"
 SCENARIOS = (
@@ -346,6 +350,9 @@ def run_benchmark(*, iterations: int = DEFAULT_ITERATIONS, warmups: int = 1,
     for path in sorted([*GATE.parent.glob("*.py"), Path(__file__).resolve()]):
         source_hash.update(path.relative_to(ROOT).as_posix().encode() + b"\0")
         source_hash.update(hashlib.sha256(path.read_bytes()).digest())
+    reuse_diagnostics = click_reuse_diagnostics.aggregate(
+        sample["incremental"]["batch"] for sample in samples
+    )
     return {"version": 2, "kind": "click-paired-verification-benchmark",
             "engine": {"version": version, "commit": commit.stdout.strip() if commit.returncode == 0 else None,
                        "source_digest": source_hash.hexdigest(),
@@ -358,6 +365,7 @@ def run_benchmark(*, iterations: int = DEFAULT_ITERATIONS, warmups: int = 1,
                            "authority": "real-hooks-and-one-use-runner",
                            "parent_group_count": 1, "shard_group_count": 2},
             "samples": samples, "summaries": summaries, "dashboard_snapshot": latest_snapshot,
+            "reuse_diagnostics": reuse_diagnostics,
             "observer_overhead_ms": 0, "shadow_contradiction_count": 0,
             "limitations": ["temporary-fixture-not-general-product-performance", "no-authoritative-native-dependency-observation",
                             "different-checkout-roots-have-independent-receipts", "OS-cache-and-scheduler-uncontrolled"]}

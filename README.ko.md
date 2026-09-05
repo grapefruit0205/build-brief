@@ -167,9 +167,11 @@ README나 문서처럼 특정 검사에 영향을 주지 않는다고 저장소�
 Git과 플러그인의 Python만 사용하므로 Linux, macOS, Windows에서 별도 관찰기나
 추가 설치가 필요 없습니다. 이 목록은 저장소 소유자의 명시적 정책이며 Click이
 모든 의존성을 자동 발견했다는 뜻은 아닙니다.
-커밋된 [Evidence Shards 맵](skills/click/references/evidence-shards-v1.md)은 정확한 broad suite 하나를 독립 자식으로 나눠, 뒤의 shard가 실패해도 앞의 통과 결과를 보존합니다. 이 맵만으로 mutation 뒤 재사용할 수는 없으며 위 규칙이 자식별로 다시 적용되고, 맵이 잘못되면 원래 suite를 실행합니다.
+커밋된 [Evidence Shards 맵](skills/click/references/evidence-shards-v1.md) v2는 안정적인 검증 이름도 정의할 수 있습니다. 예를 들어 `click-gate verify '{"version":2,"workdir":"/absolute/repository","names":["auth-unit"]}'`는 `auth-unit`의 정확한 argv를 커밋된 설정에서 읽은 뒤 기존 canonical plan과 one-use runner를 그대로 사용합니다. raw argv 요청도 유지되며, 이름은 명령을 임의로 정규화하거나 승인·코드 변경 후 재사용을 보장하지 않습니다. 이름이 붙은 broad suite는 독립 shard로 나눌 수 있고 잘못되거나 편집 중인 맵은 fail-closed 처리됩니다.
 
 Observer는 기본적으로 꺼져 있고 Dashboard와 별개입니다. `click-gate observer off`, `shadow`, `status`로 제어하며, 명시적으로 `shadow`를 켠 때만 호환되는 실제 검사에 네이티브 수집기를 붙입니다. Linux는 `strace`, 권한이 이미 있는 macOS는 `fs_usage`, Windows는 기본 ETW 도구인 `logman.exe`와 `tracerpt.exe`를 사용합니다. Click은 도구를 설치하거나 권한을 올리지 않으며 Shadow 예측만으로 검사를 생략하지 않습니다. Dashboard는 실제 실행, 권한 있는 exact/dependency/policy 재사용, 최근 실행 기준 추정 회피 시간, Shadow 잠재값을 분리하며 `click-gate dashboard start`, `status`, `stop`으로 제어합니다.
+
+Reuse Diagnostics는 기본적으로 켜진 읽기 전용 기록입니다. `click-gate diagnostics on`, `off`, `status`로 제어합니다. 이전 성공 유무, 실제 authoritative 판정과 첫 이유, 이미 계산된 다른 불일치, 확인하지 않은 `not-evaluated` 조건을 실행 전 동결하고 실제 batch 결과와 연결합니다. 꺼도 재사용 권한, runner 내용, Guarded 승인, receipt는 달라지지 않습니다. 한 검증 묶음에 원인이 여러 개면 원인별 실행시간이 겹치므로 서로 합산하지 않고, 별도의 중복 제거 합계만 전체값으로 봅니다. 보수적으로 다시 실행한 검사를 “불필요”했다고 표현하지 않습니다.
 
 검증 효율 화면은 **검증 묶음**별 계획과 실제 실행·재사용·미실행을 구분합니다. 부분 계측과 전체 대기시간, 과거 실행 기반 추정을 섞지 않으며 배치 타임라인과 JSON·독립형 HTML 공유본을 제공합니다. `python3 benchmarks/incremental_verification.py --iterations 3 --warmups 1 --output /tmp/click-comparison.json`으로 실제 Hook·runner 비교를 실행한 뒤 화면에서 JSON을 선택하세요. 짧은 검사는 관리 비용 때문에 느려질 수도 있습니다. [계측 범위·모드별 차이·내보내기](VERIFICATION_EFFICIENCY.md)를 확인하세요.
 

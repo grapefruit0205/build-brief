@@ -94,6 +94,7 @@ HTML = """<!doctype html>
       <article class="panel compact"><p class="eyebrow">실측 · 이번 검증</p><h2>대기시간과 실행 구간</h2><div class="statline"><span>전체 검증 대기시간</span><strong id="requestWall">—</strong></div><div class="statline"><span>측정 가능한 처리 구간</span><strong id="processingDuration">—</strong></div><p class="muted" id="timeScope">호스트 전달·대기·최종 반환은 계측 범위 밖입니다.</p><div class="statline"><span>검사 실행 구간 (Observer 포함)</span><strong id="executedDuration">—</strong></div><div class="statline"><span>동일 상태 / 관찰 입력 / 안전 변경 재사용</span><strong id="reuseBreakdown">—</strong></div></article>
       <article class="panel compact shadow-card"><p class="eyebrow">SHADOW TELEMETRY · 권한 없음</p><h2>잠재 재사용 관찰</h2><div class="statline"><span>후보 / 확인 / 모순</span><strong id="shadowBreakdown">—</strong></div><div class="statline"><span>잠재 시간 / 관찰기 처리 비용</span><strong id="shadowTiming">—</strong></div><p class="muted" id="tracingSlowdown">추적으로 인한 검사 지연은 별도 측정하지 않았습니다.</p></article>
     </section>
+    <section class="panel diagnostics"><div class="panel-title"><div><p class="eyebrow">REUSE DIAGNOSTICS · 읽기 전용</p><h2>왜 이번에는 재사용하지 못했나요?</h2></div><span id="diagnosticsMode" class="pill">확인 중</span></div><p id="diagnosticsHeadline" class="muted">재사용 판정 기록을 불러오는 중입니다.</p><div id="diagnosticCauses" class="diagnostic-causes"></div><p id="diagnosticsFootnote" class="muted"></p></section>
     <section class="panel timeline"><div class="panel-title"><div><p class="eyebrow">변경별 타임라인</p><h2>최근 검증 배치</h2></div><button id="latestBatch" type="button">최신 배치</button></div><label for="batchSelect">상세 결과 선택</label> <select id="batchSelect"></select><p id="batchState" class="muted"></p><p id="historyMeta" class="muted"></p></section>
     <section class="workspace">
       <article class="panel checks"><div class="panel-title"><div><p class="eyebrow">검사 목록</p><h2>실행 또는 재사용 결과</h2></div><span id="sourceCount" class="count">0</span></div><div id="sources" class="source-list"></div></article>
@@ -115,7 +116,7 @@ CSS = """:root{color-scheme:dark;--bg:#0b0d12;--panel:#121722;--line:#253044;--t
 CSS += """.metric-split{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px}.compact{padding:18px 20px}.compact h2{margin-bottom:14px}.statline{display:flex;justify-content:space-between;gap:18px;padding-top:10px;margin-top:10px;border-top:1px solid var(--line);color:var(--muted);font-size:12px}.statline strong{color:var(--text);text-align:right}.shadow-card{border-color:#3d3459}.pill.reused{color:var(--green);background:#14291e}.pill.rerun{color:var(--red);background:#31191d}.pill.pending{color:var(--amber);background:#292319}.source .reason{margin-top:7px;color:#c3ccda}.node.changed rect{stroke:var(--red);fill:#2b171b}.node.baseline-only rect{stroke:var(--amber);fill:#292319}.node.newly-observed rect{stroke:var(--violet);fill:#211a32}@media(max-width:900px){.metric-split{grid-template-columns:1fr}}"""
 
 
-CSS += """.timeline,.comparison,.exports{margin:12px 0}#batchHeadline{font-size:20px;color:var(--text)}button,select,input{font:inherit}select{max-width:100%;background:#141c29;color:var(--text);padding:10px;border:1px solid var(--line);border-radius:9px}button:not(.source){background:#243650;color:var(--text);border:1px solid #456087;padding:10px 14px;border-radius:9px;cursor:pointer}button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--blue);outline-offset:3px}.comparison pre{overflow:auto;background:#0c111a;padding:14px;border-radius:10px;font-size:12px}.comparison-row{border-top:1px solid var(--line);padding:18px 0}.comparison-row h3{font-size:14px}.comparison-bar{min-width:190px;border-radius:5px;margin:8px 0;padding:8px;font-size:12px;background:#204d76;white-space:nowrap}.comparison-bar.incremental{background:#513575}.comparison-row p{font-size:12px;color:var(--muted)}.comparison-row p.slower{color:var(--red)}.exports h2{margin-bottom:10px}.exports span{font-size:12px;margin-left:12px}.timeline label{font-size:12px}#timeScope{line-height:1.6}#batchState{line-height:1.6}#executionDetail{line-height:1.5}.metrics small{line-height:1.5}"""
+CSS += """.timeline,.comparison,.exports,.diagnostics{margin:12px 0}#batchHeadline{font-size:20px;color:var(--text)}button,select,input{font:inherit}select{max-width:100%;background:#141c29;color:var(--text);padding:10px;border:1px solid var(--line);border-radius:9px}button:not(.source){background:#243650;color:var(--text);border:1px solid #456087;padding:10px 14px;border-radius:9px;cursor:pointer}button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--blue);outline-offset:3px}.comparison pre{overflow:auto;background:#0c111a;padding:14px;border-radius:10px;font-size:12px}.comparison-row{border-top:1px solid var(--line);padding:18px 0}.comparison-row h3{font-size:14px}.comparison-bar{min-width:190px;border-radius:5px;margin:8px 0;padding:8px;font-size:12px;background:#204d76;white-space:nowrap}.comparison-bar.incremental{background:#513575}.comparison-row p{font-size:12px;color:var(--muted)}.comparison-row p.slower{color:var(--red)}.exports h2{margin-bottom:10px}.exports span{font-size:12px;margin-left:12px}.timeline label{font-size:12px}#timeScope{line-height:1.6}#batchState{line-height:1.6}#executionDetail{line-height:1.5}.metrics small{line-height:1.5}.diagnostic-causes{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:9px;margin:14px 0}.diagnostic-cause{border:1px solid var(--line);border-radius:12px;padding:13px;background:#0f141e}.diagnostic-cause strong{display:block;font-size:13px;margin-bottom:6px}.diagnostic-cause span{display:block;color:var(--muted);font-size:11px;line-height:1.55}"""
 
 JS = r"""(() => {
   'use strict';
@@ -203,6 +204,8 @@ JS = r"""(() => {
     const label = statusText[source.execution_status] || '측정 정보 없음';
     $('whyTitle').textContent = `${source.label} · ${label}`;
     $('whyBody').textContent = reasonFor(source);
+    const mismatches = source.reuse_diagnostic?.checks?.filter(item => item.status === 'mismatched') || [];
+    const uninspected = source.reuse_diagnostic?.checks?.filter(item => item.status === 'not-evaluated').length || 0;
     const tags = [
       `현재 revision ${source.current_revision}`,
       source.previous_revision >= 0 ? `이전 성공 revision ${source.previous_revision}` : '이전 성공 없음',
@@ -211,6 +214,8 @@ JS = r"""(() => {
       source.duration_baseline ? `과거 표본 ${source.duration_baseline.sample_count}개 · revision ${source.duration_baseline.revision} · ${fmt(source.duration_baseline.duration_ms)}` : '과거 시간 표본 없음',
       source.reuse_origin ? `이전 Evidence 배치 ${source.reuse_origin.batch_id.slice(0,12)} · 출처 revision ${source.reuse_origin.origin_revision}` : '현재 작업 안의 근거',
       `판정 식별자 ${source.reason_code || '없음'}`,
+      ...mismatches.filter(item => item.reason_code !== source.reason_code).map(item => `함께 확인된 조건: ${reasonText[item.reason_code] || item.reason_code}`),
+      source.reuse_diagnostic ? `확인하지 않은 조건 ${uninspected}개 · 추측하지 않음` : '상세 재사용 진단 기록 없음',
       ...source.shadow_limitations.map(item => `Shadow: ${item}`)
     ];
     $('limits').replaceChildren(...tags.map(text => {
@@ -368,7 +373,8 @@ JS = r"""(() => {
         execution_decision:item.decision || 'not-planned', reason_code:item.reason_code,
         execution_reason_code:item.execution_reason_code, current_revision:item.current_revision,
         previous_revision:item.previous_revision, duration_ms:item.duration_ms, duration_baseline:item.duration_baseline,
-        authority_source:item.authority_source, reuse_origin:item.reuse_origin};
+        authority_source:item.authority_source, reuse_origin:item.reuse_origin,
+        reuse_diagnostic:item.reuse_diagnostic};
     }), map: current ? data.map : {nodes:[],edges:[]}};
   }
 
@@ -391,6 +397,33 @@ JS = r"""(() => {
     const totals=data.history?.totals;
     if (totals) $('historyMeta').textContent += ` · 종료 기록 ${totals.finalized_batch_count}개: 실제 실행 ${totals.executed_source_count} / 적용 재사용 ${totals.authoritative_reuse_count} / 미실행 ${totals.not_run_source_count}`;
     return batchView(data, activeBatch);
+  }
+
+  function renderDiagnostics(data) {
+    const diagnostic = data.summary.reuse_diagnostics;
+    const root = $('diagnosticCauses');
+    root.replaceChildren();
+    $('diagnosticsMode').textContent = data.task.reuse_diagnostics_enabled ? '기록 켜짐' : '새 기록 꺼짐';
+    if (!diagnostic.diagnosed_source_count) {
+      $('diagnosticsHeadline').textContent = data.task.reuse_diagnostics_enabled
+        ? '아직 실제 검증 배치와 연결된 진단 기록이 없습니다.'
+        : '진단이 꺼져 있어 새 원인 기록을 만들지 않습니다. 실행 판정에는 영향이 없습니다.';
+      $('diagnosticsFootnote').textContent = '기록이 없으면 원인별 비용을 0으로 꾸미지 않고 측정 정보 없음으로 둡니다.';
+      return;
+    }
+    const total = diagnostic.deduplicated;
+    const unapplied = diagnostic.unapplied_reuse_source_count
+      ? ` · 재사용 미적용 ${diagnostic.unapplied_reuse_source_count}개`
+      : '';
+    $('diagnosticsHeadline').textContent = `${diagnostic.diagnosed_source_count}개 묶음 진단 · 재실행 판정 ${diagnostic.blocked_source_count}개${unapplied} · 중복 제거한 통과 실행 구간 ${fmt(total.observed_passed_execution_ms)}`;
+    diagnostic.causes.slice(0, 5).forEach(cause => {
+      const article = document.createElement('article');article.className='diagnostic-cause';
+      const title = document.createElement('strong');title.textContent = reasonText[cause.reason_code] || cause.reason_code;
+      const detail = document.createElement('span');detail.textContent = `${cause.source_count}개 묶음 · 통과 실행 구간 ${fmt(cause.observed_passed_execution_ms)} · 단일 원인 ${cause.single_cause_source_count} / 복합 원인 ${cause.multiple_cause_source_count}`;
+      const outcomes = document.createElement('span');outcomes.textContent = `실패 ${cause.failed_source_count} · 중단 ${cause.interrupted_source_count} · 미실행 ${cause.not_run_source_count} · 시간 미확인 ${cause.incomplete_measurement_count}`;
+      article.append(title,detail,outcomes);root.append(article);
+    });
+    $('diagnosticsFootnote').textContent = `원인별 시간은 한 묶음이 여러 원인에 포함될 수 있어 서로 더하지 않습니다. 중복 제거 합계는 위 ${fmt(total.observed_passed_execution_ms)}입니다. 확인하지 않은 조건 ${diagnostic.not_evaluated_check_count}개는 not-evaluated로 보존했습니다.`;
   }
 
   const scenarios = {'first-run':'첫 실행','unchanged':'변경 없음','docs':'문서 변경','partial-reuse':'일부 실행 + 일부 재사용','code':'코드 변경','environment':'환경 변경','first-failure':'첫 검사 실패'};
@@ -479,8 +512,9 @@ JS = r"""(() => {
           execution_reason_code:item.execution_reason_code,authority_source:item.authority_source,
           current_revision:item.current_revision,previous_revision:item.previous_revision,duration_ms:item.duration_ms,
           duration_baseline:item.duration_baseline,reuse_origin:item.reuse_origin,
+          reuse_diagnostic:item.reuse_diagnostic,
           estimated_avoided_ms:item.status === 'reused' ? item.duration_baseline?.duration_ms ?? null : 0}))} : null,
-      comparison,shadow:snapshot.summary.shadow,
+      comparison,shadow:snapshot.summary.shadow,reuse_diagnostics:snapshot.summary.reuse_diagnostics,
       notes:['전체 대기시간은 별도 측정값이 없으면 알 수 없음','준비와 runner 구간만 부분 계측 · 호스트 전달·대기·최종 저장·반환 제외',
         '생략 비용은 실제 적용된 재사용의 이전 성공 실행 표본에 기반한 추정','Shadow는 실제 재사용·실측 절약 아님',
         '입력 파일 경로와 원시 명령·환경·토큰은 공유본에 포함하지 않음','비교 fixture 결과를 일반 저장소 성능으로 일반화할 수 없음']};
@@ -502,6 +536,10 @@ JS = r"""(() => {
     add('h2','검증 묶음별 실제 결과');const table=add('table','');
     const heading=add('tr','',table);['이름','계획','실제 결과','시간 / 과거 표본','이유'].forEach(text=>add('th',text,heading));
     report.batch?.sources.forEach(item=>{const tr=add('tr','',table);const origin=item.reuse_origin?` · 이전 배치 ${item.reuse_origin.batch_id.slice(0,12)}에서 재판정`:'';[item.label,executionLabels[item.decision]?.[0]||'없음',statusText[item.status],item.status==='reused'?fmt(item.duration_baseline?.duration_ms)+' (과거 표본)':fmt(item.duration_ms),(outcomeText[item.execution_reason_code]||reasonText[item.reason_code]||'정보 없음')+origin].forEach(text=>add('td',text,tr));});
+    add('h2','재사용 차단 원인');
+    const diagnostics=report.reuse_diagnostics;
+    if (!diagnostics?.diagnosed_source_count) add('p','진단 기록 없음. 측정되지 않은 원인 비용을 0으로 표시하지 않습니다.');
+    else {add('p',`진단 ${diagnostics.diagnosed_source_count}개 묶음 · 중복 제거한 통과 실행 구간 ${fmt(diagnostics.deduplicated.observed_passed_execution_ms)}. 원인별 시간은 서로 겹칠 수 있어 합산하지 않습니다.`);const diagnosticTable=add('table','');diagnostics.causes.slice(0,5).forEach(cause=>{const tr=add('tr','',diagnosticTable);[reasonText[cause.reason_code]||cause.reason_code,`${cause.source_count}개`,fmt(cause.observed_passed_execution_ms),`단일 ${cause.single_cause_source_count} / 복합 ${cause.multiple_cause_source_count}`,`실패 ${cause.failed_source_count} / 중단 ${cause.interrupted_source_count} / 미실행 ${cause.not_run_source_count}`].forEach(text=>add('td',text,tr));});}
     add('h2','별도 실측 비교');
     if (!report.comparison) add('p','비교 측정 없음. 일상 추정 비용을 실측한 전체 재실행 시간으로 환산하지 않습니다.');
     else {
@@ -554,6 +592,7 @@ JS = r"""(() => {
     $('observerBody').textContent = data.task.observer_enabled
       ? '예측 정확도를 측정하지만 검사 생략 권한은 만들지 않습니다.'
       : 'Dashboard는 계속 볼 수 있으며 기존 exact·policy reuse는 정상 동작합니다.';
+    renderDiagnostics(data);
     $('updated').textContent = `${new Date(data.generated_at * 1000).toLocaleTimeString()} 갱신`;
     snapshot = view;
     renderSources(view);

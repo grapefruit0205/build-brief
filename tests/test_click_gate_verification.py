@@ -6,6 +6,7 @@ from click_gate_test_support import (
     CLICK_GATE,
     CLICK_INSPECTION,
     CLICK_PROCESS,
+    CLICK_REUSE_DIAGNOSTICS,
     CLICK_STATE,
     CLICK_VERIFICATION,
     HOOK_CONFIG,
@@ -93,6 +94,22 @@ class ClickGateVerificationTests(ClickGateTestCase):
         source = next(iter(state["evidence_state"]["sources"].values()))
         self.assertEqual(source["status"], "passed")
         self.assertEqual(source["dependency_patterns"], [])
+        decision = state["verification"]["incremental_plan"]["decisions"][0]
+        diagnostic = decision["reuse_diagnostic"]
+        self.assertEqual(decision["reason_code"], "no-passing-evidence")
+        self.assertEqual(diagnostic["baseline_status"], "absent")
+        self.assertFalse(diagnostic["previous_success_exists"])
+        self.assertFalse(diagnostic["reuse_considered"])
+        self.assertEqual(diagnostic["decision"], decision["decision"])
+        measured = CLICK_VERIFICATION.click_incremental.current_batch(
+            state["verification"]
+        )
+        assert measured is not None
+        self.assertEqual(measured["sources"][0]["status"], "passed")
+        self.assertGreaterEqual(measured["sources"][0]["duration_ms"], 0)
+        self.assertEqual(
+            measured["sources"][0]["reuse_diagnostic"], diagnostic
+        )
 
         receipt = self.pre_tool(
             "Bash", "click-gate receipt export", "turn-1", submit_prompt=False
@@ -107,6 +124,49 @@ class ClickGateVerificationTests(ClickGateTestCase):
         )
         self.assertFalse(
             envelope["receipt"]["authority"]["approval_bound"]
+        )
+
+    def test_reuse_diagnostics_toggle_cannot_change_plan_or_runner_batch(self) -> None:
+        self.initialize_git("verification_fixture.py")
+        self.prompt_submit("진단 설정과 무관한 동일 검증", "turn-1")
+        state_path = next(
+            (self.plugin_data / "gate-state").glob("session-contract-*.json")
+        )
+        baseline = json.loads(state_path.read_text(encoding="utf-8"))
+        command = self.verification_argv()
+
+        enabled = self.verify_gate(
+            [command], "turn-1", evidence_ids=["E_RUNTIME"]
+        )
+        enabled_batch = self.decoded_verification_batch(enabled)
+        enabled_state = json.loads(state_path.read_text(encoding="utf-8"))
+        enabled_decision = enabled_state["verification"]["incremental_plan"][
+            "decisions"
+        ][0]
+        self.assertIn("reuse_diagnostic", enabled_decision)
+
+        CLICK_REUSE_DIAGNOSTICS.set_mode(
+            baseline["verification"], "off", updated_at=1
+        )
+        CLICK_STATE.write_json(state_path, baseline)
+        disabled = self.verify_gate(
+            [command], "turn-1", evidence_ids=["E_RUNTIME"]
+        )
+        disabled_batch = self.decoded_verification_batch(disabled)
+        disabled_state = json.loads(state_path.read_text(encoding="utf-8"))
+        disabled_decision = disabled_state["verification"]["incremental_plan"][
+            "decisions"
+        ][0]
+
+        self.assertEqual(enabled_batch, disabled_batch)
+        self.assertNotIn("reuse_diagnostic", disabled_decision)
+        self.assertEqual(
+            {
+                key: value
+                for key, value in enabled_decision.items()
+                if key != "reuse_diagnostic"
+            },
+            disabled_decision,
         )
 
     def test_follow_up_evidence_requalifies_exact_success_and_records_origin(self) -> None:
@@ -252,6 +312,15 @@ class ClickGateVerificationTests(ClickGateTestCase):
         state = json.loads(state_path.read_text(encoding="utf-8"))
         decision = state["verification"]["incremental_plan"]["decisions"][0]
         self.assertEqual(decision["reason_code"], "environment-binding-changed")
+        checks = {
+            item["condition"]: item
+            for item in decision["reuse_diagnostic"]["checks"]
+        }
+        self.assertEqual(checks["environment-binding"]["status"], "mismatched")
+        self.assertEqual(checks["check-binding"]["status"], "matched")
+        self.assertEqual(
+            checks["observed-inputs-unchanged"]["status"], "not-evaluated"
+        )
 
     def test_verification_batch_has_no_fixed_check_count_cap(self) -> None:
         checks = [
@@ -874,6 +943,16 @@ class ClickGateVerificationTests(ClickGateTestCase):
         self.assertEqual(
             decision["reason_code"], "safe-change-policy-not-covered"
         )
+        policy_checks = {
+            item["condition"]: item
+            for item in decision["reuse_diagnostic"]["checks"]
+        }
+        self.assertEqual(
+            policy_checks["safe-change-policy-available"]["status"], "matched"
+        )
+        self.assertEqual(
+            policy_checks["safe-change-policy-covered"]["status"], "mismatched"
+        )
         rendered = json.dumps(repeated)
         self.assertIn("path-not-declared-safe", rendered)
         self.assertIn("verification_fixture.py", rendered)
@@ -947,6 +1026,17 @@ class ClickGateVerificationTests(ClickGateTestCase):
         decision = state["verification"]["incremental_plan"]["decisions"][0]
         self.assertEqual(decision["decision"], "run")
         self.assertEqual(decision["reason_code"], "observed-input-changed")
+        checks = {
+            item["condition"]: item
+            for item in decision["reuse_diagnostic"]["checks"]
+        }
+        self.assertEqual(
+            checks["observed-inputs-unchanged"]["status"], "mismatched"
+        )
+        self.assertEqual(
+            checks["dependency-observation-complete"]["status"], "matched"
+        )
+        self.assertEqual(checks["external-input-modeled"]["status"], "matched")
         self.assertNotIn("repository-declared safe-change", json.dumps(repeated))
 
     def test_unavailable_runtime_observation_reruns_after_any_revision(self) -> None:
@@ -1172,6 +1262,18 @@ class ClickGateVerificationTests(ClickGateTestCase):
                 repeated["hookSpecificOutput"]["updatedInput"]["command"]
             ),
         )
+        state_path = next(
+            (self.plugin_data / "gate-state").glob("session-contract-*.json")
+        )
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        decision = state["verification"]["incremental_plan"]["decisions"][0]
+        self.assertEqual(decision["reason_code"], "mutation-boundary-ambiguous")
+        boundary = next(
+            item
+            for item in decision["reuse_diagnostic"]["checks"]
+            if item["condition"] == "mutation-boundary"
+        )
+        self.assertEqual(boundary["status"], "mismatched")
 
     def test_unrelated_committed_manifest_entry_does_not_invalidate_receipt(
         self,
@@ -3103,36 +3205,52 @@ class ClickGateVerificationTests(ClickGateTestCase):
         *,
         transient_failure: bool = False,
         safe_readme_reuse: bool = False,
+        partial_safe_readme_reuse: bool = False,
         dependency_observation: bool = False,
+        shared_config: bool = False,
     ) -> list[str]:
         (self.workspace / ".gitignore").write_text(
             "__pycache__/\n.shard-attempt\n", encoding="utf-8"
         )
         (self.workspace / "README.md").write_text("before\n", encoding="utf-8")
+        shared_assertion = (
+            "        self.assertEqual(\n"
+            "            Path('shared.cfg').read_text(encoding='utf-8').splitlines()[0],\n"
+            "            'stable',\n"
+            "        )\n"
+            if shared_config
+            else ""
+        )
         (self.workspace / "a_shard.py").write_text(
-            "import unittest\n\n"
+            ("from pathlib import Path\n" if shared_config else "")
+            + "import unittest\n\n"
             "class AlphaShard(unittest.TestCase):\n"
             "    def test_pass(self):\n"
-            "        self.assertTrue(True)\n",
+            "        self.assertTrue(True)\n"
+            + shared_assertion,
             encoding="utf-8",
         )
         beta_body = (
-            "from pathlib import Path\n"
-            "import unittest\n\n"
-            "class BetaShard(unittest.TestCase):\n"
-            "    def test_pass(self):\n"
-            "        marker = Path('.shard-attempt')\n"
-            "        if not marker.exists():\n"
-            "            marker.write_text('seen\\n', encoding='utf-8')\n"
-            "            self.fail('transient shard failure')\n"
-            if transient_failure
-            else
-            "import unittest\n\n"
+            ("from pathlib import Path\n" if transient_failure or shared_config else "")
+            + "import unittest\n\n"
             "class BetaShard(unittest.TestCase):\n"
             "    def test_pass(self):\n"
             "        self.assertTrue(True)\n"
+            + (
+                "        marker = Path('.shard-attempt')\n"
+                "        if not marker.exists():\n"
+                "            marker.write_text('seen\\n', encoding='utf-8')\n"
+                "            self.fail('transient shard failure')\n"
+                if transient_failure
+                else ""
+            )
+            + shared_assertion
         )
         (self.workspace / "b_shard.py").write_text(beta_body, encoding="utf-8")
+        if shared_config:
+            (self.workspace / "shared.cfg").write_text(
+                "stable\n", encoding="utf-8"
+            )
         parent = [
             sys.executable,
             "-m",
@@ -3193,7 +3311,14 @@ class ClickGateVerificationTests(ClickGateTestCase):
             "b_shard.py",
             ".click/evidence-shards.json",
         ]
-        if safe_readme_reuse:
+        if shared_config:
+            tracked.append("shared.cfg")
+        if partial_safe_readme_reuse:
+            (self.workspace / "beta-owned.md").write_text(
+                "before\n", encoding="utf-8"
+            )
+            tracked.append("beta-owned.md")
+        if safe_readme_reuse or partial_safe_readme_reuse:
             policy = self.workspace / ".click" / "evidence-reuse.json"
             policy.write_text(
                 json.dumps(
@@ -3206,7 +3331,11 @@ class ClickGateVerificationTests(ClickGateTestCase):
                             },
                             {
                                 "checks": [beta],
-                                "reuse_if_only_changed": ["README.md"],
+                                "reuse_if_only_changed": [
+                                    "beta-owned.md"
+                                    if partial_safe_readme_reuse
+                                    else "README.md"
+                                ],
                             },
                         ],
                     },
@@ -3450,6 +3579,162 @@ class ClickGateVerificationTests(ClickGateTestCase):
                 for source in state["evidence_state"]["sources"].values()
             )
         )
+
+    def test_committed_per_shard_policy_reuses_one_and_runs_the_other(self) -> None:
+        parent = self.install_evidence_shard_fixture(
+            partial_safe_readme_reuse=True
+        )
+        self.approve_contract()
+        baseline = self.verify_gate([parent])
+        self.assertEqual(self.run_rewritten(baseline).returncode, 0)
+
+        self.assertIsNone(
+            self.pre_tool("apply_patch", "*** Begin Patch\n*** End Patch", "turn-2")
+        )
+        (self.workspace / "README.md").write_text("after\n", encoding="utf-8")
+        self.tool_hook(
+            "post-tool", "apply_patch", {"patch": "readme"}, tool_use_id="tool-1"
+        )
+
+        prepared = self.verify_gate([parent])
+        runner_batch = self.decoded_verification_batch(prepared)
+        self.assertEqual(len(runner_batch["checks"]), 1)
+        self.assertIn("b_shard", " ".join(runner_batch["checks"][0]["argv"]))
+        completed = self.run_rewritten(prepared)
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+
+        state_path = next(
+            (self.plugin_data / "gate-state").glob("session-contract-*.json")
+        )
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        batch = CLICK_VERIFICATION.click_incremental.current_batch(
+            state["verification"]
+        )
+        assert batch is not None
+        summary = CLICK_VERIFICATION.click_incremental.batch_summary(batch)
+        self.assertEqual(summary["executed_source_count"], 1)
+        self.assertEqual(summary["authoritative_reuse_count"], 1)
+        self.assertEqual(summary["not_run_source_count"], 0)
+        decisions = {
+            item["label"]: (item["decision"], item["status"])
+            for item in batch["sources"]
+        }
+        self.assertEqual(decisions["alpha"], ("reuse-safe-change", "reused"))
+        self.assertEqual(decisions["beta"], ("run", "passed"))
+
+    def test_policy_edit_after_partial_reuse_plan_blocks_before_any_check(self) -> None:
+        parent = self.install_evidence_shard_fixture(
+            partial_safe_readme_reuse=True
+        )
+        self.approve_contract()
+        baseline = self.verify_gate([parent])
+        self.assertEqual(self.run_rewritten(baseline).returncode, 0)
+
+        self.assertIsNone(
+            self.pre_tool("apply_patch", "*** Begin Patch\n*** End Patch", "turn-2")
+        )
+        (self.workspace / "README.md").write_text("after\n", encoding="utf-8")
+        self.tool_hook(
+            "post-tool", "apply_patch", {"patch": "readme"}, tool_use_id="tool-1"
+        )
+        prepared = self.verify_gate([parent])
+        state_path = next(
+            (self.plugin_data / "gate-state").glob("session-contract-*.json")
+        )
+        planned = json.loads(state_path.read_text(encoding="utf-8"))
+        planned_revision = planned["verification"]["mutation_revision"]
+        policy = self.workspace / ".click" / "evidence-reuse.json"
+        policy.write_text(
+            policy.read_text(encoding="utf-8") + "\n", encoding="utf-8"
+        )
+
+        blocked = self.run_rewritten(prepared)
+
+        self.assertEqual(blocked.returncode, 2)
+        self.assertNotIn("[Click verification", blocked.stdout)
+        self.assertIn("workspace changed after reuse planning", blocked.stderr)
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        verification = state["verification"]
+        self.assertEqual(verification["mutation_revision"], planned_revision + 1)
+        self.assertFalse(verification["workspace_changed"])
+        self.assertEqual(verification["status"], "ready")
+        batch = CLICK_VERIFICATION.click_incremental.current_batch(verification)
+        assert batch is not None
+        summary = CLICK_VERIFICATION.click_incremental.batch_summary(batch)
+        self.assertEqual(batch["status"], "rejected")
+        self.assertEqual(summary["executed_source_count"], 0)
+        self.assertEqual(summary["authoritative_reuse_count"], 0)
+        self.assertEqual(summary["not_run_source_count"], 2)
+        self.assertNotIn(
+            "passed",
+            {
+                source["status"]
+                for source in state["evidence_state"]["sources"].values()
+            },
+        )
+
+        retry = self.verify_gate([parent])
+        self.assertEqual(len(self.decoded_verification_batch(retry)["checks"]), 2)
+        retried = self.run_rewritten(retry)
+        self.assertEqual(retried.returncode, 0, retried.stderr)
+
+    def test_shared_configuration_change_reruns_both_policy_shards(self) -> None:
+        parent = self.install_evidence_shard_fixture(
+            safe_readme_reuse=True, shared_config=True
+        )
+        self.approve_contract()
+        baseline = self.verify_gate([parent])
+        self.assertEqual(self.run_rewritten(baseline).returncode, 0)
+
+        self.assertIsNone(
+            self.pre_tool("apply_patch", "*** Begin Patch\n*** End Patch", "turn-2")
+        )
+        with (self.workspace / "shared.cfg").open("a", encoding="utf-8") as handle:
+            handle.write("# changed\n")
+        self.tool_hook(
+            "post-tool", "apply_patch", {"patch": "shared config"},
+            tool_use_id="tool-1",
+        )
+
+        prepared = self.verify_gate([parent])
+        self.assertEqual(len(self.decoded_verification_batch(prepared)["checks"]), 2)
+        state_path = next(
+            (self.plugin_data / "gate-state").glob("session-contract-*.json")
+        )
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        plan = state["verification"]["incremental_plan"]
+        self.assertEqual(
+            {item["decision"] for item in plan["decisions"]}, {"run"}
+        )
+        self.assertEqual(
+            {item["reason_code"] for item in plan["decisions"]},
+            {"safe-change-policy-not-covered"},
+        )
+        completed = self.run_rewritten(prepared)
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+
+    def test_new_discovered_shard_file_runs_original_parent_suite(self) -> None:
+        parent = self.install_evidence_shard_fixture()
+        (self.workspace / "c_shard.py").write_text(
+            "import unittest\n\n"
+            "class GammaShard(unittest.TestCase):\n"
+            "    def test_pass(self):\n"
+            "        self.assertTrue(True)\n",
+            encoding="utf-8",
+        )
+        self.approve_contract()
+
+        prepared = self.verify_gate([parent])
+
+        batch = self.decoded_verification_batch(prepared)
+        self.assertEqual(len(batch["checks"]), 1)
+        self.assertEqual(batch["checks"][0]["evidence_id"], "E1")
+        self.assertEqual(batch["checks"][0]["argv"], parent)
+        self.assertIn(
+            "inventory-not-covered-exactly-once",
+            prepared["hookSpecificOutput"]["additionalContext"],
+        )
+        self.assertEqual(self.run_rewritten(prepared).returncode, 0)
 
     def test_edited_shard_map_runs_original_parent_suite(self) -> None:
         parent = self.install_evidence_shard_fixture()

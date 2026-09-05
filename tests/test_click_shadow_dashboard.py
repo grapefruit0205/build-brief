@@ -227,6 +227,7 @@ class ClickShadowDashboardTests(ClickGateTestCase):
             self.assertEqual(response.status, 200)
             self.assertIn("얼마나 기다렸나요?", html)
             self.assertIn("실제 재사용", html)
+            self.assertIn("왜 이번에는 재사용하지 못했나요?", html)
             self.assertIn("독립형 HTML 내보내기", html)
             self.assertIn("default-src 'none'", response.headers["Content-Security-Policy"])
             self.assertEqual(response.headers["Cache-Control"], "no-store")
@@ -247,6 +248,10 @@ class ClickShadowDashboardTests(ClickGateTestCase):
             self.assertIsNone(payload["summary"]["incremental"]["total_source_count"])
             self.assertIsNone(payload["summary"]["incremental"]["executed_source_count"])
             self.assertEqual(payload["summary"]["shadow"]["candidate_count"], 0)
+            self.assertEqual(
+                payload["summary"]["reuse_diagnostics"]["diagnosed_source_count"],
+                0,
+            )
             self.assertNotIn("actual_saved_ms", body)
             self.assertNotIn(str(self.workspace), body)
             self.assertNotIn("contract_id", body)

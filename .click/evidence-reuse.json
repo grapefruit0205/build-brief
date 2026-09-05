@@ -20,9 +20,17 @@
         ]
       ],
       "reuse_if_only_changed": [
+        "COMMUNITY_POSTS.md",
+        "COMPATIBILITY_SURFACE.md",
+        "GUARD_CLASSIFICATION.md",
+        "LICENSE",
+        "PRODUCT_CONSTITUTION.md",
         "README.md",
         "README.ko.md",
-        "README.zh-CN.md"
+        "README.zh-CN.md",
+        "RELEASE_NOTES.md",
+        "SECURITY.md",
+        "VERIFICATION_EFFICIENCY.md"
       ]
     },
     {
@@ -45,9 +53,17 @@
         ]
       ],
       "reuse_if_only_changed": [
+        "COMMUNITY_POSTS.md",
+        "COMPATIBILITY_SURFACE.md",
+        "GUARD_CLASSIFICATION.md",
+        "LICENSE",
+        "PRODUCT_CONSTITUTION.md",
         "README.md",
         "README.ko.md",
-        "README.zh-CN.md"
+        "README.zh-CN.md",
+        "RELEASE_NOTES.md",
+        "SECURITY.md",
+        "VERIFICATION_EFFICIENCY.md"
       ]
     },
     {
@@ -68,9 +84,17 @@
         ]
       ],
       "reuse_if_only_changed": [
+        "COMMUNITY_POSTS.md",
+        "COMPATIBILITY_SURFACE.md",
+        "GUARD_CLASSIFICATION.md",
+        "LICENSE",
+        "PRODUCT_CONSTITUTION.md",
         "README.md",
         "README.ko.md",
-        "README.zh-CN.md"
+        "README.zh-CN.md",
+        "RELEASE_NOTES.md",
+        "SECURITY.md",
+        "VERIFICATION_EFFICIENCY.md"
       ]
     },
     {
@@ -82,17 +106,29 @@
           "tests.test_click_change_policy",
           "tests.test_click_dependency_cache",
           "tests.test_click_evidence_shards",
+          "tests.test_click_efficiency",
           "tests.test_click_gate_verification",
+          "tests.test_click_incremental",
           "tests.test_click_receipt",
           "tests.test_click_receipt_runtime",
+          "tests.test_click_reuse_diagnostics",
+          "tests.test_click_verification_names",
           "tests.test_click_verification",
           "-q"
         ]
       ],
       "reuse_if_only_changed": [
+        "COMMUNITY_POSTS.md",
+        "COMPATIBILITY_SURFACE.md",
+        "GUARD_CLASSIFICATION.md",
+        "LICENSE",
+        "PRODUCT_CONSTITUTION.md",
         "README.md",
         "README.ko.md",
-        "README.zh-CN.md"
+        "README.zh-CN.md",
+        "RELEASE_NOTES.md",
+        "SECURITY.md",
+        "VERIFICATION_EFFICIENCY.md"
       ]
     },
     {
@@ -103,9 +139,14 @@
           "unittest",
           "tests.test_antigravity_adapter",
           "tests.test_click_dependency_trace",
+          "tests.test_click_dashboard_projection",
           "tests.test_click_hook",
           "tests.test_click_host_coverage",
           "tests.test_click_host_router",
+          "tests.test_click_observer_backend",
+          "tests.test_click_observer_control",
+          "tests.test_click_observer_macos",
+          "tests.test_click_observer_windows",
           "tests.test_click_shadow_dashboard",
           "tests.test_click_shadow_intelligence",
           "tests.test_runner_state_recovery",
@@ -113,9 +154,17 @@
         ]
       ],
       "reuse_if_only_changed": [
+        "COMMUNITY_POSTS.md",
+        "COMPATIBILITY_SURFACE.md",
+        "GUARD_CLASSIFICATION.md",
+        "LICENSE",
+        "PRODUCT_CONSTITUTION.md",
         "README.md",
         "README.ko.md",
-        "README.zh-CN.md"
+        "README.zh-CN.md",
+        "RELEASE_NOTES.md",
+        "SECURITY.md",
+        "VERIFICATION_EFFICIENCY.md"
       ]
     }
   ]

@@ -29,6 +29,25 @@ viewer를 종료합니다. 다른 host 세션이나 작업 공간은 별도 바�
 Evidence Map은 최신 배치의 상세 분석이며 과거 배치의 입력 그래프를 추측해 복원하지 않습니다.
 표시 제한 48개에 맞춰 실제 렌더링 수와 생략 수를 표시합니다.
 
+## Reuse Diagnostics 읽기
+
+Reuse Diagnostics는 기본적으로 켜져 있으며 `click-gate diagnostics on|off|status`로 제어합니다.
+이 설정은 설명 기록만 바꾸고 canonical decision, 실제 runner batch, Evidence/Guarded 권한,
+one-use token, receipt에는 영향을 주지 않습니다. 화면은 첫 번째 authoritative reason과 함께,
+같은 판정 과정에서 이미 계산된 다른 binding 불일치도 보여줍니다. 추가 파일 읽기나 hash가 필요한
+조건은 진단 숫자를 채우려고 다시 검사하지 않고 `not-evaluated`로 남깁니다.
+
+원인별 표에는 해당 원인으로 분류된 묶음 수, 통과한 실제 실행 구간, 이전 성공 baseline 유무,
+단일 원인/복합 원인 수, 시간 미확인 수가 표시됩니다. 실패·중단·미실행은 정상 통과 비용과
+분리합니다. 한 묶음에 환경과 실행 파일 불일치가 함께 있으면 같은 실행시간이 두 원인에 각각
+나타날 수 있으므로 원인별 시간을 더하면 안 됩니다. 별도의 **중복 제거한 통과 실행 구간**만
+전체로 읽습니다. 시간이 없으면 0ms가 아니라 측정 정보 없음입니다. 이 값은 현재 규칙에 따라
+실제로 다시 실행한 비용이며 절약 시간, 불필요한 재실행의 증명, 새 재사용 후보의 권한이 아닙니다.
+
+새 기록을 끄더라도 이전에 저장된 안전한 진단 history는 대시보드에서 계속 읽을 수 있습니다.
+저장하는 값은 stable condition/reason code, bool/상태, digest 식별자, 실행 결과와 시간뿐입니다.
+원시 명령, 환경 값, prompt, token, 파일 내용, 절대 경로는 projection과 공유 리포트에 넣지 않습니다.
+
 화면의 **JSON 내보내기**, **독립형 HTML 내보내기**는 선택한 실제 배치와 가져온 비교 측정을
 브라우저 다운로드로 저장합니다. HTML은 외부 스크립트·자산·분석 서비스 없이 열립니다.
 공유본은 원시 명령·파일 내용·입력 파일 경로·절대경로·환경 값·runner/access token을 제외합니다.
@@ -99,6 +118,8 @@ baseline 준비 시간은 양쪽 측정에서 제외합니다. 두 경로의 코
 `delta_ms = baseline_wall_ms - incremental_wall_ms`이며 baseline이 양수일 때만 비율을 계산합니다.
 느려지면 음수를 유지합니다. 성공한 비워밍업 표본의 중앙값·최소·최대와 모든 원시 쌍별 시간을 남깁니다.
 실패·중단과 워밍업 표본은 성공 성능 통계에서 제외하지만 JSON에는 제외 이유와 함께 남습니다.
+benchmark JSON의 `reuse_diagnostics`는 각 incremental arm의 실제 batch를 batch/source id로
+중복 제거해 같은 원인 집계를 제공합니다. 비교 delta와 합쳐 절약 증명으로 사용하지 않습니다.
 화면에서 JSON을 선택하면 실제 비교 조건·측정 수·음수 결과를 포함한 비교 그래프를 표시합니다.
 비교 파일이 없으면 실행 안내만 보이며 추정 비용으로 가상의 전체 재실행 baseline을 만들지 않습니다.
 가져온 파일은 로컬·서명 없는 측정 자료이며 Click authority의 새 증거가 아닙니다.
@@ -106,9 +127,51 @@ baseline 준비 시간은 양쪽 측정에서 제외합니다. 두 경로의 코
 작은 fixture는 관리 비용 때문에 오히려 느릴 수 있습니다. 특정 절감률을 통과 기준으로 두지 않으며
 임시 저장소 결과를 사용자 저장소 전체의 성능으로 일반화하지 않습니다.
 
+## 저장소 shard 안전 변경 정책 감사
+
+현재 `full-suite`는 명시적인 unittest module 목록을 실행하는 다섯 runtime shard와,
+저장소 전체의 문서·JSON·Hook·배포본·평가 자료를 직접 탐색하는 `repository-policy` shard로
+나뉩니다. 각 runtime shard의 실제 argv, 테스트 모듈, 공용 fixture/import, 파일 열기와
+하위 프로세스 호출을 확인했습니다. 그 결과 다섯 runtime shard에만 다음 **루트 파일의 정확한
+경로**를 안전 변경으로 선언합니다.
+
+- `COMMUNITY_POSTS.md`, `COMPATIBILITY_SURFACE.md`, `GUARD_CLASSIFICATION.md`
+- `LICENSE`, `PRODUCT_CONSTITUTION.md`
+- `README.md`, `README.ko.md`, `README.zh-CN.md`
+- `RELEASE_NOTES.md`, `SECURITY.md`, `VERIFICATION_EFFICIENCY.md`
+
+이 파일들은 `core-state`, `capability-runtime`, `gate-lifecycle`, `verification-evidence`,
+`observer-host`의 명시된 테스트가 입력으로 읽지 않는 설명 문서입니다. 정책은 해당 다섯
+shard의 정확한 argv와 연결됩니다. argv가 바뀌면 같은 정책 entry로 인정되지 않습니다.
+
+`repository-policy`에는 안전 변경 entry를 두지 않습니다. 이 shard는 README와 위 기술 문서,
+모든 JSON, `hooks/`, `skills/`, `evals/`, 배포본과 workflow 일관성을 실제로 검사하므로 문서만
+바뀌어도 실행해야 합니다. 또한 다음 범위는 이름만 보고 안전하다고 판단하지 않고 보류합니다:
+`hooks/**`, `tests/**`, `skills/**`, `platforms/**`, `dist/**`, `evals/**`, `scripts/**`,
+`.github/**`, `assets/**`, `.click/**`. 공용 import, 동적 파일 탐색, 새 테스트 발견, 패키징과
+adapter 일관성, 권한 설정 자체가 남은 반례입니다. 넓은 `docs/**`나 다른 package 전체 패턴도
+선언하지 않습니다.
+
+정책 작업트리 변경은 권한이 아닙니다. `.click/evidence-reuse.json`, dependency 선언과 shard
+정의는 보호 경로이며, 커밋된 내용과 작업트리가 정확히 같아야 합니다. 정책을 커밋한 뒤에는
+새 정책으로 실제 검증한 baseline을 먼저 만들어야 하며 기존 baseline을 소급 승격하지 않습니다.
+완전한 dependency observation이 정책보다 우선하고, 불완전한 관측·외부 입력·Shadow 예측은
+정책으로 우회하지 않습니다.
+
+부분 재사용이 포함된 실행 계획을 만든 뒤 작업트리가 바뀌면 runner는 one-use claim 전에
+계획 시점의 토큰 결합 Git 지문과 다시 대조합니다. 정책 파일을 포함해 차이가 있거나 지문을
+읽지 못하면 검사 하나도 실행하지 않고 해당 batch의 재사용도 적용 실적으로 기록하지 않습니다.
+다음 요청은 불명확한 mutation boundary 때문에 실제 검사를 다시 실행합니다.
+
+`partial-reuse` benchmark는 임시 Git 저장소에 서로 다른 shard 정책을 커밋하고 실제 baseline과
+후속 Evidence 작업을 거칩니다. README 변경에서 alpha만 정책 기반으로 재사용하고 beta는 실제
+실행합니다. 이는 자동 의존성 발견의 증거가 아니며, 임시 fixture 측정값은 실사용 절감률이 아닙니다.
+
 ## 이력과 호환성
 
-canonical plan v2는 계획만 저장하고, 실제 결과는 `verification-batch` event에 batch_id로 연결합니다.
+canonical plan v2/v3는 계획만 저장하고, 실제 결과는 `verification-batch` event에 batch_id로 연결합니다.
+v3는 실행 전 동결된 content-free Reuse Diagnostics를 포함합니다. 진단을 끈 현재 plan과 이전 v2
+데이터는 계속 읽으며 진단 정보 없음으로 표시합니다.
 같은 batch의 재전송·재기록은 갱신 또는 no-op이며 별도 실행으로 누적되지 않습니다.
 계획만 있는 v1 데이터도 읽지만 실제 실행과 시간은 unknown입니다. 최종 상태가 확인된 batch만 누적 통계에 씁니다.
 각 이력은 기존 1,000 events / 7일 / 4 MiB 중 먼저 닿는 제한으로 오래된 기록부터 제거합니다.

@@ -5,6 +5,7 @@ import json
 from click_gate_test_support import (
     CLICK_LIFECYCLE,
     CLICK_OBSERVER_CONTROL,
+    CLICK_REUSE_DIAGNOSTICS,
     CLICK_SHADOW_DASHBOARD,
     ClickGateTestCase,
     unittest,
@@ -98,6 +99,44 @@ class ClickObserverControlTests(ClickGateTestCase):
         output = payload["hookSpecificOutput"]
         self.assertEqual(output["permissionDecision"], "deny")
         self.assertIn("active verification batch", output["permissionDecisionReason"])
+
+    def test_reuse_diagnostics_control_is_explicit_and_non_authoritative(self) -> None:
+        for action in ("off", "on", "status"):
+            self.assertEqual(
+                CLICK_LIFECYCLE.control_request(
+                    f"click-gate diagnostics {action}"
+                ),
+                ("diagnostics", action, ""),
+            )
+        parsed = CLICK_LIFECYCLE.control_request(
+            "click-gate diagnostics automatic"
+        )
+        self.assertEqual(parsed[0], "")
+        self.assertIn("diagnostics off|on|status", parsed[2])
+
+        self.approve_contract()
+        state_path = next(
+            (self.plugin_data / "gate-state").glob("session-contract-*.json")
+        ).resolve()
+        before = json.loads(state_path.read_text(encoding="utf-8"))
+        payload = self.pre_tool(
+            "Bash", "click-gate diagnostics off", "turn-2", submit_prompt=False
+        )
+        assert payload is not None
+        result = self.run_rewritten(payload)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("execution decisions unchanged", result.stdout)
+        after = json.loads(state_path.read_text(encoding="utf-8"))
+        self.assertEqual(CLICK_REUSE_DIAGNOSTICS.mode(after["verification"]), "off")
+        self.assertEqual(
+            after["verification"]["mutation_revision"],
+            before["verification"]["mutation_revision"],
+        )
+        self.assertEqual(after["evidence_state"], before["evidence_state"])
+        self.assertEqual(
+            after[CLICK_SHADOW_DASHBOARD.DASHBOARD_FIELD],
+            before[CLICK_SHADOW_DASHBOARD.DASHBOARD_FIELD],
+        )
 
 
 if __name__ == "__main__":

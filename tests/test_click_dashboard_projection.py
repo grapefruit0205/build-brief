@@ -12,6 +12,7 @@ from hooks import (
     click_dependency_trace,
     click_incremental,
     click_observer_control,
+    click_reuse_diagnostics,
     click_shadow_intelligence,
 )
 
@@ -179,6 +180,30 @@ class ClickDashboardProjectionTests(unittest.TestCase):
         self.assertIsNotNone(changed_evaluation)
         self.assertIsNotNone(stable_evaluation)
 
+        diagnostic_source = {
+            "status": "stale", "verified_at": 1, "verified_revision": 1,
+            "verified_check_digest": CHECK_RUN, "last_exit_code": 0,
+        }
+        run_facts = click_reuse_diagnostics.begin(diagnostic_source)
+        click_reuse_diagnostics.record(
+            run_facts,
+            "observed-inputs-unchanged",
+            False,
+            reason_code="observed-input-changed",
+        )
+        run_diagnostic = click_reuse_diagnostics.freeze(
+            run_facts,
+            decision="run",
+            primary_reason_code="observed-input-changed",
+        )
+
+        def reused_diagnostic(selected: str, reason: str) -> dict[str, object]:
+            return click_reuse_diagnostics.freeze(
+                click_reuse_diagnostics.begin(diagnostic_source),
+                decision=selected,
+                primary_reason_code=reason,
+            )
+
         decisions = [
             click_incremental.decision(
                 source_key=KEY_RUN,
@@ -188,6 +213,7 @@ class ClickDashboardProjectionTests(unittest.TestCase):
                 previous_revision=1,
                 check_digest=CHECK_RUN,
                 authority_source="runner",
+                reuse_diagnostic=run_diagnostic,
             ),
             click_incremental.decision(
                 source_key=KEY_DEPENDENCY,
@@ -199,6 +225,9 @@ class ClickDashboardProjectionTests(unittest.TestCase):
                 authority_source="runtime-dependency-observation",
                 estimated_avoided_ms=900,
                 duration_baseline={"duration_ms": 900, "revision": 1, "check_digest": CHECK_DEPENDENCY, "observed_at": 1, "batch_id": "b" * 32, "sample_count": 1},
+                reuse_diagnostic=reused_diagnostic(
+                    "reuse-dependency", "observed-dependencies-unchanged"
+                ),
             ),
             click_incremental.decision(
                 source_key=KEY_POLICY,
@@ -210,6 +239,9 @@ class ClickDashboardProjectionTests(unittest.TestCase):
                 authority_source="repository-safe-change-policy",
                 estimated_avoided_ms=1800,
                 duration_baseline={"duration_ms": 1800, "revision": 1, "check_digest": CHECK_POLICY, "observed_at": 1, "batch_id": "b" * 32, "sample_count": 1},
+                reuse_diagnostic=reused_diagnostic(
+                    "reuse-safe-change", "safe-change-policy-covered"
+                ),
             ),
         ]
         verification: dict[str, object] = {"mutation_revision": 2}
@@ -289,6 +321,19 @@ class ClickDashboardProjectionTests(unittest.TestCase):
         self.assertFalse(shadow["tracing_slowdown_measured"])
         self.assertEqual(projection["task"]["observer_mode"], "shadow")
         self.assertTrue(projection["task"]["observer_enabled"])
+        self.assertEqual(projection["task"]["reuse_diagnostics_mode"], "on")
+        self.assertTrue(projection["task"]["reuse_diagnostics_enabled"])
+        diagnostics = projection["summary"]["reuse_diagnostics"]
+        self.assertEqual(diagnostics["diagnosed_source_count"], 3)
+        self.assertEqual(diagnostics["blocked_source_count"], 1)
+        self.assertEqual(diagnostics["reused_source_count"], 2)
+        self.assertEqual(diagnostics["unapplied_reuse_source_count"], 0)
+        self.assertEqual(
+            diagnostics["deduplicated"]["observed_passed_execution_ms"], 650
+        )
+        self.assertEqual(
+            diagnostics["causes"][0]["reason_code"], "observed-input-changed"
+        )
 
         run_source = next(
             source
@@ -300,6 +345,10 @@ class ClickDashboardProjectionTests(unittest.TestCase):
         self.assertEqual(run_source["authority_source"], "runner")
         self.assertEqual(run_source["shadow_decision"], "rerun-required")
         self.assertEqual(run_source["shadow_outcome"], "conservative-rerun")
+        self.assertEqual(
+            run_source["reuse_diagnostic"]["primary_reason_code"],
+            "observed-input-changed",
+        )
 
     def test_selected_source_map_retains_baseline_and_current_input_states(self) -> None:
         projection = click_dashboard_projection.dashboard_projection(
@@ -351,8 +400,20 @@ class ClickDashboardProjectionTests(unittest.TestCase):
         self.assertNotIn("actual_saved_ms", encoded)
         self.assertNotIn("raw_argv", encoded)
 
+        diagnostic_tamper = json.loads(json.dumps(projection))
         projection["prompt"] = "leak"
         self.assertFalse(click_dashboard_projection.projection_is_valid(projection))
+
+        diagnosed = next(
+            source for source in diagnostic_tamper["sources"]
+            if source["reuse_diagnostic"] is not None
+        )
+        diagnosed["reuse_diagnostic"]["raw_environment"] = {
+            "ACCESS_TOKEN": "TOP-SECRET-TOKEN"
+        }
+        self.assertFalse(
+            click_dashboard_projection.projection_is_valid(diagnostic_tamper)
+        )
 
     def test_invalid_status_is_not_reflected_into_the_dashboard(self) -> None:
         state = self.state()

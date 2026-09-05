@@ -23,6 +23,19 @@ TECHNICAL_LINKS = (
     "skills/click/references/evidence-shards-v1.md",
     "skills/click/references/anti-loop-policy.md",
 )
+AUDITED_SAFE_ROOT_DOCUMENTS = (
+    "COMMUNITY_POSTS.md",
+    "COMPATIBILITY_SURFACE.md",
+    "GUARD_CLASSIFICATION.md",
+    "LICENSE",
+    "PRODUCT_CONSTITUTION.md",
+    "README.md",
+    "README.ko.md",
+    "README.zh-CN.md",
+    "RELEASE_NOTES.md",
+    "SECURITY.md",
+    "VERIFICATION_EFFICIENCY.md",
+)
 
 
 def _readmes() -> dict[str, str]:
@@ -314,6 +327,9 @@ class RepositoryPolicyTests(core.RepositoryPolicyTests):
         normalized = " ".join(reference.lower().split())
         for marker in (
             ".click/evidence-shards.json",
+            "stable lowercase id",
+            "command-selection convenience",
+            "raw `checks` requests remain supported",
             "authorizes decomposition only",
             "exactly one shard",
             "runs the original parent suite",
@@ -336,9 +352,20 @@ class RepositoryPolicyTests(core.RepositoryPolicyTests):
             encoding="utf-8"
         )
         self.assertIn("running_plan_error", verification)
+        self.assertIn("_resolve_named_request", verification)
+        self.assertIn("selection_binding_error", verification)
         self.assertIn("collapse_shard_plan", verification)
         self.assertIn('SHARD_RECEIPT_VERSION = 3', receipt)
         self.assertIn('".click/evidence-shards.json"', change_policy)
+        repository_manifest = json.loads(
+            (ROOT / ".click" / "evidence-shards.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        self.assertEqual(repository_manifest["version"], 2)
+        self.assertEqual(
+            repository_manifest["verifications"][0]["id"], "full-suite"
+        )
         for forbidden in (
             "click_gate",
             "click_contract",
@@ -350,6 +377,62 @@ class RepositoryPolicyTests(core.RepositoryPolicyTests):
             with self.subTest(forbidden=forbidden):
                 self.assertNotIn(f"import {forbidden}", shards)
                 self.assertNotIn(f"from {forbidden}", shards)
+
+    def test_repository_safe_change_policy_matches_audited_runtime_shards(self) -> None:
+        shard_manifest = json.loads(
+            (ROOT / ".click" / "evidence-shards.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        reuse_policy = json.loads(
+            (ROOT / ".click" / "evidence-reuse.json").read_text(
+                encoding="utf-8"
+            )
+        )
+
+        def check_key(checks: object) -> str:
+            return json.dumps(checks, sort_keys=True, separators=(",", ":"))
+
+        shards = shard_manifest["entries"][0]["shards"]
+        shard_by_check = {check_key(item["checks"]): item["id"] for item in shards}
+        policy_by_check = {
+            check_key(item["checks"]): item for item in reuse_policy["entries"]
+        }
+        repository_policy_key = next(
+            key
+            for key, shard_id in shard_by_check.items()
+            if shard_id == "repository-policy"
+        )
+        expected_policy_keys = {
+            key
+            for key, shard_id in shard_by_check.items()
+            if shard_id != "repository-policy"
+        }
+        self.assertEqual(set(policy_by_check), expected_policy_keys)
+        self.assertNotIn(repository_policy_key, policy_by_check)
+        for entry in policy_by_check.values():
+            self.assertEqual(
+                tuple(entry["reuse_if_only_changed"]),
+                AUDITED_SAFE_ROOT_DOCUMENTS,
+            )
+            for relative in entry["reuse_if_only_changed"]:
+                self.assertTrue((ROOT / relative).is_file(), relative)
+                self.assertNotIn("*", relative)
+                self.assertFalse(relative.startswith(".click/"))
+
+        audit = (ROOT / "VERIFICATION_EFFICIENCY.md").read_text(
+            encoding="utf-8"
+        )
+        for marker in (
+            "저장소 shard 안전 변경 정책 감사",
+            "repository-policy",
+            "정책 작업트리 변경은 권한이 아닙니다",
+            "hooks/**",
+            "tests/**",
+            "dist/**",
+            "실행 계획을 만든 뒤",
+        ):
+            self.assertIn(marker, audit)
 
     def test_release_documents_identify_current_and_preserve_release_history(self) -> None:
         for readme in _readmes().values():

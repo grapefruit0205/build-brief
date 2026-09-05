@@ -399,6 +399,12 @@ def _control_request(command: str) -> tuple[str | None, str, str]:
         "status",
     }:
         return "observer", tokens[2], ""
+    if len(tokens) == 3 and tokens[1] == "diagnostics" and tokens[2] in {
+        "off",
+        "on",
+        "status",
+    }:
+        return "diagnostics", tokens[2], ""
     if len(tokens) == 3 and tokens[1] == "dashboard" and tokens[2] in {
         "start",
         "stop",
@@ -426,6 +432,7 @@ def _control_request(command: str) -> tuple[str | None, str, str]:
         f"`{CONTROL_COMMAND} mutate '<Mutation JSON>'`, "
         f"`{CONTROL_COMMAND} service '<Managed Service JSON>'`, "
         f"`{CONTROL_COMMAND} observer off|shadow|status`, "
+        f"`{CONTROL_COMMAND} diagnostics off|on|status`, "
         f"`{CONTROL_COMMAND} dashboard start|stop|status`, "
         f"`{CONTROL_COMMAND} evidence '<Evidence Completion JSON>'`, "
         f"`{CONTROL_COMMAND} verify '<Verification Batch JSON>'`, "

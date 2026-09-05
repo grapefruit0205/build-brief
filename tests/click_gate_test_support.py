@@ -43,6 +43,7 @@ CLICK_INSPECTION = CLICK_GATE.click_inspection
 CLICK_LIFECYCLE = CLICK_GATE.click_lifecycle
 CLICK_MUTATION = CLICK_GATE.click_mutation
 CLICK_OBSERVER_CONTROL = CLICK_GATE.click_observer_control
+CLICK_REUSE_DIAGNOSTICS = CLICK_GATE.click_reuse_diagnostics
 CLICK_PROMPT = CLICK_GATE.click_prompt
 CLICK_SERVICE = CLICK_GATE.click_service
 CLICK_SHADOW_DASHBOARD = CLICK_GATE.click_shadow_dashboard

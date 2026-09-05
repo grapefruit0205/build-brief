@@ -16,8 +16,12 @@ import re
 import time
 from typing import Any, Iterable
 
+if __package__:
+    from . import click_reuse_diagnostics
+else:  # Executed beside the bundled hook modules.
+    import click_reuse_diagnostics
 
-PLAN_VERSION = 2
+PLAN_VERSION = 3
 PLAN_FIELD = "incremental_plan"
 CURRENT_BATCH_FIELD = "incremental_batch_id"
 BATCH_EVENT = "verification-batch"
@@ -71,7 +75,7 @@ REASON_CODES = frozenset(
 )
 
 _DIGEST = re.compile(r"^[0-9a-f]{64}$")
-_DECISION_FIELDS = frozenset(
+_DECISION_FIELDS_V2 = frozenset(
     {
         "source_key",
         "decision",
@@ -83,6 +87,7 @@ _DECISION_FIELDS = frozenset(
         "estimated_avoided_ms",
     }
 )
+_DECISION_FIELDS = _DECISION_FIELDS_V2 | {"reuse_diagnostic"}
 _LEGACY_PLAN_FIELDS = frozenset(
     {
         "version",
@@ -159,6 +164,7 @@ def decision(
     authority_source: str,
     estimated_avoided_ms: int | float | None = 0,
     duration_baseline: dict[str, Any] | None = None,
+    reuse_diagnostic: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build one strict, content-free plan decision."""
     value = {
@@ -172,6 +178,8 @@ def decision(
         "estimated_avoided_ms": estimated_avoided_ms,
         "duration_baseline": duration_baseline,
     }
+    if reuse_diagnostic is not None:
+        value["reuse_diagnostic"] = reuse_diagnostic
     if not decision_is_valid(value):
         raise ValueError("invalid incremental-verification decision")
     return value
@@ -195,11 +203,12 @@ _BATCH_FIELDS = frozenset({
     "status", "reason_code", "requested_source_count", "sources",
     "prepare_duration_ms", "runner_duration_ms", "request_wall_ms", "measurement_scope",
 })
-_SOURCE_FIELDS_V1 = _DECISION_FIELDS | {
+_SOURCE_FIELDS_V1 = _DECISION_FIELDS_V2 | {
     "duration_baseline", "label", "status", "started", "completed",
     "duration_ms", "execution_reason_code",
 }
-_SOURCE_FIELDS = _SOURCE_FIELDS_V1 | {"reuse_origin"}
+_SOURCE_FIELDS_V2 = _SOURCE_FIELDS_V1 | {"reuse_origin"}
+_SOURCE_FIELDS = _SOURCE_FIELDS_V2 | {"reuse_diagnostic"}
 _REUSE_ORIGIN_FIELDS = frozenset({
     "kind", "batch_id", "evidence_session_id", "candidate_digest",
     "origin_revision",
@@ -242,10 +251,11 @@ def reuse_origin_is_valid(value: Any) -> bool:
 
 def source_result_is_valid(value: Any) -> bool:
     if not isinstance(value, dict) or set(value) not in {
-        _SOURCE_FIELDS_V1, _SOURCE_FIELDS
+        _SOURCE_FIELDS_V1, _SOURCE_FIELDS_V2, _SOURCE_FIELDS
     }:
         return False
-    planned = {key: value[key] for key in _DECISION_FIELDS | {"duration_baseline"}}
+    decision_fields = _DECISION_FIELDS if "reuse_diagnostic" in value else _DECISION_FIELDS_V2
+    planned = {key: value[key] for key in decision_fields | {"duration_baseline"}}
     if planned["decision"] is None:
         planned.update(decision="not-evaluable", reason_code="receipt-invalid")
     if not decision_is_valid(planned):
@@ -274,7 +284,7 @@ def batch_is_valid(value: Any) -> bool:
         return False
     items = value.get("sources")
     return bool(
-        value.get("event") == BATCH_EVENT and value.get("version") in {1, 2}
+        value.get("event") == BATCH_EVENT and value.get("version") in {1, 2, 3}
         and isinstance(value.get("batch_id"), str)
         and re.fullmatch(r"[0-9a-f]{32}", value["batch_id"])
         and _is_integer(value.get("timestamp"), minimum=1)
@@ -287,7 +297,8 @@ def batch_is_valid(value: Any) -> bool:
         and all(source_result_is_valid(item) for item in items)
         and all(
             (value["version"] == 1 and "reuse_origin" not in item)
-            or (value["version"] == 2 and "reuse_origin" in item)
+            or (value["version"] == 2 and "reuse_origin" in item and "reuse_diagnostic" not in item)
+            or (value["version"] == 3 and "reuse_origin" in item and "reuse_diagnostic" in item)
             for item in items
         )
         and len({item["source_key"] for item in items}) == len(items)
@@ -320,7 +331,9 @@ def new_batch(
         for item in requested or []
     ]
     batch = {
-        "event": BATCH_EVENT, "version": 2, "batch_id": batch_id,
+        "event": BATCH_EVENT,
+        "version": 3 if plan_is_valid(plan) and plan.get("version") == 3 else 2,
+        "batch_id": batch_id,
         "timestamp": timestamp, "finished_at": None, "current_revision": revision,
         "status": "planned", "reason_code": "", "requested_source_count": len(items) if plan or requested is not None else None,
         "sources": [],
@@ -546,7 +559,10 @@ def batch_summary(batch: dict[str, Any]) -> dict[str, Any]:
 
 def decision_is_valid(value: Any) -> bool:
     if not isinstance(value, dict) or set(value) not in (
-        _DECISION_FIELDS, _DECISION_FIELDS | {"duration_baseline"}
+        _DECISION_FIELDS_V2,
+        _DECISION_FIELDS_V2 | {"duration_baseline"},
+        _DECISION_FIELDS,
+        _DECISION_FIELDS | {"duration_baseline"},
     ):
         return False
     selected = value.get("decision")
@@ -565,6 +581,20 @@ def decision_is_valid(value: Any) -> bool:
         or (avoided is not None and not is_duration(avoided))
         or (value.get("duration_baseline") is not None
             and not baseline_is_valid(value["duration_baseline"]))
+        or (
+            value.get("reuse_diagnostic") is not None
+            and not click_reuse_diagnostics.diagnostic_is_valid(
+                value["reuse_diagnostic"], allowed_reasons=REASON_CODES
+            )
+        )
+        or (
+            value.get("reuse_diagnostic") is not None
+            and (
+                value["reuse_diagnostic"]["decision"] != selected
+                or value["reuse_diagnostic"]["primary_reason_code"]
+                != value.get("reason_code")
+            )
+        )
     ):
         return False
     expected_authority = {
@@ -594,6 +624,7 @@ def build_plan(
         not normalized
         or not _is_integer(current_revision)
         or any(not decision_is_valid(item) for item in normalized)
+        or len({"reuse_diagnostic" in item for item in normalized}) != 1
         or any(item["current_revision"] != current_revision for item in normalized)
         or len({item["source_key"] for item in normalized}) != len(normalized)
     ):
@@ -604,7 +635,7 @@ def build_plan(
     }
     timestamp = int(time.time()) if planned_at is None else planned_at
     plan = {
-        "version": PLAN_VERSION,
+        "version": PLAN_VERSION if "reuse_diagnostic" in normalized[0] else 2,
         "planned_at": timestamp,
         "current_revision": current_revision,
         "total_source_count": len(normalized),
@@ -630,6 +661,7 @@ def _legacy_plan_is_valid(value: Any) -> bool:
         or not isinstance(decisions, list)
         or not decisions
         or any(not decision_is_valid(item) for item in decisions)
+        or any("reuse_diagnostic" in item for item in decisions)
         or any(not _is_integer(item.get("estimated_avoided_ms")) for item in decisions)
         or decisions != sorted(decisions, key=lambda item: item["source_key"])
         or len({item["source_key"] for item in decisions}) != len(decisions)
@@ -681,7 +713,7 @@ def plan_is_valid(value: Any) -> bool:
         return False
     items = value.get("decisions")
     if (
-        value.get("version") != PLAN_VERSION
+        value.get("version") not in {2, PLAN_VERSION}
         or not _is_integer(value.get("planned_at"), minimum=1)
         or not _is_integer(value.get("current_revision"))
         or not isinstance(items, list) or not items
@@ -689,6 +721,10 @@ def plan_is_valid(value: Any) -> bool:
         or items != sorted(items, key=lambda item: item["source_key"])
         or len({item["source_key"] for item in items}) != len(items)
         or any(item["current_revision"] != value["current_revision"] for item in items)
+        or any(
+            ("reuse_diagnostic" in item) != (value.get("version") == PLAN_VERSION)
+            for item in items
+        )
     ):
         return False
     runs = sum(item["decision"] not in REUSE_DECISIONS for item in items)

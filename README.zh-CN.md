@@ -165,7 +165,7 @@ observer 的安全改动策略：
 后的额外漂移都会触发真实检查。策略文件不能把自身声明为安全路径。该流程只用
 Git 和插件自带的 Python，因此 Linux、macOS 与 Windows 都无需另装平台 observer。
 此列表是仓库所有者的明确策略，并不表示 Click 自动发现了全部依赖。
-已提交的 [Evidence Shards 映射](skills/click/references/evidence-shards-v1.md)可把一个精确 broad suite 拆成独立子项，并在后续 shard 失败时保留先前通过结果。该映射本身不能授权 mutation 后复用；上述规则仍逐项生效，映射无效时会执行原始 suite。
+已提交的 [Evidence Shards 映射](skills/click/references/evidence-shards-v1.md) v2 也可定义稳定验证名称。例如，`click-gate verify '{"version":2,"workdir":"/absolute/repository","names":["auth-unit"]}'` 会从已提交设置解析 `auth-unit` 的精确 argv，再进入原有 canonical plan 与 one-use runner。原始 argv 请求仍受支持；名称不会任意归一化命令，也不授予审批或保证代码变更后的复用。具名 broad suite 可继续拆成独立 shard，错误或正在编辑的映射会 fail closed。
 
 Observer 默认关闭，并且与 Dashboard 独立。使用 `click-gate observer off`、
 `shadow`、`status` 控制；只有明确开启 `shadow` 后，兼容的真实检查才会附加原生
@@ -174,6 +174,9 @@ Observer 默认关闭，并且与 Dashboard 独立。使用 `click-gate observer
 Shadow 预测本身绝不会授权跳过检查。Dashboard 分开显示真实执行、获得权威授权的
 exact/dependency/policy 复用、根据最近运行估算的避免时间，以及 Shadow 潜在值。
 使用 `click-gate dashboard start`、`status`、`stop` 打开、查看或关闭。
+Reuse Diagnostics 是默认开启的只读记录，可用 `click-gate diagnostics on`、`off`、`status` 控制。它在执行前冻结既有成功结果、实际 authoritative 决策与首要原因、
+已计算出的其他不匹配项以及明确的 `not-evaluated` 项，再与真实 batch 结果关联。关闭它不会改变复用权限、runner 内容、Guarded 审批或 receipt。
+一个验证组可能同时属于多个原因，因此原因时间会重叠，不能相加；只有单独显示的去重合计可作为总数。保守重跑不会被称为“不必要”。
 
 运行 `python3 benchmarks/incremental_verification.py --iterations 3 --warmups 1 --output /tmp/click-comparison.json` 可通过真实 Hook 和 runner 进行本地配对比较，再在 Dashboard 中选择 JSON。界面按“验证组”区分计划、实际执行、复用和未执行，提供批次时间线与 JSON/独立 HTML 导出；局部实测、未测量的完整等待时间、历史成本估算和 Shadow 分开显示。短检查可能因管理成本而变慢。详见[计量范围与使用说明](VERIFICATION_EFFICIENCY.md)。
 

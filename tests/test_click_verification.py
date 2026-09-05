@@ -234,6 +234,31 @@ class ClickVerificationTests(unittest.TestCase):
             "`class`; legacy shell-string `commands` are no longer accepted.",
         )
 
+        rejected, _, error = click_verification.validate_batch(
+            json.dumps(
+                {
+                    "version": 2,
+                    "checks": [
+                        {
+                            "argv": [
+                                "python3",
+                                "-m",
+                                "unittest",
+                                "tests.test_one",
+                            ],
+                            "class": "targeted",
+                        }
+                    ],
+                    "named_selection_binding": {
+                        "provider": "forged"
+                    },
+                }
+            ),
+            "focused",
+        )
+        self.assertIsNone(rejected)
+        self.assertIn("unsupported field", error)
+
     def test_cross_revision_reuse_requires_complete_runtime_observation(self) -> None:
         host_coverage = click_host_coverage.receipt("codex")
         observations = {

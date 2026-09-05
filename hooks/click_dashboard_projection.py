@@ -22,6 +22,7 @@ if __package__:
         click_dependency_trace,
         click_incremental,
         click_observer_control,
+        click_reuse_diagnostics,
         click_shadow_intelligence,
     )
 else:  # Executed beside the bundled hook modules.
@@ -29,10 +30,11 @@ else:  # Executed beside the bundled hook modules.
     import click_dependency_trace
     import click_incremental
     import click_observer_control
+    import click_reuse_diagnostics
     import click_shadow_intelligence
 
 
-PROJECTION_VERSION = 3
+PROJECTION_VERSION = 4
 PROJECTION_MODE = "incremental-verification"
 MAX_SOURCES = click_shadow_intelligence.MAX_STATE_SOURCES
 MAX_INPUTS = click_shadow_intelligence.MAX_PROJECTION_INPUTS
@@ -61,9 +63,11 @@ _TASK_FIELDS = frozenset(
         "mutation_revision",
         "observer_mode",
         "observer_enabled",
+        "reuse_diagnostics_mode",
+        "reuse_diagnostics_enabled",
     }
 )
-_SUMMARY_FIELDS = frozenset({"incremental", "shadow"})
+_SUMMARY_FIELDS = frozenset({"incremental", "shadow", "reuse_diagnostics"})
 _INCREMENTAL_FIELDS = frozenset(click_incremental.SUMMARY_FIELDS) | {"current_source_count"}
 _TIME_FIELDS = frozenset({"executed_duration_ms", "estimated_avoided_ms", "request_wall_ms", "measured_processing_ms"})
 _SHADOW_FIELDS = frozenset(
@@ -100,6 +104,7 @@ _SOURCE_FIELDS = frozenset(
         "shadow_outcome",
         "execution_status", "execution_reason_code", "duration_ms", "duration_baseline",
         "reuse_origin",
+        "reuse_diagnostic",
     }
 )
 _MAP_FIELDS = frozenset(
@@ -260,7 +265,12 @@ def dashboard_projection(
             }
         )
 
+        result = actual.get(key, {})
         decision = decisions.get(key)
+        if decision is None and result.get("decision") in click_incremental.DECISIONS:
+            # History-only state intentionally carries no live plan authority;
+            # the witnessed batch still retains its frozen explanatory plan.
+            decision = result
         if decision is None:
             execution_decision = "not-planned"
             reason_code = ""
@@ -276,7 +286,9 @@ def dashboard_projection(
             current_revision = int(decision["current_revision"])
             previous_revision = int(decision["previous_revision"])
             estimated_avoided_ms = None
-        result = actual.get(key, {})
+        reuse_diagnostic = result.get("reuse_diagnostic")
+        if reuse_diagnostic is None and decision is not None:
+            reuse_diagnostic = decision.get("reuse_diagnostic")
         duration_baseline = result.get("duration_baseline")
         if result.get("status") == "reused" and click_incremental.baseline_is_valid(duration_baseline):
             estimated_avoided_ms = duration_baseline["duration_ms"]
@@ -361,6 +373,7 @@ def dashboard_projection(
                 "duration_ms": result.get("duration_ms"),
                 "duration_baseline": duration_baseline,
                 "reuse_origin": result.get("reuse_origin"),
+                "reuse_diagnostic": reuse_diagnostic,
                 "observer_status": observer_status,
                 "input_count": len(input_keys),
                 "visible_input_count": source_visible,
@@ -398,6 +411,7 @@ def dashboard_projection(
         _source_status(evidence_sources.get(key)) == "passed" for key in plan_keys
     )
     observer_control = click_observer_control.projection(verification)
+    diagnostic_control = click_reuse_diagnostics.projection(verification)
     runtime_mode = raw_state.get("runtime_mode")
     if runtime_mode not in {"evidence", "guarded"}:
         runtime_mode = "unknown"
@@ -422,10 +436,13 @@ def dashboard_projection(
             "mutation_revision": revision,
             "observer_mode": observer_control["mode"],
             "observer_enabled": observer_control["enabled"],
+            "reuse_diagnostics_mode": diagnostic_control["mode"],
+            "reuse_diagnostics_enabled": diagnostic_control["enabled"],
         },
         "summary": {
             "incremental": incremental,
             "shadow": _shadow_metrics(intelligence),
+            "reuse_diagnostics": click_reuse_diagnostics.aggregate(history),
         },
         "sources": sources,
         "batches": history[-MAX_RECENT_BATCHES:],
@@ -485,6 +502,9 @@ def projection_is_valid(value: Any) -> bool:
         or task.get("observer_mode") not in click_observer_control.MODES
         or task.get("observer_enabled")
         != (task.get("observer_mode") == "shadow")
+        or task.get("reuse_diagnostics_mode") not in click_reuse_diagnostics.MODES
+        or task.get("reuse_diagnostics_enabled")
+        != (task.get("reuse_diagnostics_mode") == "on")
         or not isinstance(summary, dict)
         or set(summary) != _SUMMARY_FIELDS
         or not isinstance(sources, list)
@@ -495,6 +515,7 @@ def projection_is_valid(value: Any) -> bool:
         return False
     incremental = summary.get("incremental")
     shadow = summary.get("shadow")
+    reuse_diagnostics = summary.get("reuse_diagnostics")
     if (
         not isinstance(incremental, dict)
         or set(incremental) != _INCREMENTAL_FIELDS
@@ -514,6 +535,7 @@ def projection_is_valid(value: Any) -> bool:
         or shadow.get("tracing_slowdown_measured") is not False
         or shadow["confirmed_candidate_count"] > shadow["evaluated_source_count"]
         or shadow["contradiction_count"] > shadow["evaluated_source_count"]
+        or not click_reuse_diagnostics.aggregate_is_valid(reuse_diagnostics)
     ):
         return False
     reused_counts = [incremental[key] for key in ("authoritative_reuse_count", "exact_reuse_count", "dependency_reuse_count", "safe_change_reuse_count")]
@@ -569,6 +591,13 @@ def projection_is_valid(value: Any) -> bool:
                     source["reuse_origin"]
                 )
             )
+            or (
+                source.get("reuse_diagnostic") is not None
+                and not click_reuse_diagnostics.diagnostic_is_valid(
+                    source["reuse_diagnostic"],
+                    allowed_reasons=click_incremental.REASON_CODES,
+                )
+            )
             or source.get("observer_status")
             not in click_dependency_cache.SHADOW_OBSERVER_STATUSES
             or any(
@@ -608,6 +637,12 @@ def projection_is_valid(value: Any) -> bool:
             if source["reason_code"] or source["authority_source"] != "none":
                 return False
         elif not source["reason_code"]:
+            return False
+        diagnostic = source.get("reuse_diagnostic")
+        if diagnostic is not None and (
+            diagnostic["decision"] != source["execution_decision"]
+            or diagnostic["primary_reason_code"] != source["reason_code"]
+        ):
             return False
         source_ids.add(source["id"])
 

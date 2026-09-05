@@ -30,6 +30,8 @@ Do not treat a question about Click as a mutation. Bypass and cancel require the
 
 Use the current user prompt as the intent lineage. Do not invent a contract, contract approval, or approved dependency declaration. Choose concrete checks from repository evidence during execution and submit their stable evidence ids with `click-gate verify`; Evidence mode may register those argv sources dynamically. Same-revision reuse still requires exact receipt bindings. Cross-revision reuse requires both a committed `.click/evidence-dependencies.json` mapping and a complete baseline runtime dependency observation. Concrete paths remain hard dependencies, expanding manifest patterns may be refined to observed inputs, and every effective input must remain unchanged.
 
+When `.click/evidence-shards.json` schema v2 declares stable `verifications`, prefer `click-gate verify` with its `names` list instead of rewriting argv. Click resolves those committed names to exact argv before using this same evidence and runner path. Raw `checks` remain supported. A name is never approval or reuse authority, and an undeclared Guarded id remains denied.
+
 An exact check may also use a committed `.click/evidence-reuse.json` safe-change entry without an observer. Treat that file only as repository-owner authority established before the baseline: never create, widen, or reinterpret it to skip checks for the current mutation. Click compares the baseline and current effective Git states, reports net changed paths, and reuses only when every path matches `reuse_if_only_changed`. Any unknown or unlisted path reruns automatically. A complete runtime observation is stronger and cannot be overridden by this declaration.
 
 A repository may decompose an exact broad source through committed [Evidence Shards v1](references/evidence-shards-v1.md). Continue submitting the declared parent id and argv; Click validates and runs the children. The shard map authorizes decomposition only. After mutation, each child still needs the ordinary dependency-observation or safe-change authority before its prior pass can be reused.
@@ -73,6 +75,8 @@ For a sharded broad source, always resubmit the approved parent id and exact par
 When submitting verification, include the actual repository directory as the top-level absolute `workdir` whenever the execution tool is launched outside the Hook session directory. This is required for Codex calls that select a per-call workdir because the Hook event exposes only the session cwd. The one-use runner checks that its real cwd matches the prepared binding before any check executes.
 
 When the user asks to view Shadow data, use the explicit `click-gate dashboard start`, `status`, and `stop` controls described in the capability protocol. Treat its Evidence Map and ROI as current-lifecycle, non-authoritative telemetry, and stop the viewer when the inspection is complete.
+
+Reuse Diagnostics is read-only explanatory telemetry. Use `click-gate diagnostics on|off|status` when the user asks to control it; never treat a diagnostic blocker list or cost as reuse authority or proof that a rerun was unnecessary.
 
 Keep Observer collection separate from that viewer. New lifecycles default to
 `click-gate observer off`; use the explicit `shadow` control only when Shadow

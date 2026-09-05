@@ -63,13 +63,17 @@ api.renderMap({map},source);
 assert.equal(doc.getElementById('map').children.filter(n=>n.tag==='g').length,49);
 assert.equal(doc.getElementById('mapMeta').textContent,'입력 48개 표시 · 12개 생략');
 // Explicitly synthetic sensitive-field fixture, not a usable credential.
-const snapshot={generated_at:1000,summary:{shadow:{candidate_count:9}},private_token:'<example-private-value>'};
+const diagnostics={diagnosed_source_count:1,blocked_source_count:1,reused_source_count:0,not_evaluated_check_count:4,cause_costs_overlap:true,
+  deduplicated:{passed_source_count:1,failed_source_count:0,interrupted_source_count:0,not_run_source_count:0,pending_source_count:0,measured_passed_source_count:1,measured_failed_source_count:0,measured_interrupted_source_count:0,observed_passed_execution_ms:12.5,observed_failed_execution_ms:null,observed_interrupted_execution_ms:null,baseline_present_count:1,incomplete_measurement_count:0},
+  causes:[{reason_code:'environment-binding-changed',source_count:1,single_cause_source_count:1,multiple_cause_source_count:0,passed_source_count:1,failed_source_count:0,interrupted_source_count:0,not_run_source_count:0,pending_source_count:0,measured_passed_source_count:1,measured_failed_source_count:0,measured_interrupted_source_count:0,observed_passed_execution_ms:12.5,observed_failed_execution_ms:null,observed_interrupted_execution_ms:null,baseline_present_count:1,incomplete_measurement_count:0}]};
+const snapshot={generated_at:1000,summary:{shadow:{candidate_count:9},reuse_diagnostics:diagnostics},private_token:'<example-private-value>'};
 const batch=JSON.parse(JSON.stringify(input.batch));batch.sources[0].label='</td><script>alert(1)</script>';
 batch.sources[0].reuse_origin={kind:'successor-evidence',batch_id:'a'.repeat(32),evidence_session_id:'evs_'+'b'.repeat(32),candidate_digest:'c'.repeat(64),origin_revision:7};
 api.setState(snapshot,batch,input.summary,safe);
 const report=api.shareReport();assert(!JSON.stringify(report).includes('<example-private-value>'));
 assert.equal(report.summary.authoritative_reuse_count,input.summary.authoritative_reuse_count);
 assert.equal(report.batch.sources[0].reuse_origin.origin_revision,7);
+assert.equal(report.reuse_diagnostics.causes[0].reason_code,'environment-binding-changed');
 const html=api.standaloneReport(report);assert(!html.includes('<script>'));assert(html.includes('&lt;script&gt;'));
 assert(html.includes('이전 배치 aaaaaaaaaaaa에서 재판정'));
 assert(!html.includes('src="http'));assert(!html.includes('href="http'));

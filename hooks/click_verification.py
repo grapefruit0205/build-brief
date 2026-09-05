@@ -41,6 +41,7 @@ if __package__:
         click_observation,
         click_observer_control,
         click_process,
+        click_reuse_diagnostics,
         click_runtime_state,
         click_shadow_intelligence,
         click_state,
@@ -63,6 +64,7 @@ else:  # Executed directly from the bundled hooks directory.
     import click_observation
     import click_observer_control
     import click_process
+    import click_reuse_diagnostics
     import click_runtime_state
     import click_shadow_intelligence
     import click_state
@@ -73,6 +75,8 @@ else:  # Executed directly from the bundled hooks directory.
 PROTOCOL_VERSION = 2
 CONTRACT_STATE_SCHEMA_VERSION = 2
 BATCH_FIELDS = {"version", "checks", "workdir"}
+NAMED_REQUEST_FIELDS = {"version", "names", "workdir"}
+NAMED_SELECTION_BINDING_FIELD = "named_selection_binding"
 CHECK_FIELDS = {"evidence_id", "argv", "class"}
 VERIFICATION_CLASSES = click_verification_meter.VERIFICATION_CLASSES
 RUNNING_TTL_SECONDS = 60 * 60
@@ -110,6 +114,12 @@ TEST_OPTIONS_WITH_VALUES = TEST_FILTER_OPTIONS | {
 NEW_SOURCE_PATH_SEGMENTS = {
     "app", "config", "configs", "lib", "migration", "migrations", "src",
 }
+PLANNED_REUSE_WORKSPACE_BINDING_ERROR = (
+    "Click verification planned reuse workspace binding was malformed."
+)
+PLANNED_REUSE_WORKSPACE_CHANGED_ERROR = (
+    "Click verification workspace changed after reuse planning; no check was run."
+)
 
 
 _fresh_mutation_boundary = click_mutation.fresh_boundary
@@ -160,11 +170,16 @@ def _fresh_verification_state(contract: dict[str, Any]) -> dict[str, Any]:
         "running_executable_digests": {},
         "running_host_coverage": {},
         "running_host_coverage_digest": "",
+        "running_reuse_workspace_binding": {},
+        "running_reuse_workspace_binding_digest": "",
         "workspace_changed": False,
         "mutation_boundary": _fresh_mutation_boundary(),
         "started_at": 0,
         click_observer_control.CONTROL_FIELD: (
             click_observer_control.fresh_state()
+        ),
+        click_reuse_diagnostics.CONTROL_FIELD: (
+            click_reuse_diagnostics.fresh_state()
         ),
         click_dependency_trace.SHADOW_STATE_FIELD: (
             click_dependency_trace.fresh_state()
@@ -179,6 +194,8 @@ def _validate_verification_batch(
     raw: str,
     scale: str,
     evidence_sources: dict[str, Any] | None = None,
+    *,
+    allow_named_selection_binding: bool = False,
 ) -> tuple[dict[str, Any] | None, int, str]:
     value, error = _decode_capability_request(
         raw,
@@ -195,7 +212,10 @@ def _validate_verification_batch(
             "Click verification uses `checks` with argv arrays and a submitted "
             "`class`; legacy shell-string `commands` are no longer accepted.",
         )
-    unknown = sorted(set(value) - VERIFICATION_BATCH_FIELDS)
+    allowed_batch_fields = set(VERIFICATION_BATCH_FIELDS)
+    if allow_named_selection_binding:
+        allowed_batch_fields.add(NAMED_SELECTION_BINDING_FIELD)
+    unknown = sorted(set(value) - allowed_batch_fields)
     if unknown:
         rendered = ", ".join(f"`{field}`" for field in unknown)
         return None, 0, f"Verification batch contains unsupported field(s): {rendered}."
@@ -292,6 +312,16 @@ def _validate_verification_batch(
     }
     if isinstance(workdir, str):
         normalized_batch["workdir"] = workdir
+    if NAMED_SELECTION_BINDING_FIELD in value:
+        binding = value.get(NAMED_SELECTION_BINDING_FIELD)
+        if (
+            not allow_named_selection_binding
+            or not click_evidence_shards.selection_binding_is_valid(binding)
+        ):
+            return None, 0, "Verification batch named selection binding is invalid."
+        normalized_batch[NAMED_SELECTION_BINDING_FIELD] = json.loads(
+            json.dumps(binding)
+        )
     return normalized_batch, units, ""
 
 
@@ -453,6 +483,75 @@ def _verification_host_coverage_binding_is_authentic(
         coverage, runner_token
     )
     return bool(expected and secrets.compare_digest(digest, expected))
+
+
+def _verification_reuse_workspace_binding(
+    *, required: bool, root: str = "", digest: str = ""
+) -> dict[str, Any]:
+    return {
+        "required": required,
+        "root": root if required else "",
+        "digest": digest if required else "",
+    }
+
+
+def _verification_reuse_workspace_binding_digest(
+    binding: Any, runner_token: str
+) -> str:
+    try:
+        canonical = json.dumps(binding, sort_keys=True, separators=(",", ":"))
+    except (TypeError, ValueError):
+        return ""
+    return _verification_environment_hmac(
+        runner_token, "reuse-workspace", canonical
+    )
+
+
+def _verification_reuse_workspace_snapshot(
+    binding: Any,
+    binding_digest: Any,
+    runner_token: str,
+    *,
+    cwd: Path,
+    git_workspace_snapshot: Callable[..., dict[str, Any] | None],
+) -> tuple[dict[str, Any] | None, str]:
+    if (
+        not isinstance(binding, dict)
+        or set(binding) != {"required", "root", "digest"}
+        or not isinstance(binding.get("required"), bool)
+        or not isinstance(binding_digest, str)
+        or re.fullmatch(r"[0-9a-f]{64}", binding_digest) is None
+    ):
+        return None, PLANNED_REUSE_WORKSPACE_BINDING_ERROR
+    expected_binding_digest = _verification_reuse_workspace_binding_digest(
+        binding, runner_token
+    )
+    if not expected_binding_digest or not secrets.compare_digest(
+        binding_digest, expected_binding_digest
+    ):
+        return None, PLANNED_REUSE_WORKSPACE_BINDING_ERROR
+    required = binding["required"]
+    root = binding.get("root")
+    digest = binding.get("digest")
+    if not required:
+        if root or digest:
+            return None, PLANNED_REUSE_WORKSPACE_BINDING_ERROR
+        return None, ""
+    if (
+        not isinstance(root, str)
+        or not root
+        or not isinstance(digest, str)
+        or re.fullmatch(r"[0-9a-f]{64}", digest) is None
+    ):
+        return None, PLANNED_REUSE_WORKSPACE_BINDING_ERROR
+    current = git_workspace_snapshot(cwd)
+    if (
+        not isinstance(current, dict)
+        or os.path.normcase(str(current.get("root", ""))) != root
+        or current.get("digest") != digest
+    ):
+        return None, PLANNED_REUSE_WORKSPACE_CHANGED_ERROR
+    return current, ""
 
 
 def _verification_environment_from_binding(
@@ -966,6 +1065,254 @@ def _promote_safe_change_receipt(
     source["last_safe_change_decision_digest"] = decision["decision_digest"]
 
 
+def _diagnostic_record(
+    facts: dict[str, Any] | None,
+    condition: str,
+    matched: bool | None,
+    *,
+    reason_code: str = "",
+) -> None:
+    if facts is not None:
+        click_reuse_diagnostics.record(
+            facts, condition, matched, reason_code=reason_code
+        )
+
+
+def _record_binding_diagnostics(
+    facts: dict[str, Any] | None,
+    source: dict[str, Any],
+    *,
+    contract_digest: str,
+    group_digest: str,
+    git_root: str,
+    tree_digest: str,
+    environment_digest: str,
+    executable_digest: str,
+    host_coverage: dict[str, Any],
+    cross_revision: bool = False,
+) -> None:
+    """Record cheap comparisons using fingerprints already built for authority."""
+    if facts is None:
+        return
+    click_reuse_diagnostics.mark_considered(facts)
+    _diagnostic_record(
+        facts,
+        "contract-binding",
+        source.get("verified_contract_digest") == contract_digest,
+        reason_code="contract-binding-changed"
+        if source.get("verified_contract_digest") != contract_digest
+        else "",
+    )
+    _diagnostic_record(
+        facts,
+        "check-binding",
+        source.get("verified_check_digest") == group_digest,
+        reason_code="check-binding-changed"
+        if source.get("verified_check_digest") != group_digest
+        else "",
+    )
+    root_matches = source.get("verified_root") == git_root
+    _diagnostic_record(
+        facts,
+        "workspace-binding",
+        root_matches,
+        reason_code="workspace-ambiguous" if not root_matches else "",
+    )
+    if cross_revision:
+        _diagnostic_record(facts, "workspace-tree-binding", None)
+    else:
+        tree_matches = source.get("verified_tree_digest") == tree_digest
+        _diagnostic_record(
+            facts,
+            "workspace-tree-binding",
+            tree_matches,
+            reason_code="workspace-ambiguous" if not tree_matches else "",
+        )
+    executable_matches = source.get("verified_executable_digest") == executable_digest
+    _diagnostic_record(
+        facts,
+        "executable-binding",
+        executable_matches,
+        reason_code="executable-binding-changed" if not executable_matches else "",
+    )
+    environment_matches = source.get("verified_environment_digest") == environment_digest
+    _diagnostic_record(
+        facts,
+        "environment-binding",
+        environment_matches,
+        reason_code="environment-binding-changed" if not environment_matches else "",
+    )
+    coverage_matches = bool(
+        click_host_coverage.receipt_is_current(host_coverage)
+        and source.get("verified_host_coverage") == host_coverage
+    )
+    _diagnostic_record(
+        facts,
+        "host-coverage-binding",
+        coverage_matches,
+        reason_code="host-coverage-binding-changed" if not coverage_matches else "",
+    )
+
+
+def _record_successor_binding_diagnostics(
+    facts: dict[str, Any] | None,
+    previous: dict[str, Any],
+    current: dict[str, Any],
+    *,
+    group_digest: str,
+    git_root: str,
+    environment_digest: str,
+    executable_digest: str,
+    host_coverage: dict[str, Any],
+) -> None:
+    if facts is None:
+        return
+    click_reuse_diagnostics.mark_considered(facts)
+    check_matches = bool(
+        previous.get("verified_check_digest") == group_digest
+        and previous.get("shard") == current.get("shard")
+    )
+    _diagnostic_record(
+        facts,
+        "check-binding",
+        check_matches,
+        reason_code="check-binding-changed" if not check_matches else "",
+    )
+    root_matches = previous.get("verified_root") == git_root
+    _diagnostic_record(
+        facts,
+        "workspace-binding",
+        root_matches,
+        reason_code="workspace-ambiguous" if not root_matches else "",
+    )
+    executable_matches = previous.get("verified_executable_digest") == executable_digest
+    _diagnostic_record(
+        facts,
+        "executable-binding",
+        executable_matches,
+        reason_code="executable-binding-changed" if not executable_matches else "",
+    )
+    environment_matches = previous.get("verified_environment_digest") == environment_digest
+    _diagnostic_record(
+        facts,
+        "environment-binding",
+        environment_matches,
+        reason_code="environment-binding-changed" if not environment_matches else "",
+    )
+    coverage_matches = bool(
+        click_host_coverage.receipt_is_current(host_coverage)
+        and previous.get("verified_host_coverage") == host_coverage
+    )
+    _diagnostic_record(
+        facts,
+        "host-coverage-binding",
+        coverage_matches,
+        reason_code="host-coverage-binding-changed" if not coverage_matches else "",
+    )
+    verified_at = previous.get("verified_at")
+    integrity_matches = bool(
+        previous.get("status") == "passed"
+        and previous.get("last_exit_code") == 0
+        and isinstance(verified_at, int)
+        and not isinstance(verified_at, bool)
+        and verified_at > 0
+        and isinstance(previous.get("verified_tree_digest"), str)
+        and re.fullmatch(r"[0-9a-f]{64}", previous["verified_tree_digest"])
+    )
+    if integrity_matches:
+        click_reuse_diagnostics.mark_previous_success(facts)
+    else:
+        facts["baseline_status"] = "unknown"
+        _diagnostic_record(
+            facts,
+            "prior-success",
+            False,
+            reason_code="successor-evidence-integrity-invalid",
+        )
+    _diagnostic_record(
+        facts,
+        "successor-integrity",
+        integrity_matches,
+        reason_code="successor-evidence-integrity-invalid"
+        if not integrity_matches
+        else "",
+    )
+
+
+def _record_dependency_diagnostics(
+    facts: dict[str, Any] | None,
+    source: dict[str, Any],
+    receipt: Any,
+) -> None:
+    if facts is None:
+        return
+    observation = source.get("verified_dependency_observation")
+    observation_valid = click_dependency_cache.dependency_observation_is_valid(
+        observation
+    )
+    observation_complete = bool(
+        observation_valid
+        and click_dependency_cache.dependency_observation_is_complete(observation)
+    )
+    _diagnostic_record(
+        facts,
+        "dependency-observation-complete",
+        observation_complete,
+        reason_code="observer-incomplete" if not observation_complete else "",
+    )
+    external_modeled = bool(observation_valid and observation.get("external_access") is not True)
+    _diagnostic_record(
+        facts,
+        "external-input-modeled",
+        external_modeled if observation_valid else None,
+        reason_code="external-input-unmodeled"
+        if observation_valid and not external_modeled
+        else "",
+    )
+    if not observation_complete or not external_modeled:
+        _diagnostic_record(facts, "observed-inputs-unchanged", None)
+        return
+    if not _dependency_receipt_is_valid(receipt):
+        _diagnostic_record(facts, "observed-inputs-unchanged", None)
+        return
+    unchanged = bool(
+        source.get("verified_dependency_digest") == receipt["dependency_digest"]
+        and source.get("verified_dependency_paths") == receipt["resolved_paths"]
+        and source.get("verified_dependency_observation_digest")
+        == receipt["observation_digest"]
+        and source.get("verified_dependency_observation") == receipt["observation"]
+    )
+    _diagnostic_record(
+        facts,
+        "observed-inputs-unchanged",
+        unchanged,
+        reason_code="observed-input-changed" if not unchanged else "",
+    )
+
+
+def _record_safe_change_diagnostics(
+    facts: dict[str, Any] | None, decision: Any
+) -> None:
+    if facts is None:
+        return
+    status = decision.get("status") if isinstance(decision, dict) else "unknown"
+    available = status != "unknown"
+    _diagnostic_record(
+        facts,
+        "safe-change-policy-available",
+        available,
+        reason_code="policy-unavailable" if not available else "",
+    )
+    _diagnostic_record(
+        facts,
+        "safe-change-policy-covered",
+        status == "reuse" if available else None,
+        reason_code="safe-change-policy-not-covered"
+        if available and status != "reuse"
+        else "",
+    )
+
+
 def _reuse_binding_reason(
     source: dict[str, Any],
     *,
@@ -1157,6 +1504,7 @@ def _canonical_incremental_plan(
     safe_change_reused_keys: set[str],
     not_evaluable_keys: set[str],
     reason_codes: dict[str, str],
+    diagnostic_facts: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     decisions: list[dict[str, Any]] = []
     for source_key in sorted(requested_keys):
@@ -1181,6 +1529,15 @@ def _canonical_incremental_plan(
             or baseline["check_digest"] != group_digests[source_key]):
             baseline = None
         avoided = baseline["duration_ms"] if baseline is not None else None
+        reuse_diagnostic = (
+            click_reuse_diagnostics.freeze(
+                diagnostic_facts[source_key],
+                decision=selected,
+                primary_reason_code=reason_codes[source_key],
+            )
+            if diagnostic_facts is not None
+            else None
+        )
         decisions.append(
             click_incremental.decision(
                 source_key=source_key,
@@ -1192,6 +1549,7 @@ def _canonical_incremental_plan(
                 authority_source=authority,
                 estimated_avoided_ms=avoided if source_key in reused_keys else 0,
                 duration_baseline=baseline,
+                reuse_diagnostic=reuse_diagnostic,
             )
         )
     return click_incremental.build_plan(decisions, current_revision=revision)
@@ -1680,6 +2038,7 @@ def _expand_evidence_shards(
     scale: str,
     workspace: Path,
     git_capture: Callable[[Path, list[str]], bytes | None],
+    preloaded_entries: dict[str, dict[str, Any]] | None = None,
 ) -> tuple[dict[str, Any] | None, dict[str, Any] | None, list[str], str]:
     """Expand submitted broad parents while retaining their approval identity."""
     evidence_state = state.get("evidence_state")
@@ -1749,6 +2108,7 @@ def _expand_evidence_shards(
             parent_checks,
             parent_source_key=parent_source_key,
             git_capture=git_capture,
+            preloaded_entries=preloaded_entries,
         )
         plan_current = bool(
             decision.get("status") == "sharded"
@@ -1880,6 +2240,103 @@ def _tool_working_directory(
     return workdir.resolve()
 
 
+def _resolve_named_request(
+    event: dict[str, Any],
+    raw: str,
+    *,
+    git_capture: Callable[[Path, list[str]], bytes | None],
+) -> tuple[
+    str,
+    dict[str, Any] | None,
+    dict[str, str],
+    dict[str, dict[str, Any]] | None,
+    str,
+]:
+    """Expand a committed name request before ordinary batch validation."""
+    value, error = _decode_capability_request(
+        raw,
+        "Verification batch",
+        version=VERIFICATION_PROTOCOL_VERSION,
+    )
+    if error or value is None:
+        return "", None, {}, None, error
+    if "names" not in value:
+        return raw, None, {}, None, ""
+    if "checks" in value:
+        return (
+            "",
+            None,
+            {},
+            None,
+            "Verification batch must use either `names` or `checks`, not both.",
+        )
+    unknown = sorted(set(value) - NAMED_REQUEST_FIELDS)
+    if unknown:
+        rendered = ", ".join(f"`{field}`" for field in unknown)
+        return (
+            "",
+            None,
+            {},
+            None,
+            f"Named verification request contains unsupported field(s): {rendered}.",
+        )
+    workdir = value.get("workdir")
+    if workdir is not None and (
+        not isinstance(workdir, str)
+        or not workdir
+        or "\x00" in workdir
+        or not Path(workdir).is_absolute()
+    ):
+        return (
+            "",
+            None,
+            {},
+            None,
+            "Named verification `workdir` must be a non-empty absolute path when supplied.",
+        )
+    names = value.get("names")
+    if not isinstance(names, list):
+        return "", None, {}, None, "Named verification `names` must be a list."
+    workspace = _tool_working_directory(event, value)
+    if not workspace.is_dir():
+        return "", None, {}, None, "Click verification workdir is not an existing directory."
+    resolution, resolution_error = click_evidence_shards.resolve_named_verifications(
+        workspace, names, git_capture=git_capture
+    )
+    if resolution is None:
+        if resolution_error.startswith("unknown-verification-name:"):
+            name = resolution_error.split(":", 1)[1]
+            return "", None, {}, None, f"Unknown committed verification name `{name}`."
+        if resolution_error == "verification-names-invalid-or-duplicate":
+            return (
+                "",
+                None,
+                {},
+                None,
+                "Verification names must be unique committed lowercase ids.",
+            )
+        return (
+            "",
+            None,
+            {},
+            None,
+            "Click could not resolve committed verification names: "
+            f"{resolution_error or 'catalog-unavailable'}.",
+        )
+    candidate = {
+        "version": VERIFICATION_PROTOCOL_VERSION,
+        "workdir": str(workspace),
+        "checks": resolution["checks"],
+    }
+    return (
+        json.dumps(candidate, separators=(",", ":")),
+        resolution["binding"],
+        dict(resolution["labels"]),
+        resolution["entries"],
+        "",
+    )
+
+
 def _prepare_verification(
     event: dict[str, Any], raw: str, *, runner_script: Path,
     render_command: Callable[[list[str]], str],
@@ -2009,7 +2466,18 @@ def _prepare_verification_impl(
                         "",
                     )
 
-    provisional, _, error = _validate_verification_batch(raw, scale, None)
+    (
+        resolved_raw,
+        named_selection_binding,
+        named_labels,
+        preloaded_shard_entries,
+        error,
+    ) = _resolve_named_request(event, raw, git_capture=git_capture)
+    if error:
+        return "", error, ""
+    provisional, _, error = _validate_verification_batch(
+        resolved_raw, scale, None
+    )
     if error:
         return "", error, ""
     assert provisional is not None
@@ -2044,6 +2512,7 @@ def _prepare_verification_impl(
         scale=scale,
         workspace=workspace,
         git_capture=git_capture,
+        preloaded_entries=preloaded_shard_entries,
     )
     if error:
         return "", error, ""
@@ -2082,6 +2551,8 @@ def _prepare_verification_impl(
         verification["running_executable_digests"] = {}
         verification["running_host_coverage"] = {}
         verification["running_host_coverage_digest"] = ""
+        verification["running_reuse_workspace_binding"] = {}
+        verification["running_reuse_workspace_binding_digest"] = ""
         verification["runner_claimed_at"] = 0
 
     revision = int(verification.get("mutation_revision", 0))
@@ -2157,6 +2628,14 @@ def _prepare_verification_impl(
     previous_revisions: dict[str, int] = {}
     reason_codes: dict[str, str] = {}
     not_evaluable_keys: set[str] = set()
+    diagnostic_facts = (
+        {
+            source_key: click_reuse_diagnostics.begin(sources[source_key])
+            for source_key in requested_keys
+        }
+        if click_reuse_diagnostics.enabled(verification)
+        else None
+    )
     for source_key in requested_keys:
         source = sources[source_key]
         previous_revision = source.get("verified_revision", -1)
@@ -2251,6 +2730,16 @@ def _prepare_verification_impl(
             ):
                 reason_codes[source_key] = "workspace-ambiguous"
                 not_evaluable_keys.add(source_key)
+                if diagnostic_facts is not None:
+                    click_reuse_diagnostics.mark_considered(
+                        diagnostic_facts[source_key]
+                    )
+                    _diagnostic_record(
+                        diagnostic_facts[source_key],
+                        "workspace-binding",
+                        False,
+                        reason_code="workspace-ambiguous",
+                    )
             for source_key in current_requested:
                 source = sources[source_key]
                 source["status"] = "ready"
@@ -2261,6 +2750,18 @@ def _prepare_verification_impl(
             tree_digest = str(snapshot.get("digest", ""))
             for source_key, (previous, metadata) in successor_candidates.items():
                 source = sources[source_key]
+                _record_successor_binding_diagnostics(
+                    diagnostic_facts[source_key]
+                    if diagnostic_facts is not None
+                    else None,
+                    previous,
+                    source,
+                    group_digest=group_digests[source_key],
+                    git_root=git_root,
+                    environment_digest=current_environment_digests[source_key],
+                    executable_digest=current_executable_digests[source_key],
+                    host_coverage=host_coverage,
+                )
                 binding_reason = _successor_binding_reason(
                     previous,
                     source,
@@ -2314,14 +2815,56 @@ def _prepare_verification_impl(
                     if not_evaluable:
                         not_evaluable_keys.add(source_key)
             mutation_boundary = verification.get("mutation_boundary")
-            if (dependency_candidates or safe_change_candidates) and not (
+            reuse_candidates = dependency_candidates | safe_change_candidates
+            for source_key in current_requested:
+                _record_binding_diagnostics(
+                    diagnostic_facts[source_key]
+                    if diagnostic_facts is not None
+                    else None,
+                    sources[source_key],
+                    contract_digest=contract_digest,
+                    group_digest=group_digests[source_key],
+                    git_root=git_root,
+                    tree_digest=tree_digest,
+                    environment_digest=current_environment_digests[source_key],
+                    executable_digest=current_executable_digests[source_key],
+                    host_coverage=host_coverage,
+                )
+            for source_key in reuse_candidates:
+                _record_binding_diagnostics(
+                    diagnostic_facts[source_key]
+                    if diagnostic_facts is not None
+                    else None,
+                    sources[source_key],
+                    contract_digest=contract_digest,
+                    group_digest=group_digests[source_key],
+                    git_root=git_root,
+                    tree_digest=tree_digest,
+                    environment_digest=current_environment_digests[source_key],
+                    executable_digest=current_executable_digests[source_key],
+                    host_coverage=host_coverage,
+                    cross_revision=True,
+                )
+            mutation_boundary_current = bool(
                 isinstance(mutation_boundary, dict)
                 and mutation_boundary.get("status") == "recorded"
                 and mutation_boundary.get("lineage_valid") is True
                 and mutation_boundary.get("revision") == revision
                 and mutation_boundary.get("after_root") == git_root
                 and mutation_boundary.get("after_digest") == tree_digest
-            ):
+            )
+            for source_key in reuse_candidates:
+                _diagnostic_record(
+                    diagnostic_facts[source_key]
+                    if diagnostic_facts is not None
+                    else None,
+                    "mutation-boundary",
+                    mutation_boundary_current,
+                    reason_code="mutation-boundary-ambiguous"
+                    if not mutation_boundary_current
+                    else "",
+                )
+            if reuse_candidates and not mutation_boundary_current:
                 # A missing PostToolUse receipt or any later workspace drift is
                 # outside the observable approved mutation boundary. Rerun.
                 for source_key in dependency_candidates | safe_change_candidates:
@@ -2437,6 +2980,13 @@ def _prepare_verification_impl(
                 for source_key in dependency_candidates:
                     source = sources[source_key]
                     receipt = dependency_receipts.get(source_key)
+                    _record_dependency_diagnostics(
+                        diagnostic_facts[source_key]
+                        if diagnostic_facts is not None
+                        else None,
+                        source,
+                        receipt,
+                    )
                     environment_digest = current_environment_digests[source_key]
                     executable_digest = current_executable_digests[source_key]
                     if _dependency_receipt_matches(
@@ -2503,6 +3053,12 @@ def _prepare_verification_impl(
                         grouped_checks[source_key],
                         source.get("verified_safe_change_receipt"),
                         git_capture=git_capture,
+                    )
+                    _record_safe_change_diagnostics(
+                        diagnostic_facts[source_key]
+                        if diagnostic_facts is not None
+                        else None,
+                        decision,
                     )
                     changed_paths = decision.get("changed_paths", [])
                     evidence_id = str(
@@ -2620,10 +3176,19 @@ def _prepare_verification_impl(
             safe_change_reused_keys=safe_change_reused_keys,
             not_evaluable_keys=not_evaluable_keys,
             reason_codes=reason_codes,
+            diagnostic_facts=diagnostic_facts,
         )
         pending_keys = click_incremental.keys_to_execute(incremental_plan)
     except ValueError:
         return "", "Click could not build a valid incremental verification plan.", ""
+    if named_selection_binding is not None:
+        binding_error = click_evidence_shards.selection_binding_error(
+            workspace,
+            named_selection_binding,
+            git_capture=git_capture,
+        )
+        if binding_error:
+            return "", binding_error, ""
     repeated_keys = pending_keys - unresolved_keys
     if repeated_keys:
         return (
@@ -2635,12 +3200,14 @@ def _prepare_verification_impl(
     click_incremental.store_plan(verification, incremental_plan)
     if measurement is not None:
         measurement["plan"] = incremental_plan
-        measurement["labels"] = {
+        measurement_labels = dict(named_labels)
+        measurement_labels.update({
             key: str(source["shard"]["shard_id"])
             for key, source in sources.items()
             if isinstance(source, dict)
             and click_evidence_shards.source_metadata_is_valid(source.get("shard"))
-        }
+        })
+        measurement["labels"] = measurement_labels
         measurement["reuse_origins"] = {
             key: successor_origins[key]
             for key in reused_keys
@@ -2695,6 +3262,8 @@ def _prepare_verification_impl(
             if _evidence_key(str(check["evidence_id"])) in pending_keys
         ],
     }
+    if named_selection_binding is not None:
+        batch[NAMED_SELECTION_BINDING_FIELD] = named_selection_binding
     units = sum(group_units[source_key] for source_key in pending_keys)
     requested_keys = pending_keys
 
@@ -2738,6 +3307,38 @@ def _prepare_verification_impl(
     running_environment_binding_digest = (
         _verification_environment_binding_digest(
             running_environment_binding, runner_token
+        )
+    )
+    reuse_roots = {
+        str(sources[source_key].get("verified_root", ""))
+        for source_key in reused_keys
+    }
+    reuse_tree_digests = {
+        str(sources[source_key].get("verified_tree_digest", ""))
+        for source_key in reused_keys
+    }
+    if reused_keys and (
+        len(reuse_roots) != 1
+        or not next(iter(reuse_roots), "")
+        or len(reuse_tree_digests) != 1
+        or re.fullmatch(
+            r"[0-9a-f]{64}", next(iter(reuse_tree_digests), "")
+        )
+        is None
+    ):
+        return (
+            "",
+            "Click could not bind the planned reuse to one protected workspace.",
+            "",
+        )
+    reuse_workspace_binding = _verification_reuse_workspace_binding(
+        required=bool(reused_keys),
+        root=next(iter(reuse_roots), ""),
+        digest=next(iter(reuse_tree_digests), ""),
+    )
+    reuse_workspace_binding_digest = (
+        _verification_reuse_workspace_binding_digest(
+            reuse_workspace_binding, runner_token
         )
     )
     running_environment_digests: dict[str, str] = {}
@@ -2842,6 +3443,10 @@ def _prepare_verification_impl(
             "running_executable_digests": running_executable_digests,
             "running_host_coverage": host_coverage,
             "running_host_coverage_digest": running_host_coverage_digest,
+            "running_reuse_workspace_binding": reuse_workspace_binding,
+            "running_reuse_workspace_binding_digest": (
+                reuse_workspace_binding_digest
+            ),
             "started_at": int(time.time()),
         }
     )
@@ -3021,6 +3626,8 @@ def _record_verification_result(
     verification["running_executable_digests"] = {}
     verification["running_host_coverage"] = {}
     verification["running_host_coverage_digest"] = ""
+    verification["running_reuse_workspace_binding"] = {}
+    verification["running_reuse_workspace_binding_digest"] = ""
     if workspace_changed:
         previous_revision = revision
         revision += 1
@@ -3233,6 +3840,9 @@ def _claim_verification_run(
     runner_token: str,
     *,
     file_content_digest: Callable[[Path], str] = _file_content_digest,
+    git_workspace_snapshot: Callable[..., dict[str, Any] | None] = (
+        _git_workspace_snapshot
+    ),
     git_capture: Callable[[Path, list[str]], bytes | None] = _git_capture,
 ) -> tuple[dict[str, Any] | None, str]:
     """Atomically bind one runner invocation before any check can execute."""
@@ -3282,7 +3892,12 @@ def _claim_verification_run(
     sources = _evidence_sources(state)
     if sources is None or not sources:
         return None, "Click verification runner could not read its evidence ledger."
-    batch, _, error = _validate_verification_batch(raw, scale, sources)
+    batch, _, error = _validate_verification_batch(
+        raw,
+        scale,
+        sources,
+        allow_named_selection_binding=True,
+    )
     if error:
         return None, error
     assert batch is not None
@@ -3303,6 +3918,24 @@ def _claim_verification_run(
             None,
             "Click verification runner workdir did not match the prepared capability.",
         )
+    reuse_workspace_snapshot, reuse_workspace_error = (
+        _verification_reuse_workspace_snapshot(
+            verification.get("running_reuse_workspace_binding"),
+            verification.get("running_reuse_workspace_binding_digest"),
+            runner_token,
+            cwd=Path.cwd(),
+            git_workspace_snapshot=git_workspace_snapshot,
+        )
+    )
+    if reuse_workspace_error:
+        return None, reuse_workspace_error
+    named_selection_binding = batch.get(NAMED_SELECTION_BINDING_FIELD)
+    if named_selection_binding is not None:
+        binding_error = click_evidence_shards.selection_binding_error(
+            Path.cwd(), named_selection_binding, git_capture=git_capture
+        )
+        if binding_error:
+            return None, binding_error
     running_keys = {
         key
         for key in verification.get("running_evidence_keys", [])
@@ -3438,12 +4071,14 @@ def _claim_verification_run(
         verification.get("mutation_revision", 0)
     )
     batch["_click_observer_mode"] = click_observer_control.mode(verification)
+    batch["_click_preclaim_workspace_snapshot"] = reuse_workspace_snapshot
     return batch, ""
 
 
 def _release_unclaimed_verification_reservation(
     state_path: Path, batch_digest: str, runner_token: str, *,
     runner_duration_ms: float | None = None,
+    workspace_drift: bool = False,
 ) -> bool:
     """Release one authenticated reservation when admission failed pre-check."""
     if not _managed_contract_path(state_path):
@@ -3482,10 +4117,51 @@ def _release_unclaimed_verification_reservation(
         if not isinstance(source, dict) or source.get("status") != "running":
             return False
 
-    for source_key in running_keys:
-        source = sources[source_key]
-        source["status"] = "ready"
-        source["last_exit_code"] = None
+    if workspace_drift:
+        previous_revision = int(verification.get("mutation_revision", 0))
+        revision = previous_revision + 1
+        verification.update(
+            {
+                "mutation_revision": revision,
+                "verified_revision": -1,
+                "failed_revision": -1,
+                # No verification command started. Record an unobserved
+                # boundary rather than claiming that verification mutated it.
+                "workspace_changed": False,
+                "mutation_boundary": {
+                    **_fresh_mutation_boundary(),
+                    "revision": revision,
+                    "status": "invalid",
+                },
+            }
+        )
+        for source in sources.values():
+            if not isinstance(source, dict):
+                continue
+            was_current = _evidence_is_current(source, previous_revision)
+            source["status"] = "stale" if was_current else "ready"
+            source["unchanged_failure_retries"] = 0
+            source["last_exit_code"] = None
+        external = state.get("external_evidence")
+        browser_required = bool(
+            isinstance(external, dict)
+            and external.get("browser_required") is True
+        )
+        browser_source_key = (
+            str(external.get("browser_source_key", ""))
+            if isinstance(external, dict)
+            else ""
+        )
+        state["external_evidence"] = _fresh_external_evidence_state(
+            required=browser_required,
+            source_key=browser_source_key,
+        )
+        state["observations"] = _fresh_observation_state()
+    else:
+        for source_key in running_keys:
+            source = sources[source_key]
+            source["status"] = "ready"
+            source["last_exit_code"] = None
     click_incremental.reject_batch(
         verification, reason="runner-admission-rejected",
         runner_duration_ms=runner_duration_ms,
@@ -3502,6 +4178,8 @@ def _release_unclaimed_verification_reservation(
             "running_executable_digests": {},
             "running_host_coverage": {},
             "running_host_coverage_digest": "",
+            "running_reuse_workspace_binding": {},
+            "running_reuse_workspace_binding_digest": "",
             "started_at": 0,
             "last_exit_code": None,
         }
@@ -3611,12 +4289,17 @@ def _run_verification(
             batch_digest,
             runner_token,
             file_content_digest=file_content_digest,
+            git_workspace_snapshot=git_workspace_snapshot,
             git_capture=git_capture,
         )
         if error:
             _release_unclaimed_verification_reservation(
                 state_path, batch_digest, runner_token,
                 runner_duration_ms=(time.perf_counter_ns() - runner_started_ns) / 1_000_000,
+                workspace_drift=error in {
+                    PLANNED_REUSE_WORKSPACE_BINDING_ERROR,
+                    PLANNED_REUSE_WORKSPACE_CHANGED_ERROR,
+                },
             )
     if error:
         sys.stderr.write(f"{error}\n")
@@ -3640,6 +4323,9 @@ def _run_verification(
     shadow_contexts = batch.pop("_click_shadow_contexts", {})
     shadow_revision = batch.pop("_click_mutation_revision", -1)
     observer_mode = batch.pop("_click_observer_mode", "off")
+    preclaim_workspace_snapshot = batch.pop(
+        "_click_preclaim_workspace_snapshot", None
+    )
     shadow_enabled = observer_mode == "shadow"
     active_shadow_execute = shadow_execute or click_dependency_trace.run_command
     if environment_rebound:
@@ -3648,7 +4334,11 @@ def _run_verification(
             "rebound to the current canonical environment.",
             flush=True,
         )
-    before = git_workspace_snapshot(Path.cwd())
+    before = (
+        preclaim_workspace_snapshot
+        if isinstance(preclaim_workspace_snapshot, dict)
+        else git_workspace_snapshot(Path.cwd())
+    )
     shadow_workspace = Path.cwd()
     if isinstance(before, dict):
         before_root = before.get("root")

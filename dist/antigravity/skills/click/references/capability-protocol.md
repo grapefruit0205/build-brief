@@ -56,6 +56,19 @@ not advance the mutation revision or change evidence. Dashboard activation is
 independent: opening the viewer does not enable collection, and stopping the
 viewer does not disable it.
 
+Reuse Diagnostics is an independent, non-authoritative explanation control:
+
+```text
+click-gate diagnostics on
+click-gate diagnostics off
+click-gate diagnostics status
+```
+
+It is on by default and stores only stable condition and reason identifiers.
+It may expose checks as `not-evaluated`, but it never performs an extra
+workspace read or hash merely to fill a diagnostic and cannot alter which
+verification groups the runner receives.
+
 Open the current lifecycle's non-authoritative Evidence Map and ROI view only
 when requested:
 
@@ -84,6 +97,23 @@ Submit a nonempty set of argv checks with stable evidence ids. Guarded ids are d
 ```text
 click-gate verify '{"version":2,"workdir":"/absolute/path/to/repository","checks":[{"evidence_id":"E1","argv":["python3","-m","unittest","discover","-s","tests","-q"],"class":"broad"},{"evidence_id":"E2","argv":["git","diff","--check"],"class":"targeted"}]}'
 ```
+
+Schema v2 of committed `.click/evidence-shards.json` may define stable
+verification names. The same command accepts a mutually exclusive `names`
+request and resolves each id to its committed direct argv group before ordinary
+validation:
+
+```text
+click-gate verify '{"version":2,"workdir":"/absolute/path/to/repository","names":["auth-unit"]}'
+```
+
+The name is used as the evidence id. Evidence may register it dynamically;
+Guarded still requires it in the approved evidence list. Unknown, duplicate,
+uncommitted, edited, or racing definitions execute nothing. The runner rechecks
+the committed catalog before its one-use claim. Labels are display-only, while
+the id, class, and exact argv define the selected verification. No argv
+normalization equates interpreters, paths, option order, flags, filters, or
+targets. Raw `checks` retain the established behavior.
 
 Classes are `targeted`, `broad`, and `deep`. They remain compatibility metadata, not cost, sufficiency, or evidence strength. Several adjacent checks may share one id and all must pass. The first accepted group reserves its normalized digest for the active intent or contract; later attempts must match it. Guarded rejects unknown or wrong-kind ids. Evidence creates argv sources from valid ids but grants no runtime dependency authority. Protocol-v1 verification, empty requests, missing ids, and shell-string batches are rejected.
 

@@ -35,6 +35,7 @@ HOOK_FILES = (
     "click_evidence_shards.py",
     "click_receipt.py",
     "click_receipt_runtime.py",
+    "click_reuse_diagnostics.py",
     "click_host_coverage.py",
     "click_incremental.py",
     "click_host_router.py",

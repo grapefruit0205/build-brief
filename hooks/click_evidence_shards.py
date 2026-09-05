@@ -26,11 +26,14 @@ else:  # Executed directly from the bundled hooks directory.
 
 
 CONFIG_RELATIVE_PATH = ".click/evidence-shards.json"
-CONFIG_VERSION = 1
+CONFIG_VERSION = 2
+LEGACY_CONFIG_VERSION = 1
 PROVIDER_NAME = "repository-evidence-shards-v1"
+VERIFICATION_NAME_PROVIDER = "repository-verification-name-v1"
 STATE_VERSION = 1
 MAX_CONFIG_BYTES = 256 * 1024
 MAX_ENTRIES = 128
+MAX_VERIFICATIONS = 128
 MAX_SHARDS_PER_ENTRY = 64
 MAX_CHECKS_PER_GROUP = 64
 MAX_ARGV_ITEMS = 128
@@ -38,7 +41,9 @@ MAX_ARGUMENT_BYTES = 16 * 1024
 MAX_REPOSITORY_PATHS = 50_000
 MAX_PATH_BYTES = 4_096
 
-ENTRY_FIELDS = frozenset({"checks", "inventory", "shards"})
+LEGACY_ENTRY_FIELDS = frozenset({"checks", "inventory", "shards"})
+ENTRY_FIELDS = frozenset({"verification_id", "inventory", "shards"})
+VERIFICATION_FIELDS = frozenset({"id", "label", "class", "checks"})
 SHARD_FIELDS = frozenset({"id", "checks", "covers"})
 SOURCE_METADATA_FIELDS = frozenset(
     {
@@ -71,8 +76,14 @@ CHILD_FIELDS = frozenset(
     {"evidence_id", "source_key", "shard_id", "check_digest"}
 )
 SHARD_ID_PATTERN = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
+VERIFICATION_ID_PATTERN = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
 DIGEST_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 SYNTHETIC_EVIDENCE_ID_PATTERN = re.compile(r"^S[0-9a-f]{31}$")
+VERIFICATION_CLASSES = frozenset({"targeted", "broad", "deep"})
+SELECTION_BINDING_FIELDS = frozenset(
+    {"version", "provider", "head", "config_digest", "selections"}
+)
+SELECTION_FIELDS = frozenset({"id", "definition_digest"})
 
 GitCapture = Callable[[Path, list[str]], bytes | None]
 
@@ -88,6 +99,20 @@ def _canonical_config_bytes(value: bytes) -> bytes:
 
 def _is_digest(value: Any) -> bool:
     return bool(isinstance(value, str) and DIGEST_PATTERN.fullmatch(value))
+
+
+def _safe_label(value: Any) -> bool:
+    return bool(
+        isinstance(value, str)
+        and len(value) <= 64
+        and re.fullmatch(
+            r"[A-Za-z0-9가-힣][A-Za-z0-9가-힣 _.-]*", value
+        )
+        and ".." not in value
+        and not re.search(
+            r"(?i)(token|secret|password|bearer|api.?key)", value
+        )
+    )
 
 
 def _safe_relative_path(value: Any) -> bool:
@@ -310,17 +335,76 @@ def _parent_discovery_paths(
     }, ""
 
 
+def _normalize_verification(
+    raw: Any, *, seen_ids: set[str]
+) -> tuple[dict[str, Any] | None, str]:
+    if not isinstance(raw, dict) or set(raw) != VERIFICATION_FIELDS:
+        return None, "verification-fields-invalid"
+    verification_id = raw.get("id")
+    label = raw.get("label")
+    check_class = raw.get("class")
+    checks, error = _normalize_argv_group(raw.get("checks"))
+    if (
+        not isinstance(verification_id, str)
+        or VERIFICATION_ID_PATTERN.fullmatch(verification_id) is None
+        or SYNTHETIC_EVIDENCE_ID_PATTERN.fullmatch(verification_id) is not None
+        or verification_id in seen_ids
+    ):
+        return None, "verification-id-invalid-or-duplicate"
+    if not _safe_label(label):
+        return None, "verification-label-invalid"
+    if check_class not in VERIFICATION_CLASSES:
+        return None, "verification-class-invalid"
+    if error or checks is None:
+        return None, "verification-checks-invalid"
+    payload = {
+        "id": verification_id,
+        "class": check_class,
+        "checks": checks,
+    }
+    seen_ids.add(verification_id)
+    return {
+        **payload,
+        "label": label,
+        "check_digest": _manifest_group_digest(checks),
+        # Display labels deliberately do not alter executable identity.
+        "definition_digest": _digest(payload),
+    }, ""
+
+
 def _normalize_entry(
     raw: Any,
     repository_paths: list[str],
     *,
     working_prefix: str,
     parent_digests: set[str],
+    config_version: int = LEGACY_CONFIG_VERSION,
+    verifications: dict[str, dict[str, Any]] | None = None,
 ) -> tuple[dict[str, Any] | None, str]:
-    if not isinstance(raw, dict) or set(raw) != ENTRY_FIELDS:
+    expected_fields = (
+        LEGACY_ENTRY_FIELDS
+        if config_version == LEGACY_CONFIG_VERSION
+        else ENTRY_FIELDS
+    )
+    if not isinstance(raw, dict) or set(raw) != expected_fields:
         return None, "entry-fields-invalid"
-    parent_checks, error = _normalize_argv_group(raw.get("checks"))
-    parent_digest = _manifest_group_digest(raw.get("checks"))
+    verification_id = ""
+    if config_version == LEGACY_CONFIG_VERSION:
+        parent_checks, error = _normalize_argv_group(raw.get("checks"))
+    else:
+        verification_id = str(raw.get("verification_id", ""))
+        definition = (
+            verifications.get(verification_id)
+            if isinstance(verifications, dict)
+            else None
+        )
+        if not isinstance(definition, dict):
+            return None, "entry-verification-unknown"
+        if definition.get("class") not in {"broad", "deep"}:
+            return None, "entry-verification-not-broad"
+        parent_checks = [list(argv) for argv in definition["checks"]]
+        error = ""
+    parent_digest = _manifest_group_digest(parent_checks)
     if error or parent_checks is None or not parent_digest:
         return None, "parent-checks-invalid"
     if parent_digest in parent_digests:
@@ -404,7 +488,14 @@ def _normalize_entry(
     normalized_shards.sort(key=lambda shard: str(shard["id"]))
     inventory_digest = _digest({"paths": inventory_paths})
     entry_payload = {
-        "checks": parent_checks,
+        **(
+            {"checks": parent_checks}
+            if config_version == LEGACY_CONFIG_VERSION
+            else {
+                "verification_id": verification_id,
+                "parent_check_digest": parent_digest,
+            }
+        ),
         "inventory": list(inventory_patterns),
         "shards": [
             {
@@ -418,15 +509,16 @@ def _normalize_entry(
     entry_digest = _digest(entry_payload)
     return {
         "parent_check_digest": parent_digest,
+        "verification_id": verification_id,
         "entry_digest": entry_digest,
         "inventory_digest": inventory_digest,
         "shards": normalized_shards,
     }, ""
 
 
-def _load_entries(
+def _load_manifest(
     cwd: Path, git_capture: GitCapture
-) -> tuple[dict[str, dict[str, Any]] | None, str]:
+) -> tuple[dict[str, Any] | None, str]:
     root_output = git_capture(cwd, ["rev-parse", "--show-toplevel"])
     if root_output is None:
         return None, "git-root-unavailable"
@@ -470,17 +562,42 @@ def _load_entries(
         value = json.loads(canonical.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError):
         return None, "manifest-json-invalid"
-    if not isinstance(value, dict) or set(value) != {"version", "entries"}:
+    if not isinstance(value, dict):
         return None, "manifest-fields-invalid"
-    if value.get("version") != CONFIG_VERSION:
+    config_version = value.get("version")
+    if config_version == LEGACY_CONFIG_VERSION:
+        if set(value) != {"version", "entries"}:
+            return None, "manifest-fields-invalid"
+        raw_verifications: list[Any] = []
+    elif config_version == CONFIG_VERSION:
+        if set(value) != {"version", "verifications", "entries"}:
+            return None, "manifest-fields-invalid"
+        raw_verifications = value.get("verifications")
+        if (
+            not isinstance(raw_verifications, list)
+            or not raw_verifications
+            or len(raw_verifications) > MAX_VERIFICATIONS
+        ):
+            return None, "manifest-verifications-invalid"
+    else:
         return None, "manifest-version-unsupported"
     raw_entries = value.get("entries")
     if (
         not isinstance(raw_entries, list)
-        or not raw_entries
         or len(raw_entries) > MAX_ENTRIES
+        or (config_version == LEGACY_CONFIG_VERSION and not raw_entries)
     ):
         return None, "manifest-entries-invalid"
+
+    verifications: dict[str, dict[str, Any]] = {}
+    seen_verification_ids: set[str] = set()
+    for raw_verification in raw_verifications:
+        definition, error = _normalize_verification(
+            raw_verification, seen_ids=seen_verification_ids
+        )
+        if error or definition is None:
+            return None, error or "verification-invalid"
+        verifications[str(definition["id"])] = definition
 
     entries: dict[str, dict[str, Any]] = {}
     parent_digests: set[str] = set()
@@ -490,6 +607,8 @@ def _load_entries(
             repository_paths,
             working_prefix=working_prefix,
             parent_digests=parent_digests,
+            config_version=config_version,
+            verifications=verifications,
         )
         if error or entry is None:
             return None, error or "entry-invalid"
@@ -509,7 +628,151 @@ def _load_entries(
         or not _policy_file_matches(root, committed)
     ):
         return None, "manifest-or-inventory-raced"
-    return entries, ""
+    return {
+        "version": config_version,
+        "root": resolved_root,
+        "head": head,
+        "config_digest": hashlib.sha256(canonical).hexdigest(),
+        "verifications": verifications,
+        "entries": entries,
+    }, ""
+
+
+def _load_entries(
+    cwd: Path, git_capture: GitCapture
+) -> tuple[dict[str, dict[str, Any]] | None, str]:
+    manifest, error = _load_manifest(cwd, git_capture)
+    if manifest is None:
+        return None, error
+    return manifest["entries"], ""
+
+
+def selection_binding_is_valid(value: Any) -> bool:
+    if (
+        not isinstance(value, dict)
+        or set(value) != SELECTION_BINDING_FIELDS
+        or value.get("version") != 1
+        or value.get("provider") != VERIFICATION_NAME_PROVIDER
+        or not isinstance(value.get("head"), str)
+        or re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", value["head"])
+        is None
+        or not _is_digest(value.get("config_digest"))
+        or not isinstance(value.get("selections"), list)
+        or not value["selections"]
+        or len(value["selections"]) > MAX_VERIFICATIONS
+    ):
+        return False
+    ids: list[str] = []
+    for selection in value["selections"]:
+        if (
+            not isinstance(selection, dict)
+            or set(selection) != SELECTION_FIELDS
+            or not isinstance(selection.get("id"), str)
+            or VERIFICATION_ID_PATTERN.fullmatch(selection["id"]) is None
+            or not _is_digest(selection.get("definition_digest"))
+        ):
+            return False
+        ids.append(selection["id"])
+    return len(ids) == len(set(ids))
+
+
+def resolve_named_verifications(
+    cwd: Path, names: list[str], *, git_capture: GitCapture
+) -> tuple[dict[str, Any] | None, str]:
+    """Resolve committed names to direct argv without granting execution."""
+    if (
+        not isinstance(names, list)
+        or not names
+        or len(names) > MAX_VERIFICATIONS
+        or any(
+            not isinstance(name, str)
+            or VERIFICATION_ID_PATTERN.fullmatch(name) is None
+            for name in names
+        )
+        or len(names) != len(set(names))
+    ):
+        return None, "verification-names-invalid-or-duplicate"
+    manifest, error = _load_manifest(cwd, git_capture)
+    if manifest is None:
+        return None, error or "manifest-unavailable"
+    if manifest.get("version") != CONFIG_VERSION:
+        return None, "named-verification-catalog-unavailable"
+    definitions = manifest["verifications"]
+    missing = [name for name in names if name not in definitions]
+    if missing:
+        return None, f"unknown-verification-name:{missing[0]}"
+    checks: list[dict[str, Any]] = []
+    labels: dict[str, str] = {}
+    selections: list[dict[str, str]] = []
+    for name in names:
+        definition = definitions[name]
+        labels[_source_key(name)] = str(definition["label"])
+        selections.append(
+            {
+                "id": name,
+                "definition_digest": str(definition["definition_digest"]),
+            }
+        )
+        checks.extend(
+            {
+                "evidence_id": name,
+                "argv": list(argv),
+                "class": str(definition["class"]),
+            }
+            for argv in definition["checks"]
+        )
+    binding = {
+        "version": 1,
+        "provider": VERIFICATION_NAME_PROVIDER,
+        "head": str(manifest["head"]),
+        "config_digest": str(manifest["config_digest"]),
+        "selections": selections,
+    }
+    if not selection_binding_is_valid(binding):
+        return None, "named-verification-binding-invalid"
+    return {
+        "checks": checks,
+        "labels": labels,
+        "binding": binding,
+        "entries": manifest["entries"],
+    }, ""
+
+
+def selection_binding_error(
+    cwd: Path, binding: Any, *, git_capture: GitCapture
+) -> str:
+    """Recheck the committed catalog immediately before result use or execution."""
+    if not selection_binding_is_valid(binding):
+        return "Named verification binding is malformed; no check was run."
+    root_output = git_capture(cwd, ["rev-parse", "--show-toplevel"])
+    if root_output is None:
+        return "Named verification workspace is unavailable; no check was run."
+    root = Path(os.fsdecode(root_output.strip()))
+    try:
+        resolved_root = root.resolve(strict=True)
+        cwd.resolve(strict=True).relative_to(resolved_root)
+    except (OSError, RuntimeError, ValueError):
+        return "Named verification workspace changed; no check was run."
+    head_output = git_capture(root, ["rev-parse", "--verify", "HEAD"])
+    head = os.fsdecode(head_output.strip()) if head_output is not None else ""
+    committed = (
+        git_capture(root, ["show", f"{head}:{CONFIG_RELATIVE_PATH}"])
+        if head
+        else None
+    )
+    if (
+        head != binding["head"]
+        or committed is None
+        or len(committed) > MAX_CONFIG_BYTES
+        or hashlib.sha256(_canonical_config_bytes(committed)).hexdigest()
+        != binding["config_digest"]
+        or not _policy_file_matches(root, committed)
+    ):
+        return (
+            "Named verification definitions changed after preparation; "
+            "no check was run."
+        )
+    return ""
 
 
 def resolve_plan(
@@ -518,14 +781,18 @@ def resolve_plan(
     *,
     parent_source_key: str,
     git_capture: GitCapture,
+    preloaded_entries: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Resolve one exact parent group to children, or request parent fallback."""
     parent_digest = group_digest(parent_checks)
     if not _is_digest(parent_source_key) or not parent_digest:
         return {"status": "fallback", "reason": "parent-binding-invalid"}
-    entries, error = _load_entries(cwd, git_capture)
-    if entries is None:
-        return {"status": "fallback", "reason": error or "manifest-unavailable"}
+    if preloaded_entries is None:
+        entries, error = _load_entries(cwd, git_capture)
+        if entries is None:
+            return {"status": "fallback", "reason": error or "manifest-unavailable"}
+    else:
+        entries = preloaded_entries
     entry = entries.get(parent_digest)
     if entry is None:
         return {"status": "unsharded", "reason": "parent-not-declared"}

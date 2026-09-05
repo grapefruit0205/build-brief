@@ -10,7 +10,7 @@ import tempfile
 from unittest import mock
 
 from benchmarks.incremental_verification import Fixture, _fixture_runner_argv, comparison_delta, distribution, main
-from hooks import click_incremental
+from hooks import click_incremental, click_reuse_diagnostics
 
 
 ROOT = Path(__file__).parents[1]
@@ -83,6 +83,13 @@ class IncrementalVerificationBenchmarkTests(unittest.TestCase):
             self.assertAlmostEqual(sample["delta_ms"], sample["baseline"]["wall_ms"] - measured["wall_ms"])
         self.assertEqual(payload["observer_overhead_ms"], 0)
         self.assertEqual(payload["shadow_contradiction_count"], 0)
+        self.assertTrue(
+            click_reuse_diagnostics.aggregate_is_valid(
+                payload["reuse_diagnostics"]
+            )
+        )
+        self.assertEqual(payload["reuse_diagnostics"]["blocked_source_count"], 0)
+        self.assertEqual(payload["reuse_diagnostics"]["reused_source_count"], 8)
         self.assertNotIn("actual_saved", result.stdout)
         self.assertNotIn("runner_token", result.stdout)
         self.assertNotIn("raw_argv", result.stdout)

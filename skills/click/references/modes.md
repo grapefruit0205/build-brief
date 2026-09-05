@@ -22,6 +22,8 @@ Evidence mode does not stage or approve a Click contract. The host remains the e
 
 The model chooses evidence ids and concrete argv during execution. Same-revision reuse requires the exact check, protected tree, environment, executable, and host-coverage bindings. Cross-revision reuse requires a committed `.click/evidence-dependencies.json` mapping plus a complete baseline runtime dependency observation. An agent's runtime dependency guess is not authority in Evidence mode.
 
+Schema v2 of committed `.click/evidence-shards.json` may bind a stable lowercase verification name to exact argv. A `verify` request may select that name instead of resubmitting argv; it still uses dynamic Evidence registration and every ordinary exact runner and reuse check. The name grants no authority.
+
 An in-scope or narrowing follow-up continues the same session and appends its prompt digest to the receipt lineage. When current evidence completes the session, the next software request starts a fresh Evidence session. Questions and explanations remain lightweight.
 
 Each lifecycle starts with native Observer collection off. The explicit
@@ -29,6 +31,11 @@ Each lifecycle starts with native Observer collection off. The explicit
 while `observer off` disables it and `observer status` reports it. These
 controls neither change the current mutation revision nor grant evidence
 reuse. The dashboard remains an independent read-only viewer.
+
+Reuse Diagnostics is separate from Observer collection and defaults to `on`.
+Use `click-gate diagnostics on|off|status`. It records only content-free
+explanations of comparisons the authoritative runtime already made. Toggling
+it cannot change the canonical decision, runner batch, receipt, or approval.
 
 For a read-only code review, use `click-gate review`, remain read-only, and collect only relevant inspection evidence. A request that also asks for fixes follows Evidence mode and does not introduce Click approval.
 

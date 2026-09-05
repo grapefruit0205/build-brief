@@ -108,6 +108,34 @@ class ClickEvidenceShardsTests(unittest.TestCase):
             ],
         }
 
+    def named_manifest(self, *, label: str = "Full suite") -> dict[str, object]:
+        return {
+            "version": 2,
+            "verifications": [
+                {
+                    "id": "full-suite",
+                    "label": label,
+                    "class": "broad",
+                    "checks": [self.parent_argv],
+                },
+                {
+                    "id": "alpha-unit",
+                    "label": "Alpha unit",
+                    "class": "targeted",
+                    "checks": [
+                        ["python3", "-m", "unittest", "tests.test_alpha", "-q"]
+                    ],
+                },
+            ],
+            "entries": [
+                {
+                    "verification_id": "full-suite",
+                    "inventory": ["tests/test_*.py"],
+                    "shards": self.manifest()["entries"][0]["shards"],
+                }
+            ],
+        }
+
     def write_manifest(self, value: dict[str, object] | None = None) -> None:
         target = self.root / click_evidence_shards.CONFIG_RELATIVE_PATH
         target.parent.mkdir(exist_ok=True)
@@ -120,6 +148,20 @@ class ClickEvidenceShardsTests(unittest.TestCase):
         return [
             {"evidence_id": "E1", "argv": self.parent_argv, "class": "broad"}
         ]
+
+    def named_definition(
+        self,
+        *,
+        verification_id: str,
+        label: str,
+        argv: list[str],
+    ) -> dict[str, object]:
+        return {
+            "id": verification_id,
+            "label": label,
+            "class": "targeted",
+            "checks": [argv],
+        }
 
     def resolve(self) -> dict[str, object]:
         return click_evidence_shards.resolve_plan(
@@ -139,6 +181,213 @@ class ClickEvidenceShardsTests(unittest.TestCase):
         self.assertEqual([child["shard_id"] for child in children], ["alpha", "beta"])
         self.assertEqual(len({child["source_key"] for child in children}), 2)
         self.assertRegex(first["plan_digest"], r"^[0-9a-f]{64}$")
+
+    def test_v2_names_resolve_exact_argv_and_reuse_the_shard_definition(self) -> None:
+        self.write_manifest(self.named_manifest())
+        self.commit()
+
+        resolved, error = click_evidence_shards.resolve_named_verifications(
+            self.root,
+            ["alpha-unit", "full-suite"],
+            git_capture=self.git_capture,
+        )
+
+        self.assertEqual(error, "")
+        assert resolved is not None
+        self.assertEqual(
+            resolved["checks"][0],
+            {
+                "evidence_id": "alpha-unit",
+                "argv": [
+                    "python3",
+                    "-m",
+                    "unittest",
+                    "tests.test_alpha",
+                    "-q",
+                ],
+                "class": "targeted",
+            },
+        )
+        self.assertEqual(
+            [check["evidence_id"] for check in resolved["checks"]],
+            ["alpha-unit", "full-suite"],
+        )
+        self.assertTrue(
+            click_evidence_shards.selection_binding_is_valid(
+                resolved["binding"]
+            )
+        )
+        serialized_binding = json.dumps(resolved["binding"], sort_keys=True)
+        self.assertNotIn("python3", serialized_binding)
+        self.assertNotIn(str(self.root), serialized_binding)
+        plan = click_evidence_shards.resolve_plan(
+            self.root,
+            [resolved["checks"][1]],
+            parent_source_key=click_evidence.evidence_key("full-suite"),
+            git_capture=self.git_capture,
+            preloaded_entries=resolved["entries"],
+        )
+        self.assertEqual(plan["status"], "sharded")
+        self.assertEqual(self.resolve()["status"], "sharded")
+
+    def test_display_label_is_not_part_of_executable_definition_identity(self) -> None:
+        self.write_manifest(self.named_manifest(label="First label"))
+        self.commit()
+        first, first_error = click_evidence_shards.resolve_named_verifications(
+            self.root, ["full-suite"], git_capture=self.git_capture
+        )
+        self.assertEqual(first_error, "")
+        assert first is not None
+
+        self.write_manifest(self.named_manifest(label="Second label"))
+        self.commit()
+        second, second_error = click_evidence_shards.resolve_named_verifications(
+            self.root, ["full-suite"], git_capture=self.git_capture
+        )
+        self.assertEqual(second_error, "")
+        assert second is not None
+
+        self.assertEqual(first["checks"], second["checks"])
+        self.assertEqual(
+            first["binding"]["selections"][0]["definition_digest"],
+            second["binding"]["selections"][0]["definition_digest"],
+        )
+        self.assertNotEqual(
+            first["binding"]["config_digest"],
+            second["binding"]["config_digest"],
+        )
+
+    def test_named_resolution_rejects_unknown_duplicate_and_edited_catalog(self) -> None:
+        self.write_manifest(self.named_manifest())
+        self.commit()
+
+        unknown, unknown_error = click_evidence_shards.resolve_named_verifications(
+            self.root, ["missing"], git_capture=self.git_capture
+        )
+        duplicate, duplicate_error = (
+            click_evidence_shards.resolve_named_verifications(
+                self.root,
+                ["alpha-unit", "alpha-unit"],
+                git_capture=self.git_capture,
+            )
+        )
+        target = self.root / click_evidence_shards.CONFIG_RELATIVE_PATH
+        target.write_text(
+            target.read_text(encoding="utf-8") + "\n", encoding="utf-8"
+        )
+        edited, edited_error = click_evidence_shards.resolve_named_verifications(
+            self.root, ["alpha-unit"], git_capture=self.git_capture
+        )
+
+        self.assertIsNone(unknown)
+        self.assertEqual(unknown_error, "unknown-verification-name:missing")
+        self.assertIsNone(duplicate)
+        self.assertEqual(
+            duplicate_error, "verification-names-invalid-or-duplicate"
+        )
+        self.assertIsNone(edited)
+        self.assertEqual(edited_error, "manifest-working-copy-mismatch")
+
+    def test_duplicate_committed_names_are_ambiguous_and_rejected(self) -> None:
+        value = self.named_manifest()
+        value["verifications"].append(
+            copy.deepcopy(value["verifications"][0])
+        )
+        self.write_manifest(value)
+        self.commit()
+
+        resolved, error = click_evidence_shards.resolve_named_verifications(
+            self.root, ["full-suite"], git_capture=self.git_capture
+        )
+
+        self.assertIsNone(resolved)
+        self.assertEqual(error, "verification-id-invalid-or-duplicate")
+
+    def test_named_definitions_preserve_exact_argv_differences(self) -> None:
+        variants = [
+            self.named_definition(
+                verification_id="python-name",
+                label="Python name",
+                argv=["python", "-m", "unittest", "tests.test_alpha", "-q"],
+            ),
+            self.named_definition(
+                verification_id="python3-name",
+                label="Python3 name",
+                argv=["python3", "-m", "unittest", "tests.test_alpha", "-q"],
+            ),
+            self.named_definition(
+                verification_id="verbose-name",
+                label="Verbose name",
+                argv=["python3", "-m", "unittest", "-v", "tests.test_alpha"],
+            ),
+        ]
+        value = {
+            "version": 2,
+            "verifications": variants,
+            "entries": [],
+        }
+        self.write_manifest(value)
+        self.commit()
+
+        resolved, error = click_evidence_shards.resolve_named_verifications(
+            self.root,
+            ["python-name", "python3-name", "verbose-name"],
+            git_capture=self.git_capture,
+        )
+
+        self.assertEqual(error, "")
+        assert resolved is not None
+        self.assertEqual(
+            [check["argv"] for check in resolved["checks"]],
+            [definition["checks"][0] for definition in variants],
+        )
+        self.assertEqual(
+            len(
+                {
+                    selection["definition_digest"]
+                    for selection in resolved["binding"]["selections"]
+                }
+            ),
+            3,
+        )
+
+    def test_named_binding_detects_definition_change_before_execution(self) -> None:
+        self.write_manifest(self.named_manifest())
+        self.commit()
+        resolved, error = click_evidence_shards.resolve_named_verifications(
+            self.root, ["alpha-unit"], git_capture=self.git_capture
+        )
+        self.assertEqual(error, "")
+        assert resolved is not None
+        self.assertEqual(
+            click_evidence_shards.selection_binding_error(
+                self.root, resolved["binding"], git_capture=self.git_capture
+            ),
+            "",
+        )
+
+        target = self.root / click_evidence_shards.CONFIG_RELATIVE_PATH
+        target.write_text(
+            target.read_text(encoding="utf-8").replace(
+                "Alpha unit", "Changed label"
+            ),
+            encoding="utf-8",
+        )
+
+        self.assertIn(
+            "changed after preparation",
+            click_evidence_shards.selection_binding_error(
+                self.root, resolved["binding"], git_capture=self.git_capture
+            ),
+        )
+
+        self.commit()
+        self.assertIn(
+            "changed after preparation",
+            click_evidence_shards.selection_binding_error(
+                self.root, resolved["binding"], git_capture=self.git_capture
+            ),
+        )
 
     def test_edited_map_and_inventory_drift_fall_back_to_parent(self) -> None:
         target = self.root / click_evidence_shards.CONFIG_RELATIVE_PATH
