@@ -81,24 +81,27 @@ HTML = """<!doctype html>
   </header>
   <main id="main">
     <section class="hero" aria-labelledby="title">
-      <div><p class="eyebrow">INCREMENTAL VERIFICATION</p><h1 id="title">이번 변경에서<br>무엇만 다시 검사했나요?</h1><p id="taskline">현재 Click 상태를 불러오는 중…</p></div>
+      <div><p class="eyebrow">검증 효율 · INCREMENTAL VERIFICATION</p><h1 id="title">무엇을 실행했고,<br>얼마나 기다렸나요?</h1><p id="taskline">현재 Click 상태를 불러오는 중…</p><p id="batchHeadline">실제 검증 기록을 기다리고 있습니다.</p></div>
       <div class="notice"><strong id="observerTitle">Observer 확인 중</strong><span id="observerBody">Dashboard와 Observer는 서로 독립적으로 동작합니다.</span></div>
     </section>
     <section class="metrics" aria-label="실제 증분 검증 결과">
-      <article><span>현재 유효한 검사</span><strong id="currentChecks">—</strong><small>현재 revision에서 통과 상태</small></article>
-      <article><span>실제로 실행한 검사</span><strong id="executedChecks">—</strong><small>불확실한 검사는 실행에 포함</small></article>
-      <article><span>안전하게 재사용</span><strong id="reusedChecks">—</strong><small>Click 권한 규칙을 통과한 결과</small></article>
-      <article><span>최근 실행 기준 추정 회피</span><strong id="estimatedAvoided">—</strong><small>실측 절약 시간이 아닌 추정값</small></article>
+      <article><span>요청한 검증 묶음</span><strong id="currentChecks">—</strong><small>개별 테스트 케이스 수가 아닙니다</small></article>
+      <article><span>실제 실행</span><strong id="executedChecks">—</strong><small id="executionDetail">실제 시작한 검증 묶음</small></article>
+      <article><span>실제 재사용</span><strong id="reusedChecks">—</strong><small>권한 규칙을 통과해 적용된 결과</small></article>
+      <article><span>생략한 실행 비용 · 추정</span><strong id="estimatedAvoided">—</strong><small id="estimateCoverage">과거 실행시간 기반 · 실측 절약 아님</small></article>
     </section>
     <section class="metric-split" aria-label="실제 결과와 Shadow 텔레메트리">
-      <article class="panel compact"><p class="eyebrow">실제 증분 검증</p><h2>Authoritative reuse</h2><div class="statline"><span>Exact / Dependency / Safe change</span><strong id="reuseBreakdown">—</strong></div><div class="statline"><span>실제 실행 시간</span><strong id="executedDuration">—</strong></div></article>
-      <article class="panel compact shadow-card"><p class="eyebrow">SHADOW TELEMETRY · 권한 없음</p><h2>잠재 재사용 관찰</h2><div class="statline"><span>후보 / 확인 / 모순</span><strong id="shadowBreakdown">—</strong></div><div class="statline"><span>잠재 시간 / Observer overhead</span><strong id="shadowTiming">—</strong></div></article>
+      <article class="panel compact"><p class="eyebrow">실측 · 이번 검증</p><h2>대기시간과 실행 구간</h2><div class="statline"><span>전체 검증 대기시간</span><strong id="requestWall">—</strong></div><div class="statline"><span>측정 가능한 처리 구간</span><strong id="processingDuration">—</strong></div><p class="muted" id="timeScope">호스트 전달·대기·최종 반환은 계측 범위 밖입니다.</p><div class="statline"><span>검사 실행 구간 (Observer 포함)</span><strong id="executedDuration">—</strong></div><div class="statline"><span>동일 상태 / 관찰 입력 / 안전 변경 재사용</span><strong id="reuseBreakdown">—</strong></div></article>
+      <article class="panel compact shadow-card"><p class="eyebrow">SHADOW TELEMETRY · 권한 없음</p><h2>잠재 재사용 관찰</h2><div class="statline"><span>후보 / 확인 / 모순</span><strong id="shadowBreakdown">—</strong></div><div class="statline"><span>잠재 시간 / 관찰기 처리 비용</span><strong id="shadowTiming">—</strong></div><p class="muted" id="tracingSlowdown">추적으로 인한 검사 지연은 별도 측정하지 않았습니다.</p></article>
     </section>
+    <section class="panel timeline"><div class="panel-title"><div><p class="eyebrow">변경별 타임라인</p><h2>최근 검증 배치</h2></div><button id="latestBatch" type="button">최신 배치</button></div><label for="batchSelect">상세 결과 선택</label> <select id="batchSelect"></select><p id="batchState" class="muted"></p><p id="historyMeta" class="muted"></p></section>
     <section class="workspace">
       <article class="panel checks"><div class="panel-title"><div><p class="eyebrow">검사 목록</p><h2>실행 또는 재사용 결과</h2></div><span id="sourceCount" class="count">0</span></div><div id="sources" class="source-list"></div></article>
-      <article class="panel map-panel"><div class="panel-title"><div><p class="eyebrow">EVIDENCE MAP</p><h2>선택한 검사가 읽은 입력</h2></div><span id="mapMeta" class="muted"></span></div><div id="emptyMap" class="empty">검사를 선택하면 현재 입력과 이전 baseline의 관계를 보여줍니다.</div><svg id="map" role="img" aria-label="선택한 검사의 Evidence Map"></svg></article>
+      <article class="panel map-panel"><div class="panel-title"><div><p class="eyebrow">EVIDENCE MAP · SHADOW 관찰 · 권한 없음</p><h2>선택한 검사의 관찰된 입력</h2></div><span id="mapMeta" class="muted"></span></div><div id="emptyMap" class="empty">검사를 선택하면 현재 입력과 이전 baseline의 관계를 보여줍니다.</div><svg id="map" role="img" aria-label="선택한 검사의 Evidence Map"></svg></article>
     </section>
     <section class="panel explanation" aria-live="polite"><p class="eyebrow">판정 이유</p><h2 id="whyTitle">검사를 선택하세요</h2><p id="whyBody">왜 실행했거나 재사용했는지 사람말로 설명합니다.</p><div id="limits"></div></section>
+    <section class="panel comparison"><p class="eyebrow">명시적으로 실행한 비교 측정 · 일상 추정치와 별개</p><h2>전체 재실행 기준 vs 증분 실행</h2><p id="comparisonInfo">아직 비교 측정이 없습니다. 아래 명령을 로컬에서 실행한 뒤 JSON을 선택하세요.</p><pre>python3 benchmarks/incremental_verification.py --iterations 3 --warmups 1 --output /tmp/click-comparison.json</pre><label>비교 JSON 선택 <input id="comparisonFile" type="file" accept="application/json,.json"></label><div id="comparisonChart"></div></section>
+    <section class="panel exports"><h2>공유 리포트</h2><p class="muted">현재 선택한 배치와 가져온 비교 측정을 내보냅니다. 파일 경로·원시 명령·환경 값·토큰은 제외합니다. 검증은 실행하지 않습니다.</p><button type="button" id="exportJson">JSON 내보내기</button> <button type="button" id="exportHtml">독립형 HTML 내보내기</button><span id="exportStatus" role="status"></span></section>
   </main>
   <footer><span>로컬 전용 · 읽기 전용 · 파일 내용 미노출</span><span id="updated">아직 갱신되지 않음</span></footer>
   <script src="/app.js" defer></script>
@@ -111,14 +114,39 @@ CSS = """:root{color-scheme:dark;--bg:#0b0d12;--panel:#121722;--line:#253044;--t
 
 CSS += """.metric-split{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px}.compact{padding:18px 20px}.compact h2{margin-bottom:14px}.statline{display:flex;justify-content:space-between;gap:18px;padding-top:10px;margin-top:10px;border-top:1px solid var(--line);color:var(--muted);font-size:12px}.statline strong{color:var(--text);text-align:right}.shadow-card{border-color:#3d3459}.pill.reused{color:var(--green);background:#14291e}.pill.rerun{color:var(--red);background:#31191d}.pill.pending{color:var(--amber);background:#292319}.source .reason{margin-top:7px;color:#c3ccda}.node.changed rect{stroke:var(--red);fill:#2b171b}.node.baseline-only rect{stroke:var(--amber);fill:#292319}.node.newly-observed rect{stroke:var(--violet);fill:#211a32}@media(max-width:900px){.metric-split{grid-template-columns:1fr}}"""
 
+
+CSS += """.timeline,.comparison,.exports{margin:12px 0}#batchHeadline{font-size:20px;color:var(--text)}button,select,input{font:inherit}select{max-width:100%;background:#141c29;color:var(--text);padding:10px;border:1px solid var(--line);border-radius:9px}button:not(.source){background:#243650;color:var(--text);border:1px solid #456087;padding:10px 14px;border-radius:9px;cursor:pointer}button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--blue);outline-offset:3px}.comparison pre{overflow:auto;background:#0c111a;padding:14px;border-radius:10px;font-size:12px}.comparison-row{border-top:1px solid var(--line);padding:18px 0}.comparison-row h3{font-size:14px}.comparison-bar{min-width:190px;border-radius:5px;margin:8px 0;padding:8px;font-size:12px;background:#204d76;white-space:nowrap}.comparison-bar.incremental{background:#513575}.comparison-row p{font-size:12px;color:var(--muted)}.comparison-row p.slower{color:var(--red)}.exports h2{margin-bottom:10px}.exports span{font-size:12px;margin-left:12px}.timeline label{font-size:12px}#timeScope{line-height:1.6}#batchState{line-height:1.6}#executionDetail{line-height:1.5}.metrics small{line-height:1.5}"""
+
 JS = r"""(() => {
   'use strict';
   const $ = id => document.getElementById(id);
-  const fmt = ms => ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(ms < 10000 ? 1 : 0)}초`;
+  const fmt = ms => !Number.isFinite(ms) ? '측정 정보 없음' : ms < 1000 ? `${ms.toFixed(1)} ms` : `${(ms / 1000).toFixed(2)}초`;
+  const count = value => Number.isInteger(value) ? String(value) : '알 수 없음';
   const token = new URLSearchParams(location.hash.slice(1)).get('token') || '';
   history.replaceState(null, '', location.pathname);
   let selected = '';
   let snapshot = null;
+  let selectedBatch = '';
+  let activeBatch = null;
+  let activeSummary = null;
+  let comparison = null;
+  const statusText = {
+    planned: '실행 예정', 'reuse-pending': '재사용 예정 · 미적용', running: '실행 중',
+    passed: '통과', failed: '실패', interrupted: '중단 · 일부 결과 미확정',
+    'not-run': '미실행', reused: '재사용 적용', unknown: '측정 정보 없음',
+    rejected: '실행 전 거부', incomplete: '미확정', evidence: 'Evidence', approved: 'Guarded'
+  };
+  const outcomeText = {
+    'request-rejected': '요청이 거부되어 시작하지 않았습니다.',
+    'runner-admission-rejected': '실행 전 안전 조건을 통과하지 못해 시작하지 않았습니다.',
+    'preceding-check-stopped': '앞선 검사 실패나 중단 때문에 시작하지 않았습니다.',
+    'workspace-invalidated': '검증 중 코드가 변경되어 결과를 현재 상태에 사용할 수 없습니다.',
+    'reservation-expired': '실행이 시작되기 전에 요청이 만료되었습니다.',
+    'user-cancelled': '사용자가 취소했습니다. 실행 중이던 검사의 종료 여부는 미확정입니다.',
+    'command-error': '실행 경계에서 오류가 발생했습니다. 같은 검사를 다시 실행하지 않았습니다.',
+    'command-interrupted': '검사 실행이 중단되었습니다.',
+    'outcome-unconfirmed': '종료 결과를 확인하지 못했습니다.'
+  };
 
   const executionLabels = {
     'run': ['재실행', 'rerun'],
@@ -157,21 +185,26 @@ JS = r"""(() => {
   };
 
   function reasonFor(source) {
-    if (source.reason_code === 'observed-input-changed' && source.changed_inputs.length) {
-      return `${source.changed_inputs[0]} 변경 때문에 다시 실행했습니다.`;
-    }
-    return reasonText[source.reason_code] || '안전한 기본값으로 실제 검사를 실행했습니다.';
+    if (outcomeText[source.execution_reason_code]) return outcomeText[source.execution_reason_code];
+    if (source.execution_status === 'unknown') return '실제 실행 기록이 없는 이전 데이터입니다. 계획을 실행 실적으로 표시하지 않습니다.';
+    const planned = source.execution_status === 'planned' || source.execution_status === 'reuse-pending';
+    // Shadow paths are not an explanation of an authoritative dependency decision.
+    const text = reasonText[source.reason_code] || '판정 근거 정보가 없습니다.';
+    return planned ? `계획: ${text.replaceAll('실행했습니다', '실행할 예정입니다').replaceAll('재사용했습니다', '재사용할 예정입니다')}` : text;
   }
 
   function explain(source) {
     selected = source.id;
-    const [label] = executionLabels[source.execution_decision];
+    const label = statusText[source.execution_status] || '측정 정보 없음';
     $('whyTitle').textContent = `${source.label} · ${label}`;
     $('whyBody').textContent = reasonFor(source);
     const tags = [
       `현재 revision ${source.current_revision}`,
       source.previous_revision >= 0 ? `이전 성공 revision ${source.previous_revision}` : '이전 성공 없음',
-      `근거 ${source.authority_source}`,
+      `계획 ${executionLabels[source.execution_decision]?.[0] || '없음'} · 실제 ${label}`,
+      `실행 구간 ${fmt(source.duration_ms)}`,
+      source.duration_baseline ? `과거 표본 ${source.duration_baseline.sample_count}개 · revision ${source.duration_baseline.revision} · ${fmt(source.duration_baseline.duration_ms)}` : '과거 시간 표본 없음',
+      `판정 식별자 ${source.reason_code || '없음'}`,
       ...source.shadow_limitations.map(item => `Shadow: ${item}`)
     ];
     $('limits').replaceChildren(...tags.map(text => {
@@ -183,7 +216,7 @@ JS = r"""(() => {
     document.querySelectorAll('.source').forEach(element => {
       element.classList.toggle('active', element.dataset.id === selected);
     });
-    renderMap(snapshot, source);
+    renderMap(batchView(snapshot, activeBatch), source);
   }
 
   function renderSources(data) {
@@ -198,13 +231,16 @@ JS = r"""(() => {
       head.className = 'source-head';
       const name = document.createElement('strong');
       name.textContent = source.label;
-      const [label, className] = executionLabels[source.execution_decision];
+      const label = statusText[source.execution_status] || '측정 정보 없음';
+      const className = source.execution_status === 'reused' ? 'reused' : ['failed', 'interrupted'].includes(source.execution_status) ? 'rerun' : 'pending';
       const pill = document.createElement('span');
       pill.className = `pill ${className}`;
       pill.textContent = label;
       head.append(name, pill);
       const meta = document.createElement('p');
-      meta.textContent = `상태 ${source.status} · 입력 ${source.input_count}개 · Observer ${source.observer_status}`;
+      meta.textContent = source.execution_status === 'reused'
+        ? `실행 생략 · 과거 실행 표본 ${fmt(source.duration_baseline?.duration_ms)}`
+        : `계획: ${executionLabels[source.execution_decision]?.[0] || '없음'} · 실행 구간 ${fmt(source.duration_ms)}`;
       const reason = document.createElement('p');
       reason.className = 'reason';
       reason.textContent = reasonFor(source);
@@ -249,6 +285,8 @@ JS = r"""(() => {
     if (!sourceNode) {
       svg.style.display = 'none';
       empty.style.display = 'grid';
+      empty.textContent = '이 과거 배치의 입력 그래프는 보관하지 않습니다. 최신 배치에서 현재 Evidence Map을 볼 수 있습니다.';
+      $('mapMeta').textContent = '';
       return;
     }
     empty.style.display = 'none';
@@ -282,20 +320,222 @@ JS = r"""(() => {
       }
       svg.append(group);
     });
-    const hidden = selectedSource.input_count - selectedSource.visible_input_count;
-    $('mapMeta').textContent = hidden > 0 ? `입력 ${selectedSource.visible_input_count}개 표시 · ${hidden}개 생략` : `입력 ${selectedSource.input_count}개`;
+    const hidden = Math.max(0, selectedSource.input_count - inputNodes.length);
+    $('mapMeta').textContent = hidden > 0 ? `입력 ${inputNodes.length}개 표시 · ${hidden}개 생략` : `입력 ${inputNodes.length}개`;
   }
+
+  function summarize(batch) {
+    // Counts project witnessed statuses. No client-side reuse decision is made.
+    const items = batch.sources;
+    const reused = items.filter(item => item.status === 'reused');
+    const started = items.filter(item => item.started);
+    const baselines = reused.map(item => item.duration_baseline).filter(Boolean);
+    const sum = values => values.every(Number.isFinite) ? values.reduce((a,b) => a+b, 0) : null;
+    return {
+      total_source_count: batch.requested_source_count,
+      planned_execution_source_count: items.filter(item => ['run','not-evaluable'].includes(item.decision)).length,
+      executed_source_count: started.length, authoritative_reuse_count: reused.length,
+      passed_source_count: items.filter(item => item.status === 'passed').length,
+      failed_source_count: items.filter(item => item.status === 'failed').length,
+      interrupted_source_count: items.filter(item => item.status === 'interrupted').length,
+      not_run_source_count: items.filter(item => item.status === 'not-run').length,
+      pending_source_count: items.filter(item => ['planned','reuse-pending','running','unknown'].includes(item.status)).length,
+      exact_reuse_count: reused.filter(item => item.decision === 'reuse-exact').length,
+      dependency_reuse_count: reused.filter(item => item.decision === 'reuse-dependency').length,
+      safe_change_reuse_count: reused.filter(item => item.decision === 'reuse-safe-change').length,
+      executed_duration_ms: sum(started.map(item => item.duration_ms)),
+      request_wall_ms: batch.request_wall_ms,
+      measured_processing_ms: batch.measurement_scope === 'prepare-only' ? batch.prepare_duration_ms : sum([batch.prepare_duration_ms,batch.runner_duration_ms]),
+      estimated_avoided_ms: baselines.length || !reused.length ? sum(baselines.map(item => item.duration_ms)) : null,
+      estimated_source_count: baselines.length, baseline_sample_count: baselines.length
+    };
+  }
+
+  function batchView(data, batch) {
+    if (!batch) return data;
+    const current = batch.batch_id === data.history.current_batch_id;
+    return {...data, sources: batch.sources.map(item => {
+      const id = `source:${item.source_key.slice(0,16)}`;
+      const source = current ? data.sources.find(source => source.id === id) : null;
+      return {...(source || {input_count:0, changed_inputs:[], shadow_limitations:[], observer_status:'unavailable'}),
+        id, label:item.label, status:item.status, execution_status:item.status,
+        execution_decision:item.decision || 'not-planned', reason_code:item.reason_code,
+        execution_reason_code:item.execution_reason_code, current_revision:item.current_revision,
+        previous_revision:item.previous_revision, duration_ms:item.duration_ms, duration_baseline:item.duration_baseline,
+        authority_source:item.authority_source};
+    }), map: current ? data.map : {nodes:[],edges:[]}};
+  }
+
+  function renderBatch(data) {
+    const batches = data.batches || [];
+    if (!batches.some(batch => batch.batch_id === selectedBatch)) selectedBatch = '';
+    activeBatch = batches.find(batch => batch.batch_id === (selectedBatch || data.history?.current_batch_id)) || null;
+    const select = $('batchSelect');
+    select.replaceChildren();
+    [...batches].reverse().forEach(batch => {
+      const option = document.createElement('option');
+      option.value = batch.batch_id;
+      option.textContent = `${new Date(batch.timestamp*1000).toLocaleString()} · 변경 ${batch.current_revision} · ${statusText[batch.status]}`;
+      option.selected = batch.batch_id === activeBatch?.batch_id;
+      select.append(option);
+    });
+    select.disabled = !batches.length;
+    $('batchState').textContent = activeBatch ? `${statusText[activeBatch.status]} · ${outcomeText[activeBatch.reason_code] || ''}${['planned','running'].includes(activeBatch.status) ? ' 아직 종료가 확인되지 않았습니다. 연결이 끊겨도 정상 완료로 계산하지 않습니다.' : ''}` : '이전 데이터에 실제 실행 기록이 없으면 계획을 실적으로 계산하지 않습니다.';
+    $('historyMeta').textContent = `보관 배치 ${count(data.history?.retained_batch_count)}개 중 ${batches.length}개 표시 · 최대 1,000건 / 7일 / 4 MiB · 종료 미확정 기록은 완료 통계에서 제외`;
+    const totals=data.history?.totals;
+    if (totals) $('historyMeta').textContent += ` · 종료 기록 ${totals.finalized_batch_count}개: 실제 실행 ${totals.executed_source_count} / 적용 재사용 ${totals.authoritative_reuse_count} / 미실행 ${totals.not_run_source_count}`;
+    return batchView(data, activeBatch);
+  }
+
+  const scenarios = {'first-run':'첫 실행','unchanged':'변경 없음','docs':'문서 변경','code':'코드 변경','environment':'환경 변경','first-failure':'첫 검사 실패'};
+  const criteria = {'same-shards':'같은 샤드 전체 실행','parent-suite':'기존 전체 검증 명령'};
+  function readComparison(value) {
+    if (value?.version !== 2 || value.kind !== 'click-paired-verification-benchmark' || !Array.isArray(value.samples) || value.samples.length > 240) throw Error('지원하지 않는 비교 형식');
+    const c = value.conditions;
+    const integer = n => Number.isInteger(n) && n >= 0 && n <= 1000000;
+    const duration = n => Number.isFinite(n) && n >= 0;
+    if (!c || ![c.iterations,c.warmups,c.workload_rounds].every(integer) || !['evidence','guarded'].includes(c.runtime_mode) || c.scope_equivalence !== 'same-two-unittest-files' || c.authority !== 'real-hooks-and-one-use-runner' || c.observer !== 'off' || c.order !== 'alternating-pair-order') throw Error('비교 조건 정보가 없습니다');
+    if (c.iterations < 1 || c.iterations > 10 || c.warmups > 10 || c.workload_rounds < 1) throw Error('비교 반복 조건이 잘못되었습니다');
+    const seen = new Set();
+    const samples = value.samples.map(item => {
+      const key = `${item.scenario}:${item.comparison}:${item.iteration}`;
+      if (!Object.hasOwn(scenarios,item.scenario) || !Object.hasOwn(criteria,item.comparison) || !integer(item.iteration) || typeof item.warmup !== 'boolean' || seen.has(key)) throw Error('비교 표본이 잘못되었습니다');
+      if (item.iteration >= c.iterations+c.warmups || item.warmup !== (item.iteration < c.warmups) || !Array.isArray(item.order) || !['baseline,incremental','incremental,baseline'].includes(item.order.join(','))) throw Error('표본의 실행 순서나 워밍업 조건이 잘못되었습니다');
+      seen.add(key);
+      const arms = {};
+      for (const name of ['baseline','incremental']) {
+        const arm = item[name];
+        if (!arm || !duration(arm.wall_ms) || !['passed','failed','interrupted','rejected','incomplete'].includes(arm.status) || ![arm.executed_source_count,arm.reused_source_count,arm.not_run_source_count].every(integer)) throw Error('실측 결과 정보가 없습니다');
+        arms[name] = {wall_ms:arm.wall_ms, status:arm.status, executed_source_count:arm.executed_source_count, reused_source_count:arm.reused_source_count, not_run_source_count:arm.not_run_source_count};
+      }
+      const delta = arms.baseline.wall_ms - arms.incremental.wall_ms;
+      return {scenario:item.scenario,comparison:item.comparison,iteration:item.iteration,warmup:item.warmup,
+        order:item.order?.join(',') === 'baseline,incremental' ? ['baseline','incremental'] : ['incremental','baseline'],
+        eligible:!item.warmup && arms.baseline.status === 'passed' && arms.incremental.status === 'passed',
+        ...arms, delta_ms:delta, delta_percent:arms.baseline.wall_ms > 0 ? 100*delta/arms.baseline.wall_ms : null};
+    });
+    const engine = value.engine || {};
+    const environment=value.environment || {};
+    return {version:1, engine:{version:/^[0-9]+\.[0-9]+\.[0-9]+$/.test(engine.version) ? engine.version : null,commit:/^[0-9a-f]{40,64}$/.test(engine.commit) ? engine.commit : null,source_digest:/^[0-9a-f]{64}$/.test(engine.source_digest) ? engine.source_digest : null,working_tree_modified:engine.working_tree_modified === true},
+      environment:{system:['Linux','Darwin','Windows'].includes(environment.system)?environment.system:null,machine:['x86_64','AMD64','aarch64','arm64','i386','i686','x86'].includes(environment.machine)?environment.machine:null,python:/^[0-9]+\.[0-9]+\.[0-9]+$/.test(environment.python)?environment.python:null},
+      conditions:{iterations:c.iterations,warmups:c.warmups,workload_rounds:c.workload_rounds,runtime_mode:c.runtime_mode,
+        scope:['alpha','beta'],order:'alternating-pair-order',observer:'off',cache:'각 비교 경로에 별도 저장소와 동일 baseline 절차 · OS 캐시 초기화 안 함 · bytecode 비활성'},samples};
+  }
+
+  function comparisonRows() {
+    if (!comparison) return [];
+    const median = values => {const v=[...values].sort((a,b)=>a-b); return v.length ? (v[Math.floor((v.length-1)/2)]+v[Math.floor(v.length/2)])/2 : null;};
+    const keys = [...new Set(comparison.samples.map(item => `${item.scenario}:${item.comparison}`))];
+    return keys.map(key => {
+      const [scenario,criterion] = key.split(':');
+      const all = comparison.samples.filter(item => item.scenario === scenario && item.comparison === criterion);
+      const samples = all.filter(item => item.eligible);
+      const deltas = samples.map(item => item.delta_ms);
+      return {label:`${scenarios[scenario]} · ${criteria[criterion]}`, n:samples.length, excluded:all.length-samples.length,
+        baseline:median(samples.map(item=>item.baseline.wall_ms)), incremental:median(samples.map(item=>item.incremental.wall_ms)),
+        delta:median(deltas), percent:median(samples.map(item=>item.delta_percent).filter(Number.isFinite)),
+        min:deltas.length?Math.min(...deltas):null,max:deltas.length?Math.max(...deltas):null};
+    });
+  }
+
+  function renderComparison() {
+    const root = $('comparisonChart'); root.replaceChildren();
+    if (!comparison) return;
+    const c = comparison.conditions;
+    $('comparisonInfo').textContent = `가져온 로컬 실측 · 서명 없음 · ${c.runtime_mode} · 반복 ${c.iterations} / 워밍업 ${c.warmups} · 각 경로의 2개 테스트 파일 범위 일치 · ${c.cache}. 아래는 성공 표본의 중앙값이며 음수 차이는 증분 실행이 더 느렸다는 뜻입니다.`;
+    comparisonRows().forEach(row => {
+      const article = document.createElement('article'); article.className = 'comparison-row';
+      const title = document.createElement('h3'); title.textContent = `${row.label} · ${row.n}회 측정 / ${row.excluded}회 제외`; article.append(title);
+      if (row.n) {
+        const max = Math.max(row.baseline,row.incremental,1);
+        [['전체 재실행 기준',row.baseline,'baseline'],['Click 증분 실행',row.incremental,'incremental']].forEach(([label,value,kind]) => {
+          const bar = document.createElement('div'); bar.className = `comparison-bar ${kind}`;
+          bar.style.width = `${Math.max(2,100*value/max)}%`;
+          bar.textContent = `${label}: ${fmt(value)}`; article.append(bar);
+        });
+        const delta = document.createElement('p'); delta.className = row.delta < 0 ? 'slower' : '';
+        delta.textContent = `쌍별 차이 중앙값 ${row.delta.toFixed(1)} ms (${row.percent === null ? '비율 계산 불가' : row.percent.toFixed(1)+'%'}) · 범위 ${row.min.toFixed(1)} ~ ${row.max.toFixed(1)} ms`;
+        article.append(delta);
+      } else {const text=document.createElement('p');text.textContent='정상 완료 성능 표본 없음 · 실패·중단·워밍업 표본은 JSON에 별도 보관';article.append(text);}
+      root.append(article);
+    });
+  }
+
+  function shareReport() {
+    if (!snapshot) throw Error('표시할 실행 기록이 없습니다.');
+    return {version:1,kind:'click-verification-efficiency-report',generated_at:snapshot.generated_at,
+      unit:'verification-group',summary:activeSummary,
+      measurement_scope:activeBatch?.measurement_scope || 'unknown',
+      batch:activeBatch ? {batch_id:activeBatch.batch_id,current_revision:activeBatch.current_revision,timestamp:activeBatch.timestamp,
+        finished_at:activeBatch.finished_at,status:activeBatch.status,reason_code:activeBatch.reason_code,
+        sources:activeBatch.sources.map(item=>({label:item.label,source_key:item.source_key,check_digest:item.check_digest,
+          decision:item.decision,status:item.status,started:item.started,completed:item.completed,reason_code:item.reason_code,
+          execution_reason_code:item.execution_reason_code,authority_source:item.authority_source,
+          current_revision:item.current_revision,previous_revision:item.previous_revision,duration_ms:item.duration_ms,
+          duration_baseline:item.duration_baseline,estimated_avoided_ms:item.status === 'reused' ? item.duration_baseline?.duration_ms ?? null : 0}))} : null,
+      comparison,shadow:snapshot.summary.shadow,
+      notes:['전체 대기시간은 별도 측정값이 없으면 알 수 없음','준비와 runner 구간만 부분 계측 · 호스트 전달·대기·최종 저장·반환 제외',
+        '생략 비용은 실제 적용된 재사용의 이전 성공 실행 표본에 기반한 추정','Shadow는 실제 재사용·실측 절약 아님',
+        '입력 파일 경로와 원시 명령·환경·토큰은 공유본에 포함하지 않음','비교 fixture 결과를 일반 저장소 성능으로 일반화할 수 없음']};
+  }
+
+  function standaloneReport(report) {
+    // Build with textContent, never interpolate user-provided HTML or scripts.
+    const doc = document.implementation.createHTMLDocument('Click 검증 효율 리포트');
+    doc.documentElement.lang = 'ko';
+    const meta = doc.createElement('meta'); meta.setAttribute('charset','utf-8');doc.head.prepend(meta);
+    const viewport=doc.createElement('meta');viewport.name='viewport';viewport.content='width=device-width, initial-scale=1';doc.head.append(viewport);
+    const style=doc.createElement('style');style.textContent='body{font:16px/1.6 system-ui,sans-serif;max-width:1100px;margin:auto;padding:32px;color:#172333}table{border-collapse:collapse;width:100%;margin:16px 0}td,th{border-bottom:1px solid #ccd4df;text-align:left;padding:10px;overflow-wrap:anywhere}pre{white-space:pre-wrap;background:#f0f3f7;padding:16px}h2{margin-top:32px}';doc.head.append(style);
+    const add=(tag,text,parent=doc.body)=>{const node=doc.createElement(tag);node.textContent=text;parent.append(node);return node;};
+    const s=report.summary;
+    add('h1','Click · 검증 효율 리포트');
+    add('p',`${count(s.total_source_count)}개 검증 묶음 중 ${count(s.executed_source_count)}개 실제 실행 · ${count(s.authoritative_reuse_count)}개 재사용 · ${count(s.not_run_source_count)}개 미실행`);
+    add('p',`전체 대기시간: ${fmt(s.request_wall_ms)} / 부분 처리 구간: ${fmt(s.measured_processing_ms)} / 검사 실행 구간: ${fmt(s.executed_duration_ms)}`);
+    add('p',`생략한 실행 비용 추정: ${fmt(s.estimated_avoided_ms)} · 표본이 있는 ${count(s.estimated_source_count)} / 재사용 ${count(s.authoritative_reuse_count)}개 묶음`);
+    add('h2','검증 묶음별 실제 결과');const table=add('table','');
+    const heading=add('tr','',table);['이름','계획','실제 결과','시간 / 과거 표본','이유'].forEach(text=>add('th',text,heading));
+    report.batch?.sources.forEach(item=>{const tr=add('tr','',table);[item.label,executionLabels[item.decision]?.[0]||'없음',statusText[item.status],item.status==='reused'?fmt(item.duration_baseline?.duration_ms)+' (과거 표본)':fmt(item.duration_ms),outcomeText[item.execution_reason_code]||reasonText[item.reason_code]||'정보 없음'].forEach(text=>add('td',text,tr));});
+    add('h2','별도 실측 비교');
+    if (!report.comparison) add('p','비교 측정 없음. 일상 추정 비용을 실측한 전체 재실행 시간으로 환산하지 않습니다.');
+    else {
+      add('p',`반복 ${report.comparison.conditions.iterations} · 워밍업 ${report.comparison.conditions.warmups} · ${report.comparison.conditions.runtime_mode} · ${report.comparison.conditions.cache}`);
+      const comparisonTable=add('table','');comparisonRows().forEach(row=>{const tr=add('tr','',comparisonTable);[row.label,`${row.n}회 / 제외 ${row.excluded}회`,fmt(row.baseline),fmt(row.incremental),row.delta===null?'성공 표본 없음':`${row.delta.toFixed(1)} ms · ${row.percent===null?'비율 없음':row.percent.toFixed(1)+'%'} · 범위 ${row.min.toFixed(1)} ~ ${row.max.toFixed(1)} ms`].forEach(text=>add('td',text,tr));});
+    }
+    add('h2','범위와 주의사항');report.notes.forEach(text=>add('p',text));
+    add('h2','기계 판독용 데이터 (서명 없음)');add('pre',JSON.stringify(report,null,2));
+    return '<!doctype html>\n'+doc.documentElement.outerHTML;
+  }
+
+  function download(content,type,name) {
+    const url=URL.createObjectURL(new Blob([content],{type}));const link=document.createElement('a');link.href=url;link.download=name;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+  }
+  $('comparisonFile').onchange=async event=>{
+    try {const file=event.target.files[0];if(!file)return;if(file.size>4*1024*1024)throw Error('비교 파일은 4 MiB 이하만 읽습니다.');comparison=readComparison(JSON.parse(await file.text()));renderComparison();}
+    catch(error){comparison=null;$('comparisonChart').replaceChildren();$('comparisonInfo').textContent=`비교 파일을 읽지 못했습니다: ${error.message}`;}
+  };
+  $('exportJson').onclick=()=>{try{download(JSON.stringify(shareReport(),null,2),'application/json','click-efficiency.json');$('exportStatus').textContent=' JSON 내보내기 완료';}catch(error){$('exportStatus').textContent=error.message;}};
+  $('exportHtml').onclick=()=>{try{download(standaloneReport(shareReport()),'text/html','click-efficiency.html');$('exportStatus').textContent=' HTML 내보내기 완료';}catch(error){$('exportStatus').textContent=error.message;}};
+  $('batchSelect').onchange=event=>{selectedBatch=event.target.value;render(snapshot);};
+  $('latestBatch').onclick=()=>{selectedBatch='';render(snapshot);};
 
   function render(data) {
     snapshot = data;
     $('connection').textContent = '연결됨';
     document.querySelector('.live').classList.add('ok');
-    $('taskline').textContent = `${data.task.runtime_mode} 모드 · revision ${data.task.mutation_revision} · ${data.task.status}`;
-    const incremental = data.summary.incremental;
+    $('taskline').textContent = `${data.task.runtime_mode === 'guarded' ? 'Guarded' : 'Evidence'} 모드 · 변경 ${data.task.mutation_revision} · ${statusText[data.task.status] || '상태 확인 중'}`;
+    const view = renderBatch(data);
+    const incremental = activeBatch ? summarize(activeBatch) : data.summary.incremental;
+    activeSummary = incremental;
     const shadow = data.summary.shadow;
-    $('currentChecks').textContent = String(incremental.current_source_count);
-    $('executedChecks').textContent = String(incremental.executed_source_count);
-    $('reusedChecks').textContent = String(incremental.authoritative_reuse_count);
+    $('batchHeadline').textContent = `${count(incremental.total_source_count)}개 검증 묶음 중 ${count(incremental.executed_source_count)}개 실행 · ${count(incremental.authoritative_reuse_count)}개 재사용`;
+    $('currentChecks').textContent = count(incremental.total_source_count);
+    $('executedChecks').textContent = count(incremental.executed_source_count);
+    $('reusedChecks').textContent = count(incremental.authoritative_reuse_count);
+    $('executionDetail').textContent = `통과 ${count(incremental.passed_source_count)} · 실패 ${count(incremental.failed_source_count)} · 중단 ${count(incremental.interrupted_source_count)} · 미실행 ${count(incremental.not_run_source_count)} · 대기/미확정 ${count(incremental.pending_source_count)}`;
+    $('requestWall').textContent = fmt(incremental.request_wall_ms);
+    $('processingDuration').textContent = fmt(incremental.measured_processing_ms);
+    $('timeScope').textContent = activeBatch?.measurement_scope === 'prepare-only' ? '부분 계측: 준비·재사용 판정만 포함. 호스트 대기·전달·최종 저장·반환은 제외합니다.' : '부분 계측: 준비 + runner의 로컬 경과시간 합계. 서로 다른 프로세스의 시계 원점을 빼지 않습니다. 호스트 대기·전달·최종 저장·반환은 제외합니다.';
+    $('estimateCoverage').textContent = `이전 시간 표본이 있는 ${count(incremental.estimated_source_count)} / 재사용 ${count(incremental.authoritative_reuse_count)}개 묶음 · 실측 절약 아님`;
     $('estimatedAvoided').textContent = fmt(incremental.estimated_avoided_ms);
     $('reuseBreakdown').textContent = `${incremental.exact_reuse_count} / ${incremental.dependency_reuse_count} / ${incremental.safe_change_reuse_count}`;
     $('executedDuration').textContent = fmt(incremental.executed_duration_ms);
@@ -306,7 +546,9 @@ JS = r"""(() => {
       ? '예측 정확도를 측정하지만 검사 생략 권한은 만들지 않습니다.'
       : 'Dashboard는 계속 볼 수 있으며 기존 exact·policy reuse는 정상 동작합니다.';
     $('updated').textContent = `${new Date(data.generated_at * 1000).toLocaleTimeString()} 갱신`;
-    renderSources(data);
+    snapshot = view;
+    renderSources(view);
+    snapshot = data;
   }
 
   async function refresh() {

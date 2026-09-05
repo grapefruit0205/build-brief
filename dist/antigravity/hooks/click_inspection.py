@@ -338,6 +338,7 @@ def execute_argv_commands(
                 prepared[0] = executable
             result = click_process.run_argv(
                 prepared,
+                target=True,
                 stdout=subprocess.PIPE if redact else stdout_file,
                 stderr=subprocess.PIPE if redact else stderr_file,
                 env=(

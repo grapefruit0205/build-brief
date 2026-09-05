@@ -175,7 +175,7 @@ Shadow 预测本身绝不会授权跳过检查。Dashboard 分开显示真实执
 exact/dependency/policy 复用、根据最近运行估算的避免时间，以及 Shadow 潜在值。
 使用 `click-gate dashboard start`、`status`、`stop` 打开、查看或关闭。
 
-运行 `python3 benchmarks/incremental_verification.py` 可执行一个小型本地 fixture。输出会区分实测运行时间与依据最近一次成功完整运行得出的估算避免时间，不能直接当作产品性能宣传。
+运行 `python3 benchmarks/incremental_verification.py --iterations 3 --warmups 1 --output /tmp/click-comparison.json` 可通过真实 Hook 和 runner 进行本地配对比较，再在 Dashboard 中选择 JSON。界面按“验证组”区分计划、实际执行、复用和未执行，提供批次时间线与 JSON/独立 HTML 导出；局部实测、未测量的完整等待时间、历史成本估算和 Shadow 分开显示。短检查可能因管理成本而变慢。详见[计量范围与使用说明](VERIFICATION_EFFICIENCY.md)。
 
 ## 完成 receipt
 

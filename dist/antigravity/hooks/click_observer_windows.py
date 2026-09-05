@@ -648,6 +648,7 @@ def collect_command(
                     )
                     root_pid = int(target.pid)
                     target_started = True
+                    click_process.target_started()
                     exit_code = int(target.wait())
             except KeyboardInterrupt:
                 failed = True

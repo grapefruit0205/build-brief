@@ -697,6 +697,7 @@ def run_command(
             cwd=workspace,
             env=dict(environment),
         )
+        click_process.target_started()
         exit_code = int(child.wait())
     except KeyboardInterrupt:
         if child is not None:

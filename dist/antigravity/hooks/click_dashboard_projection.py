@@ -32,13 +32,14 @@ else:  # Executed beside the bundled hook modules.
     import click_shadow_intelligence
 
 
-PROJECTION_VERSION = 2
+PROJECTION_VERSION = 3
 PROJECTION_MODE = "incremental-verification"
 MAX_SOURCES = click_shadow_intelligence.MAX_STATE_SOURCES
 MAX_INPUTS = click_shadow_intelligence.MAX_PROJECTION_INPUTS
 MAX_CHANGED_INPUTS = 8
 MAX_BYTES = click_shadow_intelligence.MAX_PROJECTION_BYTES
 MAX_JSON_SAFE_INTEGER = click_shadow_intelligence.MAX_JSON_SAFE_INTEGER
+MAX_RECENT_BATCHES = 30
 
 _DIGEST = re.compile(r"^[0-9a-f]{64}$")
 _STATUS = re.compile(r"^[a-z0-9-]{1,32}$")
@@ -51,7 +52,7 @@ _INPUT_STATUSES = frozenset(
 )
 
 _FIELDS = frozenset(
-    {"version", "mode", "generated_at", "task", "summary", "sources", "map"}
+    {"version", "mode", "generated_at", "task", "summary", "sources", "map", "batches", "history"}
 )
 _TASK_FIELDS = frozenset(
     {
@@ -63,19 +64,8 @@ _TASK_FIELDS = frozenset(
     }
 )
 _SUMMARY_FIELDS = frozenset({"incremental", "shadow"})
-_INCREMENTAL_FIELDS = frozenset(
-    {
-        "total_source_count",
-        "current_source_count",
-        "executed_source_count",
-        "authoritative_reuse_count",
-        "exact_reuse_count",
-        "dependency_reuse_count",
-        "safe_change_reuse_count",
-        "executed_duration_ms",
-        "estimated_avoided_ms",
-    }
-)
+_INCREMENTAL_FIELDS = frozenset(click_incremental.SUMMARY_FIELDS) | {"current_source_count"}
+_TIME_FIELDS = frozenset({"executed_duration_ms", "estimated_avoided_ms", "request_wall_ms", "measured_processing_ms"})
 _SHADOW_FIELDS = frozenset(
     {
         "candidate_count",
@@ -108,6 +98,7 @@ _SOURCE_FIELDS = frozenset(
         "shadow_reason",
         "shadow_limitations",
         "shadow_outcome",
+        "execution_status", "execution_reason_code", "duration_ms", "duration_baseline",
     }
 )
 _MAP_FIELDS = frozenset(
@@ -237,12 +228,16 @@ def dashboard_projection(
     decisions = {
         item["source_key"]: item for item in plan["decisions"]
     } if plan is not None else {}
+    batch = click_incremental.current_batch(verification)
+    actual = {item["source_key"]: item for item in (batch or {}).get("sources", [])}
+    history = click_incremental.batch_history(verification, now=generated_at)
 
     source_keys = sorted(
         {key for key in evidence_sources if _is_digest(key)}
         | set(observer_records)
         | set(intelligence["sources"])
         | set(decisions)
+        | set(actual)
     )[:MAX_SOURCES]
     sources: list[dict[str, Any]] = []
     nodes: list[dict[str, Any]] = []
@@ -252,7 +247,7 @@ def dashboard_projection(
 
     for index, key in enumerate(source_keys, start=1):
         source_id = f"source:{key[:16]}"
-        label = f"검사 {index}"
+        label = actual[key]["label"] if key in actual else f"검증 묶음 {index}"
         status = _source_status(evidence_sources.get(key))
         nodes.append(
             {
@@ -272,14 +267,18 @@ def dashboard_projection(
             raw_revision = verification.get("mutation_revision", 0)
             current_revision = raw_revision if _is_count(raw_revision) else 0
             previous_revision = -1
-            estimated_avoided_ms = 0
+            estimated_avoided_ms = None
         else:
             execution_decision = decision["decision"]
             reason_code = decision["reason_code"]
             authority_source = decision["authority_source"]
             current_revision = int(decision["current_revision"])
             previous_revision = int(decision["previous_revision"])
-            estimated_avoided_ms = int(decision["estimated_avoided_ms"])
+            estimated_avoided_ms = None
+        result = actual.get(key, {})
+        duration_baseline = result.get("duration_baseline")
+        if result.get("status") == "reused" and click_incremental.baseline_is_valid(duration_baseline):
+            estimated_avoided_ms = duration_baseline["duration_ms"]
 
         observer = observer_records.get(key, {})
         valid_observer = click_dependency_cache.shadow_observer_record_is_valid(
@@ -356,6 +355,10 @@ def dashboard_projection(
                 "current_revision": current_revision,
                 "previous_revision": previous_revision,
                 "estimated_avoided_ms": estimated_avoided_ms,
+                "execution_status": result.get("status", "unknown"),
+                "execution_reason_code": result.get("execution_reason_code", "outcome-unconfirmed"),
+                "duration_ms": result.get("duration_ms"),
+                "duration_baseline": duration_baseline,
                 "observer_status": observer_status,
                 "input_count": len(input_keys),
                 "visible_input_count": source_visible,
@@ -423,6 +426,13 @@ def dashboard_projection(
             "shadow": _shadow_metrics(intelligence),
         },
         "sources": sources,
+        "batches": history[-MAX_RECENT_BATCHES:],
+        "history": {
+            "totals": click_incremental.history_totals(verification),
+            "retained_batch_count": len(history),
+            "visible_batch_count": min(len(history), MAX_RECENT_BATCHES),
+            "current_batch_id": batch["batch_id"] if batch is not None else None,
+        },
         "map": {
             "nodes": nodes,
             "edges": edges,
@@ -431,6 +441,9 @@ def dashboard_projection(
             "truncated_input_count": max(0, total_inputs - visible_inputs),
         },
     }
+    while projection["batches"] and len(_canonical_bytes(projection)) > MAX_BYTES:
+        projection["batches"].pop(0)
+    projection["history"]["visible_batch_count"] = len(projection["batches"])
     if len(_canonical_bytes(projection)) > MAX_BYTES:
         source_ids = {source["id"] for source in sources}
         projection["map"] = {
@@ -483,15 +496,12 @@ def projection_is_valid(value: Any) -> bool:
     if (
         not isinstance(incremental, dict)
         or set(incremental) != _INCREMENTAL_FIELDS
-        or any(not _is_count(incremental.get(field)) for field in _INCREMENTAL_FIELDS)
-        or incremental["total_source_count"]
-        != incremental["executed_source_count"]
-        + incremental["authoritative_reuse_count"]
-        or incremental["authoritative_reuse_count"]
-        != incremental["exact_reuse_count"]
-        + incremental["dependency_reuse_count"]
-        + incremental["safe_change_reuse_count"]
-        or incremental["current_source_count"] > incremental["total_source_count"]
+        or any(
+            incremental.get(field) is not None and not (
+                click_incremental.is_duration(incremental[field]) if field in _TIME_FIELDS
+                else _is_count(incremental[field])
+            ) for field in _INCREMENTAL_FIELDS
+        )
         or not isinstance(shadow, dict)
         or set(shadow) != _SHADOW_FIELDS
         or any(
@@ -502,6 +512,28 @@ def projection_is_valid(value: Any) -> bool:
         or shadow.get("tracing_slowdown_measured") is not False
         or shadow["confirmed_candidate_count"] > shadow["evaluated_source_count"]
         or shadow["contradiction_count"] > shadow["evaluated_source_count"]
+    ):
+        return False
+    reused_counts = [incremental[key] for key in ("authoritative_reuse_count", "exact_reuse_count", "dependency_reuse_count", "safe_change_reuse_count")]
+    if all(item is not None for item in reused_counts) and reused_counts[0] != sum(reused_counts[1:]):
+        return False
+    batches, history = value.get("batches"), value.get("history")
+    if (
+        not isinstance(batches, list) or len(batches) > MAX_RECENT_BATCHES
+        or any(not click_incremental.batch_is_valid(item) for item in batches)
+        or len({item["batch_id"] for item in batches}) != len(batches)
+        or not isinstance(history, dict)
+        or set(history) != {"retained_batch_count", "visible_batch_count", "current_batch_id", "totals"}
+        or not isinstance(history.get("totals"), dict)
+        or set(history["totals"]) != {"finalized_batch_count", "executed_source_count", "authoritative_reuse_count", "not_run_source_count"}
+        or any(not _is_count(item) for item in history["totals"].values())
+        or not _is_count(history.get("retained_batch_count"))
+        or history.get("visible_batch_count") != len(batches)
+        or history["retained_batch_count"] < len(batches)
+        or (history.get("current_batch_id") is not None and (
+            not isinstance(history["current_batch_id"], str)
+            or not re.fullmatch(r"[0-9a-f]{32}", history["current_batch_id"])
+        ))
     ):
         return False
 
@@ -515,7 +547,7 @@ def projection_is_valid(value: Any) -> bool:
             or source["id"] in source_ids
             or not isinstance(source.get("label"), str)
             or not source["label"]
-            or len(source["label"]) > 32
+            or source["label"] != click_incremental.safe_label(source["label"], "")
             or source.get("status") not in _SOURCE_STATUSES
             or source.get("execution_decision") not in _EXECUTION_DECISIONS
             or source.get("reason_code")
@@ -524,7 +556,11 @@ def projection_is_valid(value: Any) -> bool:
             not in click_incremental.AUTHORITY_SOURCES
             or not _is_count(source.get("current_revision"))
             or not _is_count(source.get("previous_revision"), minimum=-1)
-            or not _is_count(source.get("estimated_avoided_ms"))
+            or (source.get("estimated_avoided_ms") is not None and not click_incremental.is_duration(source["estimated_avoided_ms"]))
+            or source.get("execution_status") not in click_incremental.SOURCE_STATUSES
+            or source.get("execution_reason_code") not in click_incremental.EXECUTION_REASONS
+            or (source.get("duration_ms") is not None and not click_incremental.is_duration(source["duration_ms"]))
+            or (source.get("duration_baseline") is not None and not click_incremental.baseline_is_valid(source["duration_baseline"]))
             or source.get("observer_status")
             not in click_dependency_cache.SHADOW_OBSERVER_STATUSES
             or any(
